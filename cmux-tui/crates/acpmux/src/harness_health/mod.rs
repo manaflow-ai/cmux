@@ -22,6 +22,7 @@ pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
 mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
+pub mod minimum;
 pub mod probe;
 
 use channel::{Channel, UpdatePlan};
@@ -63,6 +64,13 @@ pub struct HarnessHealth {
     /// When `latest` was read (ms since the epoch).
     pub latest_checked_at: Option<u64>,
     pub outdated: bool,
+    /// The oldest version acpmux supports for it (`minimum.rs`), when it names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<String>,
+    /// `version` is older than `minimum`: its CLI is missing models the pickers offer,
+    /// and the pane asks the person to update it (cmux#42212).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unsupported: bool,
     pub auth: Auth,
     /// Why `auth` is what it is (the probe error, or the check that ran).
     pub auth_detail: Option<String>,
@@ -79,6 +87,27 @@ pub struct HarnessHealth {
     /// The last update auto-update ran for it, since the daemon started.
     #[serde(default)]
     pub last_auto_update: Option<auto::AutoUpdateResult>,
+}
+
+impl HarnessHealth {
+    /// Whether an update is due: its channel has a newer release, or it is older than
+    /// acpmux's minimum (whatever the channel answered, or when no lookup ran).
+    pub fn needs_update(&self) -> bool {
+        self.outdated || self.unsupported
+    }
+
+    /// Sets `unsupported`: `version` is older than `minimum`, and an update can reach it. When
+    /// the channel's newest release is known and is itself older (a stable or Homebrew channel
+    /// that lags), its updater cannot bring the minimum, so the pane offers no Update that fails.
+    pub fn mark_unsupported(&mut self) {
+        self.unsupported = match (self.version.as_deref(), self.minimum.as_deref()) {
+            (Some(v), Some(m)) => {
+                minimum::below(v, m)
+                    && !self.latest.as_deref().is_some_and(|l| minimum::below(l, m))
+            }
+            _ => false,
+        };
+    }
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -629,6 +658,7 @@ impl HealthService {
             }
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
+            row.mark_unsupported();
         }
         self.apply_acp_auth(&mut rows);
         self.mark_auto(&mut rows, &settings);
@@ -743,7 +773,8 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         }
         _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
-    HarnessHealth {
+    let minimum = minimum::minimum(&s.family, &s.program);
+    let mut row = HarnessHealth {
         id: s.id,
         // In the account home the check read (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), so Log In
         // signs that login in, not the default one.
@@ -760,6 +791,8 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest: None,
         latest_checked_at: None,
         outdated: false,
+        minimum: minimum.map(str::to_owned),
+        unsupported: false,
         auth,
         auth_detail,
         update,
@@ -767,7 +800,9 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
-    }
+    };
+    row.mark_unsupported();
+    row
 }
 
 #[cfg(test)]
@@ -858,6 +893,47 @@ mod tests {
         );
     }
 
+    /// Below the minimum is unsupported only while an update can reach it: a channel whose
+    /// newest release is itself older (stable, Homebrew) gets no Update that cannot work.
+    #[test]
+    fn unsupported_only_when_the_channel_can_reach_the_minimum() {
+        let row = |version: Option<&str>, latest: Option<&str>| {
+            let mut row = HarnessHealth {
+                id: "claude".into(),
+                program: "claude".into(),
+                path: Some("/usr/local/bin/claude".into()),
+                channel: Channel::Npm,
+                package: None,
+                version: version.map(str::to_owned),
+                latest: latest.map(str::to_owned),
+                latest_checked_at: None,
+                outdated: false,
+                minimum: Some("2.1.293".into()),
+                unsupported: false,
+                auth: Auth::SignedIn,
+                auth_detail: None,
+                login: None,
+                update: None,
+                problem: None,
+                checked_at: 1,
+                auto_update: false,
+                last_auto_update: None,
+            };
+            row.mark_unsupported();
+            (row.unsupported, row.needs_update())
+        };
+        // No newest-version lookup: an update is due.
+        assert_eq!(row(Some("2.1.278"), None), (true, true));
+        // The channel offers the minimum or newer.
+        assert_eq!(row(Some("2.1.278"), Some("2.1.300")), (true, true));
+        // The channel lags: nothing an update could bring.
+        assert_eq!(row(Some("2.1.278"), Some("2.1.290")), (false, false));
+        // Supported, or a prerelease of the minimum.
+        assert_eq!(row(Some("2.1.293"), None), (false, false));
+        assert_eq!(row(Some("2.1.293-beta.1"), None), (false, false));
+        assert_eq!(row(None, None), (false, false));
+    }
+
     #[tokio::test]
     async fn first_check_rebinds_a_cached_login_to_the_current_profile_home() {
         let service = HealthService::new();
@@ -871,6 +947,8 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            minimum: None,
+            unsupported: false,
             auth: Auth::SignedOut,
             auth_detail: None,
             login: Some("codex login".into()),
@@ -907,6 +985,8 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            minimum: None,
+            unsupported: false,
             auth: Auth::Unknown,
             auth_detail: None,
             login: Some("muse login".into()),

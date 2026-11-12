@@ -8,7 +8,7 @@ async fn claude_file_expiry_requires_unrefreshable_evidence_without_another_sour
     let home = root.path().join("home");
     let user = root.path().join("profiles");
     let claude = home.join(".local/bin/claude");
-    program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
+    program(&home.join(".local/share/claude/versions/2.1.305"), &claude, "2.1.305 (Claude Code)");
     let expired = json!({"claudeAiOauth": {"accessToken": "synthetic-access", "expiresAt": 1}});
     let mut cases = vec![
         ("expired", expired.clone(), true),

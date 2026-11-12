@@ -91,6 +91,7 @@ impl HealthService {
                 row.latest_checked_at = Some(checked_at);
                 row.outdated =
                     row.version.as_deref().is_some_and(|version| probe::is_newer(latest, version));
+                row.mark_unsupported();
             }
             rows.clone()
         });

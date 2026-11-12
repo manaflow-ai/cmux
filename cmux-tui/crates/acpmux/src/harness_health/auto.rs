@@ -73,7 +73,7 @@ pub fn updatable(row: &HarnessHealth) -> Option<Vec<String>> {
     }
     let program = plan.argv.first()?;
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    (row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
+    (row.needs_update() && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
 }
 
 /// The updater a row runs on its own, if any.
@@ -224,7 +224,7 @@ impl HealthService {
             let rows = self.rows();
             let asked: Vec<String> = match ids {
                 Some(ids) => ids.iter().cloned().collect(),
-                None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+                None => rows.iter().filter(|r| r.needs_update()).map(|r| r.id.clone()).collect(),
             };
             let refused = asked
                 .into_iter()
@@ -236,7 +236,7 @@ impl HealthService {
         let rows = &rows[..];
         let asked: Vec<String> = match ids {
             Some(ids) => ids.iter().cloned().collect(),
-            None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+            None => rows.iter().filter(|r| r.needs_update()).map(|r| r.id.clone()).collect(),
         };
         let mut done: BTreeMap<Vec<String>, (bool, String)> = BTreeMap::new();
         let mut out = Vec::new();
@@ -245,7 +245,7 @@ impl HealthService {
                 out.push((id, Requested::Refused("no such harness on this machine".into())));
                 continue;
             };
-            if !row.outdated {
+            if !row.needs_update() {
                 let unknown = || row.problem.clone().unwrap_or("its version is unknown".into());
                 let known_current = row.latest.as_deref().zip(row.version.as_deref()).is_some_and(
                     |(latest, installed)| {

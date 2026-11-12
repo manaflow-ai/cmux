@@ -231,6 +231,8 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
             latest: Some("1.0.0".into()),
             latest_checked_at: Some(1),
             outdated: false,
+            minimum: None,
+            unsupported: false,
             auth,
             auth_detail: Some(detail.into()),
             login: Some(agent.login.to_owned()),

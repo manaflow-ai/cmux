@@ -102,6 +102,12 @@ impl Hub {
         } else {
             rows
         };
+        let updated: Vec<&str> = ran
+            .iter()
+            .filter(|(_, r)| matches!(r, Requested::Ran { ok: true, .. }))
+            .map(|(id, _)| id.as_str())
+            .collect();
+        self.reprobe_after_update(&rows, &updated);
         let row = |id: &str| rows.iter().find(|r| r.id == id);
         let version = |id: &str| row(id).and_then(|r| r.version.clone());
         let results: Vec<Value> = ran
@@ -110,14 +116,18 @@ impl Hub {
                 let (ok, error) = match requested {
                     // An updater that exits 0 but leaves the old version on PATH (an npm
                     // prefix other than the one PATH finds) did not update it.
-                    Requested::Ran { ok: true, .. } if row(&id).is_some_and(|r| r.outdated) => (
-                        false,
-                        Some(format!(
-                            "the update ran, but {} still reports {}",
-                            row(&id).map_or(id.as_str(), |r| r.program.as_str()),
-                            version(&id).unwrap_or_default()
-                        )),
-                    ),
+                    Requested::Ran { ok: true, .. }
+                        if row(&id).is_some_and(|r| r.needs_update()) =>
+                    {
+                        (
+                            false,
+                            Some(format!(
+                                "the update ran, but {} still reports {}",
+                                row(&id).map_or(id.as_str(), |r| r.program.as_str()),
+                                version(&id).unwrap_or_default()
+                            )),
+                        )
+                    }
                     Requested::Ran { ok: true, .. } | Requested::Current => (true, None),
                     Requested::Ran { ok: false, detail } if detail.is_empty() => {
                         (false, Some("the update failed".to_owned()))
@@ -138,11 +148,60 @@ impl Hub {
         Ok(json!({"results": results}))
     }
 
+    /// After `updated` ran their updaters, every harness that runs one of those programs lists
+    /// its models again, in the background (cmux#42212). The live lists are keyed by the
+    /// program's path, size and mtime, but nothing probed them until they aged out, so a
+    /// picker kept the old CLI's list (and its missing models) after a successful update.
+    fn reprobe_after_update(
+        &self,
+        rows: &[crate::harness_health::HarnessHealth],
+        updated: &[&str],
+    ) {
+        let paths: Vec<&str> = rows
+            .iter()
+            .filter(|r| updated.contains(&r.id.as_str()))
+            .filter_map(|r| r.path.as_deref())
+            .collect();
+        let names: std::collections::BTreeSet<String> = rows
+            .iter()
+            .filter(|r| {
+                updated.contains(&r.id.as_str())
+                    || r.path.as_deref().is_some_and(|p| paths.contains(&p))
+            })
+            .map(|r| r.id.clone())
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        let (Some(hub), Ok(runtime)) = (
+            self.hub_ref.get().and_then(std::sync::Weak::upgrade),
+            tokio::runtime::Handle::try_current(),
+        ) else {
+            return;
+        };
+        tracing::info!(agents = ?names, "agent CLIs updated; listing their models again");
+        runtime.spawn(async move {
+            let live = hub.probe_live_models(false, Some(names.clone()));
+            let acp = hub.probe_models_with(true, false, Some(names));
+            futures::future::join(live, acp).await;
+        });
+    }
+
     /// Runs auto-update for the harnesses that want it, and checks again after any ran.
     pub async fn auto_update_harnesses(&self) -> Vec<String> {
         let ran = self.health.run_auto_updates().await;
         if !ran.is_empty() {
-            self.health.check(self.health_subjects().await, false).await;
+            let rows = self.health.check(self.health_subjects().await, false).await;
+            // Only the runs that succeeded: a failed one changed nothing to list again.
+            let updated: Vec<&str> = ran
+                .iter()
+                .filter(|id| {
+                    rows.iter()
+                        .any(|r| &r.id == *id && r.last_auto_update.as_ref().is_some_and(|u| u.ok))
+                })
+                .map(String::as_str)
+                .collect();
+            self.reprobe_after_update(&rows, &updated);
         }
         ran
     }

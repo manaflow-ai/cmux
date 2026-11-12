@@ -302,7 +302,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     profile(&user, "pi", &format!("command = \"{}\"\n", pi.display()));
     // Claude's native installer, signed in by its profile's check.
     let claude = home.join(".local/bin/claude");
-    program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
+    program(&home.join(".local/share/claude/versions/2.1.305"), &claude, "2.1.305 (Claude Code)");
     profile(
         &user,
         "claude",
@@ -326,7 +326,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
         ("/npm/@zed-industries%2Fcodex-acp/latest", json!({"version": "0.4.0"})),
         ("/npm/opencode-ai/latest", json!({"version": "0.15.0"})),
         ("/npm/pi-acp/latest", json!({"version": "1.0.0"})),
-        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.1.309"})),
         ("/brew/formula/gemini-cli.json", json!({"versions": {"stable": "0.10.1"}})),
     ]);
 
@@ -436,7 +436,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     let r = row(&reply, "claude");
     assert_eq!(
         (r["channel"].as_str(), r["version"].as_str(), r["latest"].as_str()),
-        (Some("native"), Some("2.0.5"), Some("2.0.9")),
+        (Some("native"), Some("2.1.305"), Some("2.1.309")),
         "{r}"
     );
     assert_eq!(r["update"]["argv"], json!([claude.to_string_lossy(), "update"]), "{r}");
@@ -533,7 +533,7 @@ async fn health_reads_node_formulas_wrappers_and_signin_evidence() {
     program(
         &home.join(".claude/local/node_modules/@anthropic-ai/claude-code/cli.js"),
         &claude,
-        "2.0.5 (Claude Code)",
+        "2.1.305 (Claude Code)",
     );
     profile(
         &user,
@@ -637,7 +637,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let home = root.join("home");
     let user = root.join("config").join("harnesses");
 
-    // Claude's native installer: `claude update` installs 2.0.9, or fails while `fail` exists.
+    // Claude's native installer: `claude update` installs 2.1.309, or fails while `fail` exists.
     // Each run is logged to `runs`.
     let claude_file = home.join(".local/share/claude/versions/current");
     let claude = home.join(".local/bin/claude");
@@ -647,7 +647,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     std::fs::write(
         &claude_file,
         format!(
-            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; if [ -e '{2}' ]; then echo 'network is down'; exit 1; fi; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; if [ -e '{2}' ]; then echo 'network is down'; exit 1; fi; printf '#!/bin/sh\\necho \"2.1.309 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.1.305 (Claude Code)'\n",
             claude_file.display(),
             runs.display(),
             fail.display()
@@ -683,7 +683,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     profile(&user, "codex", &format!("command = \"{}\"\n", codex.display()));
 
     let (port, _asked) = latest_server(vec![
-        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.1.309"})),
         ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
         ("/npm/@zed-industries%2Fcodex-acp/latest", json!({"version": "0.4.0"})),
     ]);
@@ -733,7 +733,7 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     app.call(method::MUX_HARNESS_HEALTH, json!({"autoUpdate": {"id": "claude", "on": true}}))
         .await
         .expect("auto-update on again");
-    let r = wait_row(&mut app, "claude", |r| r["version"] == "2.0.9").await;
+    let r = wait_row(&mut app, "claude", |r| r["version"] == "2.1.309").await;
     assert_eq!(r["outdated"], false, "{r}");
     assert_eq!(r["lastAutoUpdate"]["ok"], true, "{r}");
     assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2, "one run per try");
@@ -775,7 +775,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
     let home = root.join("home");
     let user = root.join("config").join("harnesses");
 
-    // Claude's native installer: `claude update` installs 2.0.9; each run is logged to `runs`.
+    // Claude's native installer: `claude update` installs 2.1.309; each run is logged to `runs`.
     let claude_file = home.join(".local/share/claude/versions/current");
     let claude = home.join(".local/bin/claude");
     let runs = root.join("claude-update-runs");
@@ -783,7 +783,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
     std::fs::write(
         &claude_file,
         format!(
-            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; printf '#!/bin/sh\\necho \"2.1.309 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.1.305 (Claude Code)'\n",
             claude_file.display(),
             runs.display(),
         ),
@@ -809,7 +809,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
     profile(&user, "opencode", &format!("command = \"{}\"\n", opencode.display()));
 
     let (port, _asked) = latest_server(vec![
-        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.1.309"})),
         ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
     ]);
     let hub = hub_for(&root, &user, &home);
@@ -862,7 +862,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
             .unwrap_or_else(|| panic!("no {id} result in {reply}"))
     };
     let r = result("claude");
-    assert_eq!((r["ok"].as_bool(), r["version"].as_str()), (Some(true), Some("2.0.9")), "{r}");
+    assert_eq!((r["ok"].as_bool(), r["version"].as_str()), (Some(true), Some("2.1.309")), "{r}");
     assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "one run");
     if !rooted {
         let r = result("opencode");
@@ -893,7 +893,7 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
         .call(method::MUX_HARNESS_UPDATE, json!({"ids": ["claude"]}))
         .await
         .expect("update again");
-    assert_eq!(again["results"], json!([{"id": "claude", "ok": true, "version": "2.0.9"}]));
+    assert_eq!(again["results"], json!([{"id": "claude", "ok": true, "version": "2.1.309"}]));
     assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "ran again");
     // Never a command from the caller.
     local
@@ -997,7 +997,7 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
         ),
     );
     let claude = home.join(".local/bin/claude");
-    program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
+    program(&home.join(".local/share/claude/versions/2.1.305"), &claude, "2.1.305 (Claude Code)");
     let signed = root.join("claude-signed");
     std::fs::create_dir_all(&signed).unwrap();
     std::fs::write(signed.join(".credentials.json"), "{}").unwrap();

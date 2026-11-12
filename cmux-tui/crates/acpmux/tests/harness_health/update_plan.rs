@@ -47,7 +47,7 @@ impl Fixture {
 
     fn native(&self) -> Value {
         json!({"id":"work-profile", "program":self.cli, "path":self.cli, "channel":"native",
-            "package":"@anthropic-ai/claude-code", "version":"2.0.5", "latest":"2.0.9",
+            "package":"@anthropic-ai/claude-code", "version":"2.1.305", "latest":"2.1.309",
             "latestCheckedAt":1, "outdated":true, "auth":"unknown", "checkedAt":1,
             "authDetail":"private@example.test secret-token", "autoUpdate":true,
             "update":{"argv":[self.cli,"update"], "command":"private display command", "elevated":false}})
@@ -110,7 +110,7 @@ async fn cmux_next_harness_update_plan_is_cached_fixed_argv_without_side_effects
         client.call(method::MUX_HARNESS_HEALTH, json!({"view":"inventory"})).await.unwrap();
     assert_eq!(
         row(&cached, "work-profile")["version"],
-        "2.0.5",
+        "2.1.305",
         "the stand-in reports9.9.9 if probed"
     );
     assert_eq!(std::fs::read(f.root.join("health.json")).unwrap(), before);
@@ -203,10 +203,10 @@ async fn cmux_next_harness_update_plan_refuses_elevation_and_unbound_or_foreign_
 async fn cmux_next_harness_update_plan_does_not_treat_unknown_versions_as_current_or_updateable() {
     let f = Fixture::new("update-plan-unknown");
     for (installed, latest, outdated) in [
-        (Value::Null, json!("2.0.9"), true),
-        (json!("2.0.5"), Value::Null, true),
-        (json!("2.0.5"), json!("not-a-version"), true),
-        (json!("2.0.9"), json!("2.0.9"), false),
+        (Value::Null, json!("2.1.309"), true),
+        (json!("2.1.305"), Value::Null, true),
+        (json!("2.1.305"), json!("not-a-version"), true),
+        (json!("2.1.309"), json!("2.1.309"), false),
     ] {
         let mut row = f.native();
         row["version"] = installed;
@@ -307,7 +307,7 @@ async fn cmux_next_harness_update_plan_legacy_inventory_stays_cached_without_com
     let mut client = Client::open(&f.hub, Origin::Local);
     let result =
         client.call(method::MUX_HARNESS_HEALTH, json!({"view":"inventory"})).await.unwrap();
-    assert_eq!(row(&result, "work-profile")["version"], "2.0.5");
+    assert_eq!(row(&result, "work-profile")["version"], "2.1.305");
     assert!(row(&result, "work-profile").get("update").is_none());
     f.assert_idle();
 }
