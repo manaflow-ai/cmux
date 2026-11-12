@@ -108,10 +108,12 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
   git status --short >&2
   exit 65
 fi
-# shellcheck source=scripts/cmux-next/lib/origin-net.sh
-source "$(git rev-parse --show-toplevel)/scripts/cmux-next/lib/origin-net.sh"
-# Origin not answering stops here naming the network (remote_refs), not as an unpushed branch.
-remote_lines="$(remote_refs . origin "refs/heads/$BRANCH")" || exit 69
+# Origin not answering stops here naming the network, not as an unpushed branch (an empty answer
+# is a branch origin lacks; scripts/cmux-next/lib/origin-net.sh has the retried form).
+if ! remote_lines="$(git ls-remote origin "refs/heads/$BRANCH")"; then
+  echo "error: origin did not answer git ls-remote; this is the network, not an unpushed branch" >&2
+  exit 69
+fi
 remote_sha="${remote_lines%%[[:space:]]*}"
 if [[ "$remote_sha" != "$SOURCE_SHA" ]]; then
   cat >&2 <<EOF
