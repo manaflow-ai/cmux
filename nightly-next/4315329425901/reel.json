@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4315329425901",
+  "notes": "notes/4315329425901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41701,
+      "title": "perf(budgets): the stable perf gate can pass, and no verdict blocks stable",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41688,
+      "title": "acpmux: a fork onto another harness tells its agent it was forked from the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41509,
+      "title": "Agent chat: Jump up glides to where you left off, instead of cutting there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40617,
+      "title": "cmux NEXT iOS: an unfolded foldable (iPhone Duo) turns with the phone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40977,
+      "title": "New Tab: a chat with No folder never starts in the inherited ~ (#40938)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41061,
+      "title": "Agent chat: a TIFF-only picture pastes about twice as fast, and a pasted image never shows its id (#41016)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41583,
+      "title": "Popovers, tooltips and hover cards open and close in one frame, with no trace over the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41447,
+      "title": "tests: git fixtures drop inherited GIT_DIR/GIT_CONFIG redirects; lint git-write-without-fixture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41586,
+      "title": "test_base_red_excuse: KNOWN_SUPERLINEAR shrinks on a regex pin, never one timing sample",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41617,
+      "title": "merge_freeze: read an open freeze's last edit through a broker-accepted field",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41683,
+      "title": "cmux-vm: coverage and writer-lock read-modify-writes each run in one ledger transaction (#41517 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41082,
+      "title": "ios: TickHarness, 10,000 reconnects, deltas and Feed events on virtual time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41635,
+      "title": "base_red_excuse: PR-only re-run reds are infra; step A ignores generated data Swift and warn-only guards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41052,
+      "title": "test(ios): kit live tests wait for what they read, not for a fixed time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41427,
+      "title": "check-test-hooks: one ordered substitution pass for generic definitions (#41418 F1-F3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41663,
+      "title": "cmux NEXT capture: a cancelled frame wait ends at once, and the duplicate-post test waits for the bridge",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
