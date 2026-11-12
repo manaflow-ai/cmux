@@ -17,7 +17,7 @@ Sources: the rows of cmuxterm-hq's tools/agent-guards/test_rust_timing_ratio.py 
 findings F1-F4 and the self-test of tools/rust-timing-ratio/check.py), the review of hq#9478 (F1
 percentile spellings, F2 braces in strings, F3 #[ignore] before #[test]), the tokio rows, and the review of #41523 (F3 `start_paused = false`).
 
-=== clean :: busy < idle * 4 :: - :: hq#9512 F1: double quotes, exact
+=== flagged :: busy < idle * 4 :: - :: hq#9512 F1: double quotes, exact
 #[test]
 fn alone_case() {
     let (busy, idle) = (helper(), helper());
