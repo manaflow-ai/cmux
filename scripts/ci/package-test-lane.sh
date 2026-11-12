@@ -165,6 +165,7 @@ select_packages() {
     CmuxWorkspaces
     CMUXAgentLaunch
     CmuxAgentJournal
+    CmuxDiffComments
     CmuxFilePreviewCore
     CmuxSyntaxHighlighting
     CmuxAppKitSupportUI

@@ -69,6 +69,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   noFileDiffs: "No file diffs found in patch input.",
   noFilesMatchFilter: "No files match the filter.",
   none: "None",
+  openFile: "Open file",
   openSourceURL: "Open source URL",
   options: "Options",
   parsingDiff: "Parsing diff...",

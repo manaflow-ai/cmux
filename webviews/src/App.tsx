@@ -19,6 +19,7 @@ import {
 import {
   deleteComment as bridgeDeleteComment,
   diffCommentsBridgeAvailable,
+  openRepositoryFile,
   saveComment as bridgeSaveComment,
 } from "./comments/bridge";
 import { CommentComposer } from "./comments/CommentComposer";
@@ -500,6 +501,12 @@ export function App({ config, initialStatus }: ConfigProps) {
     latestState,
     repoRoot: commentRepoRoot,
   });
+  const openFile = bridgeAvailable && commentRepoRoot != null
+    ? (path: string) => {
+      // ponytail: a refused open (say, a file removed since the diff loaded) is silent.
+      openRepositoryFile(commentRepoRoot, path).catch(() => {});
+    }
+    : undefined;
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
   const closeActiveSession = useCallback(() => {
@@ -804,6 +811,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           commentLabels={commentLabels}
           hasDraft={state.draft != null}
           label={label}
+          onOpenFile={openFile}
           onSelectComment={selectCommentEntry}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}
@@ -844,6 +852,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                       item={item as DiffItem}
                       label={label}
                       onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
+                      onOpenFile={openFile}
                       onToggleViewed={() => toggleViewed(item.id)}
                       viewedState={viewedStateOf(item as DiffItem)}
                     />
@@ -1073,24 +1082,28 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
 /**
  * Per-file review controls rendered into Pierre's header metadata slot: the
  * "Viewed" checkbox with its "changed since viewed" badge, and the generated /
- * large badge with a "Load diff" button while such a file is still collapsed.
+ * large badge with a "Load diff" button while such a file is still collapsed,
+ * and "Open file" when the host can open it.
  * Clicks stop propagating so Pierre's own header collapse toggle stays put.
  */
-function FileReviewControls({
+export function FileReviewControls({
   item,
   label,
   onLoadDiff,
+  onOpenFile,
   onToggleViewed,
   viewedState,
 }: {
   item: DiffItem;
   label: DiffViewerLabelResolver;
   onLoadDiff: () => void;
+  onOpenFile?: (path: string) => void;
   onToggleViewed: () => void;
   viewedState: ViewedFileState;
 }) {
   const reason = item.fileDiff?.cmuxDeferredReason as DeferredDiffReason | undefined;
   const viewed = viewedState === "viewed";
+  const openPath = onOpenFile ? openableFilePath(item) : null;
   return (
     <span className="file-review-controls" data-viewed-state={viewedState}>
       {reason != null ? (
@@ -1127,8 +1140,31 @@ function FileReviewControls({
         <span className="file-review-checkbox" aria-hidden="true">{viewed ? <Icon name="check" /> : null}</span>
         <span className="file-review-viewed-label">{label("viewed")}</span>
       </button>
+      {openPath != null ? (
+        <button
+          type="button"
+          className="file-review-open"
+          title={label("openFile")}
+          aria-label={label("openFile")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenFile?.(openPath);
+          }}
+        >
+          <Icon name="external" />
+        </button>
+      ) : null}
     </span>
   );
+}
+
+/** The repository path the host can open for a diff item; deleted files have none. */
+function openableFilePath(item: DiffItem | undefined): string | null {
+  const fileDiff = item?.fileDiff;
+  if (fileDiff == null || fileDiff.type === "deleted") {
+    return null;
+  }
+  return fileName(fileDiff, "") || null;
 }
 
 /**
@@ -1794,6 +1830,7 @@ function FilesSidebar({
   dispatch,
   hasDraft,
   label,
+  onOpenFile,
   onSelectComment,
   onSelectItem,
   onToggleViewedPath,
@@ -1809,6 +1846,7 @@ function FilesSidebar({
   dispatch: React.Dispatch<AppAction>;
   hasDraft: boolean;
   label: DiffViewerLabelResolver;
+  onOpenFile?: (path: string) => void;
   onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
@@ -1829,11 +1867,13 @@ function FilesSidebar({
     default: return label("filterModifiedFiles");
     }
   };
-  // Viewed marks by tree path so the tree row decorations can look them up.
+  // Items and viewed marks by tree path so tree rows and menus can look them up.
+  const itemByTreePath = new Map<string, DiffItem>();
   const viewedStateByPath = new Map<string, ViewedFileState>();
   for (const item of state.items) {
     const treePath = state.treeSource?.treePathByItemId.get(item.id);
     if (treePath != null) {
+      itemByTreePath.set(treePath, item);
       viewedStateByPath.set(treePath, viewedStateOf(item));
     }
   }
@@ -1959,7 +1999,9 @@ function FilesSidebar({
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
             fileSearchRequest={state.fileSearchRequest}
+            itemByTreePath={itemByTreePath}
             label={label}
+            onOpenFile={onOpenFile}
             onSelectItem={onSelectItem}
             onToggleViewedPath={onToggleViewedPath}
             selectedPath={selectedPath}
@@ -1987,7 +2029,9 @@ function FilesSidebar({
 function PierreFileTree({
   fileSearchOpen,
   fileSearchRequest,
+  itemByTreePath,
   label,
+  onOpenFile,
   onSelectItem,
   onToggleViewedPath,
   selectedPath,
@@ -1996,7 +2040,9 @@ function PierreFileTree({
 }: {
   fileSearchOpen: boolean;
   fileSearchRequest: number;
+  itemByTreePath: ReadonlyMap<string, DiffItem>;
   label: DiffViewerLabelResolver;
+  onOpenFile?: (path: string) => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
   selectedPath: string;
@@ -2048,33 +2094,100 @@ function PierreFileTree({
   usePierreFileTreeSelection(model, selectedPath);
   usePierreFileTreeViewedRefresh(model, source, viewedStateByPath);
 
+  // The tree renders rows in its shadow root; the wrapper catches their double clicks.
+  // The right-click menu's "Open file" is the keyboard-reachable equivalent.
   return (
-    <FileTree
-      model={model}
-      style={{ height: "100%" }}
-      renderContextMenu={(item, context) => {
-        if (item.kind !== "file") {
-          return null;
+    <div
+      style={{ display: "contents" }}
+      onDoubleClick={onOpenFile ? (event) => {
+        const path = fileTreeDoubleClickPath(event.nativeEvent.composedPath(), itemByTreePath);
+        if (path != null) {
+          onOpenFile(path);
         }
-        const viewed = viewedStateByPath.get(item.path) === "viewed";
-        return (
-          <div className="file-tree-context-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item"
-              onClick={() => {
-                onToggleViewedPath(item.path);
-                context.close();
-              }}
-            >
-              <Icon name={viewed ? "eye" : "check"} />
-              <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
-            </button>
-          </div>
-        );
-      }}
-    />
+      } : undefined}
+    >
+      <FileTree
+        model={model}
+        style={{ height: "100%" }}
+        renderContextMenu={(item, context) => {
+          if (item.kind !== "file") {
+            return null;
+          }
+          return (
+            <FileTreeContextMenu
+              close={context.close}
+              item={itemByTreePath.get(item.path)}
+              label={label}
+              onOpenFile={onOpenFile}
+              onToggleViewed={() => onToggleViewedPath(item.path)}
+              viewed={viewedStateByPath.get(item.path) === "viewed"}
+            />
+          );
+        }}
+      />
+    </div>
+  );
+}
+
+/** The openable repository path of the file tree row a double click landed on, if any. */
+export function fileTreeDoubleClickPath(
+  composedPath: Iterable<EventTarget | undefined>,
+  itemByTreePath: ReadonlyMap<string, DiffItem>,
+): string | null {
+  for (const target of composedPath) {
+    const dataset = (target as HTMLElement | undefined)?.dataset;
+    if (dataset?.itemType === "file" && dataset.itemPath != null) {
+      return openableFilePath(itemByTreePath.get(dataset.itemPath));
+    }
+  }
+  return null;
+}
+
+export function FileTreeContextMenu({
+  close,
+  item,
+  label,
+  onOpenFile,
+  onToggleViewed,
+  viewed,
+}: {
+  close: () => void;
+  item: DiffItem | undefined;
+  label: DiffViewerLabelResolver;
+  onOpenFile?: (path: string) => void;
+  onToggleViewed: () => void;
+  viewed: boolean;
+}) {
+  const openPath = onOpenFile ? openableFilePath(item) : null;
+  return (
+    <div className="file-tree-context-menu" role="menu">
+      <button
+        type="button"
+        role="menuitem"
+        className="menu-item"
+        onClick={() => {
+          onToggleViewed();
+          close();
+        }}
+      >
+        <Icon name={viewed ? "eye" : "check"} />
+        <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
+      </button>
+      {openPath != null ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="menu-item"
+          onClick={() => {
+            onOpenFile?.(openPath);
+            close();
+          }}
+        >
+          <Icon name="external" />
+          <span className="menu-label">{label("openFile")}</span>
+        </button>
+      ) : null}
+    </div>
   );
 }
 

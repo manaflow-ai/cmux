@@ -258,6 +258,7 @@ body {
 .base-picker-input:focus-visible,
 .toolbar-icon:focus-visible,
 .menu-item:focus-visible,
+.file-review-open:focus-visible,
 .file-entry:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
   outline-offset: 1px;
@@ -1549,6 +1550,24 @@ body[data-loading="true"] #status::before {
 }
 .file-review-controls[data-viewed-state="viewed"] .file-review-viewed {
   color: var(--cmux-diff-text-muted);
+}
+.file-review-open {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  cursor: pointer;
+}
+.file-review-open:hover {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.file-review-open svg {
+  width: 14px;
+  height: 14px;
 }
 /* Octicon-backed icons are filled 16px glyphs. These selectors outrank every
    stroke-icon rule above (all `<container> svg`) without !important. */
