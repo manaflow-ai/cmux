@@ -911,9 +911,28 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
 /// cmux on iPhone reaches only that program (cmux-next-ios `mailbox_apply.rs`).
 #[test]
 fn a_posted_notification_remembers_its_event_number_and_poster() {
-    let mux = Mux::new("notification-poster", SurfaceOptions::default());
-    let surface = mux.new_workspace(None, None).unwrap();
+    // The terminal runs `cat` on a file, then on its input: its foreground group is `cat` from
+    // its exec on, and its first output says the exec happened. A shell (the default) may still
+    // start up while the test posts, so the poster and a later read named two programs (a full
+    // --lib round: left 91199, right 91155; or no poster yet).
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-notification-poster-{}", WorkspacePublicId::random().unwrap()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ready = dir.join("ready");
+    std::fs::write(&ready, "ready\n").unwrap();
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/cat".into(), ready.display().to_string(), "-".into()]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new("notification-poster", options);
     let events = mux.subscribe();
+    let surface = mux.new_workspace(None, None).unwrap();
+    loop {
+        match events.recv_timeout(Duration::from_secs(30)).expect("cat printed its file") {
+            MuxEvent::SurfaceOutput(id) if id == surface.id => break,
+            _ => {}
+        }
+    }
     mux.post_notification_as(
         &Actor::Daemon,
         "osc".into(),
@@ -946,6 +965,7 @@ fn a_posted_notification_remembers_its_event_number_and_poster() {
     let plain = mux.resource_notifications(1).remove(0);
     assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
     mux.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// W1-B: a terminal bell's mark is a `Notification` event with `desktop: false`
