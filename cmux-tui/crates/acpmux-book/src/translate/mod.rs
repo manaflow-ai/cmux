@@ -114,6 +114,7 @@ struct Stream {
     block: blocks::Block,
     facts: fold::Reply,
     deferred_cut: bool,
+    resume_closed: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Prompt {
@@ -303,6 +304,7 @@ impl State {
                 reply.row.open = false;
                 out.row(&reply.row);
             }
+            reply.resume_closed = true;
         }
     }
     fn mark_steer(&mut self) {
@@ -590,15 +592,14 @@ impl State {
         // A tool boundary settles the current row, but a later chunk for the
         // same message continues its body in that row.
         if !stream.row.open && stream.message == message {
-            stream.row.open = true;
-            out.row(&stream.row);
+            stream.resume_closed = true;
         }
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
             if stream.deferred_cut {
                 stream.deferred_cut = false;
                 self.continue_text(&mut stream, false, out)?;
-            } else if !stream.row.open {
+            } else if !stream.row.open && !stream.resume_closed {
                 let inside_line = stream.block.line_bytes() != 0;
                 self.continue_text(&mut stream, inside_line, out)?;
             }
@@ -687,6 +688,7 @@ impl State {
         out.row(&row);
         row.fields.clear();
         stream.row = row;
+        stream.resume_closed = false;
         stream.facts.row(stream.row.id)?;
         Ok(())
     }

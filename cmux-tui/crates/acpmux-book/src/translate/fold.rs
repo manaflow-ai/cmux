@@ -128,7 +128,7 @@ impl Fold {
     }
     pub fn out(&self) -> Vec<Run> {
         let mut out: Vec<_> = self.steers.iter().flatten().copied().collect();
-        out.extend(if self.since_work.is_empty() { &self.takeaway } else { &self.since_work });
+        out.extend(if self.takeaway.is_empty() { &self.since_work } else { &self.takeaway });
         out.sort_by_key(|r| r.0);
         let mut merged: Vec<Run> = Vec::new();
         for run in out {
