@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Run each cmux-tui-core Rust test in a fresh process."""
+"""Run each cmux-tui-core Rust test in a fresh process, several processes at a time."""
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+import concurrent.futures
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,19 +117,71 @@ def exit_status(returncode: int) -> int:
     return 128 - returncode if returncode < 0 else returncode
 
 
+def jobs() -> int:
+    """How many test processes run at once: CMUX_TUI_CORE_TEST_JOBS, else half the CPUs, 1-8."""
+    raw = os.environ.get("CMUX_TUI_CORE_TEST_JOBS", "").strip()
+    if raw:
+        value = int(raw)
+        if value < 1:
+            raise SystemExit(f"CMUX_TUI_CORE_TEST_JOBS must be at least 1, not {raw}")
+        return value
+    return min(8, max(1, (os.cpu_count() or 2) // 2))
+
+
+class Pool:
+    """Runs each test in its own process, `jobs` at a time, and stops every worker on a cancel.
+
+    The lock guards the running processes and the stop flag, which the worker threads and a
+    cancel share; the printing lock keeps each test's output in one block.
+    """
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.stopped = False
+        self.running: set[subprocess.Popen[bytes]] = set()
+
+    def run(
+        self, binary: Path, test_name: str, started: Callable[[str], None]
+    ) -> tuple[int, bytes] | None:
+        """The test's exit status and output, or None when a cancel stopped the run first.
+
+        `started` is told the test's name when its process starts, so a job cancelled while
+        tests run still shows which ones were running.
+        """
+        with self.lock:
+            if self.stopped:
+                return None
+            started(test_name)
+            process = subprocess.Popen(
+                [str(binary), test_name, "--exact", "--test-threads=1"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            self.running.add(process)
+        output, _ = process.communicate()
+        with self.lock:
+            self.running.discard(process)
+        status = exit_status(process.returncode)
+        if status in CANCEL_STATUSES:
+            self.stop()
+        return status, output
+
+    def stop(self) -> None:
+        """Starts no other test and ends every running one."""
+        with self.lock:
+            self.stopped = True
+            for process in self.running:
+                if process.poll() is None:
+                    process.terminate()
+
+
 def main() -> int:
     args = parse_args()
     core_root = args.core_root.resolve()
     binaries = test_binaries(args.cargo_messages, core_root)
-    total = 0
     skipped = 0
-    # Every core test runs, so one run shows every red; the first red status is returned.
-    # A cancelled test stops the run: the next test must not start.
-    failed: list[tuple[str, str, int]] = []
-    stopped = False
+    work: list[tuple[Path, str]] = []
     for binary in binaries:
-        if stopped:
-            break
         all_tests = tests_in(binary)
         ignored_tests = tests_in(binary, ignored=True)
         try:
@@ -138,29 +194,56 @@ def main() -> int:
             for test_name in ignored:
                 print(f"  {test_name}")
             skipped += len(ignored)
-        for index, test_name in enumerate(tests, start=1):
-            print(f"[{index}/{len(tests)}] {test_name}", flush=True)
-            returncode = subprocess.run(
-                [str(binary), test_name, "--exact", "--test-threads=1"],
-                check=False,
-            ).returncode
-            status = exit_status(returncode)
+        work.extend((binary, test_name) for test_name in tests)
+    workers = jobs()
+    print(f"Running {len(work)} tests, {workers} at a time, each in its own process", flush=True)
+    # Every core test runs, so one run shows every red; the first red in test order is
+    # returned. A cancelled test stops the run: no other test starts, and running ones end.
+    pool, printing = Pool(), threading.Lock()
+    results: dict[int, int] = {}
+    done = 0
+
+    def started(test_name: str) -> None:
+        with printing:
+            print(f"started {test_name}", flush=True)
+
+    def one(at: int) -> None:
+        nonlocal done
+        binary, test_name = work[at]
+        result = pool.run(binary, test_name, started)
+        if result is None:
+            return
+        status, output = result
+        with printing:
+            done += 1
+            print(f"[{done}/{len(work)}] {test_name} exited {status}", flush=True)
+            sys.stdout.buffer.write(output)
+            sys.stdout.flush()
+            results[at] = status
             if status != 0:
                 print(f"::error::{test_name} in {binary.name} exited {status}", file=sys.stderr)
-                failed.append((binary.name, test_name, status))
-                if status in CANCEL_STATUSES:
-                    print(f"Stopping: {test_name} was cancelled (exit {status})", file=sys.stderr)
-                    stopped = True
-                    break
-                continue
-            total += 1
-    print(f"Passed {total} isolated cmux-tui-core tests")
+            if status in CANCEL_STATUSES:
+                print(f"Stopping: {test_name} was cancelled (exit {status})", file=sys.stderr)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            for future in [executor.submit(one, at) for at in range(len(work))]:
+                future.result()
+    except BaseException:
+        pool.stop()
+        raise
+    failed = [(at, status) for at, status in sorted(results.items()) if status != 0]
+    passed = sum(1 for status in results.values() if status == 0)
+    print(f"Passed {passed} isolated cmux-tui-core tests")
     print(f"Skipped {skipped} ignored/manual cmux-tui-core tests")
+    if len(results) < len(work):
+        print(f"Not run after a cancel: {len(work) - len(results)} tests", file=sys.stderr)
     if failed:
         print(f"Failed {len(failed)} isolated cmux-tui-core tests:", file=sys.stderr)
-        for binary_name, test_name, status in failed:
-            print(f"  {test_name} in {binary_name} exited {status}", file=sys.stderr)
-        return failed[0][2]
+        for at, status in failed:
+            binary, test_name = work[at]
+            print(f"  {test_name} in {binary.name} exited {status}", file=sys.stderr)
+        return failed[0][1]
     return 0
 
 
