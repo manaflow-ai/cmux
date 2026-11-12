@@ -158,6 +158,8 @@ mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
+#[cfg(debug_assertions)]
+pub(crate) use log_load::test_hold;
 mod model_options;
 mod new_request;
 pub use model_options::{
@@ -875,6 +877,12 @@ pub struct Hub {
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
     pub(super) peer_notices_finished: AtomicBool,
     pub(super) peer_notices_done: Arc<Notify>,
+    /// A peer cache save was put off (`save_peer_cache`): the notice loop arms its one cache
+    /// deadline. With nothing put off it sets no timer (`peer_grace.rs`).
+    pub(super) peer_cache_kick: Notify,
+    /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
+    #[cfg(test)]
+    pub(super) cache_test_save_every_ms: AtomicU64,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -1066,6 +1074,10 @@ pub struct Hub {
     pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// Moves on each time the settings watch saw the settings file change (written, created,
+    /// replaced): what waits for a setting with no timer subscribes (the desktop bridge while it
+    /// is off, `desktop_bridge.rs`).
+    pub(super) settings_changes: tokio::sync::watch::Sender<u64>,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
@@ -1309,6 +1321,9 @@ impl Hub {
             peer_notices_stop: tokio::sync::watch::channel(false).0,
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
+            peer_cache_kick: Notify::new(),
+            #[cfg(test)]
+            cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
@@ -1404,6 +1419,7 @@ impl Hub {
             harness_watch: Default::default(),
             watch_ticker: Default::default(),
             settings_watch: Default::default(),
+            settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
@@ -1674,6 +1690,12 @@ impl Hub {
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            // A result past the saved metadata is one a kill lost the save of: its summary is the
+            // chat's last turn before any request reads it (every chat request waits for this
+            // read, `log_load.rs`), not only once the queue resume corrects it.
+            if let Some(newest) = results.first() {
+                Self::correct_last_turn(&mut meta, newest);
+            }
             for record in results.into_iter().rev() {
                 meta.harness_failures.observe(&record.msg, record.seq, record.at);
             }

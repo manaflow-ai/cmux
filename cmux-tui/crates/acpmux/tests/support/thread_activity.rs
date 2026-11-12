@@ -1,7 +1,8 @@
 //! Which threads of a process ran in a measured window, for the idle tests:
-//! a thread that runs in every window is woken by a timer, not an event,
-//! however little each wake costs (a 5-second loop costs 2 switches per
-//! 10-second window, under the process limit, and still wakes the Mac all day).
+//! a thread pool that runs in more than one window is woken by a timer, not
+//! an event, however little each wake costs (a 5-second loop costs 2 switches
+//! per 10-second window, under the process limit, and still wakes the Mac all
+//! day).
 
 /// Each thread of `pid` by id: its name and a counter that grows whenever the
 /// thread runs (context switches on Linux, CPU time in nanoseconds on macOS,
@@ -82,21 +83,33 @@ pub fn thread_activity(pid: u32) -> std::collections::HashMap<u64, (String, u64)
         .collect()
 }
 
-/// Threads of the daemon that ran in every window: a timer wakes them, not
-/// an event, however little each wake costs. A one-off event (a late journal
-/// fsync, a deadline set during setup) runs a thread in one window.
-pub fn periodic_threads(marks: &[std::collections::HashMap<u64, (String, u64)>]) -> Vec<String> {
-    let Some(first) = marks.first() else { return Vec::new() };
-    let mut periodic: Vec<String> = first
-        .iter()
-        .filter(|(id, _)| {
-            marks.windows(2).all(|pair| match (pair[0].get(id), pair[1].get(id)) {
-                (Some((_, before)), Some((_, after))) => after > before,
-                _ => false,
-            })
-        })
-        .map(|(id, (name, _))| format!("{name} (thread {id})"))
-        .collect();
-    periodic.sort();
-    periodic
+/// Thread names of the daemon (a name is one pool, such as the async
+/// runtime's workers, which take each other's work) whose threads ran in at
+/// least `min` windows, each with the windows it ran in (1-based). A timer
+/// wakes a pool on any of its threads, and a period longer than a window
+/// skips windows: a 15 s period runs in 2 of each 3 windows of 10 s, a 30 s
+/// period in 1 of 3, so no single thread runs in every window. Over 6 windows
+/// any period up to 30 s runs in 2 windows or more; a one-off event runs in
+/// one.
+pub fn names_in_windows(
+    marks: &[std::collections::HashMap<u64, (String, u64)>],
+    min: usize,
+) -> Vec<String> {
+    let mut ran: std::collections::BTreeMap<&str, Vec<usize>> = std::collections::BTreeMap::new();
+    for (index, pair) in marks.windows(2).enumerate() {
+        let mut names: Vec<&str> = pair[1]
+            .iter()
+            .filter(|(id, (_, after))| pair[0].get(*id).is_some_and(|(_, before)| after > before))
+            .map(|(_, (name, _))| if name.is_empty() { "(unnamed)" } else { name.as_str() })
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            ran.entry(name).or_default().push(index + 1);
+        }
+    }
+    ran.into_iter()
+        .filter(|(_, windows)| windows.len() >= min)
+        .map(|(name, windows)| format!("{name} (ran in windows {windows:?})"))
+        .collect()
 }
