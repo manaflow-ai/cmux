@@ -82,6 +82,44 @@ async fn a_completed_turn_the_log_holds_is_the_last_turn_after_a_kill() {
     assert_eq!(session.meta().last_turn, Some(kept), "a trigger turn became the last turn");
 }
 
+/// A kill lost the metadata save of a completed turn: the daemon serves before startup resumes
+/// the queues (`finish_startup`), so a client can attach before `restore_auto_resume` runs. The
+/// log's newest result is the last turn as soon as the log is read, and the restore after it
+/// changes nothing (durable_agents `pending_retry_survives_restart_at_its_original_deadline_once`
+/// read the older turn under a loaded runner).
+#[tokio::test]
+async fn the_last_turn_is_the_logs_as_soon_as_the_log_is_read() {
+    let (hub, session) = idle_chat();
+    hub.append(
+        &session,
+        "mux",
+        "turn_started",
+        json!({"turnId": "newer-turn", "promptId": "newer-prompt"}),
+    );
+    hub.append(
+        &session,
+        "mux",
+        "turn_result",
+        json!({"turnId": "newer-turn", "promptId": "newer-prompt",
+            "status": "completed", "stopReason": "end_turn"}),
+    );
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId": "older-turn", "promptId": "older-prompt", "status": "completed",
+        "stopReason": "end_turn",
+    }));
+    // The chat as a restart restored it: its log not read yet (as `trigger_quiet_tests.rs`).
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.load_session_log(&session);
+    assert!(hub.session_log_loaded(&session), "the log was read");
+    let last = session.meta().last_turn.unwrap_or_else(|| panic!("no last turn"));
+    assert_eq!(last["promptId"], "newer-prompt", "{last}");
+    assert_eq!(last["status"], "completed", "{last}");
+    // The restore after the queues resume finds it corrected and changes nothing.
+    hub.restore_auto_resume(&session);
+    assert_eq!(session.meta().last_turn, Some(last));
+}
+
 /// A chat that saved no last turn (a fork, whose log holds its parent's copied results)
 /// gets none at start.
 #[tokio::test]
