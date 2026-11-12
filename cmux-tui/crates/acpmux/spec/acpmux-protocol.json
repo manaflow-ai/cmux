@@ -294,7 +294,7 @@
         "$ref": "#/types/ViewParams"
       },
       "result": {
-        "$ref": "#/types/Done"
+        "$ref": "#/types/ViewDone"
       }
     },
     {
@@ -311,10 +311,20 @@
       "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
-        "$ref": "#/types/SessionRef"
+        "$ref": "#/types/MarkUnreadParams"
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/seen",
+      "params": {
+        "$ref": "#/types/SeenParams"
+      },
+      "result": {
+        "$ref": "#/types/SeenDone"
       }
     },
     {
@@ -2479,6 +2489,13 @@
             "null"
           ]
         },
+        "attending": {
+          "description": "False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it\nsees nothing, so a reconnect while they are away keeps the chat's unread; default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "beforeSeq": {
           "description": "The newest `limit` records before this one.",
           "format": "uint64",
@@ -2572,6 +2589,15 @@
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
         },
+        "readThrough": {
+          "description": "The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they\nsaw while attending; null before they saw any. An older acpmux leaves it out.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "session": {
           "$ref": "#/types/SessionDetail"
         },
@@ -2593,6 +2619,7 @@
         "lastSeq",
         "pageThrough",
         "presence",
+        "readThrough",
         "session",
         "turnOpener"
       ],
@@ -3956,6 +3983,37 @@
       ],
       "type": "object"
     },
+    "MarkUnreadParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor\nmoves back to it (never forward).",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "McpReconnectParams": {
       "additionalProperties": false,
       "properties": {
@@ -5309,6 +5367,51 @@
         "sessionId": true,
         "value": true
       },
+      "type": "object"
+    },
+    "SeenDone": {
+      "description": "`_acpmux/seen`'s answer: the person's cursor after the request.",
+      "properties": {
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readThrough"
+      ],
+      "type": "object"
+    },
+    "SeenParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it\n(`hub/seen.rs`). Moves their seen cursor forward only.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whose cursor: an author's, the owner's when absent."
+        },
+        "seq": {
+          "description": "The newest log seq of a row that was on screen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "seq"
+      ],
       "type": "object"
     },
     "SessionAuthLogin": {
@@ -7472,6 +7575,22 @@
       ],
       "type": "object"
     },
+    "ViewDone": {
+      "description": "`_acpmux/view`'s answer: the person's return when coming to attend put \"New since you looked\"\non the chat (`hub/seen.rs`), so the client draws it without waiting for its list.",
+      "properties": {
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ViewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7485,6 +7604,22 @@
             }
           ],
           "description": "An author changes only that person's presence (`hub/presence.rs`), not whether the\nchat counts as shown."
+        },
+        "attending": {
+          "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "seenSeq": {
+          "description": "With `attending: false`, the log seq the client had at its person's last input: where the\nchat is left off, when earlier than now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
