@@ -9,8 +9,10 @@ enum DaemonLaunchRules {
     static func call(_ op: String, _ request: [String: Any] = [:]) -> Any? {
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         return reply { out in
-            json.withUnsafeBytes { bytes in
-                cmux_daemon_launch_call(op, bytes.baseAddress?.assumingMemoryBound(to: UInt8.self), bytes.count, out)
+            op.withCString { op in
+                json.withUnsafeBytes { bytes in
+                    cmux_daemon_launch_call(op, bytes.baseAddress?.assumingMemoryBound(to: UInt8.self), bytes.count, out)
+                }
             }
         }
     }
