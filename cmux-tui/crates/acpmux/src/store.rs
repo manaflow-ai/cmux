@@ -916,6 +916,10 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = test_clock::followed_now_ms() {
+        return now;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -927,16 +931,26 @@ pub fn now_ms() -> u64 {
 
 /// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
 /// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+/// Followed (`follow_tokio`), it is the wall time at the follow plus tokio's ticked time, never
+/// the real time since.
 #[cfg(test)]
 pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
-    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+    // Followed: tokio's instant and the real wall time (ms) at the follow.
+    thread_local!(static FOLLOW: Cell<Option<(tokio::time::Instant, u64)>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
-        AHEAD_MS.with(Cell::get) + followed as u64
+        AHEAD_MS.with(Cell::get)
+    }
+
+    /// This thread's wall clock while it follows tokio: the wall time at the follow, the ticked
+    /// time since and what it was moved. None when it does not follow.
+    pub(crate) fn followed_now_ms() -> Option<u64> {
+        let (origin, wall) = FOLLOW.with(Cell::get)?;
+        let ticked = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Some(wall.saturating_add(ticked).saturating_add(ahead_ms()))
     }
 
     /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
@@ -949,7 +963,10 @@ pub(crate) mod test_clock {
     /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
     /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
     pub(crate) fn follow_tokio() {
-        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        FOLLOW.with(|f| f.set(Some((tokio::time::Instant::now(), wall))));
     }
 
     /// Back to the real wall clock.
