@@ -186,7 +186,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
 /// cmux Home's list under To: (``ConversationComposeListing``): sections before
 /// anything is typed, the listing's rows for typed text, nothing once someone is chosen.
 @MainActor
-@Suite struct ConversationComposeListingTests {
+@Suite(.timeLimit(.minutes(1))) struct ConversationComposeListingTests {
     final class Listing: ConversationComposeListing {
         func idleRows(excluding: [String]) -> [ConversationComposeRow] {
             [.header("Chiefs")] + [kate, hank].filter { !excluding.contains($0.id) }.map(ConversationComposeRow.contact)
@@ -205,6 +205,19 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         func lookupHandles(_ handles: [String]) async throws -> [ConversationHandleLookup] { [] }
         func createConversation(_ recipients: [ConversationRecipientRef]) async throws -> ConversationCreation {
             throw ConversationBackendError(code: -1, message: "unused")
+        }
+    }
+
+    /// Returns once `done` holds, checked on each change the session reports.
+    static func wait(_ session: ConversationComposeSession, until done: @escaping @MainActor (ConversationComposeSession) -> Bool) async {
+        guard !done(session) else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var resumed = false
+            session.onChange = { _ in
+                guard !resumed, done(session) else { return }
+                resumed = true
+                continuation.resume()
+            }
         }
     }
 
@@ -230,7 +243,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         session.setText("hank")
         #expect(!session.rows.contains(.header("Chiefs")), "typing replaces the sections")
         // The search answers on a task.
-        for _ in 0..<50 where !session.rows.contains(.contact(hank)) { await Task.yield() }
+        await Self.wait(session) { $0.rows.contains(.contact(hank)) }
         #expect(session.rows.first == .contact(hank))
         #expect(session.rows.last == .action(ConversationComposeAction(id: "typed:hank", title: "hank", systemImage: "plus")))
         #expect(!session.rows.contains(.header("Chiefs")))
@@ -239,7 +252,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
     @Test func withoutAListingTheRowsAreTheSuggestions() async {
         let session = ConversationComposeSession(directory: Directory())
         session.setText("ka")
-        for _ in 0..<50 where session.rows.isEmpty { await Task.yield() }
+        await Self.wait(session) { !$0.rows.isEmpty }
         #expect(session.rows == [.contact(kate)])
         #expect(session.suggestions == [kate])
     }
