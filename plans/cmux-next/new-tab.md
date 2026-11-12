@@ -218,6 +218,14 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   so Down picks the other action for a miss. Tab steps the rows and leaves the field from the
   last one; with no agent installed a question searches. The `tabs.newTabWidgets.modeSwitch`
   widget is retired (#22883).
+- No widgets (Lawrence 2026-11-09: "remove widgets completely"): the New Tab widget system is
+  deleted, not flagged off. Minimal, the default template, is the composer alone; it has no
+  headline, clock, stopwatch, time-of-day greeting, quote, weather, machines row, project card,
+  quick actions, recent chats, template dots or edit mode (right-click > Edit New Tab, its drag,
+  ✕ and Escape). The other templates draw their own parts, with no toggles. Every
+  `tabs.newTabWidgets.*` key is retired (schemas/settings/retired-keys.json): an old cmux-next.json
+  that still sets one loads with no diagnostic. The look dots under the page are Claude Minimal and
+  Codex Minimal; the other templates also show the template dots.
 - Cmd-Return always asks (lens review 2026-11-05, Nielsen's user control and freedom): whatever row
   leads (an address, a tab's exact name, a command, a row the arrows picked), Cmd-Return sends the
   typed text to the agent on the chip. The Ask row shows `⌘↵` when it is not the selected row.

@@ -29,6 +29,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -105,7 +106,7 @@ app = subprocess.Popen([BINARY], env={
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "0", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,760,480"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
     check(bool(quiet_wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 180)), "app socket")
     focus_windows = lambda: (rpc("debug.focus") or {}).get("windows") or []
