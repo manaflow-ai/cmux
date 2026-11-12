@@ -15,9 +15,8 @@
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
 // never on the transcript), and sent only when it changed.
-import { PAGE_ZOOM_EVENT, pageZoom } from "../../ui/visualViewportBox";
+import { PAGE_ZOOM_EVENT, onVisualViewport, pageZoom } from "../../ui/visualViewportBox";
 import { postNative } from "./native";
-import { onVisualViewport } from "../../ui/visualViewportBox";
 
 /// The bottom stack's box in the page's viewport, CSS pixels, with the page zoom it was measured at
 /// once sent (ui/visualViewportBox.ts).
