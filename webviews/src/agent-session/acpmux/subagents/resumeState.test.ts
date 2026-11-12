@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { RETRY_METHOD } from "./retryState";
-import { applyResume, canResume, RESUME_CAPABILITY, resumedRun, runResume } from "./resumeState";
+import {
+  applyResume,
+  canResume,
+  RESUME_CAPABILITY,
+  resumedRun,
+  resumeVersion,
+  runResume,
+  settledResume,
+  shownResume,
+} from "./resumeState";
 import type { Subagent } from "./subagentFold";
 
 type Agent = Pick<Subagent, "id" | "state" | "parent" | "resumable" | "resumes" | "resumedBy" | "harness">;
@@ -48,5 +57,25 @@ describe("a stopped subagent's Resume", () => {
     const request = async () => void (asked = true);
     const note = await runResume(stopped({ resumable: true }), "c", { request, reaches: () => false });
     expect([note, asked]).toEqual(["retry.failed", false]);
+  });
+});
+
+describe("a Resume's busy and note, as every surface keeps them", () => {
+  test("a Resume that went stays busy, a refusal leaves its note, both for the row's version", () => {
+    expect(settledResume(3, undefined)).toEqual({ version: 3, busy: true });
+    expect(settledResume(3, "retry.busy")).toEqual({ version: 3, key: "retry.busy" });
+    expect(shownResume(settledResume(3, "retry.busy"), 3)?.key).toBe("retry.busy");
+    expect(shownResume(settledResume(3, "retry.busy"), 4)).toBeUndefined();
+    expect(shownResume(undefined, 3)).toBeUndefined();
+  });
+
+  test("a row with no version of its own changes it when acpmux takes or ends the Resume", () => {
+    const agent = { state: "cancelled" as const, resumable: true, endedAt: 10 };
+    const before = resumeVersion(agent);
+    expect(resumeVersion({ ...agent })).toBe(before);
+    expect(resumeVersion({ ...agent, resumedBy: "s/t9" })).not.toBe(before);
+    expect(resumeVersion({ ...agent, resumable: false })).not.toBe(before);
+    expect(resumeVersion({ ...agent, state: "running" })).not.toBe(before);
+    expect(resumeVersion({ ...agent, endedAt: 11 })).not.toBe(before);
   });
 });

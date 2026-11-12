@@ -59,3 +59,25 @@ export async function runResume(
     return note === "ask" || note === "unknown-method" ? "retry.failed" : note;
   }
 }
+
+/// A row's Resume as it goes (ResumeControl.tsx `useResume`): asked (`busy`), or refused with the
+/// note to show. It holds while the row draws the same `version` (a transcript row's version, else
+/// ``resumeVersion``); acpmux's next word on the row clears it.
+export type ResumeRun = { version: unknown; key?: RetryNote; busy?: boolean };
+
+/// The version a surface with no row version keys a Resume's note by: the fields acpmux changes
+/// when it takes or ends one (a resumed row gets `resumedBy`, which hides its Resume).
+export function resumeVersion(agent: Pick<Subagent, "state" | "resumable" | "resumedBy" | "endedAt">): string {
+  return `${agent.state}|${agent.resumable === true}|${agent.resumedBy ?? ""}|${agent.endedAt ?? ""}`;
+}
+
+/// `run` while it is the row's at `version`.
+export function shownResume(run: ResumeRun | undefined, version: unknown): ResumeRun | undefined {
+  return run && Object.is(run.version, version) ? run : undefined;
+}
+
+/// What a Resume leaves once acpmux answers: its refusal's note, else the row stays busy (Resume
+/// disabled) until acpmux's word on it changes the row, so it cannot go twice.
+export function settledResume(version: unknown, key: RetryNote | undefined): ResumeRun {
+  return key ? { version, key } : { version, busy: true };
+}
