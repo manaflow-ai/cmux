@@ -1702,6 +1702,14 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.titleAreaContrast" : {
+      "default" : 1,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 1.5,
+      "minimum" : 0,
+      "title" : "Title Area Contrast",
+      "type" : "number"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",

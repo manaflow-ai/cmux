@@ -564,6 +564,7 @@
             "key" : "settings.group.panes",
             "rows" : [
               "appearance.chromeStyle",
+              "appearance.titleAreaContrast",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -33231,6 +33232,157 @@
       "title" : {
         "key" : "settings.appearance.chromeStyle",
         "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1.5,
+        0.75
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.titleAreaContrast.help",
+        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.titleAreaContrast",
+      "keywords" : [
+        "contrast",
+        "title",
+        "titlebar",
+        "tab bar",
+        "tabs",
+        "chrome",
+        "shade",
+        "intensity",
+        "darker",
+        "softer",
+        "frame"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "titleAreaContrast"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 1.5,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1.5,
+        3,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.titleAreaContrast.summary",
+        "text" : "How much the title and tab bar stand apart"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.titleAreaContrast"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.titleAreaContrast",
+        "text" : "Title Area Contrast"
       },
       "validation" : "portable"
     },
