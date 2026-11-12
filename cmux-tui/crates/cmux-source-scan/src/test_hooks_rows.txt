@@ -198,6 +198,27 @@ static HELD: Slot<Option<String>> = Slot::new(None);
 mod tests {
     struct Slot;
 }
+=== passes hub/watches.rs :: a type alias serializer its tests module imports back with `use super::Lock` (review of cmux#41707 F1)
+type Lock = std::sync::Mutex<()>;
+#[cfg(test)]
+mod tests {
+    use super::Lock;
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+#[cfg(test)]
+static HOOK_TEST: Lock = Lock::new(());
+=== passes lib.rs :: a production cache of a struct its tests module imports back with `use super::Cached` (review of cmux#41707 F1)
+struct Cached { at: u64 }
+static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+static LAST: Cached = Cached { at: 0 };
+#[cfg(test)]
+mod tests {
+    use super::Cached;
+}
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
