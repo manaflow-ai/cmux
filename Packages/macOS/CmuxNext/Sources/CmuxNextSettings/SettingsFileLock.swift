@@ -53,6 +53,9 @@ nonisolated struct SettingsFileLock: Sendable {
     /// lock directly.
     private static let waiting = Mutex(0)
 
+    /// How many writes wait for another writer's lock now, queued or in `flock`.
+    static var waitingWrites: Int { waiting.withLock { $0 } }
+
     /// Takes the lock of the settings file at `url`. A free lock is taken at once when no earlier
     /// write waits; otherwise the write waits its turn off the caller's thread, for at most
     /// `patience`.
