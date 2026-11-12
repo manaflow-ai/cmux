@@ -117,6 +117,36 @@ pub(super) fn user_cache() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
 }
 
+/// Holds `clone` for one `ext add`: every add of a repository checks out into the same clone, so
+/// two at once (of different refs) would copy each other's files. Taken before the fetch and held
+/// until the copy and its marker are written; dropping the file lets the next one in.
+/// `waiting` runs once if another add holds it.
+pub(super) fn lock_clone(clone: &Path, waiting: impl FnOnce()) -> Result<std::fs::File, String> {
+    let mut path = clone.as_os_str().to_owned();
+    path.push(".lock");
+    let path = PathBuf::from(path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("could not make {}: {err}", parent.display()))?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|err| format!("could not open {}: {err}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => return Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => waiting(),
+        Err(std::fs::TryLockError::Error(err)) => {
+            return Err(format!("could not lock {}: {err}", path.display()));
+        }
+    }
+    // An add holds it only while it fetches and copies; the next one waits its turn.
+    file.lock().map_err(|err| format!("could not lock {}: {err}", path.display()))?;
+    Ok(file)
+}
+
 /// What a fetch checked out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Fetched {
@@ -232,9 +262,25 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    git_with(dir, &[], args)
+}
+
+/// [`git`] with more environment (`GIT_INDEX_FILE`, say).
+pub(super) fn git_with<I, S>(
+    dir: Option<&Path>,
+    env: &[(&str, &OsStr)],
+    args: I,
+) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let mut command = cmux_process::Command::new("git");
     if let Some(dir) = dir {
         command.arg("-C").arg(dir);
+    }
+    for (key, value) in env {
+        command.env(key, value);
     }
     let output = command
         .args(args)

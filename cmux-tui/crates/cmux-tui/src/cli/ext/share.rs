@@ -12,6 +12,7 @@
 //! (the packer's macros run code). The repository must hold its built main script, which
 //! `ext share` checks before printing a link.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -69,8 +70,16 @@ pub(super) fn recorded_origin(folder: &Path) -> Option<Value> {
     body.get("origin").filter(|origin| origin.is_object()).cloned()
 }
 
+/// What `ext add` adds: the folder, its origin (none: a folder on this Mac), and the lock on the
+/// clone it came from, held until the copy is made and recorded.
+struct Adding {
+    dir: PathBuf,
+    origin: Option<Value>,
+    _lock: Option<std::fs::File>,
+}
+
 /// The fetched folder and its origin, or the exit code of a failure already printed.
-fn fetch_source(raw: &str, json_out: bool) -> Result<(PathBuf, Option<Value>), i32> {
+fn fetch_source(raw: &str, json_out: bool) -> Result<Adding, i32> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let fail = |message: String, code: i32| {
         if json_out {
@@ -85,7 +94,7 @@ fn fetch_source(raw: &str, json_out: bool) -> Result<(PathBuf, Option<Value>), i
     };
     match source::parse(raw, &cwd) {
         Err(message) => Err(fail(message, exit::USAGE)),
-        Ok(Source::Folder(dir)) if dir.is_dir() => Ok((dir, None)),
+        Ok(Source::Folder(dir)) if dir.is_dir() => Ok(Adding { dir, origin: None, _lock: None }),
         Ok(Source::Folder(dir)) => {
             Err(fail(format!("{} is not a folder", dir.display()), exit::USAGE))
         }
@@ -97,13 +106,19 @@ fn fetch_source(raw: &str, json_out: bool) -> Result<(PathBuf, Option<Value>), i
                 ));
             };
             let clone = source::cache_dir(&cache, &repo);
+            let lock = source::lock_clone(&clone, || {
+                if !json_out {
+                    eprintln!("waiting for another cmux ext add of {} ...", repo.display());
+                }
+            })
+            .map_err(|message| fail(message, exit::FETCH_FAILED))?;
             if !json_out {
                 eprintln!("fetching {} ...", repo.display());
             }
             match source::fetch(&repo.url(), &tail, subdir.as_deref(), &clone) {
                 Ok(fetched) => {
                     let origin = origin_json(&repo, &fetched);
-                    Ok((fetched.dir, Some(origin)))
+                    Ok(Adding { dir: fetched.dir, origin: Some(origin), _lock: Some(lock) })
                 }
                 Err(message) => Err(fail(message, exit::FETCH_FAILED)),
             }
@@ -118,7 +133,8 @@ pub(super) fn run_add(
     globals: &[String],
     json_out: bool,
 ) -> i32 {
-    let (dir, origin) = match fetch_source(&options.source, json_out) {
+    // `_lock` lives to the end: the clone is not checked out again until the copy is recorded.
+    let Adding { dir, origin, _lock } = match fetch_source(&options.source, json_out) {
         Ok(found) => found,
         Err(code) => return code,
     };
@@ -246,12 +262,13 @@ pub(super) struct ShareCheck {
 }
 
 /// Checks `dir` and makes its link: a valid manifest, in a git repository with an origin that
-/// `ext add` can read, at a commit that is pushed, with the built main script committed.
+/// `ext add` can read, at a commit that origin has, with the built main script committed. The
+/// manifest and script are read from that commit, since the commit is what the link installs.
 pub(super) fn check_share(dir: &Path) -> Result<ShareCheck, Vec<dev::Problem>> {
-    let pkg = dev::load_package(dir)?;
     let mut check = ShareCheck::default();
     let git = |args: &[&str]| source::git(Some(dir), args);
     let Ok(top) = git(&["rev-parse", "--show-toplevel"]) else {
+        dev::load_package(dir)?;
         check.blocking.push(
             "not in a git repository: git init, commit, push it to GitHub, then run cmux ext share again".into(),
         );
@@ -282,22 +299,39 @@ pub(super) fn check_share(dir: &Path) -> Result<ShareCheck, Vec<dev::Problem>> {
             }
         },
     };
-    let commit = git(&["rev-parse", "HEAD"]).ok();
-    if commit.is_none() {
+    let Ok(commit) = git(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]) else {
+        dev::load_package(dir)?;
         check.blocking.push("no commit yet: commit the extension first".into());
-    }
-    let pushed = git(&["branch", "-r", "--contains", "HEAD"]).is_ok_and(|out| !out.is_empty());
-    if commit.is_some() && !pushed {
+        return Ok(check);
+    };
+    let snapshot = committed_folder(&top, &commit, subdir.as_deref())
+        .map_err(|message| vec![dev::Problem::message(message)])?;
+    let folder = snapshot.path().join("tree");
+    if folder.join(dev::V1).is_file() || folder.join(dev::V2).is_file() {
+        let pkg = dev::load_package(&folder)?;
+        let main =
+            pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
+        if !committed_file(&folder, main) {
+            check.blocking.push(format!(
+                "{main} is not committed: an added extension is never built, so commit the built script (cmux ext dev writes it)"
+            ));
+        }
+    } else {
+        dev::load_package(dir)?;
         check
             .blocking
-            .push("this commit is not pushed: git push, then run cmux ext share again".into());
+            .push(format!("{} is not committed: commit the extension's manifest", dev::V1));
     }
-    let main =
-        pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
-    if git(&["ls-files", "--error-unmatch", "--", main]).is_err() {
-        check.blocking.push(format!(
-            "{main} is not committed: an added extension is never built, so commit the built script (cmux ext dev writes it)"
-        ));
+    if repo.is_some() {
+        match on_origin(dir, &commit) {
+            Ok(true) => {}
+            Ok(false) => check.blocking.push(
+                "this commit is not on origin: git push, then run cmux ext share again".into(),
+            ),
+            Err(said) => check
+                .blocking
+                .push(format!("could not read origin to check this commit is pushed: {said}")),
+        }
     }
     if git(&["status", "--porcelain", "--", "."]).is_ok_and(|out| !out.is_empty()) {
         check
@@ -309,10 +343,92 @@ pub(super) fn check_share(dir: &Path) -> Result<ShareCheck, Vec<dev::Problem>> {
             "add the topic {TOPIC} to the GitHub repository so cmux ext search lists it"
         ));
     }
-    if let (Some(repo), Some(commit)) = (&repo, &commit) {
-        check.link = Some(share_link(repo, commit, subdir.as_deref()));
+    if let Some(repo) = &repo {
+        check.link = Some(share_link(repo, &commit, subdir.as_deref()));
     }
     Ok(check)
+}
+
+/// The extension's folder as `commit` holds it, written into a temporary folder (`tree/` in it):
+/// what the link installs, whatever the working folder or the index holds. Reads through a
+/// temporary index, so the repository's own index and files are not touched.
+fn committed_folder(
+    top: &Path,
+    commit: &str,
+    subdir: Option<&str>,
+) -> Result<tempfile::TempDir, String> {
+    let temp = tempfile::Builder::new()
+        .prefix("cmux-ext-share-")
+        .tempdir()
+        .map_err(|err| format!("could not make a temporary folder: {err}"))?;
+    let index = temp.path().join("index");
+    let env = [("GIT_INDEX_FILE", index.as_os_str())];
+    let tree = match subdir {
+        Some(path) => format!("{commit}:{path}"),
+        None => format!("{commit}^{{tree}}"),
+    };
+    let folder = temp.path().join("tree");
+    std::fs::create_dir_all(&folder)
+        .map_err(|err| format!("could not make {}: {err}", folder.display()))?;
+    // A folder the commit does not hold reads as empty: nothing of it is committed.
+    if source::git_with(Some(top), &env, ["read-tree", tree.as_str()]).is_err() {
+        return Ok(temp);
+    }
+    let mut prefix = folder.into_os_string();
+    prefix.push("/");
+    let mut arg = std::ffi::OsString::from("--prefix=");
+    arg.push(&prefix);
+    source::git_with(
+        Some(top),
+        &env,
+        [OsStr::new("checkout-index"), OsStr::new("--all"), OsStr::new("--force"), arg.as_os_str()],
+    )
+    .map_err(|said| format!("could not read the commit's files: {said}"))?;
+    Ok(temp)
+}
+
+/// Whether `relative` is a file inside `folder` (not through a link out of it).
+fn committed_file(folder: &Path, relative: &str) -> bool {
+    let path = folder.join(relative);
+    path.is_file()
+        && path
+            .canonicalize()
+            .ok()
+            .zip(folder.canonicalize().ok())
+            .is_some_and(|(path, folder)| path.starts_with(folder))
+}
+
+/// Whether origin has `commit` now: some branch or tag it lists holds it. Reads origin itself,
+/// not this clone's remote-tracking branches (which may be stale or name another remote). Tips
+/// this clone lacks are fetched by commit, which writes no ref. Err: what git said.
+fn on_origin(dir: &Path, commit: &str) -> Result<bool, String> {
+    let listed = source::git(Some(dir), ["ls-remote", "--heads", "--tags", "origin"])?;
+    let mut tips: Vec<&str> = listed
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(_, name)| !name.ends_with("^{}"))
+        .map(|(sha, _)| sha)
+        .collect();
+    tips.sort_unstable();
+    tips.dedup();
+    if tips.is_empty() {
+        return Ok(false);
+    }
+    // Empty output: `commit` is reachable from one of the tips.
+    let reachable = |extra: &[&str]| {
+        let mut args = vec!["rev-list", "-n", "1"];
+        args.extend_from_slice(extra);
+        args.extend([commit, "--not"]);
+        args.extend(tips.iter().copied());
+        source::git(Some(dir), args).map(|out| out.is_empty())
+    };
+    if reachable(&["--ignore-missing"])? {
+        return Ok(true);
+    }
+    let mut fetch = vec!["fetch", "--quiet", "--no-write-fetch-head", "origin"];
+    fetch.extend(tips.iter().copied());
+    source::git(Some(dir), fetch)?;
+    reachable(&[])
 }
 
 /// `ext share [DIR]`.

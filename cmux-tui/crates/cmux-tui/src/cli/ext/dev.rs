@@ -145,8 +145,8 @@ pub(super) struct Package {
     pub name: String,
 }
 
-const V1: &str = "cmux-app.json";
-const V2: &str = "cmux-app.v2.json";
+pub(super) const V1: &str = "cmux-app.json";
+pub(super) const V2: &str = "cmux-app.v2.json";
 
 /// Validates `dir` with the validator the daemon runs (`cmux-app-manifest`),
 /// reading the manifest file the daemon reads for a local folder.

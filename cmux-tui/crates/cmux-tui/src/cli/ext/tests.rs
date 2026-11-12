@@ -865,6 +865,7 @@ fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
     assert!(check.blocking.iter().any(|b| b.contains("not a GitHub repository")), "{check:?}");
 
     git_in(&work, &["remote", "set-url", "origin", "git@github.com:acme/widgets.git"]);
+    reach_upstream(&work, &upstream);
     let check = share::check_share(&dir).unwrap();
     let head = git_in(&work, &["rev-parse", "HEAD"]);
     assert_eq!(check.blocking, Vec::<String>::new());
@@ -879,7 +880,7 @@ fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
     git_in(&work, &["rm", "--quiet", "--cached", "widgets/hello/dist/main.js"]);
     git_in(&work, &["commit", "--quiet", "-m", "drop the build"]);
     let check = share::check_share(&dir).unwrap();
-    assert!(check.blocking.iter().any(|b| b.contains("not pushed")), "{check:?}");
+    assert!(check.blocking.iter().any(|b| b.contains("not on origin")), "{check:?}");
     assert!(
         check.blocking.iter().any(|b| b.contains("dist/main.js is not committed")),
         "{check:?}"
@@ -897,6 +898,128 @@ fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// Points `work`'s GitHub origin at `upstream` on disk (git rewrites the URL), so `ext share`
+/// reads a real origin.
+fn reach_upstream(work: &Path, upstream: &Path) {
+    let key = format!("url.{}.insteadOf", upstream.display());
+    git_in(work, &["config", &key, "git@github.com:acme/widgets.git"]);
+}
+
+/// A clone of `extension_repo` whose origin is `acme/widgets` on GitHub, read from disk.
+fn shared_clone(root: &Path) -> (PathBuf, PathBuf) {
+    let upstream = extension_repo(root);
+    let work = root.join("work");
+    source::git(None, ["clone", "--quiet", upstream.to_str().unwrap(), work.to_str().unwrap()])
+        .unwrap();
+    git_in(&work, &["remote", "set-url", "origin", "git@github.com:acme/widgets.git"]);
+    reach_upstream(&work, &upstream);
+    (upstream, work)
+}
+
+#[test]
+fn share_reads_the_manifest_and_script_from_the_commit_not_the_index() {
+    let root = tempfile::tempdir().unwrap();
+    let (_upstream, work) = shared_clone(root.path());
+    let dir = work.join("widgets/hello");
+    assert_eq!(share::check_share(&dir).unwrap().blocking, Vec::<String>::new());
+
+    // A broken manifest that is not committed: the link installs the commit, whose manifest is
+    // valid.
+    let manifest = dir.join("cmux-app.json");
+    let good = std::fs::read(&manifest).unwrap();
+    std::fs::write(&manifest, "{ not json").unwrap();
+    let check = share::check_share(&dir).expect("the commit's manifest is valid");
+    assert_eq!(check.blocking, Vec::<String>::new());
+    assert!(check.notes.iter().any(|n| n.contains("uncommitted")), "{check:?}");
+    std::fs::write(&manifest, good).unwrap();
+
+    // The script dropped from the commit but staged again: the index has it, the commit does not.
+    git_in(&work, &["rm", "--quiet", "--cached", "widgets/hello/dist/main.js"]);
+    git_in(&work, &["commit", "--quiet", "-m", "drop the build"]);
+    git_in(&work, &["push", "--quiet", "origin", "HEAD:refs/heads/no-build"]);
+    git_in(&work, &["add", "widgets/hello/dist/main.js"]);
+    let check = share::check_share(&dir).unwrap();
+    assert_eq!(
+        check.blocking,
+        vec!["dist/main.js is not committed: an added extension is never built, so commit the built script (cmux ext dev writes it)".to_string()]
+    );
+
+    // A folder whose manifest was never committed.
+    let fresh = work.join("widgets/fresh");
+    scaffold::scaffold(&fresh, "fresh", "section").unwrap();
+    let check = share::check_share(&fresh).unwrap();
+    assert!(
+        check.blocking.iter().any(|b| b.contains("cmux-app.json is not committed")),
+        "{check:?}"
+    );
+}
+
+#[test]
+fn share_asks_origin_itself_whether_the_commit_is_pushed() {
+    let root = tempfile::tempdir().unwrap();
+    let (upstream, work) = shared_clone(root.path());
+    let dir = work.join("widgets/hello");
+    std::fs::write(dir.join("NOTE2"), "y").unwrap();
+    git_in(&work, &["add", "-A"]);
+    git_in(&work, &["commit", "--quiet", "-m", "y"]);
+    let not_on_origin = |check: &share::ShareCheck| {
+        check.blocking.iter().any(|b| b.contains("this commit is not on origin"))
+    };
+
+    // On another remote only.
+    let fork = root.path().join("fork");
+    source::git(None, ["init", "--quiet", "--bare", fork.to_str().unwrap()]).unwrap();
+    git_in(&work, &["remote", "add", "fork", fork.to_str().unwrap()]);
+    git_in(&work, &["push", "--quiet", "fork", "HEAD:refs/heads/y"]);
+    git_in(&work, &["fetch", "--quiet", "fork"]);
+    assert!(not_on_origin(&share::check_share(&dir).unwrap()));
+
+    // Pushed to origin, then deleted there: this clone's origin/y still holds it, origin does not.
+    git_in(&work, &["push", "--quiet", "origin", "HEAD:refs/heads/y"]);
+    assert!(!not_on_origin(&share::check_share(&dir).unwrap()));
+    git_in(&upstream, &["branch", "--quiet", "-D", "y"]);
+    assert!(git_in(&work, &["branch", "-r", "--contains", "HEAD"]).contains("origin/y"));
+    assert!(not_on_origin(&share::check_share(&dir).unwrap()));
+
+    // On origin only under a tip this clone does not have: found by asking origin for it.
+    let head = git_in(&work, &["rev-parse", "HEAD"]);
+    git_in(&work, &["push", "--quiet", "origin", "HEAD:refs/heads/later"]);
+    git_in(&work, &["update-ref", "-d", "refs/remotes/origin/later"]);
+    let after = git_in(
+        &upstream,
+        &["commit-tree", &format!("{head}^{{tree}}"), "-p", &head, "-m", "after"],
+    );
+    git_in(&upstream, &["update-ref", "refs/heads/later", &after]);
+    assert!(source::git(Some(&work), ["cat-file", "-e", after.as_str()]).is_err());
+    let check = share::check_share(&dir).unwrap();
+    assert!(!not_on_origin(&check), "{check:?}");
+}
+
+#[test]
+fn adds_of_one_repository_take_turns_on_its_clone() {
+    let root = tempfile::tempdir().unwrap();
+    let clone = root.path().join("cache/github.com/acme/widgets");
+    let held = source::lock_clone(&clone, || panic!("nobody holds it yet")).unwrap();
+    let lock = root.path().join("cache/github.com/acme/widgets.lock");
+    assert!(lock.is_file());
+
+    // A second add waits (and says so) until the first lets go.
+    let (said, heard) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn({
+        let clone = clone.clone();
+        move || {
+            let second = source::lock_clone(&clone, move || said.send(()).unwrap()).unwrap();
+            drop(second);
+        }
+    });
+    heard.recv_timeout(std::time::Duration::from_secs(10)).expect("the second add waits");
+    assert!(!waiter.is_finished());
+    drop(held);
+    waiter.join().unwrap();
+    // Free again.
+    source::lock_clone(&clone, || panic!("free after both")).unwrap();
 }
 
 #[test]

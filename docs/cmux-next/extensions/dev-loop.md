@@ -108,9 +108,11 @@ cmux ext search [WORDS]           # extensions people tagged on GitHub
 ```
 
 - **`ext share`** checks that the folder can be added elsewhere, then prints a link pinned to the
-  commit. To pass, the manifest must be valid, the folder must be in a git repository whose
-  origin is on GitHub or an https host, the commit must be pushed, and the built main script
-  (`dist/main.js`) must be committed. Anything missing is listed, and the exit code is 8. For a
+  commit. To pass, the folder must be in a git repository whose origin is on GitHub or an https
+  host, origin must have the commit (it asks origin, not your remote-tracking branches), and the
+  commit itself must hold a valid manifest and the built main script (`dist/main.js`). Changes
+  that are only staged or in the folder do not count, since the link installs the commit.
+  Anything missing is listed, and the exit code is 8. For a
   repository on GitHub it also reminds you to add the topic `cmux-extension`, which is what
   `ext search` lists.
 - **`ext add SOURCE`** clones the repository into `~/.cache/cmux/extensions/HOST/OWNER/NAME`, or
@@ -118,7 +120,8 @@ cmux ext search [WORDS]           # extensions people tagged on GitHub
   then runs the reload `ext dev --once` runs: validate, copy into cmux, reload, render once.
   Last, it asks you to install the extension on the usual consent card. Until you confirm, it
   loads as a preview.
-  - Adding it again updates it to the source's current commit.
+  - Adding it again updates it to the source's current commit. Two adds of one repository take
+    turns on its clone.
   - `cmux ext remove local/NAME` removes it.
   - `cmux ext list` shows where each extension came from.
   - `--no-install` skips the card, and `--json` returns the `ext dev --once` fields plus `from`
