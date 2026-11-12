@@ -4,9 +4,11 @@
 // leaves focus on what it pressed, so a reveal held by `:focus-within` stays drawn after the person
 // has gone elsewhere (Leo, 2026-11-12, on a queued prompt's Steer, trash and ⋯: "if i click into
 // the app or click into you for the workspace like focus anything the composer just the window the
-// pane it should fade away"). The keyboard's reach is `:has(:focus-visible)` instead: the build
-// gates every `:focus-visible` on a key having earned it (FOCUS-RING, src/ui/focusModality.ts), and
-// the window's blur, a press or a scroll takes it away.
+// pane it should fade away"). The keyboard's reach is `:has(:focus-visible)` instead, and in a page
+// that installs pageKey.ts, under `:root:not([data-page-inactive])`: the build gates `:focus-visible`
+// on a key having earned it (FOCUS-RING, src/ui/focusModality.ts) only for rings, never for an
+// opacity or visibility reveal, so the page's key state is what fades a reveal when another pane or
+// app takes the keyboard.
 //
 // Detector: every style rule whose selector holds `:focus-within` and whose block sets `opacity: 1`
 // or `visibility: visible` is listed; ALLOWED names the ones that reveal on purpose, with why.
