@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43284805111",
+  "recorded_at": "2026-11-12T19:11:39Z",
+  "reason": "cmux-tui 3aa6d2c6f7f7 changes the image's cmux-tui (pinned 8db1c969aed8)",
+  "dry_run": false,
+  "cmux_tui": "3aa6d2c6f7f7e7c2ccb6c50601f972876f8f9d1a",
+  "fixes": [
+    {
+      "sha": "3aa6d2c6f7f7e7c2ccb6c50601f972876f8f9d1a",
+      "mergedAt": "2026-11-12T10:25:31-08:00",
+      "subject": "acpmux-book: a chat as a book (rows, segment log, indexes, checkpoint, torn-tail repair), v2 PR 1 (#41934)"
+    },
+    {
+      "sha": "c0fbbda6c00af54b14abb903c96ce199c9e0941e",
+      "mergedAt": "2026-11-12T12:09:59-06:00",
+      "subject": "fix(cmux-tui): a connection the daemon ends closes every descriptor of its socket"
+    },
+    {
+      "sha": "ccbcca01b20f1c30c53d0af8762f99bc7be8247e",
+      "mergedAt": "2026-11-12T12:09:59-06:00",
+      "subject": "test(cmux-tui): a line connection the daemon ends closes its socket while a writer clone lives on"
+    },
+    {
+      "sha": "dec20c79956f53816c0bdc1517fdb907a95a2443",
+      "mergedAt": "2026-11-12T12:09:12-06:00",
+      "subject": "perf(cmux-tui): the readers of one list-workspaces build share one serialization of its tree"
+    },
+    {
+      "sha": "2e5ccdced49232a30e4f8098c3c75524ee86ee25",
+      "mergedAt": "2026-11-12T12:09:12-06:00",
+      "subject": "test(cmux-tui): the readers of one list-workspaces build share one serialization of its tree (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T19:11:39Z",
+    "snapshot_id": "sh-0165c322ed8b49448cf3701b553b4857",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43284805111): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a8a0a789b1a5cb860643d61c5ebce063957131dd",
+    "image": "cloud-native-auto-3aa6d2c6-43284805111-1",
+    "revision": "ci-43284805111-1",
+    "at": "2026-11-12T19:11:39Z"
+  },
+  "rolled_back": false
+}
