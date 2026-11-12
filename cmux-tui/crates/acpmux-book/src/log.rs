@@ -63,6 +63,9 @@ pub const SEGMENT_BYTES: u64 = 64 * 1024 * 1024;
 pub const SEQ_STRIDE: u64 = 256;
 /// The most segment files kept open for reading besides the last one.
 const MAX_READERS: usize = 4;
+/// How long `open` waits for the book's lock before it is [`Error::Busy`]: 100 tries, 2 ms apart.
+const LOCK_TRIES: u32 = 100;
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 1024 * 1024;
 
@@ -261,10 +264,20 @@ impl Log {
             .create(true)
             .truncate(false)
             .open(dir.join("lock"))?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => return Err(Error::Busy),
-            Err(TryLockError::Error(error)) => return Err(Error::Io(error)),
+        // The lock belongs to the open file, and a process this one is starting holds a copy of
+        // every open file from its fork until its exec. So a book closed a moment ago can still
+        // look held for that long: wait it out before saying another owner has it.
+        let mut tries = 0u32;
+        loop {
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(TryLockError::WouldBlock) if tries < LOCK_TRIES => {
+                    tries = tries.saturating_add(1);
+                    std::thread::sleep(LOCK_WAIT);
+                }
+                Err(TryLockError::WouldBlock) => return Err(Error::Busy),
+                Err(TryLockError::Error(error)) => return Err(Error::Io(error)),
+            }
         }
 
         let last = last_segment(&rows_dir)?;
@@ -320,7 +333,7 @@ impl Log {
                     rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
                     rewrites = rewrites.saturating_add(1);
                 }
-                if header.seq % SEQ_STRIDE == 0 {
+                if header.seq.is_multiple_of(SEQ_STRIDE) {
                     let slot = header.seq / SEQ_STRIDE;
                     if seqs.get(slot)? != Some((seg, off)) {
                         rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
@@ -517,7 +530,7 @@ impl Log {
         let indexed = self.rows.set(row_id, entry).and_then(|bytes| {
             written = written.saturating_add(bytes);
             writes = writes.saturating_add(1);
-            if seq % SEQ_STRIDE != 0 {
+            if !seq.is_multiple_of(SEQ_STRIDE) {
                 return Ok(());
             }
             let bytes = self.seqs.set(seq / SEQ_STRIDE, entry.seg, off)?;

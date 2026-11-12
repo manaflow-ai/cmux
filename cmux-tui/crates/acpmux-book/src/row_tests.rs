@@ -45,10 +45,10 @@ fn every_row_text_is_one_compact_json_value_and_its_head_reads_back() {
             id: 1 + at as u64 * 7919,
             rev: 1 + at as u32,
             kind,
-            turn: (at % 2 == 0).then_some(at as u64 + 1),
-            group: (at % 3 == 0).then_some(at as u64 + 2),
+            turn: at.is_multiple_of(2).then_some(at as u64 + 1),
+            group: at.is_multiple_of(3).then_some(at as u64 + 2),
             at: 1_794_480_726 + at as u64,
-            open: at % 4 == 0,
+            open: at.is_multiple_of(4),
             body: r#"{"md":["a \"quoted\" line","two"]}"#,
             est: at as u32,
         };

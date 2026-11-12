@@ -25,7 +25,7 @@ pub(crate) fn text(id: u64) -> Vec<u8> {
         rev: 1,
         kind: RowKind::ALL[(id % 10) as usize],
         turn: Some(id - id % 40),
-        group: (id % 3 == 0).then_some(id - id % 8),
+        group: id.is_multiple_of(3).then_some(id - id % 8),
         at: 1_794_480_726 + id,
         open: false,
         body: &body,

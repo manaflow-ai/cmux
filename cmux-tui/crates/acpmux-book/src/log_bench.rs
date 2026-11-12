@@ -170,7 +170,7 @@ fn timed_appends(log: &mut Log, from: u64, to: u64, end: u64, into: &mut Appends
         into.times.push(nanos(start));
         into.written += log.stats().bytes_written - before;
         into.text_bytes += text.len() as u64;
-        if id % CHECKPOINT_EVERY == 0 || id + ROWS_AFTER_CHECKPOINT == end {
+        if id.is_multiple_of(CHECKPOINT_EVERY) || id + ROWS_AFTER_CHECKPOINT == end {
             let state = actor_state(id);
             let before = log.stats().bytes_written;
             let start = Instant::now();
@@ -291,7 +291,7 @@ fn god_vs_small() {
     let untimed = GOD_ROWS - TIMED_ROWS;
     for id in 1..=untimed {
         log.append_settled(id, 1, &text(id)).unwrap();
-        if id % 4096 == 0 {
+        if id.is_multiple_of(4096) {
             log.write_checkpoint(actor_state(id).as_bytes()).unwrap();
         }
     }

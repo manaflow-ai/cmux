@@ -47,7 +47,7 @@ fn killed_at_every_byte_of_a_record(checkpoint_after: Option<u64>) {
         fs::write(segment(&copy), &whole[..cut]).unwrap();
         // The index write comes after the record's. Half the time the entry is not there (the
         // kill came first); half the time it is, pointing past the end (a stale page).
-        if cut % 2 == 0 && cut < whole.len() {
+        if cut.is_multiple_of(2) && cut < whole.len() {
             forget_index_entry(&copy, 8);
         }
 
@@ -113,14 +113,14 @@ fn killed_across_the_largest_record() {
     let whole = fs::read(segment(&book)).unwrap();
     assert_eq!(whole.len(), settled + MAX_ROW_TEXT + RECORD_OVERHEAD);
     let near_an_end = |cut: usize| cut < settled + 128 || cut + 128 >= whole.len();
-    for cut in (settled..whole.len()).filter(|cut| near_an_end(*cut) || cut % 53 == 0) {
+    for cut in (settled..whole.len()).filter(|cut| near_an_end(*cut) || cut.is_multiple_of(53)) {
         fs::write(segment(&book), &whole[..cut]).unwrap();
         let (mut log, recovered) = open(&book);
         assert_eq!(recovered.truncated as usize, cut - settled, "cut {cut}");
         assert_eq!((log.last_seq(), log.max_row()), (3, 3), "cut {cut}");
         assert!(log.row(4).is_none(), "a row whose record was cut off has not settled");
         assert_eq!(log.append_settled(4, 1, &large).unwrap(), 4, "cut {cut}");
-        if cut % 5 == 0 {
+        if cut.is_multiple_of(5) {
             let window = log.window(Anchor::End, 400, 1 << 20);
             assert_eq!(ids(&window.rows), vec![1, 2, 3, 4]);
             assert!(texts(&mut log, &window.rows).0[3] == large);
@@ -266,7 +266,7 @@ fn kill9_writer_entry() {
     loop {
         log.append_settled(id, 1, &text(id)).unwrap();
         println!("settled {id}");
-        if id % 64 == 0 {
+        if id.is_multiple_of(64) {
             log.write_checkpoint(&id.to_le_bytes()).unwrap();
         }
         id += 1;

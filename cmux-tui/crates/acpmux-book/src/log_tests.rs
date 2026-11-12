@@ -44,7 +44,7 @@ fn an_append_writes_the_row_and_a_constant() {
         let before = log.stats();
         log.append_settled(id, 1, &text(id)).unwrap();
         let after = log.stats();
-        let seq_entry = if id % SEQ_STRIDE == 0 { 8 } else { 0 };
+        let seq_entry = if id.is_multiple_of(SEQ_STRIDE) { 8 } else { 0 };
         let wrote = text(id).len() as u64 + RECORD_OVERHEAD as u64 + ROW_ENTRY_LEN + seq_entry;
         assert_eq!(after.bytes_written - before.bytes_written, wrote, "row {id}");
         assert_eq!(after.writes - before.writes, if seq_entry == 0 { 2 } else { 3 });
@@ -204,7 +204,7 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
     assert_eq!(tight.rows.last().unwrap().row_id, 1000);
     assert_eq!(log.window(Anchor::End, 400, 0).rows.len(), 1, "never empty for its size");
     assert_eq!(log.window(Anchor::End, 0, 1 << 20).rows.len(), 0);
-    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).rows.len(), 4096.min(1000));
+    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).rows.len(), 1000);
 
     let before = log.window(Anchor::Row { id: 500, side: Side::Before }, 100, 1 << 20);
     assert_eq!(ids(&before.rows), (401..=500).collect::<Vec<_>>());
@@ -239,16 +239,16 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
 fn unsettled_ids_between_settled_rows_are_stepped_over() {
     let home = tempfile::tempdir().unwrap();
     let (mut log, _) = open(home.path());
-    for id in (10..=200).filter(|id| id % 3 != 0) {
+    for id in (10..=200).filter(|id| !id.is_multiple_of(3)) {
         log.append_settled(id, 1, &text(id)).unwrap();
     }
     let window = log.window(Anchor::Row { id: 99, side: Side::Around }, 20, 1 << 20);
     assert_eq!(window.rows.len(), 20);
-    assert!(window.rows.iter().all(|row| row.row_id % 3 != 0));
+    assert!(window.rows.iter().all(|row| !row.row_id.is_multiple_of(3)));
     assert!(window.rows.windows(2).all(|pair| pair[0].row_id < pair[1].row_id));
     assert_eq!((log.min_row(), log.max_row()), (10, 200));
     let all = whole_book(&mut log);
-    assert_eq!(all.len(), (10..=200).filter(|id| id % 3 != 0).count());
+    assert_eq!(all.len(), (10..=200u64).filter(|id| !id.is_multiple_of(3)).count());
     let first = log.page(Edge::Before(12), MAX_PAGE_BYTES);
     assert_eq!((ids(&first.rows), first.has_before), (vec![10, 11], false));
 }
