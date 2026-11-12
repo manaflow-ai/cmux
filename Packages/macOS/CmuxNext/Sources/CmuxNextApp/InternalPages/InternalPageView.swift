@@ -118,4 +118,9 @@ extension InternalPageView: ToolbarEdgeHosting {}
 extension InternalPageView: PageHistoryHosting {}
 extension InternalPageView: ChiefPanelContent { var chiefIsAnswering: Bool { (content as? any ChiefPanelContent)?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { (content as? any ChiefPanelContent)?.chiefShowsThrough == true } set { (content as? any ChiefPanelContent)?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { (content as? any ChiefPanelContent)?.chiefHeaderHeight ?? 0 } }
 /// Its hover-card picture (``PageTabPictures``): a React page's, nothing for a native page.
-extension InternalPageView: PagePictureSubject { var pictureKey: String { key }; var isOnScreen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }; func picture(maxPixelWidth: CGFloat) async -> CGImage? { await PageWebView.shown(in: content)?.picture(maxPixelWidth: maxPixelWidth) } }
+extension InternalPageView: PagePictureSubject { var pictureKey: String { key }; var isOnScreen: Bool { window != nil && !isHiddenOrHasHiddenAncestor }; func picture(maxPixelWidth: CGFloat) async -> CGImage? {
+    guard let page = PageWebView.shown(in: content) else { return nil }
+    // A page on screen draws its next frame first: after a theme change its last frame is the old theme.
+    if isOnScreen { await withCheckedContinuation { done in page.afterNextFrame { done.resume() } } }
+    return await page.picture(maxPixelWidth: maxPixelWidth)
+} }
