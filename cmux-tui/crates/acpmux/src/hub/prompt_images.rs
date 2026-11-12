@@ -198,14 +198,16 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
             if !path.is_file() {
                 let written = crate::config::refuse_lost_home(&path)
                     .map_err(std::io::Error::other)
-                    .and_then(|()| std::fs::create_dir_all(dir()))
+                    // Through the folder this daemon holds (`home_fs`): a home replaced after
+                    // the check never gets the image.
+                    .and_then(|()| crate::home_fs::create_dir_all(dir(), 0o777))
                     .and_then(|()| {
                         // Written aside and renamed, so a reader never sees half an image.
                         let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
                         let written = write_owner_only(&partial, &bytes)
-                            .and_then(|()| std::fs::rename(&partial, &path));
+                            .and_then(|()| crate::home_fs::rename(&partial, &path));
                         if written.is_err() {
-                            let _ = std::fs::remove_file(&partial);
+                            let _ = crate::home_fs::remove_file(&partial);
                         }
                         written
                     });
@@ -219,14 +221,35 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
         .collect()
 }
 
+/// Sets a prompt record's `inlineParts` to `parts`, unless they say nothing its `text` does not:
+/// none, or one plain text part (no paste, file or display fields) whose text is the record's
+/// `text`. Every reader falls back to `text` without them, as for a record from before
+/// `inlineParts` (`retry_turn.rs` `prompt_blocks`, `fork_before.rs`, the web and iOS
+/// transcripts), and that one part was the prompt's whole text a second time in the record, in
+/// the journal and in the log's kind index (cmuxterm-hq#9263).
+pub(super) fn set_inline_parts(msg: &mut Value, parts: Vec<Value>) {
+    let only_text = match parts.as_slice() {
+        [] => true,
+        [part] => {
+            part.as_object().is_some_and(|fields| {
+                fields.len() == 2 && fields.get("kind").and_then(Value::as_str) == Some("text")
+            }) && part.get("text").and_then(Value::as_str).is_some()
+                && part.get("text") == msg.get("text")
+        }
+        _ => false,
+    };
+    if !only_text {
+        msg.set("inlineParts", Value::Array(parts));
+    }
+}
+
 /// Writes a new file only its owner reads (0600 on Unix).
 fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(bytes)
+    let mut file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
@@ -526,9 +549,7 @@ impl Hub {
             msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
-        if !ordered.is_empty() {
-            msg.set("inlineParts", Value::Array(ordered));
-        }
+        set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
         // by turns.rs. Only unrecorded client context prevents Retry/restart replay.

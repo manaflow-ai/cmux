@@ -13,7 +13,10 @@
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
 //! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic; a `stack`
-//! one is refused before any request. `vm.scp_endpoint` is cmux-platform's
+//! one is refused before any request. `machine.chat_access` and `machine.share_chat` are
+//! cmux-platform's `/v1/machines/{id}/chat-access` and `/v1/machines/{id}/chat-grants/{user}`
+//! (who may start app chats on a team machine, and Share with Me; [`chat`]); a `stack` call is
+//! refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
@@ -45,6 +48,7 @@
 #![cfg(unix)]
 
 pub mod classic_runs;
+mod chat;
 mod http;
 mod machine;
 pub mod machine_io;
@@ -118,6 +122,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
+        call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
+            Err(not_on_this_cloud(call))
+        }
+        call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
@@ -170,7 +178,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 37] = [
+pub const CALLS: [&str; 39] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -208,6 +216,8 @@ pub const CALLS: [&str; 37] = [
     "previews.create_link",
     "previews.revoke_link",
     "machine.io",
+    "machine.chat_access",
+    "machine.share_chat",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

@@ -73,6 +73,35 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
     static ROUTE_WAIT_START_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
+    static LIVE_TERMINAL_HOOK: std::cell::RefCell<Option<LiveTerminalHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A test's hook on the live surface that a terminal builder has just taken.
+#[cfg(test)]
+pub(crate) type LiveTerminalHook = Box<dyn FnMut(&crate::Surface)>;
+
+/// `hook` runs on this thread each time the builder of the terminals has taken the live surface of a terminal,
+/// before it builds the value of that terminal (test hook: a test closes the terminal under the read at that
+/// point). `None` removes the hook.
+#[cfg(test)]
+pub(crate) fn set_live_terminal_hook_on_this_thread(hook: Option<LiveTerminalHook>) {
+    LIVE_TERMINAL_HOOK.with(|slot| *slot.borrow_mut() = hook);
+}
+
+/// Runs the hook of [`set_live_terminal_hook_on_this_thread`]. The hook is out of its slot while it runs, because
+/// a mutation that it makes can build a terminal list on this thread.
+#[cfg(test)]
+pub(super) fn run_live_terminal_hook(surface: &crate::Surface) {
+    let hook = LIVE_TERMINAL_HOOK.with(|slot| slot.borrow_mut().take());
+    let Some(mut hook) = hook else { return };
+    hook(surface);
+    LIVE_TERMINAL_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(hook);
+        }
+    });
 }
 
 /// `hook` runs on this thread each time a snapshot read here starts a wait for a mutator, before the wait (test
@@ -162,6 +191,48 @@ pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnaps
     Ok(built)
 }
 
+/// The public workspaces, screens, panes and tabs of `rows`, before their state fields.
+fn public_values(rows: &SessionRows) -> anyhow::Result<PublicValues> {
+    let topology = &rows.topology;
+    let tabs_by_pane = tabs_by_pane(&topology.tabs);
+    let panes_by_id =
+        topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+    let screens_by_id = topology
+        .screens
+        .iter()
+        .map(|screen| (&screen.public_id, screen))
+        .collect::<HashMap<_, _>>();
+    let workspaces = public_workspace_values(&rows.registry, topology)?;
+    let screens = topology
+        .screens
+        .iter()
+        .map(|screen| public_screen_value(topology, screen, &tabs_by_pane, &panes_by_id))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let (panes, tabs) = public_pane_and_tab_values(topology, &screens_by_id, &panes_by_id)?;
+    Ok((workspaces, screens, panes, tabs))
+}
+
+/// Workspaces, screens, panes and tabs.
+type PublicValues = (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>);
+
+/// The snapshot's `workspaces`, `screens` and `tabs` as its rows give them, before their state
+/// fields (test hook: the decoration's equality check decorates them two ways).
+#[cfg(test)]
+pub(crate) fn undecorated_snapshot_values_for_test(
+    connection: &rusqlite::Connection,
+    mux: &Mux,
+) -> anyhow::Result<Value> {
+    let (registry_id, generation) = mux.registry_identity();
+    let rows = crate::workspace_registry::read_session_rows(
+        connection,
+        &registry_id,
+        &generation,
+        &mux.session_public_id,
+    )?;
+    let (workspaces, screens, _panes, tabs) = public_values(&rows)?;
+    Ok(json!({"workspaces": workspaces, "screens": screens, "tabs": tabs}))
+}
+
 fn build(
     connection: &rusqlite::Connection,
     registry_id: &str,
@@ -180,25 +251,7 @@ fn build(
             && rows.registry.resource_revision == rows.topology.revision,
         "resource projection changed while snapshotting"
     );
-    let (workspaces, screens, panes, tabs) = {
-        let topology = &rows.topology;
-        let tabs_by_pane = tabs_by_pane(&topology.tabs);
-        let panes_by_id =
-            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
-        let screens_by_id = topology
-            .screens
-            .iter()
-            .map(|screen| (&screen.public_id, screen))
-            .collect::<HashMap<_, _>>();
-        let workspaces = public_workspace_values(&rows.registry, topology)?;
-        let screens = topology
-            .screens
-            .iter()
-            .map(|screen| public_screen_value(topology, screen, &tabs_by_pane, &panes_by_id))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let (panes, tabs) = public_pane_and_tab_values(topology, &screens_by_id, &panes_by_id)?;
-        (workspaces, screens, panes, tabs)
-    };
+    let (workspaces, screens, panes, tabs) = public_values(&rows)?;
     let mut decorated = json!({"workspaces": workspaces, "screens": screens, "tabs": tabs});
     crate::state::values::decorate_snapshot(connection, &mut decorated)?;
     let mut take = |key: &str| match decorated.get_mut(key).map(Value::take) {

@@ -760,10 +760,13 @@ if (import.meta.main) {
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
-          // And where a record's time goes at the largest checkpoint, growing or not.
-          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
-          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
-            console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the smallest and the largest checkpoint, growing or
+          // not: the smallest is the cost every chat pays, however short.
+          for (const at of [first, last]) {
+            console.log(`  ${kind}: most self ms per record at ${at.rows} rows`);
+            for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+              console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          }
         }
       } catch (error) {
         failed += 1;

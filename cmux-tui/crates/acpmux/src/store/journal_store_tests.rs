@@ -1095,6 +1095,9 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
     });
     let journal = SimStorage::new(47);
     let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    // After the store: a panic before the releases lets both holds go before the unwind drops it.
+    let idle_release = super::journal_store::Release::new(idle_release);
+    let touch_release = super::journal_store::Release::new(touch_release);
     // The checkpointer found nothing to do, marked itself idle and holds the timer lock.
     idle_seen
         .recv_timeout(WAIT)
@@ -1111,8 +1114,8 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
         .unwrap_or_else(|e| panic!("the change never took the idle flag: {e}"));
     // The second look sees the change, so the checkpointer goes to its period wait (30 s), and
     // the change's notify comes in there.
-    idle_release.send(()).unwrap_or_else(|e| panic!("{e}"));
-    touch_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    idle_release.now();
+    touch_release.now();
     appender.join().unwrap_or_else(|_| panic!("the append panicked"));
     std::thread::sleep(Duration::from_millis(300));
     let woke = checkpointer_seams(home.path(), |seams| seams.wakes);
@@ -1897,5 +1900,260 @@ fn a_retention_rewrite_of_a_replayed_chat_checkpoints_first() {
         kept_aside(home.path(), CHAT).is_empty(),
         "a replay kept a rewritten chat's journaled lines aside: {:?}",
         kept_aside(home.path(), CHAT)
+    );
+}
+
+/// #41627 F1, the class: a test that holds a thread the store owns (the checkpointer's
+/// `idle_hold` and `touch_hold`) releases it through `journal_store::Release` bound after the
+/// store, never a bare `send` on the hold's sender. A bare sender bound before the store outlives
+/// it on an unwind: a panic before the send (a `recv_timeout` that expired) drops the store first,
+/// and its drop waits on the held thread forever, so a timeout becomes a hang. Scans every source
+/// file of the crate.
+#[test]
+fn every_checkpointer_hold_is_released_by_a_guard_bound_after_the_store() {
+    fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
+        let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &mut files);
+    // Built here, so this scan's own text is not an install.
+    let installs = ["idle_hold", "touch_hold"].map(|seam| format!("{seam} = Some(("));
+    let mut found = Vec::new();
+    let mut checked = 0;
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        // One test (or helper) per top-level `fn`: the text up to the next one.
+        for body in text.split("\nfn ").skip(1) {
+            let body = body.split("\n}\n").next().unwrap_or(body);
+            let held: Vec<&str> = installs
+                .iter()
+                .filter_map(|install| {
+                    let at = body.find(install.as_str())?;
+                    let pair = &body[at + install.len()..];
+                    let release = pair.split(&[',', ')'][..]).nth(1)?.trim();
+                    Some(release)
+                })
+                .collect();
+            for receiver in held {
+                checked += 1;
+                let name = body.split('(').next().unwrap_or("?");
+                // The sender that pairs with `receiver`: `let (sender, receiver) = ...channel()`.
+                let sender = body.lines().find_map(|line| {
+                    let pair = line.trim().strip_prefix("let (")?;
+                    let (sender, rest) = pair.split_once(',')?;
+                    let rest = rest.trim_start();
+                    rest.strip_prefix(receiver)
+                        .filter(|after| after.starts_with(')'))
+                        .map(|_| sender.trim())
+                });
+                let Some(sender) = sender else {
+                    found.push(format!(
+                        "{}: {name}: no `let ({{sender}}, {receiver})` pair",
+                        file.display()
+                    ));
+                    continue;
+                };
+                let guard = format!("Release::new({sender})");
+                let store = body.find("let store");
+                match (body.find(&guard), store) {
+                    (Some(at), Some(store)) if at > store => {}
+                    (Some(_), _) => found.push(format!(
+                        "{}: {name}: `{guard}` is bound before the store",
+                        file.display()
+                    )),
+                    (None, _) => found.push(format!(
+                        "{}: {name}: the release `{sender}` is not a `Release` guard",
+                        file.display()
+                    )),
+                }
+            }
+        }
+    }
+    assert!(checked >= 3, "the scan found {checked} checkpointer holds: it no longer sees them");
+    assert!(found.is_empty(), "a hold a panic can leave unreleased:\n{}", found.join("\n"));
+}
+
+/// #41816 follow-up, the class: a test that waits for the code under test to reach a hold (an
+/// `arrived`, `entered`, `copied` or `ready` signal, or the hold's own channel) waits with a
+/// bound, `recv_timeout`, and panics naming what did not arrive. A bare blocking `recv` there
+/// blocks forever when the code never reaches the hold (or keeps the sender alive), so a
+/// regression becomes a hung run instead of a failure. Scans every test source of the crate:
+/// the test-only files (`*tests.rs`, `*_bench.rs`, any `#[cfg(test)] mod name;`) and every
+/// `#[cfg(test)] mod name { ... }` block. A hold's own park (its receiver named `release`,
+/// `release_rx`, `gate` or `go_rx`) may wait unbounded: it ends when the test's sender drops on
+/// an unwind, and a `while let` reader draining a channel ends when its senders drop. `ALLOWED`
+/// lists the other unbounded waits, each with why it cannot hang.
+#[test]
+fn every_test_wait_on_a_hold_is_bounded() {
+    /// `(file under src/, receiver, why it may block unbounded)`.
+    const ALLOWED: &[(&str, &str, &str)] = &[(
+        "agent_host/host/orphan.rs",
+        "held",
+        "the harness waiter's park: it ends when the test drops `release`",
+    )];
+    const PARKS: &[&str] = &["release", "release_rx", "gate", "go_rx"];
+    fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
+        let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+    fn ident(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
+    /// The byte ranges of `text` that only build under test: all of it for a test-only file,
+    /// else each `#[cfg(test)] mod name {` block to its closing brace.
+    fn test_ranges(text: &str, whole: bool) -> Vec<(usize, usize)> {
+        if whole {
+            return vec![(0, text.len())];
+        }
+        let mut ranges = Vec::new();
+        let attr = "#[cfg(test)]";
+        let mut from = 0;
+        while let Some(at) = text[from..].find(attr).map(|i| from + i) {
+            from = at + attr.len();
+            // Other attributes may sit between it and the item.
+            let mut rest = text[from..].trim_start();
+            while rest.starts_with("#[") {
+                rest = rest.split_once(']').map_or("", |(_, r)| r).trim_start();
+            }
+            let rest =
+                rest.strip_prefix("pub(crate) ").or(rest.strip_prefix("pub ")).unwrap_or(rest);
+            let Some(module) = rest.strip_prefix("mod ") else { continue };
+            let head = module.find(|c: char| !ident(c)).unwrap_or(module.len());
+            if !module[head..].trim_start().starts_with('{') {
+                continue;
+            }
+            let open = text.len() - module.len() + head + module[head..].find('{').unwrap_or(0);
+            let mut depth = 0usize;
+            for (i, c) in text[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            ranges.push((open, open + i));
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        ranges
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &mut files);
+    files.sort();
+    let texts: Vec<String> =
+        files.iter().map(|file| std::fs::read_to_string(file).unwrap_or_default()).collect();
+    // Modules declared `#[cfg(test)] mod name;`: their files only build under test.
+    let mut test_modules = std::collections::BTreeSet::new();
+    for text in &texts {
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let line = line.trim();
+            let line =
+                line.strip_prefix("pub(crate) ").or(line.strip_prefix("pub ")).unwrap_or(line);
+            let Some(name) = line.strip_prefix("mod ").and_then(|m| m.strip_suffix(';')) else {
+                continue;
+            };
+            let attrs = lines[..i].iter().rev().take_while(|l| l.trim().starts_with("#["));
+            if attrs.into_iter().any(|l| l.trim() == "#[cfg(test)]") {
+                test_modules.insert(name.to_owned());
+            }
+        }
+    }
+    // Built here, so this scan's own text is not a call.
+    let calls = ["recv", "blocking_recv"].map(|wait| format!(".{wait}()"));
+    let mut found = Vec::new();
+    let mut allowed_seen = vec![false; ALLOWED.len()];
+    let mut checked = 0;
+    for (file, text) in files.iter().zip(&texts) {
+        let relative = file.strip_prefix(&root).unwrap_or(file);
+        let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let whole = stem.ends_with("tests")
+            || stem.ends_with("_bench")
+            || relative.iter().any(|part| {
+                let part = part.to_str().unwrap_or("");
+                test_modules.contains(part.strip_suffix(".rs").unwrap_or(part))
+            });
+        let ranges = test_ranges(text, whole);
+        if !ranges.is_empty() {
+            checked += 1;
+        }
+        for ((start, end), call) in ranges.iter().flat_map(|r| calls.iter().map(move |c| (*r, c))) {
+            let region = &text[start..end];
+            let mut from = 0;
+            while let Some(at) = region[from..].find(call.as_str()).map(|i| from + i) {
+                from = at + call.len();
+                let after = region[from..].trim_start();
+                // An async receiver's future: awaited, or handed to a `timeout`, `select!` or join.
+                if after.starts_with(".await") || after.starts_with([')', ',', '=']) {
+                    continue;
+                }
+                // A reader draining a channel (`while let Some(line) = rx.recv()`): it ends
+                // when the senders drop, and waits on no hold.
+                // A comment that names one (this scan's own) is no wait.
+                let line_start = region[..at].rfind('\n').map_or(0, |i| i + 1);
+                let lead = region[line_start..at].trim_start();
+                if lead.starts_with("while let ") || lead.starts_with("//") {
+                    continue;
+                }
+                // The receiver: the expression chain right before the call (`rx`,
+                // `self.gate.lock().unwrap()`), across a line break before a leading `.`.
+                let before = &region[..at];
+                let mut head = before.len();
+                let mut parens = 0usize;
+                for (i, c) in before.char_indices().rev() {
+                    match c {
+                        ')' => parens += 1,
+                        '(' if parens > 0 => parens -= 1,
+                        _ if parens > 0 => {}
+                        c if ident(c) || c == '.' || c == ':' => {}
+                        _ => break,
+                    }
+                    head = i;
+                }
+                let receiver = &before[head..];
+                let names: Vec<&str> = receiver.split(|c: char| !ident(c)).collect();
+                if names.iter().any(|name| PARKS.contains(name)) {
+                    continue;
+                }
+                let line = text[..start + at].lines().count();
+                let last = names.iter().rev().find(|n| !n.is_empty()).copied().unwrap_or("?");
+                let path = relative.to_string_lossy();
+                if let Some(i) = ALLOWED.iter().position(|(f, r, _)| *f == path && *r == last) {
+                    allowed_seen[i] = true;
+                    continue;
+                }
+                found.push(format!("{path}:{line}: `{receiver}{call}` has no bound"));
+            }
+        }
+    }
+    for ((file, receiver, _), seen) in ALLOWED.iter().zip(allowed_seen) {
+        assert!(seen, "ALLOWED lists `{receiver}` in {file}, which no longer waits there");
+    }
+    assert!(checked >= 50, "the scan read {checked} test sources: it no longer sees them");
+    assert!(
+        found.is_empty(),
+        "a test waits on a hold with no bound; use `recv_timeout` and name what did not \
+         arrive:\n{}",
+        found.join("\n")
     );
 }

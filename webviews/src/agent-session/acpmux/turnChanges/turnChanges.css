@@ -35,3 +35,19 @@
    (Leo 2026-11-07, on a diff card nested in this one: "the rest of the card situation"), so the card
    has one rim and one radius and its Show all / Show less row is the card's bottom row. */
 .acpmux-edited-diff>.cv-edit-diff{margin:0;border-radius:0;background:none;box-shadow:none}
+/* Only the chat's latest card shows its buttons at rest; an earlier card's Undo and View changes, and
+   every card's Second opinion, show on the card's hover or keyboard focus, as an earlier reply's
+   footer does (conversation.css .cv-turn-actions), so a long chat is not a column of buttons (Leo,
+   2026-11-11: "holy fuck it's so shitty to look at the transcript right now"). An Undo under way
+   or its result stays shown. Opacity only: nothing moves, and the buttons keep their place. The
+   hiding rules weigh less than the reveals (:where), so hover, focus or an open menu always wins. */
+.acpmux-edited:where([data-earlier]:not([data-undo])) :is(.acpmux-edited-undo,.acpmux-review-changes),
+.acpmux-edited .acpmux-second-opinion{opacity:0}
+.acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),
+.acpmux-edited:has([data-popup-open]) :is(.acpmux-edited-undo,.acpmux-review-changes),
+:root:not([data-page-inactive]) .acpmux-edited:has(:focus-visible) :is(.acpmux-edited-undo,.acpmux-review-changes){opacity:1}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .acpmux-edited :is(.acpmux-edited-undo,.acpmux-review-changes){transition:opacity var(--cv-actions-out) var(--cv-actions-out-ease),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+  .acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),
+  .acpmux-edited:has([data-popup-open]) :is(.acpmux-edited-undo,.acpmux-review-changes){transition:opacity var(--cv-actions-in) var(--cv-actions-in-ease),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+}

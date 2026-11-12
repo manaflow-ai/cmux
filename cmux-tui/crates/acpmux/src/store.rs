@@ -25,7 +25,7 @@ pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
-pub use kind_index::INDEXED_KINDS;
+pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -73,17 +73,23 @@ pub enum SessionStatus {
     Closed,
 }
 
-impl std::fmt::Display for SessionStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl SessionStatus {
+    /// The status as a session list's `status` says it (its `Display`).
+    pub fn as_str(self) -> &'static str {
+        match self {
             Self::Idle => "idle",
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Waiting => "waiting",
             Self::Disconnected => "disconnected",
             Self::Closed => "closed",
-        };
-        f.write_str(s)
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -156,9 +162,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
-    #[serde(alias = "harness")]
+    /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
+    #[serde(alias = "agent")]
     pub harness: String,
-    #[serde(default, alias = "agent_argv")]
+    /// `agentArgv` (or `agent_argv`) in a chat stored before that rename.
+    #[serde(default, alias = "agentArgv", alias = "agent_argv")]
     pub harness_argv: Vec<String>,
     /// The argv its agent last started with: a config or preset reload since creation can change
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
@@ -916,6 +924,10 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = test_clock::followed_now_ms() {
+        return now;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -927,16 +939,26 @@ pub fn now_ms() -> u64 {
 
 /// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
 /// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+/// Followed (`follow_tokio`), it is the wall time at the follow plus tokio's ticked time, never
+/// the real time since.
 #[cfg(test)]
 pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
-    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+    // Followed: tokio's instant and the real wall time (ms) at the follow.
+    thread_local!(static FOLLOW: Cell<Option<(tokio::time::Instant, u64)>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
-        AHEAD_MS.with(Cell::get) + followed as u64
+        AHEAD_MS.with(Cell::get)
+    }
+
+    /// This thread's wall clock while it follows tokio: the wall time at the follow, the ticked
+    /// time since and what it was moved. None when it does not follow.
+    pub(crate) fn followed_now_ms() -> Option<u64> {
+        let (origin, wall) = FOLLOW.with(Cell::get)?;
+        let ticked = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Some(wall.saturating_add(ticked).saturating_add(ahead_ms()))
     }
 
     /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
@@ -949,13 +971,41 @@ pub(crate) mod test_clock {
     /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
     /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
     pub(crate) fn follow_tokio() {
-        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        FOLLOW.with(|f| f.set(Some((tokio::time::Instant::now(), wall))));
     }
 
     /// Back to the real wall clock.
     pub(crate) fn reset() {
         AHEAD_MS.with(|a| a.set(0));
         FOLLOW.with(|f| f.set(None));
+    }
+
+    /// A followed clock is ticked time only: the real milliseconds a run takes, more on a loaded
+    /// host, never move it, so the wall-clock rules a test drives (a peer parked after a day
+    /// down) fall on the same tick in every run (`stress::reconnect`, "a seed replays its
+    /// schedule exactly", failed at 9dc6d10f under load 22-60).
+    #[tokio::test(start_paused = true)]
+    async fn a_followed_clock_moves_with_ticked_time_only() {
+        follow_tokio();
+        let before = super::now_ms();
+        // Real time passes, as when a loaded host deschedules the test; tokio's paused clock
+        // does not (no await, so it cannot auto-advance).
+        let real = std::time::Instant::now();
+        while real.elapsed() < std::time::Duration::from_millis(20) {
+            std::hint::spin_loop();
+        }
+        let after_real = super::now_ms();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let after_tick = super::now_ms();
+        advance(5_000);
+        let after_sleep = super::now_ms();
+        reset();
+        assert_eq!(after_real, before, "20 ms of real time moved the followed clock");
+        assert_eq!(after_tick, before + 1_000, "1 s of ticked time");
+        assert_eq!(after_sleep, before + 6_000, "a computer sleep still runs the wall clock ahead");
     }
 }
 
@@ -1022,6 +1072,21 @@ pub trait Store: Send + Sync {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan(id, after, visit)
+    }
+    /// [`Store::scan_back`] for a read whose `skip` passes only kinds in [`INDEXED_KINDS`] (a
+    /// page of prompts, the queue, turn results): a file store reads a segment's copy of those
+    /// kinds where the copy is good (`store/kind_index.rs`), and the segment itself back from its
+    /// end where it is not, so the read never costs more than `scan_back`'s and stops where it
+    /// does. Every other store reads as `scan_back`.
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back(id, after, before, skip, visit)
     }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
@@ -1253,8 +1318,8 @@ pub use log_line::RecordHead;
 pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
-    first_seq, for_each_line_rev, for_each_line_rev_from, offset_of_seq, parse_record, record_dir,
-    record_kind, record_seq,
+    first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
+    parse_record, record_dir, record_kind, record_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1430,7 +1495,7 @@ impl LocalStore {
         let path = session.join("session.json");
         let id = entry.file_name().to_string_lossy().into_owned();
         let Ok(file) = crate::config::private_state_file(&path) else {
-            if path.exists() {
+            if crate::home_fs::try_exists_nofollow(&path)? {
                 self.mark_unlisted(&id, true);
             }
             return Ok(None);
@@ -1472,7 +1537,7 @@ impl LocalStore {
     fn validate_session_dir(&self, session: &Path) -> Result<()> {
         crate::config::private_state_dir(session)?;
         let events = session.join("events");
-        match std::fs::symlink_metadata(&events) {
+        match crate::home_fs::symlink_metadata(&events) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
             Ok(_) => crate::config::private_state_dir(&events)?,
@@ -1491,14 +1556,16 @@ impl LocalStore {
     /// late save wrote back.
     /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
     fn has_records(&self, id: &str) -> Result<bool> {
-        if std::fs::symlink_metadata(self.marker(id)).is_ok()
-            || std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        // A home that is no longer the held one is an error, never "no record" (#41721
+        // review F1): a closed chat with no record reads as purged.
+        if crate::home_fs::try_exists_nofollow(self.marker(id))?
+            || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
         {
             return Ok(true);
         }
         for (_, path) in self.segment_files(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match crate::home_fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
@@ -1519,7 +1586,7 @@ impl LocalStore {
             None => (1, dir.join("000001.ndjson")),
         };
         let file = open_private_append(&path)?;
-        let written = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let written = cut_torn_tail(&file, &path)?;
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
 }
@@ -1596,9 +1663,115 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        w.file.write_all(line)?;
+        #[cfg(test)]
+        let wrote = match test_write_fault::take() {
+            Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
+                std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"),
+            )),
+            None => w.file.write_all(line),
+        };
+        #[cfg(not(test))]
+        let wrote = w.file.write_all(line);
+        if let Err(e) = wrote {
+            // A full disk (or a signal) can write part of the line before the error. Cut it back
+            // to the last whole record, or the next append is glued onto the torn bytes: the
+            // merged line reads as no record, so that record is lost and a strict read fails.
+            // If the cut fails too, the writer is closed, not dropped: its earlier appends are
+            // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
+            // as synced), and the next open cuts the tail.
+            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
+            if cut_back(&segment, w.written).is_err()
+                && let Some(w) = writers.open.remove(id)
+            {
+                w.close(id, &self.sync_failed);
+            }
+            return Err(e.into());
+        }
         w.written += line.len() as u64;
         Ok(())
+    }
+}
+
+/// Cuts the log segment at `path` to `len` bytes, through its own handle opened to write: the
+/// writer's handle may only append (Windows grants it `FILE_APPEND_DATA` alone, and a truncate
+/// needs `FILE_WRITE_DATA`). The handle gets the same owner-only, no-link checks as every other
+/// open of a segment (`journal_store::repair::open_segment_to_write`).
+fn cut_back(path: &Path, len: u64) -> Result<()> {
+    #[cfg(test)]
+    if test_write_fault::take_cut_failure() {
+        anyhow::bail!("a failed cut (a test)");
+    }
+    let file = journal_store::repair::open_segment_to_write(path)?;
+    file.set_len(len)?;
+    #[cfg(all(test, unix))]
+    sync_model::cut(&file, len);
+    Ok(())
+}
+
+/// Cuts a segment opened for appending back to its last whole line and returns its length
+/// after. Every record is written with its newline, so bytes after the last one are a torn
+/// append (a process killed mid-write, a full disk): left there, the next record would be glued
+/// onto them and lost. They never were a record, so nothing kept is cut.
+fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(0);
+    }
+    let mut reader = crate::config::private_state_file(path)?;
+    let mut end = len;
+    let mut chunk = vec![0u8; 64 * 1024];
+    while end > 0 {
+        let start = end.saturating_sub(chunk.len() as u64);
+        // `end - start` is at most the chunk length, so `get_mut` always finds the part.
+        let want = usize::try_from(end - start)?;
+        let Some(part) = chunk.get_mut(..want) else {
+            anyhow::bail!("torn-tail read of {want} bytes is past its {} byte chunk", chunk.len());
+        };
+        reader.seek(SeekFrom::Start(start))?;
+        reader.read_exact(part)?;
+        if let Some(at) = part.iter().rposition(|b| *b == b'\n') {
+            end = start + at as u64 + 1;
+            break;
+        }
+        end = start;
+    }
+    if end < len {
+        tracing::warn!(
+            path = %path.display(),
+            torn = len - end,
+            "cutting a torn append from the end of an event log"
+        );
+        cut_back(path, end)?;
+    }
+    Ok(end)
+}
+
+/// The next log append on this thread writes only its first `kept` bytes and then fails as a
+/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(test)]
+pub(crate) mod test_write_fault {
+    use std::cell::Cell;
+
+    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
+    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
+
+    pub(crate) fn partial(kept: usize) {
+        NEXT.with(|n| n.set(Some(kept)));
+    }
+
+    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
+    pub(crate) fn partial_and_failed_cut(kept: usize) {
+        partial(kept);
+        FAIL_CUT.with(|f| f.set(true));
+    }
+
+    pub(super) fn take() -> Option<usize> {
+        NEXT.with(Cell::take)
+    }
+
+    pub(super) fn take_cut_failure() -> bool {
+        FAIL_CUT.with(|f| f.replace(false))
     }
 }
 
@@ -1622,7 +1795,7 @@ impl HistoryWriter for SegmentZero {
         let Some(file) = self.file.take() else { anyhow::bail!("history segment committed") };
         let file = file.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
         file.sync_all()?;
-        std::fs::rename(&self.tmp, &self.path)?;
+        crate::home_fs::rename(&self.tmp, &self.path)?;
         sync_directory(&self.dir)?;
         // `events/`, and the chat's folder, may be new (a fork with no record of its own yet): the
         // folders that name them are synced too, or a power loss could keep the meta that drops the
@@ -1637,14 +1810,22 @@ impl HistoryWriter for SegmentZero {
 impl Drop for SegmentZero {
     /// One never committed leaves nothing; a committed one was renamed away.
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.tmp);
+        let _ = crate::home_fs::remove_file(&self.tmp);
     }
 }
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
-            return Ok(Vec::new());
+        // No sessions folder yet: no chat. One that is there and does not read is a failed list,
+        // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
+        let rd = match std::fs::read_dir(&self.root) {
+            Ok(rd) => rd,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(
+                    anyhow::Error::new(error).context(format!("list {}", self.root.display()))
+                );
+            }
         };
         let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
         if entries.is_empty() {
@@ -1660,8 +1841,16 @@ impl Store for LocalStore {
                     scope.spawn(move || {
                         let mut metas = Vec::new();
                         for entry in chunk {
-                            if let Some(meta) = self.list_entry(entry)? {
-                                metas.push(meta);
+                            // One chat that is refused or does not read is left out (and
+                            // counted unread), never the reason no chat is listed.
+                            match self.list_entry(entry) {
+                                Ok(Some(meta)) => metas.push(meta),
+                                Ok(None) => {}
+                                Err(e) => {
+                                    tracing::warn!("skip {}: {e:#}", entry.path().display());
+                                    let id = entry.file_name().to_string_lossy().into_owned();
+                                    self.mark_unlisted(&id, true);
+                                }
                             }
                         }
                         Ok::<_, anyhow::Error>(metas)
@@ -1685,13 +1874,13 @@ impl Store for LocalStore {
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let session = self.dir(id);
-        match std::fs::symlink_metadata(&session) {
+        match crate::home_fs::symlink_metadata(&session) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
             Ok(_) => self.validate_session_dir(&session)?,
         }
         let path = session.join("session.json");
-        if !path.exists() {
+        if !crate::home_fs::try_exists_nofollow(&path)? {
             return Ok(None);
         }
         let mut text = String::new();
@@ -1755,7 +1944,7 @@ impl Store for LocalStore {
         crate::config::private_state_dir(&dir)?;
         let path = dir.join("000000.ndjson");
         let tmp = dir.join("000000.ndjson.history");
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         let file = std::io::BufWriter::with_capacity(256 * 1024, open_private_append(&tmp)?);
         Ok(Some(Box::new(SegmentZero { file: Some(file), tmp, path, dir })))
     }
@@ -1884,42 +2073,18 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        for (_, path) in self.segments(id)?.into_iter().rev() {
-            if first_seq(&path)?.is_some_and(|first| first >= before) {
-                continue;
-            }
-            let mut done = false;
-            let mut file = crate::config::private_state_file(&path)?;
-            let end = offset_of_seq(&mut file, before)?;
-            for_each_line_rev_from(&mut file, end, &mut |line| {
-                match record_seq(line) {
-                    Some(seq) if seq >= before => return true,
-                    Some(seq) if seq <= after => {
-                        done = true;
-                        return false;
-                    }
-                    _ => {}
-                }
-                if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
-                    && skip(dir, kind)
-                {
-                    return true;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-                if rec.seq >= before {
-                    return true;
-                }
-                if rec.seq <= after || !visit(rec) {
-                    done = true;
-                    return false;
-                }
-                true
-            })?;
-            if done {
-                return Ok(());
-            }
-        }
-        Ok(())
+        self.scan_back_in(id, after, before, skip, visit, false)
+    }
+
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, visit, true)
     }
 
     fn flush(&self) -> Result<()> {
@@ -1997,10 +2162,10 @@ impl Store for LocalStore {
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !crate::home_fs::try_exists_nofollow(&dir)? {
                 return Ok(());
             }
-            match std::fs::remove_dir_all(&dir) {
+            match crate::home_fs::remove_dir_all(&dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
@@ -2038,12 +2203,12 @@ impl Store for LocalStore {
 /// Sync a directory entry after a file or subdirectory was created or replaced.
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     #[cfg(test)]
     if log_sync::fail_dir_sync(path) {
         return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
     }
-    let dir = OpenOptions::new()
+    // The folder the held home has at `path` (`home_fs`), the one a rename through it changed.
+    let dir = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
@@ -2062,10 +2227,12 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// older build left it with wider permissions.
 #[cfg(unix)]
 pub(crate) fn open_private_append(path: &Path) -> Result<File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     crate::config::refuse_lost_home(path)?;
 
-    let file = OpenOptions::new()
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the segment.
+    let file = crate::home_fs::OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o600)
@@ -2085,6 +2252,12 @@ pub(crate) fn open_private_append(path: &Path) -> Result<File> {
 
 #[cfg(all(test, unix))]
 mod permission_tests;
+
+#[cfg(test)]
+mod torn_tail_tests;
+
+#[cfg(all(test, unix))]
+mod list_entry_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
@@ -2109,6 +2282,12 @@ mod journal_store_tests;
 mod journal_sync_tests;
 #[cfg(all(test, unix))]
 mod journal_write_back_tests;
+
+#[cfg(test)]
+mod torn_append_tests;
+
+#[cfg(test)]
+mod held_home_reads_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

@@ -257,7 +257,7 @@ impl Hub {
 
     /// The rows peer `peer` lists now.
     fn peer_rows(&self, peer: &str) -> Vec<Value> {
-        let rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let rows = self.remote_sessions.read();
         rows.of_peer(peer).map(|(_, r)| r.summary.clone()).collect()
     }
 

@@ -769,6 +769,14 @@ impl Mux {
                     reads.remove(id);
                 }
             }
+            {
+                // A cleared row is never evicted, so its post goes here or never.
+                let mut posts =
+                    self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+                for id in &cleared {
+                    posts.remove(id);
+                }
+            }
             let unread = feed.items().iter().filter(|item| item.is_unread()).collect::<Vec<_>>();
             let terminal_unread = |terminal: &TerminalPublicId| {
                 unread

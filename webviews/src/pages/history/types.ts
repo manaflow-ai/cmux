@@ -52,6 +52,10 @@ export interface HistoryListResult {
   entries: HistoryEntry[];
   next_cursor?: string;
   revision: number;
+  /** The asked kinds whose entries are not complete yet (the owner's fold of the session journal is
+   * still behind): `entries` is what it has so far. The page shows that and asks again until the field
+   * is absent; `cmux.history.changed` only makes it sooner (it comes only when an entry of the kind changes). */
+  pending_kinds?: HistoryKind[];
 }
 
 export interface HistoryChanged {

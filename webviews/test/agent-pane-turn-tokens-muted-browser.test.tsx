@@ -59,7 +59,7 @@ await requireBrowserLane("agent-pane-turn-tokens-muted-browser.test.tsx", async 
               numerals: style(".cv-worked__tokens").fontVariantNumeric,
             };
           });
-          // The live line keeps the muted token; the line over the turn takes the activity tone.
+          // The live line keeps the muted token; the line under the work takes the activity tone.
           expect(looks.words).toBe(name.includes("WorkingFor.tsx") ? looks.activity : "rgb(160, 160, 170)");
           expect(looks.words).not.toBe(looks.tokens);
           expect(looks.tokens).toBe("rgb(110, 110, 120)");

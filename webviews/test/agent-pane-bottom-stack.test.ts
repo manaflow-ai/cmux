@@ -146,9 +146,10 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     }
   }
 
-  /// The chat drew its history: the PR commands' line, then the short note "Three PRs open.", which
-  /// ends that run (conversation/toolGroups.ts isAside), so the line counts only the three commands.
-  const drawn = (page: Page) => page.locator("button.cv-tool", { hasText: "Opened a pull request 3 times" });
+  /// The chat drew its history: the turn's prompt. The PR commands' line ("Opened a pull request 3
+  /// times"), which this waited for before, is a finished run of the turn that still runs, and the
+  /// shipped `line` look of live-turn-work draws no such run (turns.ts `codexRuns`, 8a37e5fcf650).
+  const drawn = (page: Page) => page.locator(".acpmux-scroll [data-row-id]", { hasText: "Open the three PRs" });
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -260,6 +261,8 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height } });
     await page.goto(url());
     await drawn(page).waitFor();
+    // The permission comes after the history: the question's part of the stack is drawn too.
+    await page.locator(".acpmux-asks-stack").waitFor();
     // Six queued prompts fold behind "4 more queued"; open it so the whole queue draws.
     await page.locator(".acpmux-queue-fold").click();
     await page.locator(".acpmux-queued", { hasText: "sixth" }).waitFor();

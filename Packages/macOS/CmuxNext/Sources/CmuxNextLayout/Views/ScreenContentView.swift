@@ -44,7 +44,7 @@ final class ScreenContentView: NSView {
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
-    /// every pane keeps its content at its size, clipped, and lays it out once at the landing (``PaneHostView``).
+    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
     var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false

@@ -13,10 +13,17 @@ mod info;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
+mod prompt_sender;
+pub(super) use prompt_sender::person_admitted;
+use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+mod settled_attach;
+#[cfg(test)]
+#[path = "requests/settled_attach_tests.rs"]
+mod settled_attach_tests;
 mod successor;
 mod turn_opener;
 mod workflow_dispatch;
@@ -225,6 +232,7 @@ pub(super) async fn handle_notification(
                 }
             }
         }
+        // Taken by the connection's read loop, in order with its requests (`in_flight.rs`).
         method::CANCEL_REQUEST => {}
         _ => tracing::debug!(conn = %conn.id, "ignored notification {m}"),
     }
@@ -861,6 +869,7 @@ pub(super) async fn handle_request(
     conn: &Arc<Conn>,
     m: &str,
     mut params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
@@ -986,6 +995,25 @@ pub(super) async fn handle_request(
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+            // The program that ran a send no session proved (`sender_program.rs`), so a prompt
+            // no proof attributes still says which program sent it.
+            crate::sender_program::stamp(prompt, pid, carried, conn.caller().is_none()).await;
+            // Whether a local send presented this host's sender token (`sender_token.rs`): only a
+            // unix connection's is read; the Web's, the app pane's and a peer link's were taken
+            // out unread (`server/mod.rs`).
+            let token = sender_token.filter(|_| {
+                conn.origin == super::Origin::Local
+                    && matches!(conn.socket_peer, crate::sender_harness::SocketPeer::Pid(_))
+            });
+            let matched = match token {
+                Some(token) => {
+                    let home = crate::config::home();
+                    let check = move || crate::sender_token::matches(&home, &token);
+                    Some(tokio::task::spawn_blocking(check).await.unwrap_or(false))
+                }
+                None => None,
+            };
+            crate::sender_token::stamp(prompt, matched, carried);
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
@@ -1195,7 +1223,7 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
@@ -1240,7 +1268,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1833,12 +1861,13 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
-            // The owner's own terminal send, claiming no agent, harness or relay: the person's
-            // prompt again, though it proves no person (`owner_terminal`, the trust boundary).
+            // The owner's own terminal send, or the app's own pane before it proved the person,
+            // claiming no agent, harness or relay: the person's prompt again, though it proves no
+            // person (`owner_terminal`, `app_pane_unproven`, the trust boundary).
             let unproven_owner = provenance.is_none()
                 && !person_admitted(conn, &params)
                 && declared.is_none()
-                && owner_terminal(conn, &params);
+                && (owner_terminal(conn, &params) || app_pane_unproven(conn, &params));
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
                 None if unproven_owner || person_admitted(conn, &params) => None,
@@ -1852,12 +1881,20 @@ async fn dispatch_request_with_identity(
                     );
                     Some(crate::prompt_provenance::observed(note, transport))
                 }
-                None => Some(crate::prompt_provenance::unverified(
-                    &s.id,
-                    transport,
-                    claimed_labels(conn, &params),
+                None => Some(crate::sender_program::on_unverified(
+                    crate::prompt_provenance::unverified(
+                        &s.id,
+                        transport,
+                        claimed_labels(conn, &params),
+                    ),
+                    &params,
                 )),
             };
+            // A named sender whose send matched this host's sender token is `verified` by it
+            // (`sender_token::label`). A label only: nothing above (the person, the owner's
+            // terminal, who may do what) read it, and it makes no prompt the person's.
+            let token = crate::sender_token::matched(&params);
+            let provenance = provenance.map(|p| crate::sender_token::label(p, token));
             // A peer's prompt keeps its sender and names the peer that passed it on beside it.
             let provenance = provenance.map(|p| match conn.origin {
                 super::Origin::Peer => {
@@ -1972,9 +2009,15 @@ async fn dispatch_request_with_identity(
             // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
             // read, and no lane report of it goes to the same session again
             // (`hub/lane_report_reads.rs`). Held until this request returns.
-            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
-                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
-                .flatten();
+            // It reads while its connection is open and it has not cancelled this request: a
+            // cancel revokes it (`prompt_cancel.rs`, review F2 of #41361).
+            let reads_reply = flag(crate::cli::output::READS_REPLY_META) == Some(true);
+            let reader = (reads_reply || flag("wakeOrFail") == Some(true))
+                .then(|| super::prompt_cancel::ReaderGone::new(hub, conn.ended.subscribe()));
+            let reply_reader = reader
+                .as_ref()
+                .filter(|_| reads_reply)
+                .and_then(|r| hub.lane_report_reply_reader(conn.caller(), &s.id, r.subscribe()));
             if let Some(reader) = &reply_reader {
                 on_accepted = Some(reader.watch(on_accepted));
             }
@@ -2063,9 +2106,7 @@ async fn dispatch_request_with_identity(
                 wake_or_fail: flag("wakeOrFail") == Some(true),
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
-                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
-                    || flag("wakeOrFail") == Some(true))
-                .then(|| conn.ended.subscribe()),
+                reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2108,13 +2149,21 @@ async fn dispatch_request_with_identity(
                 // Another agent's message answers nothing the person was shown.
                 crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
-            let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
-            // The turn ended (its read was decided) before the answer came back.
-            drop(reply_reader);
-            if let Some(saved) = saved {
-                saved.settle(hub, &answer).await;
-            }
-            answer
+            // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
+            // its turn's end, never dropped half way (`prompt_cancel.rs`).
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
+            opts.on_accepted = stop.watch(opts.on_accepted.take());
+            let hub = hub.clone();
+            let run = async move {
+                let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
+                // The turn ended (its read was decided) before the answer came back.
+                drop(reply_reader);
+                if let Some(saved) = saved {
+                    saved.settle(&hub, &answer).await;
+                }
+                answer
+            };
+            super::prompt_cancel::finish_on_cancel(run, stop).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
@@ -2140,10 +2189,21 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
+            let remote_switch = conn.origin.web_class();
+            let retarget = super::fork_through::retarget(&params)?
+                .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
+            let switched = retarget.is_some();
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
+                // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
+                if retarget.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "a fork before a prompt keeps the chat's harness: omit harness",
+                    ));
+                }
                 let request = params
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
@@ -2158,12 +2218,42 @@ async fn dispatch_request_with_identity(
                     if crate::hub::fork_cancel::cancelled() {
                         return Err(crate::hub::fork_cancel::cancelled_refusal());
                     }
-                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
-                    let new = admitted.run(fork).await?;
+                    // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
+                    // pick of another harness's model in a started chat, at its next send.
+                    let new = match retarget {
+                        Some(retarget) => {
+                            let fork = hub.fork_to(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                            );
+                            admitted.run(fork).await?
+                        }
+                        None => {
+                            let fork =
+                                hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                            admitted.run(fork).await?
+                        }
+                    };
                     Ok((new, admitted.warning.clone()))
                 };
                 hub.fork_cancellable(token, fork).await?
             };
+            // Onto another harness from a remote device: the mode a chat that device starts runs
+            // in (`session/new` above), its family's reviewed asking default, or the fork is
+            // ended and refused. A plain fork keeps the chat's mode, which the guard checked.
+            if switched && remote_switch {
+                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
+                let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                heap(|| {
+                    super::remote_guard::settle_web_session_mode(hub, &new, peer, cloud_mobile)
+                })
+                .await?;
+            }
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
@@ -2582,7 +2672,12 @@ async fn dispatch_request_with_identity(
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
             }
         }
-        method::MUX_WAIT => wait::wait(hub, &params, conn.caller()).await,
+        // A caller that left (its CLI was killed) waits no more: its wait would mark the turn it
+        // waited for read (`lane_report_reads.rs`), and nobody reads its answer.
+        method::MUX_WAIT => tokio::select! {
+            result = wait::wait(hub, &params, conn.caller()) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        },
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await
         }
@@ -2911,13 +3006,17 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // `settled`: the chat's settled view first, read before any log wait; a restart's
+            // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
+            let settled = settled_attach::saved(hub, &s, &params);
+            let answered_settled = settled.as_ref().is_some_and(|(_, view)| view.is_some());
             // A restart reads the chat logs after its ready line: the queue, turn and status
             // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
             // reads it, and its first page below, ahead of agent work (`qos.rs`).
             // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
             // for the full restore here made a restarted long chat blank for tens of seconds.
             // Callers that need authoritative queue/status details keep the old default.
-            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+            if !answered_settled && params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
                 if hidden {
                     hub.session_log(&s).await;
                 } else {
@@ -2934,8 +3033,19 @@ async fn dispatch_request_with_identity(
                 hub,
                 conn,
                 &s,
-                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false },
+                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false, rows: None },
             );
+            let settled_key = match settled {
+                Some((_, Some(view))) => {
+                    let key = view.key.clone();
+                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                        return Ok(reply);
+                    }
+                    Some(key)
+                }
+                Some((key, None)) => Some(key),
+                None => None,
+            };
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
@@ -2979,6 +3089,11 @@ async fn dispatch_request_with_identity(
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener});
+            // Asked `settled` and none answered: say so, and write it for the chat's next open.
+            if let Some(key) = settled_key {
+                reply["settled"] = Value::Null;
+                hub.settle_view_for_open(&s, key);
+            }
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3020,6 +3135,7 @@ async fn dispatch_request_with_identity(
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
+        method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
@@ -3239,8 +3355,9 @@ async fn dispatch_request_with_identity(
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
             }
-            // Name who stopped it: the log's "a client asked it to" alone cannot tell an app's
-            // update from another build's or a script's stop.
+            // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
+            // app's update from another build's or a script's stop. `reason` is the client's own
+            // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
             tracing::warn!(
                 client = conn
                     .peer
@@ -3248,6 +3365,7 @@ async fn dispatch_request_with_identity(
                     .and_then(cmux_link::app_caller::executable_path)
                     .map_or_else(|| "unknown".to_owned(), |exe| exe.display().to_string()),
                 origin = ?conn.origin,
+                reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
             // `endAgents: true` (the app's Quit Everything) ends agents that
@@ -3355,6 +3473,29 @@ mod admission_force_tests {
     }
 }
 
+/// `_acpmux/rows` (`rows/serve.rs`), off the async thread: a chat's first read folds its log.
+/// With `follow`, the connection must be attached to the chat; its later row changes go to it
+/// as `_acpmux/rows_patch` (`deliver`).
+async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    let follow = params.get("follow").and_then(Value::as_bool) == Some(true);
+    if follow && conn.sub_opts(&s.id).is_none() {
+        return Err(RpcError::invalid_params("follow reads an attached chat: attach it first")
+            .with_data(json!({"reason": "rows.not_attached"})));
+    }
+    let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
+    let (reply, following) =
+        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+            .await
+            .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
+    if let Some(following) = following
+        && let Some(sub) = conn.subs.lock_or_recover().get_mut(&s.id)
+    {
+        sub.rows = Some(following);
+    }
+    Ok(reply)
+}
+
 /// `_acpmux/queue_text` (`hub/queue_text.rs`), out of `dispatch_request` and boxed there, so its
 /// wait adds nothing to that future's size.
 async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
@@ -3381,90 +3522,6 @@ fn transport_of(conn: &Conn) -> &'static str {
         super::Origin::LocalApp => "app",
         super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
     }
-}
-
-/// Whether a prompt naming no sender is the person's, by a proof and never by a label: the
-/// connection proved the person (`hub/person.rs`: the app's own pane), a paired phone sent it (a
-/// Web connection with the device's `client` credential, `pairing.rs` `origin_of`), or a peer link
-/// forwarded one its own daemon's connection proved (`remote_guard::PERSON_PROVEN`, that peer's
-/// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
-/// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access,
-/// the listener token and environment tags are not the person. An unnamed prompt from the owner's
-/// own terminal is still recorded as the person's ([`owner_terminal`]), which proves nothing to
-/// a peer or a protected hold.
-pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
-    if conn.is_person() {
-        return true;
-    }
-    if !conn.auth.authenticated() {
-        return false;
-    }
-    match conn.origin {
-        // The listener token a dashboard or browser socket holds proves no person; a paired
-        // read-only device sends no prompt.
-        super::Origin::Web => conn.auth == ConnAuth::Device,
-        // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
-        // rule there), on a peer daemon's own link (`PeerToken`). A paired machine's `client`
-        // credential is served as Peer too (`pairing.rs` `origin_of`, `Device`): it is a client,
-        // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
-        // any client but the owner's, a unix one too.
-        super::Origin::Peer => {
-            conn.auth.peer_daemon()
-                && params
-                    .pointer("/_meta/acpmux")
-                    .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
-                    .and_then(Value::as_bool)
-                    == Some(true)
-        }
-        super::Origin::Local | super::Origin::LocalApp => false,
-    }
-}
-
-/// Whether an unnamed prompt is the owner's own terminal send (`acpmux send` at
-/// a plain shell of this machine's user), recorded as the person's prompt as it was before #37497,
-/// so every client draws the owner's bubble.
-///
-/// The trust boundary: the unix socket is reachable only by this machine's user, and among that
-/// user's processes the daemon tells an agent from the person by what it can check or what the
-/// CLI declares, never by the text. An agent in an acpmux session holds a caller token
-/// (`hub/person.rs` (a)), proven or not, and its send is that session's. An agent harness's own
-/// shell outside acpmux (Claude Code, Codex, an `AI_AGENT` tool) names itself and its harness
-/// (`cli/sender.rs` `implicit`, `harness_of`: `fromAgent`, `fromHarness`), and a send whose
-/// environment or process chain shows a harness, an MCP client or an app that is no terminal
-/// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
-/// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
-/// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
-/// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
-/// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
-/// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
-/// judged here as the send itself was (#38260 F1). An acpmux CLI says at `initialize` whether
-/// it runs in an acpmux session's environment (`cli_caller.rs`): one that says `agent` (its token
-/// proved nothing to this daemon, or it had none), and an old acpmux CLI that says nothing (it
-/// checked nothing: bench round 4 recorded an agent's send through `acpmux` 0.1.0 as the person),
-/// are no terminal either; the outbox replays that too (`Delivery::not_terminal`). What is left
-/// is a plain unix connection of the user that claims nothing: the person at their terminal. A script of the
-/// same user that strips every label is let through, as it was before #37497; it still never
-/// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
-/// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
-/// the person's (`attest_person` reads `person_admitted` only).
-pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
-    let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
-        [
-            "fromAgent",
-            crate::prompt_provenance::FROM_HARNESS,
-            crate::sender_harness::META_KEY,
-            "fromRelay",
-            "via",
-        ]
-        .iter()
-        .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
-    });
-    conn.origin == super::Origin::Local
-        && !conn.is_trigger()
-        && conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
-        && conn.may_be_owner_terminal()
-        && !claims
 }
 
 /// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
@@ -3524,6 +3581,43 @@ fn stamp_bound_sender(
         fields.insert(crate::prompt_provenance::VERIFIED.to_owned(), json!(true));
     }
     Some(provenance)
+}
+
+/// The longest `_acpmux/shutdown` `reason` the log keeps, in characters.
+const SHUTDOWN_REASON_MAX: usize = 160;
+
+/// The `reason` a client gave for `_acpmux/shutdown`, one line for the log: control characters
+/// become spaces and it is cut at [`SHUTDOWN_REASON_MAX`] characters. A client that gives none
+/// (an older app or CLI) logs `unspecified`, which the daily count of stops reads as unknown.
+fn shutdown_reason(params: &Value) -> String {
+    let given = params.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if given.is_empty() {
+        return "unspecified".to_owned();
+    }
+    given.chars().take(SHUTDOWN_REASON_MAX).map(|c| if c.is_control() { ' ' } else { c }).collect()
+}
+
+#[cfg(test)]
+mod shutdown_reason_tests {
+    use super::shutdown_reason;
+    use serde_json::json;
+
+    #[test]
+    fn a_stop_logs_the_reason_its_client_gave_on_one_line() {
+        assert_eq!(
+            shutdown_reason(&json!({"reason": "update: build a -> b"})),
+            "update: build a -> b"
+        );
+        assert_eq!(shutdown_reason(&json!({"reason": "two\nlines"})), "two lines");
+        assert_eq!(shutdown_reason(&json!({"reason": "x".repeat(500)})).chars().count(), 160);
+    }
+
+    #[test]
+    fn a_stop_without_a_reason_logs_unspecified() {
+        assert_eq!(shutdown_reason(&json!({})), "unspecified");
+        assert_eq!(shutdown_reason(&json!({"reason": "  "})), "unspecified");
+        assert_eq!(shutdown_reason(&json!({"reason": 7})), "unspecified");
+    }
 }
 
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {

@@ -65,6 +65,7 @@ export interface AcpmuxRequestMeta {
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
+  senderToken?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -437,7 +438,11 @@ export interface ForkParams {
    * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
    */
   cancelToken?: (string | null);
+  /** With `live`: the harness the fork runs on, carrying the conversation over (a model switch). */
+  harness?: (string | null);
   live?: (boolean | null);
+  /** With `harness`: the model the fork starts on, at most 256 bytes. */
+  model?: (string | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
   sessionId: string;

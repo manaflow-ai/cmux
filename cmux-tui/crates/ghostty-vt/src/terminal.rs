@@ -1615,6 +1615,26 @@ impl Terminal {
         Some(String::from_utf8_lossy(bytes).into_owned())
     }
 
+    /// Whether [`Terminal::pwd`] would return `expected`, without building a
+    /// `String`. A pwd that is not valid UTF-8 never matches here (`pwd`
+    /// returns it lossily), so a caller then falls back to `pwd`.
+    pub fn pwd_is(&self, expected: Option<&str>) -> bool {
+        let current: Option<sys::GhosttyString> = self
+            .get(sys::GHOSTTY_TERMINAL_DATA_PWD)
+            .ok()
+            .filter(|s: &sys::GhosttyString| s.len != 0 && !s.ptr.is_null());
+        match (current, expected) {
+            (None, None) => true,
+            (Some(s), Some(expected)) => {
+                // SAFETY: the terminal owns `len` bytes at `ptr` until its
+                // next write, and `&self` rules a write out for this borrow.
+                let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
+                bytes == expected.as_bytes()
+            }
+            _ => false,
+        }
+    }
+
     /// Query a terminal mode (DEC private when `ansi` is false).
     pub fn mode(&self, mode: u16, ansi: bool) -> bool {
         let mut config = sys::GhosttyTerminalModeConfig {

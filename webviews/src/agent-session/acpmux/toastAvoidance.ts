@@ -10,10 +10,7 @@
 // Every layout with a composer at its foot reports it: the chat's bottom stack (App.tsx's dock), the
 // New Tab screen's composer card in its stage layout (newtab/NewTabScreen.tsx) and the Quick Chat's
 // panel's bottom stack (QuickSurface.tsx: its asks, composer and key hints, whenever it is mounted). The host keeps one box per page, so the reports
-// stack: the newest mounted one is sent, and when it stops the one under it is sent again. Home's
-// Messages page reports its compose bar the same way through its own op
-// (`cmux.home.messages.toastAvoidance`, home-messages transcript/MessageComposer.tsx; the app's
-// HomePageToastAvoidance.swift).
+// stack: the newest mounted one is sent, and when it stops the one under it is sent again.
 //
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
@@ -109,78 +106,30 @@ export function watchToastAvoidance(
   };
 }
 
-/// One host's reports: the mounted ones, oldest first, of which the host hears the newest one's box
-/// (`send` gets its rects: one box, or none). A page with its own host op (Home's Messages page,
-/// `cmux.home.messages.toastAvoidance`) makes its own; the agent pane's is below.
-export type ToastAvoidanceReports = {
-  /// Reports `dock`'s stack (or what `box` measures of it) to the host for as long as it is mounted.
-  /// A report mounted later takes over; when it stops, the host hears the one under it again.
-  report(dock: HTMLElement, box?: (dock: HTMLElement) => StackBox | undefined): () => void;
-  /// Tells the host the newest report's box again, changed or not.
-  resend(): void;
-  /// Forgets every report and what the host heard (tests).
-  reset(): void;
-};
+/// The mounted reports, oldest first; the host hears the newest one's box.
+type Report = { box: StackBox | undefined };
+const reports: Report[] = [];
+/// What the host last heard (null: nothing yet), and whether it knows the call at all.
+let posted: StackBox | undefined | null = null;
+let unsupported = false;
 
-export function toastAvoidanceReports(send: (rects: StackBox[]) => Promise<unknown>): ToastAvoidanceReports {
-  type Report = { box: StackBox | undefined };
-  const reports: Report[] = [];
-  /// What the host last heard (null: nothing yet), and whether it knows the call at all.
-  let posted: StackBox | undefined | null = null;
-  let unsupported = false;
-
-  const post = (): void => {
-    if (unsupported) return;
-    const box = reports.at(-1)?.box;
-    if (posted !== null && same(box, posted)) return;
-    posted = box;
-    void send(box ? [box] : []).catch(() => {
-      // A host that does not know the call (an older app) ends the reports.
-      unsupported = true;
-    });
-  };
-
-  return {
-    report(dock, box = bottomStackBox) {
-      const report: Report = { box: undefined };
-      reports.push(report);
-      let live = true;
-      const stop = watchToastAvoidance(
-        dock,
-        (next) => {
-          report.box = next;
-          if (live) post();
-        },
-        box,
-      );
-      return () => {
-        if (!live) return;
-        live = false;
-        reports.splice(reports.indexOf(report), 1);
-        stop();
-        post();
-      };
-    },
-    resend() {
-      posted = null;
-      post();
-    },
-    reset() {
-      reports.length = 0;
-      posted = null;
-      unsupported = false;
-    },
-  };
+function post(): void {
+  if (unsupported) return;
+  const box = reports.at(-1)?.box;
+  if (posted !== null && same(box, posted)) return;
+  posted = box;
+  void postNative("pane.toastAvoidance", { rects: box ? [box] : [] }).catch(() => {
+    // A host that does not know the call (an older app) ends the reports.
+    unsupported = true;
+  });
 }
-
-/// The agent pane's reports (`pane.toastAvoidance {rects}`).
-const pane = toastAvoidanceReports((rects) => postNative("pane.toastAvoidance", { rects }));
 
 /// Tells the host the newest report's box again, changed or not. Each handshake (`ready`, a retry's
 /// too, which keeps this document) clears the host's box, so the page sends it again once the host
 /// answers: a mounted composer whose bounds never move is still avoided.
 export function resendToastAvoidance(): void {
-  pane.resend();
+  posted = null;
+  post();
 }
 
 /// Reports `dock`'s stack (or what `box` measures of it) to the host for as long as it is mounted.
@@ -189,10 +138,29 @@ export function reportToastAvoidance(
   dock: HTMLElement,
   box: (dock: HTMLElement) => StackBox | undefined = bottomStackBox,
 ): () => void {
-  return pane.report(dock, box);
+  const report: Report = { box: undefined };
+  reports.push(report);
+  let live = true;
+  const stop = watchToastAvoidance(
+    dock,
+    (next) => {
+      report.box = next;
+      if (live) post();
+    },
+    box,
+  );
+  return () => {
+    if (!live) return;
+    live = false;
+    reports.splice(reports.indexOf(report), 1);
+    stop();
+    post();
+  };
 }
 
 /// Forgets every report and what the host heard (tests).
 export function resetToastAvoidanceReports(): void {
-  pane.reset();
+  reports.length = 0;
+  posted = null;
+  unsupported = false;
 }

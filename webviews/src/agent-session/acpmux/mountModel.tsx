@@ -8,7 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
-import { startFlickerLog } from "./flickerLog";
+import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
@@ -83,8 +83,9 @@ export function mountAcpmux(initialChat?: InitialChat): void {
       candidates: chatUnderHoverCard,
       options: hostGlassCover,
     });
-  // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
-  if (!pageHostClient()) startFlickerLog();
+  // The always-on flicker detector (flickerLog.ts): on the shared page host its batches are the
+  // `diag.flicker` op, on the old host the pane's own WebKit handler takes them.
+  startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>

@@ -757,6 +757,7 @@ impl Supervisor {
         // A fresh daemon may not have created its state directory yet.
         std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
+        let mirror = mirror.to_stored().map_err(std::io::Error::other)?;
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
             .map_err(std::io::Error::other)?;
         let mut file = std::fs::File::create(&temp)?;
@@ -806,9 +807,10 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     let Some(dir) = state_dir else { return Mirror::default() };
     let path = dir.join("apps.json");
     let Ok(raw) = std::fs::read(&path) else { return Mirror::default() };
+    // A record or field of a newer build is kept, not a reason to set the file aside.
     match serde_json::from_slice::<Value>(&raw)
         .ok()
-        .and_then(|v| serde_json::from_value::<Mirror>(v["mirror"].clone()).ok())
+        .and_then(|mut v| Mirror::from_stored(v["mirror"].take()))
     {
         Some(mirror) => mirror,
         None => {

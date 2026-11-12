@@ -34,6 +34,71 @@ fn open(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
         .unwrap_or_else(|e| panic!("open the store: {e:#}"))
 }
 
+/// Opens the store at `home` and returns once its checkpointer went idle: the checkpoint the
+/// replay asks for (`JournalStore::open`) has run on its thread. Only a later change wakes it
+/// again, one period (30 s) after that change, so the journal keeps the records of the saves
+/// that follow until the test's own flush or kill.
+fn open_after_replay_checkpoint(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
+    open_held_at_idle(home, journal, |idle| {
+        idle.recv_timeout(WAIT)
+            .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
+    })
+}
+
+/// Opens the store at `home` with its checkpointer held once at idle (holding the timer lock),
+/// runs `wait_idle` on the hold's arrival, then lets the checkpointer go.
+fn open_held_at_idle(
+    home: &Path,
+    journal: &SimStorage,
+    wait_idle: impl FnOnce(&std::sync::mpsc::Receiver<()>),
+) -> Box<dyn Store> {
+    let (arrived, idle) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    super::journal_store::checkpointer_seams(home, |seams| {
+        seams.idle_hold = Some((arrived, released));
+    });
+    let store = open(home, journal);
+    // After the store: a panic in the wait releases before the unwind drops the store.
+    let release = super::journal_store::Release::new(release);
+    wait_idle(&idle);
+    release.now();
+    store
+}
+
+/// Runs `body` on its own thread and returns how it ended (`Err` for a panic), or `None` when it
+/// was still running after `bound`: a hang, reported instead of hanging the test.
+fn ends_within(bound: Duration, body: impl FnOnce() + Send + 'static) -> Option<Result<(), ()>> {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+        let _ = done.send(outcome.map_err(|_| ()));
+    });
+    ended.recv_timeout(bound).ok()
+}
+
+/// #41627 F1: a wait for the idle checkpointer that expires just as the checkpointer reaches its
+/// idle hold fails the test; it does not hang it. The checkpointer holds the timer lock in the
+/// hold, and the store's drop takes that lock: a release still owed when the unwind drops the
+/// store left both waiting on each other forever. Here the wait "expires" (panics) right after
+/// the hold arrived, the worst moment.
+#[test]
+fn a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(103);
+    let path = home.path().to_path_buf();
+    let outcome = ends_within(WAIT * 3, move || {
+        let _store = open_held_at_idle(&path, &journal, |idle| {
+            let _ = idle.recv_timeout(WAIT);
+            panic!("the wait for the idle checkpointer expired");
+        });
+    });
+    assert_eq!(
+        outcome,
+        Some(Err(())),
+        "a wait that expired at the idle hold did not end in a panic (None: it hung)"
+    );
+}
+
 fn meta(id: &str, name: &str, last_seq: u64) -> SessionMeta {
     serde_json::from_value(json!({
         "schema": META_SCHEMA,
@@ -498,8 +563,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel();
-    *super::journal_store::SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((SETTLED.to_owned(), arrived_tx, release_rx));
+    let hold = super::journal_store::on_settle_hold(SETTLED, arrived_tx, release_rx);
     let late = {
         let store = Arc::clone(&store);
         std::thread::spawn(move || store.session_dir(SETTLED))
@@ -515,6 +579,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     store.save(&meta(SETTLED, "three", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     release.send(()).unwrap_or_else(|e| panic!("{e}"));
     let _dir = late.join().unwrap_or_else(|_| panic!("the late settle panicked"));
+    drop(hold);
     // A kill now: "three" is lost, "two" was acknowledged.
     let killed = journal.restart(Crash::Process);
     killed.set_sync_delay(Duration::ZERO);
@@ -1392,5 +1457,271 @@ fn a_kill_after_a_failed_log_close_before_any_checkpoint_keeps_the_lines() {
         seqs(store.as_ref(), CHAT),
         (1..=5).collect::<Vec<_>>(),
         "a kill after a failed log close and before any checkpoint: the restart trusted the log's pages and lost acked lines"
+    );
+}
+
+/// A chat with the metadata of a busy one (a busy machine, 2026-11-11: 26 KB per image on average,
+/// most of it fields that never change between two saves).
+fn busy(id: &str) -> SessionMeta {
+    let mut m = meta(id, "busy", 0);
+    m.previous_agent_session_ids =
+        (0..120).map(|i| format!("01a1c7d1-9867-75c0-8bd4-{i:012x}")).collect();
+    m.context_breakdown = Some(json!({
+        "categories": (0..60)
+            .map(|i| json!({"name": format!("category {i}"), "tokens": i * 1_000, "detail": "x".repeat(40)}))
+            .collect::<Vec<_>>(),
+    }));
+    m.config_options = Some(
+        serde_json::from_value(json!((0..30)
+            .map(|i| json!({"id": format!("option-{i}"), "name": format!("Option {i}"), "description": "y".repeat(60), "options": ["a", "b", "c"]}))
+            .collect::<Vec<_>>()))
+        .unwrap_or_else(|e| panic!("config options: {e}")),
+    );
+    m.cmux_context = Some(
+        serde_json::from_value(json!((0..60)
+            .map(|i| json!({
+                "id": format!("part-{i}"), "source": format!("/w/docs/{}/{i}.md", "z".repeat(60)),
+                "label": format!("context part {i}: {}", "z".repeat(60)), "tokens": i * 100,
+                "included": true, "editable": false, "measurement": "estimated",
+            }))
+            .collect::<Vec<_>>()))
+        .unwrap_or_else(|e| panic!("context parts: {e}")),
+    );
+    m
+}
+
+fn written_meta() -> u64 {
+    meta_parts::WRITTEN.with(std::cell::Cell::get)
+}
+
+/// The changes a busy chat's metadata takes most (a busy machine's journal, 2026-11-11): one counter
+/// or flag at a time.
+fn change(m: &mut SessionMeta, n: u64) {
+    match n % 4 {
+        0 => m.hibernated_ms = 1_000 + n,
+        1 => m.seen_seq = Some(n),
+        2 => {
+            m.last_seq = n;
+            m.updated_at = 2 + n;
+        }
+        _ => m.status = if n % 8 == 3 { SessionStatus::Running } else { SessionStatus::Idle },
+    }
+}
+
+/// The harness of the before and after (cmuxterm-hq#9262, #9263): journal bytes per metadata
+/// change of a busy chat, over 200 one-field changes with checkpoints between them. Before, every
+/// change journaled the whole image. After, a change journals the fields it changed (the first
+/// change after a checkpoint, the whole image again); a save that changes nothing journals
+/// nothing. The chat then reads back whole after a crash.
+#[test]
+fn a_metadata_change_journals_the_fields_it_changed_not_the_whole_image() {
+    const CHANGES: u64 = 200;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(81);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let whole = written_meta() - before;
+    let before = written_meta();
+    for n in 0..CHANGES {
+        change(&mut m, n);
+        store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+        if n % 50 == 24 {
+            // A checkpoint writes `session.json` and retires the image: the next change journals
+            // a whole image again, then patches over that.
+            store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+        }
+    }
+    let per_change = (written_meta() - before) / CHANGES;
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let no_op = written_meta() - before;
+    eprintln!(
+        "STRESS journal bytes per metadata change: before {whole} (the whole image), after {per_change}; a save that changes nothing: {no_op}"
+    );
+    assert!(whole > 20_000, "the busy fixture is {whole} bytes");
+    assert!(per_change * 20 < whole, "a change journaled {per_change} bytes, the image is {whole}");
+    assert_eq!(no_op, 0, "a save that changed nothing journaled {no_op} bytes");
+
+    // The image after the last checkpoint and its patches replay.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the chat read back after a crash is not its last image"
+    );
+}
+
+/// Patches replay over their whole image, a removed field staying removed, and a chat's first
+/// change after a checkpoint is a whole image (its chain never starts at the file).
+#[test]
+fn patches_replay_over_their_image() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(82);
+    let store = open(home.path(), &journal);
+    // chat-b: its whole image retired by a checkpoint, then changes.
+    let mut b = busy("chat-b");
+    store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // chat-a: its whole image and its patches all after the last checkpoint.
+    let mut a = busy("chat-a");
+    store.save(&a).unwrap_or_else(|e| panic!("{e:#}"));
+    for n in 0..9 {
+        change(&mut b, n);
+        let before = written_meta();
+        store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+        let wrote = written_meta() - before;
+        if n == 0 {
+            assert!(wrote > 20_000, "the first change after a checkpoint journaled {wrote} bytes");
+        } else {
+            assert!(wrote < 1_000, "a change journaled {wrote} bytes");
+        }
+    }
+    // A field removed is removed by the replay too.
+    b.seen_seq = None;
+    store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+    for n in 0..9 {
+        change(&mut a, n);
+        a.name = format!("renamed {n}");
+        store.save(&a).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    for (id, want) in [("chat-a", &a), ("chat-b", &b)] {
+        let loaded = store
+            .load(id)
+            .unwrap_or_else(|e| panic!("{e:#}"))
+            .unwrap_or_else(|| panic!("{id} is gone"));
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap_or_default(),
+            serde_json::to_value(want).unwrap_or_default(),
+            "{id} read back after a kill is not its last image"
+        );
+    }
+    // The checkpoint writes the rebuilt images.
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let on_disk = session_json(home.path(), "chat-b").unwrap_or_else(|| panic!("no session.json"));
+    assert_eq!(on_disk["hibernatedMs"], json!(b.hibernated_ms));
+    assert!(on_disk.get("seenSeq").is_none(), "a removed field came back: {on_disk}");
+}
+
+/// A `session.json` written outside the store: the next save journals a whole image (a patch
+/// over it would name an image the file does not hold), and the image of a change after a
+/// checkpoint whose file another writer then replaces goes aside instead of over it.
+#[test]
+fn a_session_json_written_outside_the_store_is_never_patched_over() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(83);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let path = home.path().join("sessions").join(CHAT).join("session.json");
+    // Another writer (an older build) replaces the file, same folder.
+    let mut outside = meta(CHAT, "outside", 0);
+    outside.hibernated_ms = 7;
+    std::fs::write(&path, serde_json::to_vec(&outside).unwrap_or_default())
+        .unwrap_or_else(|e| panic!("{e}"));
+    change(&mut m, 0);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(next > 20_000, "the save after an outside write journaled a {next}-byte patch");
+    // Patches after it replay over that whole image.
+    change(&mut m, 1);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The checkpoint the replay asks for runs on the checkpointer's thread, at background
+    // priority: under load it can come after the saves below and retire their records before
+    // the kill, and then nothing replays to go aside. Wait for it first.
+    let store = open_after_replay_checkpoint(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the replay lost the changes after an outside write"
+    );
+
+    // A change after a checkpoint is a whole image: a file another writer then puts there is
+    // not written over, and the image goes aside.
+    change(&mut m, 2);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    change(&mut m, 3);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(
+        next > 20_000,
+        "the save after a checkpoint journaled a {next}-byte patch over the file"
+    );
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = killed.restart(Crash::Process);
+    drop(store);
+    std::fs::write(&path, serde_json::to_vec(&outside).unwrap_or_default())
+        .unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(loaded.name, "outside", "an image was written over a file another writer wrote");
+    let aside = std::fs::read_dir(home.path().join("journal-unapplied"))
+        .map(|dir| dir.flatten().count())
+        .unwrap_or_default();
+    assert!(aside > 0, "the image was not kept aside");
+}
+
+/// A transfer's swap that is undone (the folder renamed aside, then back, same identity) while
+/// the checkpoint kept the chat's image aside: that image never reached the folder's
+/// `session.json`, so the next change is a whole image, and the chat reads back after a kill.
+#[test]
+fn a_change_after_an_image_kept_aside_is_whole() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(84);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    change(&mut m, 0);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(format!(".{CHAT}.replacement-backup"));
+    std::fs::rename(sessions.join(CHAT), &aside).unwrap_or_else(|e| panic!("{e}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    std::fs::rename(&aside, sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    change(&mut m, 1);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(next > 20_000, "the change after a kept-aside image journaled a {next}-byte patch");
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the chat read back after a kill is not its last image"
     );
 }

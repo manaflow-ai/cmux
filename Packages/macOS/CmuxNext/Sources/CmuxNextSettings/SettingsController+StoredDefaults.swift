@@ -28,6 +28,10 @@ extension SettingsSchema {
         "editor.": "another editor's settings, the built-in per-language values, a key it follows",
         // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
         "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
+        // The login consents: a DEV or NIGHTLY start reads no answer as yes (``CloudCodexSignInConsentSetting``), so the
+        // person's no, the schema's default, is stored and kept, never removed as a copy of it (#41072 review).
+        "cloud.useMyClaudeLoginOnMyCloudMachines": "a DEV or NIGHTLY start, which reads no answer as yes",
+        "cloud.useMyCodexLoginOnMyCloudMachines": "a DEV or NIGHTLY start, which reads no answer as yes",
     ]
 
     /// Whether `unsetIsNotDefaultKeys` names `key`.

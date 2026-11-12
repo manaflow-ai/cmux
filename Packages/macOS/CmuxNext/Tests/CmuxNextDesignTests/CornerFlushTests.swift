@@ -1,14 +1,35 @@
 import CoreGraphics
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import Testing
 
-/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): off by default, and the card's wedge on
+/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): the folder tab (`flush-goo`) by default, and the card's wedge on
 /// the sidebar's side goes while the selected first tab rises from that corner.
 @MainActor @Suite struct CornerFlushTests {
-    @Test func offIsTheDefault() {
-        #expect(CornerFlush.tunable.defaultValue == .off)
+    /// Leo, 2026-11-10: the selected tab is the content's color, a folder tab, not a gray pill.
+    @Test func gooIsTheDefault() {
+        #expect(CornerFlush.tunable.defaultValue == .goo)
+        #expect(CornerFlush.goo.isOn)
         #expect(!CornerFlush.off.isOn)
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
+    }
+
+    /// The default density (Default, the `cozy` preset) over the shipped chrome style draws the folder
+    /// tab; compact density and a chrome the flush corner does not fit (floating panes) keep the pill.
+    @Test func theDefaultChromeDrawsTheFolderTab() {
+        let design = DesignSettings.shared
+        let before = (design.densityTokens, design.chromeStyle)
+        defer { (design.densityTokens, design.chromeStyle) = before }
+        design.densityTokens = DensityPreset.cozy.tokens
+        for style in [ChromeStyle.flat, .default] {
+            design.chromeStyle = style
+            #expect(CornerFlush.current == .goo, "\(style)")
+        }
+        design.chromeStyle = .floating
+        #expect(CornerFlush.current == .off, "floating panes keep their cards")
+        design.chromeStyle = .flat
+        design.densityTokens = .compact
+        #expect(CornerFlush.current == .off, "compact keeps the pill")
     }
 
     @Test func tightHasNoGapOnTheSidebarSide() {

@@ -594,8 +594,8 @@ section is the exception: it reads the registry on its own read-only
 connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk` and
-`journal_followers`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `locks`, `hook_queue`, `disk`,
+`commands` and `journal_followers`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -777,6 +777,31 @@ registry lock, never a scan of the journal; segment sums are kept between
 requests and add only segments sealed since the last one. `journal` and
 `segments` are `null` and `error` says why when the registry cannot be
 read. It is present only for a registry on disk.
+
+`commands` counts every request the daemon handled since it started, by
+command name and by client kind, so one read says which calls the session's
+clients make and which take the daemon's time. It is always on. A row has a
+`name` (a legacy command such as `ping`, a protocol 2 method such as
+`session.ping`, or `other` for a line that is neither), a `kind`, `count`,
+`total_ns`, `max_ns` and `hist`: 16 counts by time, below 0.25 ms, then one
+bucket per power of 2 (`hist_bounds_ns`, 0.25 ms to 4.096 s), then above.
+The time runs from the decoded line to the reply queued for the
+connection's writer; a command's wait in the connection's queue is not in
+it. Rows come largest `total_ns` first. `kind` is what the client declared
+with `set-client-info` (`frontend` and `app` count as `app`; `tui`, `cli`,
+`mcp`, `hook`, `plugin`, `remote-probe`, `remote-link`; any other word counts
+as `other`), else what the daemon saw: `plugin` (the owner's own plugin),
+`hook` (the connection reported an agent hook event), `terminal` (a process
+inside one of the session's terminals: an agent's `cmux` call, an MCP
+server, a script), `local` (another process of the same user), `remote` (a
+`cmux link` peer), `websocket` or `unknown`. `connections` counts, per kind,
+the connections `accepted` and those `refused` at the connection limit.
+Names and kinds are words of the daemon's own source: no argument, path,
+title, text or client label is kept or reported. At most `name_limit` names
+have rows of their own (`names` says how many do); the rest count in
+`other`. Cost per request: three clock reads and four atomic adds, no lock,
+no allocation after the first request of a name. Two reads some seconds
+apart give calls per second and time per call for each row.
 
 `journal_followers` lists the clients that follow the journal live
 (`session.journal.subscribe` with `follow` not `false`) and says why a report
@@ -1630,7 +1655,8 @@ with error code `input.overflow` and queues nothing. When the creation committed
 the queue is written to it in order. Until that write ended, input by `terminal_id` still joins the queue
 (`{queued:true}`), and input to the new terminal by any other path (`send {surface}`, `send-key`, the
 `terminal.input.*` resource operations, an image paste commit, `clear-history`) waits for it, so queued bytes precede all later input. When the
-creation fails, its connection closes first, or it has not ended 10 seconds after the first queued byte,
+creation fails, its connection closes first, or it has not ended 120 seconds after the first queued byte (a backstop for
+a creation that never ends: a slow one keeps its queue until it commits),
 nothing of the queue is written: each connection that queued bytes gets them back, in order, in one
 `terminal-input-unclaimed` control event ([events.md](events.md#terminal-input-unclaimed)) with `reason`
 `failed`, `cancelled` or `expired`, so the client can give them to the terminal that has focus. When a write
@@ -1640,6 +1666,8 @@ Authority is the same as for a live `send {surface}`: a local connection may que
 a remote relay connection may not send in either form (the relay refuses `send` before it is parsed).
 After the queue was written, `terminal_id` writes to the live terminal at once. An empty payload writes
 nothing but still fails with `unknown terminal` for an id that is neither live nor creating.
+After the creator's [`cancel-creating-input`](#cancel-creating-input) (`creating-input-cancel-v1`), input by
+`terminal_id` fails with error code `input.cancelled` and nothing is queued or written.
 
 Result:
 
@@ -1654,6 +1682,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `unknown terminal <id>` | `terminal_id` names no live or creating terminal |
 | `input.overflow` (error code) | The request would take the creating terminal's queue over 65536 bytes; nothing was queued |
+| `input.cancelled` (error code) | The creator cancelled the input of the creation of `terminal_id` (`cancel-creating-input`); nothing was queued or written |
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | base64 decode error | `bytes` is not valid standard base64 |
 | IO error string | PTY write fails |
@@ -1676,6 +1705,67 @@ Example:
 ```json
 {"id":3,"cmd":"send","surface":1,"text":"ls\r"}
 {"id":3,"ok":true,"data":{}}
+```
+
+### cancel-creating-input
+
+| Field | Value |
+| --- | --- |
+| name | `cancel-creating-input` |
+| status | implemented |
+| since | protocol 12 with `creating-input-cancel-v1` |
+
+Cancels the input of a creation that is still in flight: the person closed a pane or tab that was still
+starting, so nothing that was typed in it may reach the shell of the new terminal. `terminal_id` is the
+host terminal id (32 hex digits) the caller named in its `split`, `new-pane`, `new-pane-right` or
+`new-tab` (see [`send`](#send), `terminal-input-while-creating-v1`).
+
+Only the connection that sent the creation can cancel its input. For it:
+
+- The bytes it queued for the id are dropped. It gets no `terminal-input-unclaimed` event for them (a
+  client gives such bytes to the terminal that has focus, which is the wrong terminal here).
+- The bytes other connections queued for the id go back to them in `terminal-input-unclaimed` events with
+  `reason` `cancelled` (one event; two when the cancel arrives while the commit writes the queue, and the
+  second has `reason` `write-failed` when the write that the commit was in fails).
+- From then on, `send` with this `terminal_id` fails with error code `input.cancelled` on every
+  connection: until the creation ends, and for 10 seconds after a creation that committed. So a key that
+  arrives late cannot reach the terminal the commit made live. A `send` with this `terminal_id` and no
+  bytes is not refused: it answers as for any creating or live terminal.
+- When the commit already started to write the queue, the bytes not yet written are not written. The
+  chunk that is in its write at the time of the cancel is not recalled, and one more chunk can be written
+  when its write starts in the same instant as the cancel.
+
+A client must drop bytes that a `send` refused with `input.cancelled`. It must not send them again by
+`surface`: input by `surface` is not refused.
+
+The creation itself is not stopped: it commits or fails as without the cancel, and its reply is the same.
+The caller closes the new terminal when the reply names it (`close-tabs`). Input by `surface` to the
+committed terminal is not refused.
+
+The result is `{cancelled:false}`, and nothing changes, when the caller did not send a creation of the id,
+when the id is not creating, and when the creation's queue was already written or given back. A second
+cancel by the creator answers `{cancelled:true}`.
+
+Authority: control, local connections. A remote relay connection cannot send it (it is not on the relay
+allowlist), and it names no surface, pane or workspace: it acts only on the caller's own creation.
+
+Params: required `terminal_id:string`.
+
+Result:
+
+```text
+object{cancelled:boolean}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: ...` | A malformed `terminal_id`, or wrong JSON type |
+
+```json
+{"id":7,"cmd":"cancel-creating-input","terminal_id":"51000000000040008000000000000001"}
+{"id":7,"ok":true,"data":{"cancelled":true}}
 ```
 
 ### read-screen
@@ -2274,6 +2364,7 @@ Params:
 | `url` | string | required | Nonempty, at most 32 KiB, no control characters |
 | `engine` | string | required | `"webkit"` or `"cef"` |
 | `pane` | `Id` | default active pane | Destination pane |
+| `workspace` | `Id` | optional | Destination workspace instead of `pane`: the tab goes in its pane, or in a first pane the daemon makes when it has none (a workspace from `create-workspace`), so no terminal is needed to host it. Refused with `pane` or `split`; capability `frontend-browser-tab-workspace-v1` |
 | `title` | string | optional | At most 2048 characters |
 | `favicon_url` | string | optional | As `url` |
 | `profile_id` | string | optional | 1-128 printable ASCII characters; frontend profile (cookies, extensions) |
@@ -2667,13 +2758,22 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| `first_tab` | object | optional | `{kind:"browser", ...}` with the params of `new-frontend-browser-tab` except `pane`, `workspace`, `split` and `after`: the workspace's first tab, made by this request; capability `workspace-first-tab-v1` |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string,first_tab?:object}
 ```
+
+With `first_tab` the workspace and its tab are one request: no client makes a
+terminal to host the tab, and none sees a terminal in its place. `first_tab` in
+the result is the `new-frontend-browser-tab` result of that tab. A `first_tab`
+the daemon refuses (a bad field, or the tab cannot be made) leaves no
+workspace: the daemon closes the one it made and the request fails. A replayed
+create (same mutation id) replays the tab only when `first_tab` carries an
+`idempotency_key`; clients that retry must send one.
 
 Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
@@ -2722,6 +2822,8 @@ Params:
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
 | `expected_revision` | `uint64` | optional | Compare-and-swap guard for the resource projection revision |
 | `detached` | `boolean` | default false | `detached-terminals-v1`; create a kept terminal with no workspace, pane, screen, or tab |
+| `create_workspace` | `boolean` | default false | `create-terminal-workspace-v1`; make the workspace first when no workspace has `key` (a workspace and its first terminal in one request). Needs `key` and `mutation_id`; forbids `workspace` and `detached`. The workspace is made once under `mutation_id` with `:workspace` appended. A terminal that fails to start leaves the workspace: send the same request again |
+| `workspace_name` | `string` | default null | The name of the workspace `create_workspace` makes |
 
 Result:
 

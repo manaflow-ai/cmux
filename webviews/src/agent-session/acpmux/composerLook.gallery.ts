@@ -277,6 +277,21 @@ const HAT_DEPTH = `.acpmux-dock > .acpmux-running-tray[data-card] {
     var(--glass-material-depth) !important;
 }`;
 
+/// The composer's depth (Leo 2026-11-06, the hat over the composer: "Is there a way to make this less
+/// glass, or maybe less shadow? ... Probably just a little bit more subtle."). The pick is the shipped
+/// --glass-material-depth-composer; the others are gallery-only overrides of the card's shadow.
+const depthCss = (depth: string) => `.acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-shadow: ${depth} !important;
+}`;
+/// Before (base): the floating glass's full two-step depth.
+const DEPTH_BEFORE = depthCss("var(--glass-material-depth)");
+/// Alternate: only the near step, no soft spread under the card.
+const DEPTH_NEAR_ONLY = depthCss(
+  "0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent))",
+);
+/// Alternate: no depth at all; the card is the hairline and its light.
+const DEPTH_NONE = depthCss("0 0 transparent");
+
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
@@ -584,6 +599,26 @@ export default agentPaneEntry({
       note: "Alternate: the pick, and the hat casts the material's depth too; through the clear card under it the shadow reads as a smudge at the join.",
       snapshot: hatChat(),
       play: (ctx) => hatMaterialStage(ctx, HAT_DEPTH),
+    },
+    "composer-depth": {
+      note: "The pick for Leo's 2026-11-06 ask (\"less shadow ... a little bit more subtle\"): the card casts the material's two steps at about half the reach and half the dark (glass.css --glass-material-depth-composer), so it rests on the pane instead of floating off it. The rim stays as #37594 and #39400 left it.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx),
+    },
+    "composer-depth-before": {
+      note: "Before (base): the floating glass's full depth under the docked card, 0 12px 32px at 55% black in a dark theme, a dark smear below the stack.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_BEFORE),
+    },
+    "composer-depth-alt-near-only": {
+      note: "Alternate: only the near step, a 1 px contact shadow; over art the card loses most of its lift from the wallpaper.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_NEAR_ONLY),
+    },
+    "composer-depth-alt-none": {
+      note: "Alternate: no depth; the card is its hairline and light alone, and over a bright wallpaper its bottom edge disappears.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, DEPTH_NONE),
     },
     "composer-material-lens": {
       note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",

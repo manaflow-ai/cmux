@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 861,
-    "mcp": 777
+    "verbs": 864,
+    "mcp": 780
   },
   "nouns": [
     {
@@ -4366,6 +4366,13 @@
           "mcpTool": "app_sidebar_show_spaces"
         },
         {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
+        },
+        {
           "command": "cmux sidebar toggle-item-archive",
           "title": "Archive/Unarchive Item",
           "id": "sidebar.item.toggleArchive",
@@ -4710,6 +4717,13 @@
           "mcpTool": "app_tab_duplicate"
         },
         {
+          "command": "cmux tab duplicate-to-new-split",
+          "title": "Duplicate Tab to New Split",
+          "id": "tab.duplicateToNewSplit",
+          "mcp": true,
+          "mcpTool": "app_tab_duplicate_to_new_split"
+        },
+        {
           "command": "cmux tab hibernate",
           "title": "Hibernate Tab",
           "id": "hibernateTab",
@@ -4820,6 +4834,13 @@
           "id": "tab.moveToSpace",
           "mcp": true,
           "mcpTool": "app_tab_move_to_space"
+        },
+        {
+          "command": "cmux tab move-to-window",
+          "title": "Move Tab to Window…",
+          "id": "tab.moveToWindow",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_window"
         },
         {
           "command": "cmux tab move-to-workspace",

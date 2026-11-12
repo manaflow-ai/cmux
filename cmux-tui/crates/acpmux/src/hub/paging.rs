@@ -201,6 +201,17 @@ impl EventFilter {
         serde_json::to_vec(self.subagent.as_deref()?).ok()
     }
 
+    /// Whether a page reads only kinds the log keeps copies of (`store/kind_index.rs`
+    /// `INDEXED_KINDS`): exact kinds, none a group (`transcript`, `mux`, `wire`, `all`), and no
+    /// subagent. Such a page is read with `Store::scan_back_indexed` (`Hub::events_page`).
+    fn reads_indexed_kinds(&self) -> bool {
+        self.subagent.is_none()
+            && self.kinds.as_ref().is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && kinds.iter().all(|k| crate::store::INDEXED_KINDS.contains(&k.as_str()))
+            })
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -378,7 +389,7 @@ const STUB_TEXT_AT: &str = "/params/update/content/text";
 /// reader's `match`, so a stub never reads as a non-match, and the ends of that text; whether it
 /// was a subagent's), then the record's short top-level fields, ids first, while they fit. A
 /// stub that had to leave fields or text out says `truncated`.
-fn stub_msg(msg: &Value, bytes: usize, pattern: Option<&str>) -> Value {
+pub(super) fn stub_msg(msg: &Value, bytes: usize, pattern: Option<&str>) -> Value {
     let mut omitted = serde_json::Map::new();
     omitted.insert("bytes".into(), json!(bytes));
     omitted.insert("reason".into(), json!("too_large"));
@@ -415,30 +426,34 @@ fn stub_msg(msg: &Value, bytes: usize, pattern: Option<&str>) -> Value {
         })
         .collect();
     let is_id = |k: &str| k == "id" || k.ends_with("Id") || k.ends_with("_id");
+    // The text's ends go in first, before any field, each at least the pattern's length (at most
+    // `MAX_MATCH_BYTES`, `server/watches.rs`) always: a match that runs out of this chunk into the
+    // next, or into this one from the last, is found only from them. That floor may pass
+    // STUB_BYTES on text that escapes long (6 bytes a char at worst), still far under any page's
+    // record bound.
+    if let Some(text) = text {
+        let chars = text.chars().count();
+        let floor = pattern.map_or(0, |p| p.chars().count()).min(chars);
+        let mut keep = STUB_TEXT_CHARS.max(floor);
+        let wanted = keep.min(chars);
+        loop {
+            let head: String = text.chars().take(keep.max(floor)).collect();
+            let tail: String = text.chars().skip(chars.saturating_sub(keep.max(floor))).collect();
+            omitted.insert("textHead".into(), json!(head));
+            omitted.insert("textTail".into(), json!(tail));
+            if keep == 0 || size(&build(&omitted, &fields)) <= fill {
+                break;
+            }
+            keep /= 2;
+        }
+        truncated |= keep.min(chars) < wanted;
+    }
     for &(k, v) in short.iter().filter(|(k, _)| is_id(k)) {
         fields.insert(k.clone(), v.clone());
         if size(&build(&omitted, &fields)) > fill {
             fields.remove(k);
             truncated = true;
         }
-    }
-    if let Some(text) = text {
-        let chars = text.chars().count();
-        let mut keep = pattern.map_or(0, |p| p.chars().count()).max(STUB_TEXT_CHARS);
-        let wanted = keep.min(chars);
-        while keep > 0 {
-            let head: String = text.chars().take(keep).collect();
-            let tail: String = text.chars().skip(chars.saturating_sub(keep)).collect();
-            omitted.insert("textHead".into(), json!(head));
-            omitted.insert("textTail".into(), json!(tail));
-            if size(&build(&omitted, &fields)) <= fill {
-                break;
-            }
-            omitted.remove("textHead");
-            omitted.remove("textTail");
-            keep /= 2;
-        }
-        truncated |= keep.min(chars) < wanted;
     }
     for &(k, v) in short.iter().filter(|(k, _)| !is_id(k)) {
         fields.insert(k.clone(), v.clone());
@@ -686,7 +701,21 @@ impl Hub {
             filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
         };
         let mut superseded = omit.then(crate::store::Superseded::default);
-        self.store.scan_back(id, after, before, &skip, &mut |rec| {
+        // A page of prompts, the queue or turn results reads the log's copies of those kinds
+        // where they are good, segment by segment, newest first: read back from the end, a page
+        // of a chat's last 16 prompts walked its whole log when it had fewer, and every open asks
+        // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
+        // calls only, so it changes nothing on such a page.
+        let indexed = filter.reads_indexed_kinds();
+        let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
+                    visit: &mut dyn FnMut(EventRecord) -> bool| {
+            if indexed {
+                self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else {
+                self.store.scan_back(id, after, before, skip, visit)
+            }
+        };
+        back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
             if matches {

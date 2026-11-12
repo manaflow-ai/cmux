@@ -196,10 +196,12 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     });
   }
 
-  test("on a New Tab, menus, tooltips, dialogs and cards still fade as they close", async () => {
+  // Menus and tooltips close in one frame on every page (Leo, 2026-11-11: "the fade-in, the
+  // fade-out, is just so stupid"; ui/popupSurface.css); dialogs and cards keep their fades.
+  test("on a New Tab, dialogs and cards still fade as they close; menus and tooltips go at once", async () => {
     const page = await open("no-preference", true);
     try {
-      expect(await exits(page)).toEqual(["card with presence", "dialog", "menu", "tooltip"]);
+      expect(await exits(page)).toEqual(["card with presence", "dialog"]);
     } finally {
       await page.close();
     }
@@ -210,8 +212,8 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     try {
       const seen = Object.keys(await entrances(page));
       // Menus and popovers open in one frame on every page (test/popover-instant-open.test.ts).
-      for (const label of ["tooltip", "hover card", "dialog", "notice from an edge", "card with presence"])
-        expect(seen).toContain(label);
+      // Tooltips and hover cards do too (desktop.css).
+      for (const label of ["dialog", "notice from an edge", "card with presence"]) expect(seen).toContain(label);
     } finally {
       await page.close();
     }

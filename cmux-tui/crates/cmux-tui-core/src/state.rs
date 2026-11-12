@@ -82,6 +82,8 @@ pub(crate) mod home_store;
 mod home_tests;
 #[cfg(test)]
 mod incognito_terminal_tests;
+#[cfg(test)]
+mod journal_write_budget_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
@@ -176,7 +178,7 @@ mod workspace_checklist_tests;
 mod workspace_close_values_tests;
 pub(crate) mod workspace_extras;
 #[cfg(test)]
-mod workspace_extras_tests;
+pub(crate) mod workspace_extras_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;

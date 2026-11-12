@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
@@ -907,6 +908,1195 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     const scope = { ...f.scope, get: async () => machine() };
     const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
     expect(r.failed[0]!.reason).toContain("read back");
+  });
+});
+
+describe("clean-room provider key probe", () => {
+  const tok = (prefix: string, n = 40) => `${prefix}${"Ab3".repeat(Math.ceil(n / 3)).slice(0, n)}`;
+  const OAUTH = tok("sk-ant-oat01-");
+  const PROJ = tok("sk-proj-", 32);
+  const GEMINI = "AQ.Ab8RN6Jq2ZkVd0wXyP4s";
+  const REFRESH = tok("rt_", 30);
+  const GEMINI_SHAPE = `AIza${"Q".repeat(35)}`;
+  const MISTRAL = "opaqueMistral7Kq2Zr9Lw4";
+  const MISTRAL_ARG = "opaqArg8Hx3Np";
+  const REFRESH_ENV = tok("rtenv_", 30);
+  const REFRESH_ARG = tok("rtarg_", 30);
+  const plant = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), "key-probe-"));
+    for (const [rel, text] of Object.entries(files)) {
+      const p = join(root, rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, text);
+    }
+    return root;
+  };
+  const run = (root: string) => {
+    const r = spawnSync("bash", ["-c", keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20", "--as-root"])], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    return { out: r.stdout, probe: parseKeyProbe(r.stdout) };
+  };
+
+  test("scrub removes an example of every shape the probe knows", () => {
+    // One example per probe shape, by its kind. A shape added to cloud-key-probe.py without an example here fails.
+    // Built at run time, like the fixtures above: a key-shaped literal in the source trips push protection.
+    const examples: Record<string, string> = {
+      "an Anthropic API key": tok("sk-ant-api03-", 24),
+      "an Anthropic OAuth token": tok("sk-ant-oat01-", 24),
+      "an Anthropic refresh token": tok("sk-ant-ort01-", 24),
+      "an OpenAI project key": tok("sk-proj-", 24),
+      "an OpenAI service account key": tok("sk-svcacct-", 24),
+      "an OpenAI admin key": tok("sk-admin-", 24),
+      "an OpenAI user key": `${tok("sk-", 20)}${["T3Bl", "bkFJ"].join("")}${tok("", 20)}`,
+      "an OpenRouter key": `sk-or-v1-${"0a1b2c3d".repeat(4)}`,
+      "a Google AI key": tok("AIza", 35),
+      "an xAI key": tok("xai-", 40),
+      "a Groq key": tok("gsk_", 40),
+      "a Hugging Face token": tok("hf_", 30),
+      "an AWS access key id": tok("AKIA", 16).toUpperCase(),
+      "an OAuth refresh token": `"refresh_token": "${tok("", 24)}"`,
+    };
+    const kinds = [...readFileSync(KEY_PROBE_PY, "utf8").matchAll(/^ {4}\("([^"]+)", re\.compile\(/gm)].map((m) => m[1]);
+    expect(kinds.length).toBeGreaterThan(10);
+    expect(Object.keys(examples).sort()).toEqual([...kinds].sort());
+    for (const [kind, example] of Object.entries(examples)) {
+      const out = scrub(`detail: ${example} end`);
+      expect(out, kind).toContain("[secret]");
+      expect(out, kind).not.toContain(example.replace(/^"refresh_token": "/, "").replace(/"$/, ""));
+    }
+  });
+
+  test("a key name in any case, a key inside a shell script's words, and a program's unshipped kinds are found", () => {
+    const keys = ["Gp8Kz3Af7Le2Do0Ie9Xm4Yn1Wr6Mq5Bt", "Hq9La4Bg8Mf3Ep1Jf0Yn5Zo2Xs7Nr6Cu", "Ir0Mb5Ch9Ng4Fq2Kg1Zo6Ap3Yt8Os7Dv"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": `HOME=/root\0openai_api_key=${keys[0]}\0`,
+      "proc/5/cmdline": `sh\0-c\0tool --mistral-api-key ${keys[1]} && run\0`,
+      "proc/6/comm": "bash\n",
+      "proc/6/environ": "HOME=/root\0",
+      "proc/6/cmdline": `bash\0-c\0sh -c "export groq_api_key=${keys[2]}; go"\0`,
+    });
+    // An ELF at a shipped program's place: its Google key shape is shipped, an Anthropic key in it is not.
+    const bin = join(root, "home/cmux/.local/share/cmux-tui/builds/b1/bin");
+    mkdirSync(bin, { recursive: true });
+    const anthropic = "sk-ant-api03-Js1Nc6Di0Oh5Gr3Lh2Ap7Bq4Zu9Pt8Ew";
+    const elf = Buffer.alloc(8192);
+    Buffer.from("\x7fELF", "latin1").copy(elf, 0);
+    Buffer.from("AIzaSy9Kq3Lw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0Pq3Zx").copy(elf, 2000);
+    Buffer.from(anthropic).copy(elf, 5000);
+    writeFileSync(join(bin, "tool"), elf);
+    try {
+      const { probe, out } = run(root);
+      for (const v of [...keys, anthropic]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "cmdline process bash (1 pid): GROQ_API_KEY",
+        "cmdline process bash (1 pid): MISTRAL_API_KEY",
+        "env process bash (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/.local/share/cmux-tui/builds/[a name]/bin/[a name]: an Anthropic API key",
+      ]);
+      expect(probe.shipped.map((f) => f.what)).toEqual(["a Google AI key"]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("names every planted key by place and kind, and prints no value", () => {
+    const root = plant({
+      "proc/101/comm": "claude\n",
+      "proc/101/environ": `ANTHROPIC_API_KEY=cmux-vm-edge-placeholder\0CLAUDE_CODE_OAUTH_TOKEN=${OAUTH}\0PATH=/usr/bin\0`,
+      "proc/101/cmdline": "claude\0--print\0",
+      "proc/102/comm": "node\n",
+      "proc/102/environ": "HOME=/home/cmux\0",
+      "proc/102/cmdline": `node\0--key\0${PROJ}\0`,
+      // A key named on a command line, in each form: NAME=value, --name=value, --name value, and inside sh -c.
+      "proc/103/comm": "env\n",
+      "proc/103/environ": "",
+      "proc/103/cmdline": "env\0OPENAI_API_KEY=opaque-secret-one\0tool\0",
+      "proc/104/comm": "tool\n",
+      "proc/104/environ": "",
+      "proc/104/cmdline": "tool\0--openai-api-key=opaque2\0--GEMINI_API_KEY\0opaque3\0",
+      "proc/105/comm": "sh\n",
+      "proc/105/environ": "",
+      "proc/105/cmdline": "sh\0-c\0cd /w && XAI_API_KEY=opaque4 run; echo OPENAI_API_KEY=$OPENAI_API_KEY\0",
+      // A file and a process named with a key: found, and the name never prints the key.
+      [`home/cmux/cache/${PROJ}`]: `${PROJ}\n`,
+      "proc/106/comm": `${GEMINI_SHAPE}\n`,
+      "proc/106/environ": `CLAUDE_CODE_OAUTH_TOKEN=${OAUTH}\0`,
+      "proc/106/cmdline": "x\0",
+      // Keys found by context, not shape (a refresh token in JSON, an opaque value of a key's name), named in a path
+      // or a process name: found, and the name never prints them either.
+      [`home/cmux/cache/${REFRESH}`]: JSON.stringify({ refresh_token: REFRESH }),
+      [`home/cmux/cache/${MISTRAL}.env`]: `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "proc/107/comm": `${MISTRAL_ARG}\n`,
+      "proc/107/environ": "",
+      "proc/107/cmdline": `tool\0--mistral-api-key\0${MISTRAL_ARG}\0`,
+      "proc/108/comm": "codex\n",
+      "proc/108/environ": `CODEX_AUTH_JSON=${JSON.stringify({ tokens: { refresh_token: REFRESH_ENV } })}\0`,
+      "proc/108/cmdline": "codex\0",
+      [`home/cmux/${REFRESH_ENV}/.codex/auth.json`]: "{}",
+      "proc/109/comm": `${REFRESH_ARG}\n`,
+      "proc/109/environ": "",
+      "proc/109/cmdline": `login\0--json\0{"refresh_token": "${REFRESH_ARG}"}\0`,
+      // A key inside node_modules and inside a binary file still counts.
+      "home/cmux/app/node_modules/x/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
+      "home/cmux/bin/blob": `\0\0ELF${PROJ}\0\0`,
+      // Installed software's bare key shapes (what the image put in /opt, a harness's plugin cache) are listed apart, not
+      // counted; a key found by its context (a refresh token's field) counts there too.
+      "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
+      "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
+      // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
+      "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
+      "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
+      "home/cmux/.codex/auth.json": JSON.stringify({ tokens: { refresh_token: REFRESH } }),
+      "home/cmux/.bashrc": `export PATH=$HOME/bin:$PATH\nexport GEMINI_API_KEY=${GEMINI}\n`,
+      // The model plane's placeholder and a key named in prose or as a reference are not keys.
+      "etc/cmux/model-plane.env": "export OPENAI_API_KEY='cmux-vm-edge-placeholder'\nexport ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'\n",
+      "home/cmux/notes.md": "Set OPENAI_API_KEY before you run it: OPENAI_API_KEY=$OPENAI_API_KEY\n",
+    });
+    try {
+      const { out, probe } = run(root);
+      for (const v of [OAUTH, PROJ, GEMINI, GEMINI_SHAPE, REFRESH, REFRESH_ENV, REFRESH_ARG, MISTRAL, MISTRAL_ARG, OAUTH.slice(13, 30), PROJ.slice(8, 30), "opaque-secret-one", "opaque2", "opaque3", "opaque4"]) expect(out).not.toContain(v);
+      const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
+      expect(got).toEqual([
+        "cmdline process [a process] (1 pid): MISTRAL_API_KEY",
+        "cmdline process [a process] (1 pid): an OAuth refresh token",
+        "cmdline process env (1 pid): OPENAI_API_KEY",
+        "cmdline process node (1 pid): an OpenAI project key",
+        "cmdline process sh (1 pid): XAI_API_KEY",
+        "cmdline process tool (1 pid): GEMINI_API_KEY",
+        "cmdline process tool (1 pid): OPENAI_API_KEY",
+        "env process [a process] (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
+        "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
+        "env process codex (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
+        "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
+        "file /home/cmux/.claude/.credentials.json: a Claude login file",
+        "file /home/cmux/.claude/.credentials.json:1: an Anthropic OAuth token",
+        "file /home/cmux/.codex/auth.json: a Codex login file",
+        "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
+        "file /home/cmux/[a name].txt:2: an AWS access key id",
+        "file /home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/app/node_modules/[a name]/.env:1: ANTHROPIC_API_KEY",
+        "file /home/cmux/app/node_modules/[a name]/.env:1: an Anthropic API key",
+        "file /home/cmux/bin/[a name]: an OpenAI project key",
+        "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
+        "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
+        "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
+        "file /opt/[a name]/bin/[a name]: an OpenAI project key",
+      ]);
+      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
+      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
+      expect(keyProbeStatus(probe, true)).toBe("fail");
+      expect(keyProbeStatus(probe, false)).toBe("skip");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a clean machine is zero, and the probe's own source never counts as a key", () => {
+    const root = plant({
+      "proc/7/comm": "bash\n",
+      "proc/7/environ": "HOME=/root\0OPENAI_API_KEY=cmux-vm-edge-placeholder\0",
+      "proc/7/cmdline": `bash\0-c\0${keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"))}\0`,
+      "tmp/cloud-key-probe.py": readFileSync(KEY_PROBE_PY, "utf8"),
+      "home/cmux/.claude/settings.json": JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://coderouter.cmux.internal" } }),
+    });
+    try {
+      const { probe } = run(root);
+      expect(probe.findings).toEqual([]);
+      expect(probe.scanned.processes).toBe(1);
+      expect(probe.complete).toBe(true);
+      expect(keyProbeDetail(probe)).toStartWith("no provider key (");
+      expect(keyProbeStatus(probe, true)).toBe("pass");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("walks folders named like pseudo file systems and follows links, each folder and file once", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/project/dev/.env": `ANTHROPIC_API_KEY=${tok("sk-ant-api03-")}\n`,
+      "home/cmux/project/proc/notes": `${PROJ}\n`,
+      "home/cmux/project/sys/x": "nothing here\n",
+      // Outside every walked root, reached only through links.
+      "usr/share/secret/key.env": `${PROJ}\n`,
+      "usr/k": `${PROJ}\n`,
+      "workspace/project/.env": `OPENAI_API_KEY=${MISTRAL}\n`,
+    });
+    // A plugin cache (whose matches are shipped) linking to a workspace, walked before the workspace itself.
+    mkdirSync(join(root, "home/cmux/.claude/plugins"), { recursive: true });
+    symlinkSync(join(root, "workspace/project"), join(root, "home/cmux/.claude/plugins/project"));
+    symlinkSync(join(root, "usr/share/secret"), join(root, "home/cmux/linked"));
+    symlinkSync(join(root, "usr/k"), join(root, "home/cmux/k.txt"));
+    // A loop back to an ancestor, a second link to the same folder, and a link to nothing.
+    symlinkSync(join(root, "home/cmux"), join(root, "home/cmux/project/loop"));
+    symlinkSync(join(root, "usr/share/secret"), join(root, "home/cmux/project/again"));
+    symlinkSync(join(root, "gone"), join(root, "home/cmux/dangling"));
+    try {
+      const { probe } = run(root);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/project/dev/.env:1: ANTHROPIC_API_KEY",
+        "file /home/cmux/project/dev/.env:1: an Anthropic API key",
+        "file /home/cmux/project/proc/[a name]:1: an OpenAI project key",
+        "file /usr/[a name]:1: an OpenAI project key",
+        "file /usr/share/[a name]/[a name].env:1: an OpenAI project key",
+        "file /workspace/project/.env:1: OPENAI_API_KEY",
+      ]);
+      expect(probe.shipped ?? []).toEqual([]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a hard link in a plugin cache does not class a workspace's key as shipped", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/.env": `OPENAI_API_KEY=${MISTRAL}\n${PROJ}\n`,
+    });
+    // The cache is walked first; its name for the file is a second hard link, which realpath does not resolve.
+    mkdirSync(join(root, "home/cmux/.claude/plugins/p"), { recursive: true });
+    linkSync(join(root, "workspace/project/.env"), join(root, "home/cmux/.claude/plugins/p/.env"));
+    try {
+      const { probe } = run(root);
+      // The cache's name is shipped for the key's shape only; the key's name given a value counts there too.
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/.env:2: an OpenAI project key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual(["/home/cmux/.claude/plugins/[a name]/.env:2"]);
+      // Read once, reported under both names.
+      expect(probe.scanned.files).toBe(1);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the programs cmux and Codex install in a home are shipped, only while they are programs", () => {
+    const elf = (text: string) => `\x7fELF\0\0${text}\0`;
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // As on every fresh staging machine: a secret scanner's known public Google keys, Codex's copy of itself.
+      "home/cmux/.local/bin/acpmux": elf(GEMINI_SHAPE),
+      "home/cmux/.local/share/cmux-tui/builds/0123abcd/bin/cmux": elf(GEMINI_SHAPE),
+      "home/cmux/.codex/tmp/arg0/codex-arg0Ab12/apply_patch": elf(PROJ),
+      // The same names holding a script, and a program elsewhere in the home: findings.
+      "home/cmux/.local/bin/cmux": `#!/bin/sh\nexport OPENAI_API_KEY=${PROJ}\n`,
+      "home/cmux/.local/bin/other": elf(GEMINI_SHAPE),
+    });
+    try {
+      const { probe } = run(root);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/.local/bin/[a name]: a Google AI key",
+        "/home/cmux/.local/bin/cmux:2: OPENAI_API_KEY",
+        "/home/cmux/.local/bin/cmux:2: an OpenAI project key",
+      ]);
+      expect((probe.shipped ?? []).map((f) => f.where).sort()).toEqual([
+        "/home/cmux/.codex/tmp/arg0/[a name]/apply_patch",
+        "/home/cmux/.local/bin/acpmux",
+        "/home/cmux/.local/share/cmux-tui/builds/[a name]/bin/cmux",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an escaped key in JSON and a process name cut to 15 bytes never leave in the answer", () => {
+    const ESCAPED = "opaqueRefresh7Kv92Npx5Rq8Lm3Dz";
+    const root = plant({
+      // Linux keeps a process's name to 15 bytes: the start of the key it was named after.
+      "proc/5/comm": `${ESCAPED.slice(0, 15)}\n`,
+      "proc/5/environ": `CODEX_AUTH_JSON={"refresh_token":"${ESCAPED}"}\0`,
+      "proc/5/cmdline": "tool\0",
+      "proc/6/comm": `${MISTRAL.slice(0, 15)}\n`,
+      "proc/6/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/6/cmdline": "tool\0",
+      // The same token, its first letter escaped in the file and spelled plainly in the file's name.
+      [`home/cmux/cache/${ESCAPED}`]: `{"refresh_token":"\\u006f${ESCAPED.slice(1)}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [ESCAPED, ESCAPED.slice(0, 15), ESCAPED.slice(1), MISTRAL, MISTRAL.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a process] (1 pid): CODEX_AUTH_JSON (an OAuth refresh token)",
+        "env process [a process] (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a value on the line after its name is found, and a login file's token never leaves in its path", () => {
+    const SPLIT = "opaqueSplit9Hq4Lx7Vn2Kw5Tz";
+    const SPLIT_KEY = "opaqueSplitKey3Mv8Rq6Pn";
+    const LOGIN = "opaqueLogin4Zr7Kq2Xw9Np";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/token.json": `{\n  "refresh_token":\n    "${SPLIT}"\n}\n`,
+      "home/cmux/conf.json": `{"OPENAI_API_KEY":\n "${SPLIT_KEY}"}\n`,
+      // The name ends the probe's first 4 MiB read and its value starts the next.
+      "home/cmux/big.json": `${"a".repeat((4 << 20) - '{"refresh_token":\n'.length - 1)}\n{"refresh_token":\n"${SPLIT}"}\n`,
+      // Its token on the next line, and a folder named after it; and a login file whose token has no shape at all.
+      [`home/cmux/${SPLIT}/.codex/auth.json`]: `{"tokens": {"refresh_token":\n "${SPLIT}"}}\n`,
+      [`home/cmux/${LOGIN}/.claude/.credentials.json`]: JSON.stringify({ claudeAiOauth: { accessToken: LOGIN } }),
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [SPLIT, SPLIT_KEY, LOGIN]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a name].json:1: OPENAI_API_KEY",
+        "/home/cmux/[a name].json:2: an OAuth refresh token",
+        "/home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/[a secret]/.codex/auth.json:1: an OAuth refresh token",
+        "/home/cmux/token.json:2: an OAuth refresh token",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an AWS credentials file's secret and a second hit's split value never leave in a path", () => {
+    const AWS = "wJalrXUtnFEMIk7MDENGbPxRfiCYq9Kz4Lw8Vn2B";
+    const LATE = "opaqueLate5Rk8Wq3Zn7Mv4Tx";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/${AWS}/.aws/credentials`]: `[default]\naws_access_key_id = AKIA${"Q".repeat(16)}\naws_secret_access_key = ${AWS}\n`,
+      // A key name first, then a refresh token's field far along the same line, its value on the next.
+      "home/cmux/late.json": `{"OPENAI_API_KEY": "", "pad": "${"p".repeat(600)}", "refresh_token":\n "${LATE}"}\n`,
+      [`home/cmux/${LATE}/.codex/auth.json`]: "{}",
+      "home/cmux/project/settings.ini": `aws_secret_access_key = ${AWS.slice(0, 20)}Zz9${AWS.slice(23)}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [AWS, LATE, AWS.slice(0, 15), LATE.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a name].json:1: an OAuth refresh token",
+        "/home/cmux/[a secret]/.aws/credentials: an AWS credentials file",
+        "/home/cmux/[a secret]/.aws/credentials:2: an AWS access key id",
+        "/home/cmux/[a secret]/.aws/credentials:3: AWS_SECRET_ACCESS_KEY",
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/project/[a name].ini:1: AWS_SECRET_ACCESS_KEY",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a long value on a later line is found, a large login file is read whole, and no token-like name leaves", () => {
+    const LONG = `opaqueLong${"7Kq2Zr9Lw4".repeat(74)}x`; // 751 characters, longer than any one look ahead
+    const BIG = "opaqueBig6Rv3Hx8Nq2Lm5";
+    const MISSED = "zq81Hw4Kd9Lm2Px7"; // a token no detector names: shape alone keeps it out of the answer
+    const root = plant({
+      "proc/5/comm": `${MISSED.slice(0, 15)}\n`,
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/token.json": `{"refresh_token":\n "${LONG}"}\n`,
+      [`home/cmux/${LONG.slice(0, 15)}/.codex/auth.json`]: "{}",
+      // A valid login file over 1 MiB, its token first.
+      [`home/cmux/${BIG}/.claude/.credentials.json`]: JSON.stringify({ claudeAiOauth: { accessToken: BIG }, pad: "p".repeat(2 << 20) }),
+      [`home/cmux/${MISSED}/notes.txt`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [LONG.slice(0, 15), LONG.slice(-40), BIG, MISSED, MISSED.slice(0, 15)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/[a name]/notes.txt:1: an OpenAI project key",
+        "file /home/cmux/[a piece of a secret]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
+        "file /home/cmux/token.json:1: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an unknown credential leaves in no path, whatever its punctuation, and a key without digits is found", () => {
+    const AT = "@zq81Hw4Kd9Lm2Px7";
+    const NODIGIT = "QxTmRzLpVwNcHsJkYbFdSaGeUiOoPaWs";
+    const PLUS = "ab+Zq8~Hw4=Kd9Lm2Px7";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/cache/${AT}/.codex/auth.json`]: "{}",
+      [`home/cmux/cache/${PLUS}/.codex/auth.json`]: "{}",
+      [`home/cmux/${NODIGIT}/.codex/auth.json`]: "{}",
+      "home/cmux/project/.env": `MISTRAL_API_KEY=${NODIGIT}\n`,
+      // Identifiers after a key's name are not keys.
+      "home/cmux/project/config.ts": "const OPENAI_API_KEY = requiredStringValueHere\nGEMINI_API_KEY: DefaultProviderCredentials\n",
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [AT.slice(1), NODIGIT, PLUS, PLUS.slice(3)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/cache/[a name]/.codex/auth.json: a Codex login file",
+        "/home/cmux/project/.env:1: MISTRAL_API_KEY",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a place prints only names that cannot be a credential, whatever detection saw", () => {
+    const SEP = "c8Jp4k_W9q2Lt-v7X3aM_R6n8Ys"; // an opaque token with separators, under no key's name
+    const root = plant({
+      "proc/5/comm": `${SEP.slice(0, 15)}\n`,
+      "proc/5/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/5/cmdline": "tool\0",
+      "proc/6/comm": "node\n",
+      "proc/6/environ": `OPENAI_API_KEY=${MISTRAL}\0`,
+      "proc/6/cmdline": "node\0",
+      "home/cmux/session.json": `{"access_token":"${SEP}"}\n`,
+      [`home/cmux/${SEP}/.codex/auth.json`]: "{}",
+      [`home/cmux/a.b/${SEP.slice(0, 6)}/${SEP.slice(7, 13)}/.codex/auth.json`]: "{}",
+      // Any casing of a key's name, and a long refresh token in a binary file.
+      "home/cmux/project/.env": "Mistral_Api_Key=Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt\n",
+      "home/cmux/project/blob.bin": `\0{"refresh_token":"${"Aa8k_".repeat(150)}"}`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [SEP, SEP.slice(0, 15), SEP.slice(0, 6), SEP.slice(7, 13), "Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt", "Aa8k_Aa8k_"]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a process] (1 pid): OPENAI_API_KEY (a value)",
+        "env process node (1 pid): OPENAI_API_KEY (a value)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/[a name]/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/project/.env:1: MISTRAL_API_KEY",
+        "file /home/cmux/project/[a name].bin: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a mark the probe wrote never shields the rest of a name, and a variable's name is shown only when plain", () => {
+    const OPAQUE = "c8Jp4k_W9q2Lt-v7X3aM_R6n8Ys";
+    const root = plant({
+      "proc/5/comm": "tool\n",
+      "proc/5/environ": `CACHE_${OPAQUE}=${PROJ}\0EXTRA_PATH=${PROJ}\0`,
+      "proc/5/cmdline": "tool\0",
+      "home/cmux/session.json": `{"access_token":"${OPAQUE}"}\n`,
+      [`home/cmux/${GEMINI_SHAPE}-${OPAQUE}/.codex/auth.json`]: "{}",
+      [`home/cmux/[a name]${OPAQUE}/.codex/auth.json`]: "{}",
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [OPAQUE, OPAQUE.slice(0, 15), GEMINI_SHAPE]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process tool (1 pid): EXTRA_PATH (an OpenAI project key)",
+        "env process tool (1 pid): [a variable] (an OpenAI project key)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a credential made only of letters leaves in no name: only listed names print", () => {
+    const LOWER = "qzmtwprxvknhfgdcslybuaeioj";
+    const UPPER = LOWER.toUpperCase();
+    const root = plant({
+      [`proc/5/comm`]: `${LOWER.slice(0, 15)}\n`,
+      "proc/5/environ": `CACHE_${UPPER}=${PROJ}\0`,
+      "proc/5/cmdline": "tool\0",
+      "home/cmux/session.json": `{"access_token":"${LOWER}"}\n`,
+      [`home/cmux/${LOWER}/.codex/auth.json`]: "{}",
+      [`home/cmux/${LOWER.slice(0, 9)}/${LOWER.slice(9, 18)}/${LOWER.slice(18)}.json`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [LOWER, UPPER, LOWER.slice(0, 15), LOWER.slice(0, 9), LOWER.slice(9, 18), LOWER.slice(18)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "env process [a process] (1 pid): [a variable] (an OpenAI project key)",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/[a name]/[a name]/[a name].json:1: an OpenAI project key",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a name's own :digits is not a line number, an ancestor's key is read, and a binary file's held-back hit is checked", () => {
+    const DIGITS = "123456789012345678901234567890123456";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // This test's own process is an ancestor of the probe: its command line here holds a real key.
+      [`proc/${process.pid}/comm`]: "supervisor\n",
+      [`proc/${process.pid}/environ`]: "HOME=/root\0",
+      [`proc/${process.pid}/cmdline`]: "supervisor\0--openai-api-key\0Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt\0",
+      "home/cmux/session.json": `{"access_token":"opaq:${DIGITS}"}\n`,
+      [`home/cmux/opaq:${DIGITS}/.codex/auth.json`]: "{}",
+      "home/cmux/project/blob.bin": `\0{"refresh_token":"${"Aa8k_".repeat(120)}\0${PROJ}\0`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [DIGITS, DIGITS.slice(0, 12), "Q8h2Fx7Kp9Wm4Rz6Lv3Bn5Nt"]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "cmdline process [a process] (1 pid): OPENAI_API_KEY",
+        "file /home/cmux/[a name]/.codex/auth.json: a Codex login file",
+        "file /home/cmux/project/[a name].bin: an OpenAI project key",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an escaped credential (a shell string's \\\" or JSON's \\u0022) is found as a plain one", () => {
+    const refresh = "Zq8Wn3Rt6Lp2Vx9Kb5Hj1Dm4Fc7Gs0Ya";
+    const named = "Qz7mRt2Kp9Vw4Xn8Lb3Hc6Jd1Fg5Ys0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // What a shell restores to a plain JSON login when it sources the file.
+      "workspace/project/.env": `export CODEX_AUTH_JSON="{\\"tokens\\":{\\"refresh_token\\":\\"${refresh}\\"}}"\n`,
+      // A JSON string holding JSON, its quotes escaped twice over, and one written as \u0022.
+      "workspace/project/settings.json": `{"inner": "{\\\\\\"MISTRAL_API_KEY\\\\\\":\\\\\\"${named}A\\\\\\"}"}\n`,
+      "workspace/project/other.json": `{"cfg": "{\\u0022MISTRAL_API_KEY\\u0022:\\u0022${named}B\\u0022}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [refresh, `${named}A`, `${named}B`]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/.env:1: an OAuth refresh token",
+        "file /workspace/project/[a name].json:1: MISTRAL_API_KEY",
+        "file /workspace/project/settings.json:1: MISTRAL_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's name on one line and its escaped value on the next is found", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const aws = "Wq4Lp9Zt2Kx7Rn5Vb8Hd3Jf6Cm1Gs0YaPe7Tu";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // The name's line has no escape; the value's line does, so only a later reading of the two lines decodes it.
+      "workspace/project/conf.json": `{"MISTRAL_API_KEY":\n "\\u0048${named.slice(1)}"}\n`,
+      "workspace/project/aws.json": `{"region": "x",\n  "AWS_SECRET_ACCESS_KEY":\n  "\\u0057${aws.slice(1)}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [named, named.slice(1), aws, aws.slice(1)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].json:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].json:2: AWS_SECRET_ACCESS_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a YAML block scalar's value is read as the key's value, in a text file and a binary one", () => {
+    const literal = "Nc4Tq8Lw2Rk7Zp5Hx9Bv3Jd6Fm1Gs0Ya";
+    const folded = "Pe7Xu3Kw9Lq2Rz6Vn8Hb4Jc1Dm5Fg0Ts";
+    const inDb = "Ub2Wh6Ky9Pq4Rm7Xs3Lv8Jd1Fn5Gc0Za";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/config.yaml": `MISTRAL_API_KEY: |-\n  ${literal}\nother: 1\n`,
+      "workspace/project/more.yml": `cloud:\n  AWS_SECRET_ACCESS_KEY: >+2 # rotated monthly\n      ${folded}\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`OPENAI_API_KEY: |\n  ${inDb}\n`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/c.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const v of [literal, folded, inDb]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: OPENAI_API_KEY",
+        "file /workspace/project/[a name].yaml:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yml:2: AWS_SECRET_ACCESS_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's value behind YAML comments, tags and anchors, or nested in another assignment, is read", () => {
+    const keys = ["Ra3Vk8Lq2Wz7Np5Tx9Hc4Jb6Dm1Fs0Ge", "Sb4Wl9Mr3Xa8Pq6Uy0Jd5Kc7En2Gt1Hf", "Tc5Xm0Ns4Yb9Qr7Vz1Ke6Ld8Fo3Hu2Ig", "Ud6Yn1Ot5Zc0Rs8Wa2Lf7Me9Gp4Iv3Jh", "Ve7Zo2Pu6Ad1St9Xb3Mg8Nf0Hq5Jw4Ki"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.yaml": `MISTRAL_API_KEY: # rotated monthly\n  ${keys[0]}\n`,
+      "workspace/project/b.yaml": `GROQ_API_KEY: !!str ${keys[1]}\n`,
+      "workspace/project/c.yaml": `XAI_API_KEY: &shared !vault |- # note\n  # the value\n  ${keys[2]}\n`,
+      "workspace/project/d.js": `const env={MISTRAL_API_KEY:"${keys[3]}"};\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`cfg={OPENAI_API_KEY:"${keys[4]}"}`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/e.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const v of keys) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: OPENAI_API_KEY",
+        "file /workspace/project/[a name].js:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yaml:1: GROQ_API_KEY",
+        "file /workspace/project/[a name].yaml:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yaml:1: XAI_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key set through an index, a call, a Dockerfile, make or fish, or ended by a control byte, is read", () => {
+    const keys = ["Wf8Ap3Qv7Be2Tu0Yc4Nh9Og1Ir6Kx5Lj", "Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk", "Yh0Cr5Sx9Dg4Vw2Ae6Pj1Qi3Kt8Mz7Nl", "Zi1Ds6Ty0Eh5Wx3Bf7Qk2Rj4Lu9Na8Om", "Aj2Et7Uz1Fi6Xy4Cg8Rl3Sk5Mv0Ob9Pn", "Bk3Fu8Va2Gj7Yz5Dh9Sm4Tl6Nw1Pc0Qo", "Cl4Gv9Wb3Hk8Za6Ei0Tn5Um7Ox2Qd1Rp", "Dm5Hw0Xc4Il9Ab7Fj1Uo6Vn8Py3Re2Sq", "En6Ix1Yd5Jm0Bc8Gk2Vp7Wo9Qz4Sf3Tr", "Fo7Jy2Ze6Kn1Cd9Hl3Wq8Xp0Ra5Tg4Us"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.py": `os.environ["MISTRAL_API_KEY"] = "${keys[0]}"\n`,
+      "workspace/project/b.js": `process.env['GROQ_API_KEY']='${keys[1]}';\n`,
+      "workspace/project/c.py": `os.environ.setdefault("XAI_API_KEY", "${keys[2]}")\n`,
+      "workspace/project/d.dockerfile": `FROM base\nENV MISTRAL_API_KEY ${keys[3]}\n`,
+      "workspace/project/e.mk": `GROQ_API_KEY ?= ${keys[4]}\n`,
+      "workspace/project/f.fish": `set -gx XAI_API_KEY ${keys[5]}\n`,
+      // A call whose arguments are on their own lines: the name's line holds no `(`, the value is on the next.
+      "workspace/project/i.py": `import os\nos.environ.setdefault(\n    "MISTRAL_API_KEY",\n    "${keys[8]}"\n)\n`,
+    });
+    // Unquoted values in a binary file, ended by a NUL or by a record's control bytes (a shell-history database row).
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`MISTRAL_API_KEY=${keys[6]}\0\0`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/g.db"), page);
+    const rows = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(rows, 0);
+    Buffer.from(`export GROQ_API_KEY=${keys[7]}\x01\x05`).copy(rows, 5000);
+    Buffer.from(`setdefault(\n  'XAI_API_KEY',\n  '${keys[9]}')`).copy(rows, 6000);
+    writeFileSync(join(root, "workspace/project/h.sqlite"), rows);
+    try {
+      const { probe, out } = run(root);
+      for (const v of keys) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].js:1: GROQ_API_KEY",
+        "file /workspace/project/[a name].py:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].py:1: XAI_API_KEY",
+        "file /workspace/project/[a name].py:3: MISTRAL_API_KEY",
+        // An extension the probe does not list is part of the hidden name.
+        "file /workspace/project/[a name]: GROQ_API_KEY",
+        "file /workspace/project/[a name]: XAI_API_KEY",
+        "file /workspace/project/[a name]:1: GROQ_API_KEY",
+        "file /workspace/project/[a name]:1: XAI_API_KEY",
+        "file /workspace/project/[a name]:2: MISTRAL_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the budget holds inside one large file, and what that file showed is kept", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-deadline-"));
+    const big = join(dir, "big.db");
+    // 1 GiB, sparse: a binary file whose first read holds a key's name and value.
+    writeFileSync(big, `\0OPENAI_API_KEY="${named}"\0`);
+    spawnSync("truncate", ["-s", "1G", big]);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+try:
+    probe.scan_file(sys.argv[2], t0 + 0.05)
+    print(json.dumps({"cut": False}))
+except probe.OutOfTime as cut:
+    print(json.dumps({"cut": True, "hits": [w for _, w in cut.hits], "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, big], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.cut).toBe(true);
+      expect(answer.hits).toEqual(["OPENAI_API_KEY"]);
+      // One 4 MiB read past the deadline at most, not the rest of the gigabyte.
+      expect(answer.s).toBeLessThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a key that spells a stand-in word by chance is a key; only real stand-ins and AWS's own examples are not", () => {
+    // Random keys: a stand-in word inside a run of letters and digits, and EXAMPLE inside a Google key's shape.
+    const mistral = "Qd7Kx2TestMn4Lw9Vb3Rz8Hj1Fc6Gs5Yp";
+    // A reference word or a stand-in word inside a key, after a separator too: still a key.
+    const inside = ["Ab3Qxmyenvironment7Kq2Zr9Lw4Np5", "Ab3Qx-test-7Kq2Zr9Lw4Np5Tg8", "Ab3Qxgetenv7Kq2Zr9Lw4Np5Vh2"];
+    // Every credential alphabet: base64 (`+/=`), base64url (`-_`), hex, and any printable character (a password's
+    // `~!#&*`).
+    const printable = ["ab+Zq8~Hw4=Kd9Lm2Px7", "Ab3!Qx#7Kq2&Zr9*Lw4"];
+    const alphabets = ["Qd7+Kx2/Mn4Lw9Vb3Rz8Hj1F==", "Qd7-Kx2_Mn4Lw9Vb3Rz8Hj1Fc6", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"];
+    // A bracket inside a key, a key that spells the answer's own field names, and separators inside a quoted key.
+    const odd = ["ab+Zq8~Hw4[Kd9Lm2Px7]", "Ab3Qxfindings7Kq2Zr9Lw4Np5", "Qd7,Kx2;Mn4)Lw9}Vb3Rz8"];
+    const google = `AIza${"Sy9Kq3EXAMPLEw7Lx2Mn4Bv8Rt5Hj1Fd6Gc0".slice(0, 35)}`;
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.env": `MISTRAL_API_KEY=${mistral}\n`,
+      "workspace/project/d.env": `GROQ_API_KEY=${inside[0]}\nXAI_API_KEY=${inside[1]}\nDEEPSEEK_API_KEY=${inside[2]}\n`,
+      "workspace/project/e.env": `MISTRAL_API_KEY=${printable[0]}\nCOHERE_API_KEY=${printable[1]}\n`,
+      "workspace/project/f.env": `TOGETHER_API_KEY=${alphabets[0]}\nFIREWORKS_API_KEY=${alphabets[1]}\nCEREBRAS_API_KEY=${alphabets[2]}\n`,
+      "workspace/project/g.env": `PERPLEXITY_API_KEY="${odd[0]}"\nOPENROUTER_API_KEY=${odd[1]}\nDEEPSEEK_API_KEY='${odd[2]}'\n`,
+      "workspace/project/b.json": `{"k": "${google}"}\n`,
+      // Stand-ins: a word at the value's start or after a separator, and the exact values AWS documents.
+      "workspace/project/c.env": [
+        "MISTRAL_API_KEY=your-mistral-api-key-here",
+        "GROQ_API_KEY=sk-test-0123456789abcdef0123",
+        "XAI_API_KEY=placeholder_9f8e7d6c5b4a3210",
+        "COHERE_API_KEY=process.env.COHERE_API_KEY_VALUE_1",
+        "GROQ_API_KEY=${GROQ_API_KEY_FROM_VAULT_1}",
+        "XAI_API_KEY={{ secrets.XAI_API_KEY_1 }}",
+        "DEEPSEEK_API_KEY=os.environ.get('DEEPSEEK_API_KEY_1')",
+        "AWS_SECRET_ACCESS_KEY: *cache-r2-secret-1",
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "id AKIAIOSFODNN7EXAMPLE",
+        "",
+      ].join("\n"),
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [mistral, google, ...inside, ...printable, ...alphabets, ...odd]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].env:1: GROQ_API_KEY",
+        "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].env:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].env:1: PERPLEXITY_API_KEY",
+        "file /workspace/project/[a name].env:1: TOGETHER_API_KEY",
+        "file /workspace/project/[a name].env:2: COHERE_API_KEY",
+        "file /workspace/project/[a name].env:2: FIREWORKS_API_KEY",
+        "file /workspace/project/[a name].env:2: OPENROUTER_API_KEY",
+        "file /workspace/project/[a name].env:2: XAI_API_KEY",
+        "file /workspace/project/[a name].env:3: CEREBRAS_API_KEY",
+        "file /workspace/project/[a name].env:3: DEEPSEEK_API_KEY",
+        "file /workspace/project/[a name].env:3: DEEPSEEK_API_KEY",
+        "file /workspace/project/[a name].json:1: a Google AI key",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
+    const big = join(dir, "one-line.txt");
+    // 64 MiB with no line break: a key's name across the first read's edge, and one deeper in. The first piece ends
+    // OVERLAP bytes before the second read's end (8 MiB - 256).
+    const M = 1 << 20;
+    const body = Buffer.alloc(64 * M, "abc de ");
+    Buffer.from(" MISTRAL_API_KEY=Qd7Kx2Mn4Lw9Vb3Rz8Hj1Fc6Gs5Yp0Ta ").copy(body, 4 * M - 266);
+    Buffer.from(" GROQ_API_KEY=Xg9Bq4Rw8Cf3Uv1Zd5Oi0Ph2Js7Ly6Mk ").copy(body, 37 * M);
+    writeFileSync(big, body);
+    // A file whose only key's `_KEY` is split by the first piece's cut, two bytes each side: no other hit in either
+    // piece reads across the cut for it.
+    const cut = join(dir, "cut.txt");
+    const spaces = Buffer.alloc(12 * M, " ");
+    Buffer.from("XAI_API_KEY=Tc5Xm0Ns4Yb9Qr7Vz1Ke6Ld8Fo3Hu2Ig ").copy(spaces, 8 * M - 256 - 2 - "XAI_API".length);
+    writeFileSync(cut, spaces);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+try:
+    print(json.dumps([sorted({w for _, w in probe.scan_file(f, time.monotonic() + 20)}) for f in sys.argv[2:]]))
+except MemoryError:
+    print(json.dumps("MemoryError"))
+`;
+    try {
+      // Under 192 MiB: reading the line whole takes several copies of it.
+      const r = spawnSync("bash", ["-c", 'ulimit -v 196608; exec python3 -I -c "$0" "$@"', script, KEY_PROBE_PY, big, cut], { encoding: "utf8" });
+      expect(JSON.parse(r.stdout || "null")).toEqual([["GROQ_API_KEY", "MISTRAL_API_KEY"], ["XAI_API_KEY"]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a line of many escapes that spell no key is read in linear time", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
+    const file = join(dir, "strings.json");
+    // 400,000 escaped spaces on one line: each was a reading of the whole line, then a search back to its start
+    // (4.7 s at this size, four times that at twice it). Then a key after 20,000 short lines of escapes, on its own line.
+    writeFileSync(file, `{"s": "${"\\u0020".repeat(400_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(20_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+hits = probe.scan_file(sys.argv[2])
+print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.hits).toEqual([[20_002, "MISTRAL_API_KEY"]]);
+      expect(answer.s).toBeLessThan(1.5);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a login file of blank lines is read in linear time", () => {
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-login-"));
+    const file = join(dir, "auth.json");
+    writeFileSync(file, "\n".repeat(50_000) + "{}");
+    const script = `
+import importlib.util, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+probe.login_values(sys.argv[2])
+print(time.monotonic() - t0)
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      expect(Number(r.stdout)).toBeLessThan(0.5);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a huge login file is read only in part, and still names its kind", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/.codex/auth.json": "{}",
+    });
+    // 1 GiB, sparse: reading it whole would take a gigabyte of memory.
+    spawnSync("truncate", ["-s", "1G", join(root, "home/cmux/.codex/auth.json")]);
+    try {
+      const r = spawnSync(
+        "bash",
+        ["-c", `ulimit -v 524288; ${keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20", "--as-root"])}`],
+        { encoding: "utf8" },
+      );
+      expect(r.status).toBe(0);
+      const probe = parseKeyProbe(r.stdout);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`)).toEqual([
+        "file /home/cmux/.codex/auth.json: a Codex login file",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the budget holds across many hits in one file, each with a value left open", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const dir = mkdtempSync(join(tmpdir(), "key-probe-hits-"));
+    const many = join(dir, "many.env");
+    // 20,000 names whose value is open at the line's end, each read ahead past its line: a key first, then the rest.
+    writeFileSync(many, `OPENAI_API_KEY=${named}\n` + "OPENAI_API_KEY=\n".repeat(20_000));
+    const script = `
+import importlib.util, json, sys, time
+spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+t0 = time.monotonic()
+try:
+    probe.scan_file(sys.argv[2], t0 + 0.05)
+    print(json.dumps({"cut": False, "s": time.monotonic() - t0}))
+except probe.OutOfTime as cut:
+    print(json.dumps({"cut": True, "hits": [w for _, w in cut.hits], "s": time.monotonic() - t0}))
+`;
+    try {
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, many], { encoding: "utf8" });
+      const answer = JSON.parse(r.stdout || "{}");
+      expect(answer.cut).toBe(true);
+      expect(answer.hits).toContain("OPENAI_API_KEY");
+      expect(answer.s).toBeLessThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("any ASCII character JSON writes as \\u00XX is read as itself, in a text file and a binary one", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const proj = PROJ.replace("sk-", "sk\\u002d");
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/conf.json": `{"OPENAI\\u005fAPI\\u005fKEY":"${named}"}\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`{"k":"${proj}"}`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/c.db"), page);
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(named);
+      expect(out).not.toContain(PROJ.slice(8));
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: an OpenAI project key",
+        "file /workspace/project/[a name].json:1: OPENAI_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("in a binary file, a \\u0022-escaped refresh token's field and an escaped one longer than a hit's span are found", () => {
+    const short = "Mx4Tq9Ld2Wv7Rk5Ns8Pb3Hz6Jc1Fg0Ya";
+    const long = "Aa8k_".repeat(150);
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+    });
+    const db = (row: string) => {
+      const page = Buffer.alloc(8192);
+      Buffer.from("SQLite format 3\0").copy(page, 0);
+      Buffer.from(row).copy(page, 4000);
+      return page;
+    };
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/a.db"), db(`{"inner":"{\\u0022refresh_token\\u0022:\\u0022${short}\\u0022}"}`));
+    writeFileSync(join(root, "workspace/project/b.db"), db(JSON.stringify({ inner: JSON.stringify({ refresh_token: long }) })));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(short);
+      expect(out).not.toContain(long.slice(0, 40));
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: an OAuth refresh token",
+        "file /workspace/project/[a name].db: an OAuth refresh token",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's name across a binary file's 4 MiB reads counts, and a refresh token's field counts in installed software", () => {
+    const opaque = "Wv4Nq8Rt2Lp6Zx9Kb3Hj7Dm5Fc1Gs0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "opt/tool/.env": `CODEX_AUTH_JSON='{"tokens":{"refresh_token":"${opaque}R"}}'\n`,
+    });
+    // A binary file whose JSON assignment starts 32 bytes before the first read's end: the value runs into the next.
+    const edge = 4 << 20;
+    const row = Buffer.from(`{"MISTRAL_API_KEY":"${opaque}B${"q7".repeat(40)}"}`);
+    const file = Buffer.alloc(edge + 4096);
+    Buffer.from("SQLite format 3\0").copy(file, 0);
+    row.copy(file, edge - 32);
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/settings.db"), file);
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain(`${opaque}B`);
+      expect(out).not.toContain(`${opaque}R`);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /opt/[a name]/.env:1: an OAuth refresh token",
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
+      ]);
+      expect(probe.shipped ?? []).toEqual([]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key's name given a secret counts in a database file and in installed software's folders", () => {
+    const opaque = "Qz7mRt2Kp9Vw4Xn8Lb3Hc6Jd1Fg5Ys0";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "opt/tool/.env": `OPENAI_API_KEY=${opaque}A\n`,
+      "home/cmux/.claude/plugins/custom/.env": `OPENAI_API_KEY=${opaque}B\n`,
+    });
+    // A SQLite file: a binary page holding a settings row's JSON.
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`{"MISTRAL_API_KEY":"${opaque}C"}`).copy(page, 5000);
+    mkdirSync(join(root, "workspace/project"), { recursive: true });
+    writeFileSync(join(root, "workspace/project/settings.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const tail of ["A", "B", "C"]) expect(out).not.toContain(opaque + tail);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
+        "file /opt/[a name]/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/[a name].db: MISTRAL_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a login file named across a linked folder the walk already read counts, at any depth", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/cache/auth.json": `{"access_token":"opaqueAccess7Kq2Zr9Lw4"}\n`,
+      "home/cmux/gc/gcloud/application_default_credentials.json": `{"refresh_token":"opaqueRefresh8Vb3Np6Ht1"}\n`,
+      "workspace/project/README.md": "\n",
+    });
+    // /home is walked before /workspace: both links lead into folders already read under other names.
+    symlinkSync(join(root, "home/cmux/cache"), join(root, "workspace/project/.codex"));
+    symlinkSync(join(root, "home/cmux/gc"), join(root, "workspace/project/.config"));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain("opaqueAccess7Kq2Zr9Lw4");
+      expect(out).not.toContain("opaqueRefresh8Vb3Np6Ht1");
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /home/cmux/[a name]/gcloud/application_default_credentials.json:1: an OAuth refresh token",
+        "file /workspace/project/.codex/auth.json: a Codex login file",
+        "file /workspace/project/.config/gcloud/application_default_credentials.json: a Google Cloud login file",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a home's login file behind a link to a folder already read still counts, and a project's plugins folder is no cache", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/cache/auth.json": `{"access_token":"opaqueAccess7Kq2Zr9Lw4"}\n`,
+      "workspace/project/.claude/plugins/custom/.env": `OPENAI_API_KEY=${PROJ}\n`,
+      "root/.profile": "\n",
+    });
+    // /root is walked after /home: its .codex is the cache folder the walk has already read.
+    symlinkSync(join(root, "home/cmux/cache"), join(root, "root/.codex"));
+    try {
+      const { probe, out } = run(root);
+      expect(out).not.toContain("opaqueAccess7Kq2Zr9Lw4");
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /root/.codex/auth.json: a Codex login file",
+        "file /workspace/project/.claude/plugins/[a name]/.env:1: OPENAI_API_KEY",
+        "file /workspace/project/.claude/plugins/[a name]/.env:1: an OpenAI project key",
+      ]);
+      expect(probe.shipped ?? []).toEqual([]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a key glued into a file's name never leaves in the answer", () => {
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      [`home/cmux/cache/prefix_${GEMINI_SHAPE}`]: `${GEMINI_SHAPE}\n`,
+      [`home/cmux/cache/x${PROJ}y`]: `${PROJ}\n`,
+    });
+    try {
+      const { probe, out: stdout } = run(root);
+      for (const v of [GEMINI_SHAPE, PROJ]) expect(stdout).not.toContain(v);
+      expect(probe.findings.map((f) => f.what).sort()).toEqual(["a Google AI key", "an OpenAI project key"]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("no finding with a gap in what was read is unknown: a clean check fails it", () => {
+    const root = plant({ "proc/9/comm": "bash\n", "proc/9/environ": "HOME=/root\0", "proc/9/cmdline": "bash\0", "home/cmux/locked": "x" });
+    try {
+      // Not root: a gap on its own.
+      // python3 straight, not keyProbeCommand: that one takes sudo where it can, and root reads every file.
+      const direct = (...args: string[]) => spawnSync("python3", ["-I", KEY_PROBE_PY, "--root", root, ...args], { encoding: "utf8" });
+      const notRoot = direct();
+      const a = parseKeyProbe(notRoot.stdout);
+      if (process.getuid?.() !== 0) {
+        expect(a.findings).toEqual([]);
+        expect(a.complete).toBe(false);
+        expect(a.gaps).toContain("not run as root");
+        expect(keyProbeStatus(a, true)).toBe("fail");
+        expect(keyProbeStatus(a, false)).toBe("skip");
+        expect(keyProbeDetail(a)).toContain("unknown");
+      }
+      // A process still there whose environment cannot be read, and a file that cannot be read.
+      spawnSync("chmod", ["000", join(root, "proc/9/environ"), join(root, "home/cmux/locked")]);
+      const b = parseKeyProbe(direct("--as-root").stdout);
+      if (process.getuid?.() !== 0) {
+        expect(b.complete).toBe(false);
+        expect(b.gaps).toEqual(["1 processes unreadable", "1 files unreadable"]);
+        expect(keyProbeStatus(b, true)).toBe("fail");
+      }
+      // A walk that runs out of budget.
+      const c = parseKeyProbe(direct("--as-root", "--budget-s", "0").stdout);
+      expect(c.truncated).toBe(true);
+      expect(keyProbeStatus(c, true)).toBe("fail");
+    } finally {
+      spawnSync("chmod", ["-R", "u+rwX", root]);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("scrub removes provider keys from any text the journey records", () => {
+    const text = `probe printed ${OAUTH} and ${PROJ} at /x/${GEMINI_SHAPE} and /cache/prefix_${GEMINI_SHAPE}_${tok("hf_", 30)}`;
+    const out = scrub(text);
+    for (const v of [OAUTH, PROJ, GEMINI_SHAPE, "AIza", "hf_"]) expect(out).not.toContain(v);
+    expect(out).toContain("[secret]");
+  });
+
+  test("the machine exec route's HTTP request waits as long as the command may run", async () => {
+    const waits: (number | undefined)[] = [];
+    const api = {
+      raw: async (_m: string, route: string, _b?: unknown, timeoutMs?: number) => {
+        waits.push(timeoutMs);
+        if (route.endsWith("/client-session")) return { status: 501, body: { error: { code: "cloud.provider.unsupported" } } };
+        return { status: 200, body: { value: { ok: true, exitCode: 0, stdout: "x", stderr: "" } } };
+      },
+    } as any;
+    await directExec(api, "m1", { secrets: [] } as any)("true", 290_000);
+    expect(waits[1]).toBeGreaterThanOrEqual(290_000);
+  });
+
+  test("an answer without the marker line is an error, not a clean machine", () => {
+    expect(() => parseKeyProbe("python3: command not found\n")).toThrow("printed no answer");
   });
 });
 

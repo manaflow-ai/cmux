@@ -448,22 +448,22 @@ final class CloudMachineSession {
         suspend()
     }
 
-    /// Drops the daemon connection while keeping the link reusable after a
-    /// provider pause/resume transition.
-    func suspend() {
+    /// Drops the daemon connection, keeping the link reusable, after a provider pause/resume transition, or
+    /// (`pausing`) as soon as the server took a person's pause, which a rollback then reconnects (mutationFailed).
+    func suspend(pausing: Bool = false) {
         suspends += 1
+        if pausing { noteMutationInterruption() }
         // A new pause: an earlier resume's failure no longer applies.
         resumeFailure = nil
         connectHop?.cancel()
-        appTicket = nil
-        linkPhase = .idle
+        (appTicket, linkPhase) = (nil, .idle)
         daemon.shutdownConnection()
         let previous = linkTransition
         let appLink = appLink
-        // task-owner: reversible teardown; resume waits for this hop
+        // task-owner: reversible teardown (the serve stops, so nothing wakes the machine); resume waits for this hop
         linkTransition = Task {
             await previous?.value
-            await appLink.end(reason: "paused")
+            await appLink.park(reason: "paused")
         }
     }
 }

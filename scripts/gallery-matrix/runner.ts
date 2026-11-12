@@ -407,14 +407,18 @@ export function renderIndex(results: Record<string, unknown>[]): string {
   return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.card video{width:100%;margin-top:8px}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};const esc=(s)=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));function playCells(result){const p=result.play;if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const latency=result.latency;const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const latencyCell=latency?.count?cell('settle','pass',latency.p50.toFixed(1)+' / '+latency.p95.toFixed(1)+' / '+latency.max.toFixed(1)+' ms ('+latency.count+')'):'';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+(latencyCell?' '+latencyCell:'')+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;const provenance=r.revision?'<small>head '+esc(r.revision.sha||'unknown').slice(0,12)+' · '+esc(r.revision.source||'')+'</small>':'';const video=r.video?'<video controls preload=\"metadata\" src=\"'+esc(r.video)+'\"></video>':'';return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+provenance+video+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r)+'</article>'}).join('')}render();</script>`;
 }
 
-export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
+export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number; concurrency?: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
   const caseTimeoutMs = args.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS;
   if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("case timeout must be a positive number");
+  const concurrency = args.concurrency ?? 1;
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("concurrency must be a positive integer");
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
   const selected = shardCases(cases, args.shardCount, args.shardIndex);
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
-  const browsers = new Map<Engine, Browser>();
+  // One browser per engine per worker: a worker that recycles its crashed browser never closes
+  // a page another worker is rendering.
+  const workers: Map<Engine, Browser>[] = [];
   const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? (process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) : {}) });
   const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
   const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
@@ -425,50 +429,64 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
     ready: "error",
     error: error instanceof Error ? error.message : String(error),
   });
-  try {
-    // Keep one process per engine; every case still gets a fresh context and page.
-    for (const engine of args.engines) browsers.set(engine, await launch(engine));
-    const results: Record<string, unknown>[] = [];
-    for (const item of selected)
-      for (const engine of args.engines) {
-        const started = Date.now();
-        let result: Record<string, unknown>;
-        try {
-          if (!browsers.has(engine)) browsers.set(engine, await launch(engine));
-          result = await withTimeout(
-            renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!),
-            caseTimeoutMs,
-            `${item.id} ${engine}`,
-          );
-        } catch (firstError) {
-          // A long matrix can lose a renderer process late in the run (Playwright reports
-          // "Target crashed" or "browser has been closed"). Recycle that engine once and retry
-          // the case so one transient target failure does not discard the entire matrix.
-          console.error(`gallery matrix: ${item.id} ${engine} failed; recycling browser and retrying: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
-          const previous = browsers.get(engine);
-          await closeBrowser(previous);
-          try {
-            const replacement = await launch(engine);
-            browsers.set(engine, replacement);
-            result = await withTimeout(
-              renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement),
-              caseTimeoutMs,
-              `${item.id} ${engine} retry`,
-            );
-          } catch (secondError) {
-            // A timed-out call may still own its context. Close before the next case so a dead
-            // target cannot leave work running in the background or poison later screenshots.
-            await closeBrowser(browsers.get(engine));
-            browsers.delete(engine);
-            // Preserve a broken result and continue the other cases. compareRuns will report this
-            // case as broken and the matrix still publishes the useful screenshots it collected.
-            console.error(`gallery matrix: ${item.id} ${engine} failed after browser recycle: ${secondError instanceof Error ? secondError.message : String(secondError)}`);
-            result = failedResult(item, engine, secondError);
-          }
-        }
-        console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
-        results.push(result);
+  const renderOne = async (browsers: Map<Engine, Browser>, item: MatrixCase, engine: Engine): Promise<Record<string, unknown>> => {
+    const started = Date.now();
+    let result: Record<string, unknown>;
+    try {
+      if (!browsers.has(engine)) browsers.set(engine, await launch(engine));
+      result = await withTimeout(
+        renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!),
+        caseTimeoutMs,
+        `${item.id} ${engine}`,
+      );
+    } catch (firstError) {
+      // A long matrix can lose a renderer process late in the run (Playwright reports
+      // "Target crashed" or "browser has been closed"). Recycle that engine once and retry
+      // the case so one transient target failure does not discard the entire matrix.
+      console.error(`gallery matrix: ${item.id} ${engine} failed; recycling browser and retrying: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
+      const previous = browsers.get(engine);
+      await closeBrowser(previous);
+      try {
+        const replacement = await launch(engine);
+        browsers.set(engine, replacement);
+        result = await withTimeout(
+          renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement),
+          caseTimeoutMs,
+          `${item.id} ${engine} retry`,
+        );
+      } catch (secondError) {
+        // A timed-out call may still own its context. Close before the next case so a dead
+        // target cannot leave work running in the background or poison later screenshots.
+        await closeBrowser(browsers.get(engine));
+        browsers.delete(engine);
+        // Preserve a broken result and continue the other cases. compareRuns will report this
+        // case as broken and the matrix still publishes the useful screenshots it collected.
+        console.error(`gallery matrix: ${item.id} ${engine} failed after browser recycle: ${secondError instanceof Error ? secondError.message : String(secondError)}`);
+        result = failedResult(item, engine, secondError);
       }
+    }
+    console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
+    return result;
+  };
+  try {
+    // Every case still gets a fresh context and page. With concurrency N, N workers take the next
+    // case in manifest order; results keep that order whichever worker finishes first.
+    const jobs = selected.flatMap((item) => args.engines.map((engine) => ({ item, engine })));
+    const results: Record<string, unknown>[] = new Array(jobs.length);
+    let next = 0;
+    // Every browser launches before any case renders: a launch that fails stops the run with no
+    // worker still launching or rendering, and the cleanup below closes each one that started.
+    for (let worker = 0; worker < (Math.min(concurrency, jobs.length) || 1); worker++) {
+      const browsers = new Map<Engine, Browser>();
+      workers.push(browsers);
+      for (const engine of args.engines) browsers.set(engine, await launch(engine));
+    }
+    await Promise.all(workers.map(async (browsers) => {
+      while (next < jobs.length) {
+        const index = next++;
+        results[index] = await renderOne(browsers, jobs[index]!.item, jobs[index]!.engine);
+      }
+    }));
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
     await writeFile(join(args.outputDir, "index.html"), renderIndex(results));
     if (results.some((r) => (r.diff as DiffResult | undefined)?.passed === false)) process.exitCode = 1;
@@ -482,7 +500,7 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
     }
     return results;
   } finally {
-    try { await Promise.all([...browsers.values()].map((browser) => closeBrowser(browser))); }
+    try { await Promise.all(workers.flatMap((browsers) => [...browsers.values()]).map((browser) => closeBrowser(browser))); }
     finally { server?.close(); }
   }
 }

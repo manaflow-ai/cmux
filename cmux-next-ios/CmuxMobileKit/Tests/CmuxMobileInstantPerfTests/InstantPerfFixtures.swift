@@ -1,3 +1,4 @@
+import CmuxMobileChief
 import CmuxMobileTransport
 import Foundation
 
@@ -75,9 +76,20 @@ enum HomeInboxFixture {
     private static let small = encode(rows(.small))
     private static let god = encode(rows(.god))
 
-    static func encode(_ rows: [[String: Any]]) -> Data {
+    static func encode(_ rows: [[String: Any]], _ extra: [String: Any] = [:]) -> Data {
+        var data: [String: Any] = ["me": "user_local", "rows": rows]
+        data.merge(extra) { _, new in new }
         // A fixture is always valid JSON.
-        try! JSONSerialization.data(withJSONObject: ["ok": true, "data": ["rows": rows]])
+        return try! JSONSerialization.data(withJSONObject: ["ok": true, "data": data])
+    }
+
+    /// What a windowing host (cmux-mobile-host `InboxWindow`) sends the first screen: the first
+    /// ``MacHomeRows/firstWindow`` rows of the list, `offset` 0 and the list's `total`.
+    static func firstWindowWire(_ size: InstantPerfSize) -> Data { size == .small ? smallWindow : godWindow }
+    private static let smallWindow = window(.small)
+    private static let godWindow = window(.god)
+    private static func window(_ size: InstantPerfSize) -> Data {
+        encode(Array(rows(size).prefix(MacHomeRows.firstWindow)), ["offset": 0, "total": rowCount(size)])
     }
 
     /// The reference "now" of every fixture: 2026-11-10T00:00:00Z.
@@ -327,7 +339,8 @@ enum AgentChatFixture {
 // MARK: - A fake acpmux over a fixture log
 
 /// A fake Mac's acpmux serving `log`'s first `end` records, as acpmux pages them
-/// (`daemon_chat_open.rs`: newest page before `beforeSeq`, or oldest first after `afterSeq`;
+/// (`daemon_chat_open.rs`: the newest page between `afterSeq` and `beforeSeq`, or oldest first
+/// after `afterSeq` when it comes alone;
 /// `limit` records, `maxBytes` of whole records with at least one). Moving `end` is the Mac
 /// writing records while the phone is away. Pages are cut by index arithmetic, so the fake's
 /// own cost does not grow with the log's length; only the page it sends costs.
@@ -374,7 +387,9 @@ final class InstantPerfAcpmux: @unchecked Sendable {
         let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? 1_048_576
         var picked: [Int] = []
         var more = false
-        if let after = (params["afterSeq"] as? NSNumber)?.intValue {
+        let after = (params["afterSeq"] as? NSNumber)?.intValue
+        let beforeSeq = (params["beforeSeq"] as? NSNumber)?.intValue
+        if let after, beforeSeq == nil {
             // Oldest first after `after`: seq after + 1 is index `after`.
             var index = max(after, 0)
             var bytes = 0
@@ -386,23 +401,26 @@ final class InstantPerfAcpmux: @unchecked Sendable {
             }
             more = index < end
         } else {
-            let before = (params["beforeSeq"] as? NSNumber)?.intValue ?? (end + 1)
+            // The newest records with `after < seq < before` (both optional), as acpmux reads
+            // an attach with no `afterSeq` or with `beforeSeq` (server/requests.rs).
+            let lower = max(after ?? 0, 0) // indices from this one
+            let before = beforeSeq ?? (end + 1)
             let upper = min(before - 1, end) // indices below this
             if params["kinds"] as? [String] == ["user_message"] {
-                let eligible = log.prompts.prefix(while: { $0 < upper })
+                let eligible = log.prompts.prefix(while: { $0 < upper }).filter { $0 >= lower }
                 picked = Array(eligible.suffix(limit))
                 more = eligible.count > picked.count
             } else {
                 var index = upper - 1
                 var bytes = 0
-                while index >= 0, picked.count < limit {
+                while index >= lower, picked.count < limit {
                     if !picked.isEmpty, bytes + log.bytes[index] > maxBytes { break }
                     bytes += log.bytes[index]
                     picked.append(index)
                     index -= 1
                 }
                 picked.reverse()
-                more = index >= 0
+                more = index >= lower
             }
         }
         return #""hasMore":\#(more),"events":[\#(picked.map { log.records[$0] }.joined(separator: ","))]"#

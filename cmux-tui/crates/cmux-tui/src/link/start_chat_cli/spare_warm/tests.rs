@@ -193,7 +193,7 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
         json!({"ok": true, "machine": null, "fresh": false, "reason": "spare.none"})
     );
     let refused_ = |_: &Request, _: &str, _: &str| {
-        Err(PlatformCallError::Status { status: 403, code: "auth.forbidden" })
+        Err(PlatformCallError::Status { status: 403, code: "auth.forbidden", facts: None })
     };
     let answer = warm(r#"{"account":"u"}"#, &input, &refused_);
     assert_eq!(
@@ -208,7 +208,7 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
 fn no_spare_and_errors_are_attempts_the_gap_throttles() {
     for answer in [
         Ok(json!({"machine": null, "reason": "spare.none"})),
-        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable" }),
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None }),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let calls = Cell::new(0_usize);

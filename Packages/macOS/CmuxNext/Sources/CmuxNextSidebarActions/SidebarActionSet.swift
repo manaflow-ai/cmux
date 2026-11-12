@@ -21,7 +21,7 @@ public struct SidebarActionSet {
     ///   - sidebar: The active window's sidebar, which Reveal Workspace in Sidebar shows; nil with no window.
     ///   - themeColors: Every theme file's colors by name, for the Sidebar States Playground's sheets
     ///     (``SidebarStatesPlaygroundAction``); none leaves them in the window's theme.
-    ///   - playgroundSections: Sections other packages draw in the Sidebar States Playground (none by default).
+    ///   - playgroundSections: Sections other packages draw in the Sidebar States Playground (the App's Home filter).
     public init(host: any SidebarArchiveHost, autoArchive: AutoArchiveCoordinator, settings: @escaping @MainActor () -> SettingsController?,
                 sidebar: @escaping @MainActor () -> SidebarView?, themeColors: @escaping @MainActor () -> [String: ThemeFileColors] = { [:] },
                 playgroundSections: @escaping @MainActor () -> [SidebarStatesPlaygroundSection] = { [] }) {

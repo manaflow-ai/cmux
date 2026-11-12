@@ -242,7 +242,7 @@ impl OnDisk {
         // The snapshot first: a crash before the journal is emptied leaves lines of the old
         // base, which a load ignores.
         crate::config::write_atomic(snap, &bytes)?;
-        match std::fs::remove_file(journal) {
+        match crate::home_fs::remove_file(journal) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
@@ -380,7 +380,7 @@ pub(super) fn load(dir: &Path, peer: &str) -> Option<Saved> {
 /// Removes both of `peer`'s files.
 pub(super) fn remove(dir: &Path, peer: &str) {
     for path in [snapshot_path(dir, peer), journal_path(dir, peer)].into_iter().flatten() {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 }
 
