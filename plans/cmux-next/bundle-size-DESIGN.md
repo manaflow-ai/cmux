@@ -163,7 +163,7 @@ What I kept, and why:
 ### Chromium stays in the app
 
 Leo, 2026-11-12, asked "Should the app ship without Chromium and fetch it the
-first time you open the browser?": "What the fuck? I don't think this is the
+first time you open the browser?": "What the f***? I don't think this is the
 solution."
 
 So every cmux NEXT build, nightly and release included, ships the Chromium
