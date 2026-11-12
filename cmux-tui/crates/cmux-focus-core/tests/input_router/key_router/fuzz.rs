@@ -401,6 +401,14 @@ impl World {
     }
 
     fn act(&mut self, model: &Model) {
+        // A page answers its offered keys soon (Find is the only key a page
+        // owns, so offers are rare): its unhandled report runs the held action.
+        if let Some(id) = model.offered().last().copied()
+            && self.rng.chance(30)
+        {
+            self.queue.push_back(InputEvent::PageUnhandled { id: InputId(id) });
+            return;
+        }
         let Some(window) = self.some_window() else {
             if let Some(closed) =
                 (0..self.windows.len()).find(|i| self.windows.get(*i).is_some_and(|w| !w.open))
@@ -534,8 +542,7 @@ impl World {
             }
             91..92 => {
                 // Find and its neighbors go to a page first; Cmd-B (Toggle
-                // Sidebar) runs before it (Lawrence 2026-11-11). Three in four
-                // keys are offers, so the offer mutants stay caught.
+                // Sidebar) runs before it (Lawrence 2026-11-11).
                 let (action, tier, code) = match self.rng.below(4) {
                     0 => ("find", Tier::Navigation, 3),
                     1 => ("findNext", Tier::Navigation, 5),
