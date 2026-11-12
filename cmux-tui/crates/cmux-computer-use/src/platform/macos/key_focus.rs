@@ -163,7 +163,15 @@ struct State {
     target_frame: Option<crate::desktop::Rect>,
     /// The target's theft (thief, person's app) that showed no menu: its
     /// keyboard goes back when the call disarms.
-    pending: Option<(i32, i32)>,
+    pending: Option<(i32, i32, u64)>,
+    /// The armed call's number (each arm is a new call): a release thread
+    /// or a pending give-back of an earlier call is ignored.
+    generation: u64,
+    /// The call that saw its own menu open (menu_opened): its release
+    /// thread gives the keyboard back at once.
+    menu_seen: u64,
+    /// Whether the call is still armed (between arm and disarm).
+    live: bool,
     /// What the handoff did last for the armed call, for the result's note
     /// when the keyboard was not given back.
     note: &'static str,
@@ -316,14 +324,15 @@ extern "C" fn front_tap(
     event: *mut c_void,
     _info: *mut c_void,
 ) -> *mut c_void {
-    let (front, armed, port, target, before, guard, frame) = {
+    let (front, armed, port, target, before, guard, frame, generation) = {
         let st = state();
         let armed = st.armed_until.is_some_and(|t| Instant::now() < t);
         let front = st.front.as_ref();
         let before = if armed { st.menus_before.clone() } else { Vec::new() };
         let guard = st.guard.clone();
         let port = front.map(|f| f.1.port);
-        (front.map_or(0, |f| f.0), armed, port, st.target, before, guard, st.target_frame)
+        let frame = st.target_frame;
+        (front.map_or(0, |f| f.0), armed, port, st.target, before, guard, frame, st.generation)
     };
     if reenable(event_type, port) || event.is_null() {
         return event;
@@ -339,13 +348,13 @@ extern "C" fn front_tap(
     match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
-            state().note = "the theft was seen; the release had not run yet";
+            set_note(&mut state(), generation, "the theft was seen; the release had not run yet");
             // The release waits for the menu window: released earlier, the
             // window server orders the menu's window group (and the target's
             // window) to the front.
             let spawned = std::thread::Builder::new()
                 .name("cu-key-focus-release".into())
-                .spawn(move || release_theft(thief, front, thief == target));
+                .spawn(move || release_theft(thief, front, thief == target, generation));
             if spawned.is_ok() { std::ptr::null_mut() } else { event }
         }
     }
@@ -385,49 +394,99 @@ extern "C" fn menu_tap(
     }
 }
 
+/// Records what the handoff did, for the call numbered `generation` only (a
+/// stale thread never overwrites a later call's reason).
+fn set_note(st: &mut State, generation: u64, note: &'static str) {
+    if st.generation == generation {
+        st.note = note;
+    }
+}
+
+/// What a release thread of call `generation` may still do. Pure, for tests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CallState {
+    /// Its call is still armed.
+    Live,
+    /// Its call ended (its menu was listed and closed, left open, or never
+    /// showed): it gives nothing back by id any more (release_below would
+    /// take the newest theft, perhaps a launcher the person opened since).
+    Ended,
+    /// A later call armed since.
+    Stale,
+}
+
+pub(super) fn call_state(current: u64, live: bool, generation: u64) -> CallState {
+    if current != generation {
+        CallState::Stale
+    } else if live {
+        CallState::Live
+    } else {
+        CallState::Ended
+    }
+}
+
 /// Gives the keyboard back from `thief`'s menu to the person's app, once
-/// the menu shows (or, for the target, when the call disarms).
-fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
+/// the menu shows or the call sees it open (or, for the target, when the
+/// call disarms), for the call numbered `generation` only.
+fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64) {
     let start = Instant::now();
-    // Any menu window that was not there when the call armed: a context
-    // menu's window need not belong to the process the notice names.
+    // Any menu window that was not there when the call armed (a context
+    // menu's window need not belong to the process the notice names), or
+    // the call's own word that it saw its menu open.
     let before = state().menus_before.clone();
+    let seen = || state().menu_seen == generation;
     let menu_shows = || {
-        super::cgwindows::on_screen()
-            .iter()
-            .any(|w| w.layer == MENU_LAYER && (w.pid == thief || !before.contains(&w.id)))
+        seen()
+            || super::cgwindows::on_screen()
+                .iter()
+                .any(|w| w.layer == MENU_LAYER && (w.pid == thief || !before.contains(&w.id)))
     };
-    while start.elapsed() < MENU_WAIT && !menu_shows() {
+    let current = || {
+        let st = state();
+        call_state(st.generation, st.live, generation)
+    };
+    while start.elapsed() < MENU_WAIT && current() == CallState::Live && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
+    }
+    match current() {
+        CallState::Live => {}
+        // Its call is over: nothing is released by id any more.
+        CallState::Ended => {
+            let mut st = state();
+            st.missed += 1;
+            set_note(&mut st, generation, "the call ended before its menu was seen");
+            return;
+        }
+        CallState::Stale => return,
     }
     let person_front = super::frontmost_pid() == Some(front);
     match release_plan(menu_shows(), thief_is_target, person_front) {
-        ReleasePlan::Now => give_back(thief),
+        ReleasePlan::Now => give_back(thief, generation),
         ReleasePlan::AtDisarm => {
             let mut st = state();
-            st.note = "no new menu window seen after the theft";
-            if st.armed_until.is_some() {
-                st.pending = Some((thief, front));
+            set_note(&mut st, generation, "no new menu window seen after the theft");
+            if call_state(st.generation, st.live, generation) == CallState::Live {
+                st.pending = Some((thief, front, generation));
             } else {
-                // The call already ended: its outcome is in.
-                drop(st);
-                give_back(thief);
+                st.missed += 1;
             }
         }
         ReleasePlan::Miss => {
             let mut st = state();
             st.missed += 1;
-            st.note = if person_front {
+            let why = if person_front {
                 "a helper's theft with no menu window over the target"
             } else {
                 "the person's app was no longer in front"
             };
+            set_note(&mut st, generation, why);
         }
     }
 }
 
-/// Releases `thief`'s key focus to the person's app (SkyLight).
-fn give_back(thief: i32) {
+/// Releases `thief`'s key focus to the person's app (SkyLight), for the
+/// call numbered `generation`.
+fn give_back(thief: i32, generation: u64) {
     if !state().menus.contains_key(&thief)
         && let Some(tap) = spawn_tap(thief, menu_tap)
     {
@@ -463,25 +522,31 @@ fn give_back(thief: i32) {
     let mut st = state();
     if ok {
         st.released += 1;
-        st.note = "released";
+        set_note(&mut st, generation, "released");
     } else {
         st.missed += 1;
-        st.note = "the SkyLight release found no theft to release";
+        set_note(&mut st, generation, "the SkyLight release found no theft to release");
     }
 }
 
-/// The call saw its menu open: a target theft still waiting for its menu
-/// window (an owner or layer the release thread did not recognize) goes
-/// back now rather than at disarm.
+/// The call saw its menu open: its release thread gives the keyboard back
+/// at once (it need not recognize the menu window itself), and a pending
+/// give-back of this call goes now rather than at disarm.
 pub(super) fn menu_opened() {
-    let pending = state().pending.take();
-    if let Some((thief, front)) = pending {
+    let (generation, pending) = {
+        let mut st = state();
+        st.menu_seen = st.generation;
+        let generation = st.generation;
+        let pending = st.pending.take().filter(|p| p.2 == generation);
+        (generation, pending)
+    };
+    if let Some((thief, front, _)) = pending {
         if super::frontmost_pid() == Some(front) {
-            give_back(thief);
+            give_back(thief, generation);
         } else {
             let mut st = state();
             st.missed += 1;
-            st.note = "the person's app was no longer in front";
+            set_note(&mut st, generation, "the person's app was no longer in front");
         }
     }
 }
@@ -586,24 +651,29 @@ pub(super) fn arm(
     st.menus_before = before;
     st.guard = guard;
     st.target_frame = Some(target_frame);
+    st.generation += 1;
+    st.live = true;
+    st.pending = None;
     st.note = "no lost-key notice from the person's app";
     true
 }
 
 /// Ends the armed window when the call that armed it returns.
 pub(super) fn disarm() {
-    let pending = {
+    let (generation, pending) = {
         let mut st = state();
         st.armed_until = None;
-        st.pending.take()
+        st.live = false;
+        let generation = st.generation;
+        (generation, st.pending.take().filter(|p| p.2 == generation))
     };
     // The call's outcome is in and no menu showed: the target's theft goes
     // back to the person's app (still in front).
-    if let Some((thief, front)) = pending {
+    if let Some((thief, front, _)) = pending {
         if super::frontmost_pid() == Some(front) {
             let spawned = std::thread::Builder::new()
                 .name("cu-key-focus-release".into())
-                .spawn(move || give_back(thief));
+                .spawn(move || give_back(thief, generation));
             if spawned.is_err() {
                 state().missed += 1;
             }

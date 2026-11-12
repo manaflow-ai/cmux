@@ -1194,3 +1194,15 @@ fn a_submenu_counts_as_open_once_a_window_shows_or_its_items_change() {
     // Still empty, even with a window.
     assert!(!menus::submenu_opened(&[1], &[1, 2], &s(&[]), &s(&["", ""])));
 }
+
+#[test]
+fn a_release_thread_acts_only_for_its_own_live_call() {
+    use key_focus::{CallState, call_state};
+    assert_eq!(call_state(7, true, 7), CallState::Live);
+    // Its call ended (the menu was listed and closed, or never showed):
+    // nothing is released by id any more.
+    assert_eq!(call_state(7, false, 7), CallState::Ended);
+    // A later call armed: an earlier thread or pending give-back is ignored.
+    assert_eq!(call_state(8, true, 7), CallState::Stale);
+    assert_eq!(call_state(8, false, 7), CallState::Stale);
+}

@@ -263,10 +263,6 @@ pub fn denied_item_refusal(wanted: Option<&str>) -> String {
 /// (menu items are checked against them and stay hidden until then).
 pub const APP_NAMES_LOADING: &str = "the menu's items are still being checked against the installed apps (app names are loading); retry in a moment";
 
-/// Why a menu that opened was closed again: the person's keyboard could
-/// not be given back while it showed.
-pub const KEYBOARD_KEPT_REFUSAL: &str = "the menu opened, but the person's keyboard could not be given back to their app while it showed, so it was closed again; use set_value with the item's title (it picks and closes the menu in one call), or delivery foreground";
-
 /// Why a menu that opened was closed again: it could not be read.
 pub const MENU_UNREAD: &str = "the app showed a menu that could not be read, so it was closed again; try perform_action on an element's own actions, or delivery foreground";
 

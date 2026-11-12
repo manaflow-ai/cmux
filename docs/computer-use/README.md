@@ -151,7 +151,10 @@ Prevention, in the desktop (macOS):
     and `click` with `menu_item` still pick in one call.
   - The target's theft goes back once any new menu-layer window shows (a
     context menu's window need not belong to the process the notice
-    names), or as soon as the call itself sees its menu open.
+    names), or as soon as the call itself sees its menu open. Each call is
+    numbered: a release of an earlier call, or of a call that already ended,
+    gives nothing back (a release by id would take the newest theft, perhaps
+    a launcher the person opened since).
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use

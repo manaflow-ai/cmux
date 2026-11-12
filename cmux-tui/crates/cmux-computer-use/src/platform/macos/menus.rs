@@ -858,11 +858,14 @@ impl MacDesktop {
             let hidden = all.iter().filter(|i| i.denied).count();
             let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
             let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
+            // A menu that kept the keyboard closes first: no detail reads.
             let shown: Vec<MenuItemInfo> = visible
                 .into_iter()
                 .take(menus::LISTED_ITEMS_MAX)
                 .map(|mut i| {
-                    i.detail();
+                    if !kept {
+                        i.detail();
+                    }
                     i.info
                 })
                 .collect();
