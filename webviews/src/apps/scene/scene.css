@@ -306,6 +306,33 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
 }
+/* The line under a kept scene whose app's last save did not load (native AppSceneReloadMarkerView):
+   glyph in the attention color, "Not reloaded" secondary, the file:line tertiary and monospaced. */
+.cmux-app-scene-reload-marker {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-base);
+  min-width: 0;
+  padding: var(--grid-base) calc(var(--grid-base) * 4) calc(var(--grid-base) * 2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+}
+.cmux-app-scene-reload-marker-glyph {
+  flex: none;
+  color: var(--agent-status-warning);
+}
+.cmux-app-scene-reload-marker-label {
+  flex: none;
+  color: var(--agent-muted);
+}
+.cmux-app-scene-reload-marker-place {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--agent-text) 38%, transparent);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
 .cmux-app-scene-mount {
   min-width: 0;
 }

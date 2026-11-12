@@ -3,10 +3,10 @@ import { pageHostClient } from "../../agent-session/acpmux/pageHost";
 import { SessionInfoSection } from "../../agent-session/acpmux/session-info/SessionInfoSection";
 import type { SessionInfoSectionId } from "../../agent-session/acpmux/session-info/sessionInfoState";
 import type { PageClient } from "../../pages/shared/pageClient";
-import { SceneFailure } from "./SceneFailure";
+import { SceneFailure, SceneReloadMarker } from "./SceneFailure";
 import { SceneRenderer } from "./SceneRenderer";
 import { appSceneIcon } from "./SceneSymbol";
-import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext, type MountedPanel } from "./panelsClient";
+import { AppPanelsClient, appPanelsDevClient, panelId, type MountContext, type MountedScene } from "./panelsClient";
 export type { AppPanel, MountContext } from "./panelsClient";
 export type AppPanelSection = { id: SessionInfoSectionId; title: string; symbol?: string; node: ReactNode };
 
@@ -62,11 +62,17 @@ export function useAppPanelSections(
 }
 
 /** One mounted scene as the host's model draws it: nothing while loading, the scene once ready, and
- * the failure row (Reload, Copy Error, Details) or the disconnected line in its place. Reports its
- * drawn height to the host (`layout`) whenever it changes. */
-export function SceneMount({ mounted }: { mounted: MountedPanel }) {
-  const { store, dispatch, reload, layout, resolveAsset } = mounted;
+ * the failure row (Reload, Copy Error, Details) or the disconnected line in its place. A ready scene
+ * whose app's last save did not load keeps drawing and says so in the marker line under it. Reports
+ * its drawn height to the host (`layout`) whenever it changes. */
+export function SceneMount({ mounted }: { mounted: MountedScene }) {
+  const { store, dispatch, reload, layout, resolveAsset, resolveSymbol } = mounted;
   const status = useSyncExternalStore(store.subscribeStatus, store.getStatus, store.getStatus);
+  const reloadFailure = useSyncExternalStore(
+    store.subscribeReloadFailure,
+    store.getReloadFailure,
+    store.getReloadFailure,
+  );
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = box.current;
@@ -85,7 +91,10 @@ export function SceneMount({ mounted }: { mounted: MountedPanel }) {
       {status.state === "failed" || status.state === "disconnected" ? (
         <SceneFailure status={status} onReload={reload} />
       ) : (
-        <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} />
+        <>
+          <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} resolveSymbol={resolveSymbol} />
+          {status.state === "ready" && reloadFailure ? <SceneReloadMarker reason={reloadFailure} /> : null}
+        </>
       )}
     </div>
   );

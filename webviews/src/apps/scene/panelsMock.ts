@@ -137,8 +137,9 @@ export class MockAppPanelsClient implements PageClient {
         this.savedLayouts.push(this.layout);
         break;
       case "cmux.apps.panels.mount": {
+        // An app pane names no section: the app's first panel stands in for its pane.
         const panel = [...this.panels, ...this.widgets].find(
-          (entry) => entry.app === params.app && entry.section === params.section,
+          (entry) => entry.app === params.app && (params.surface === "pane" || entry.section === params.section),
         );
         if (!panel) throw pageError("cmux.apps.not_found", "Unknown app section");
         if (this.failing.has(panel.app)) throw pageError("cmux.apps.mount_failed", "render failed");
@@ -230,6 +231,15 @@ export class MockAppPanelsClient implements PageClient {
   status(mountId: string, status: "loading" | "ready" | "failed" | "disconnected", reason?: string): void {
     for (const listener of this.scenes.get(mountId) ?? [])
       listener({ mount_id: mountId, status, ...(reason !== undefined && { reason }) } satisfies SceneEvent, ++this.seq);
+  }
+
+  /** Sends a mount's refused save (`reason`), or its clearing (`null`), as the host forwards its model's `reloadFailure`. */
+  reloadFailure(mountId: string, reason: string | null): void {
+    for (const listener of this.scenes.get(mountId) ?? [])
+      listener(
+        { mount_id: mountId, reload_failure: reason === null ? null : { reason } } satisfies SceneEvent,
+        ++this.seq,
+      );
   }
 
   /** A mock local edit sends a replacement scene to every mount of the same contribution. */

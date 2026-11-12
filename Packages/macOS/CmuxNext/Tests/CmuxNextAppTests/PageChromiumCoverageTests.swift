@@ -26,7 +26,7 @@ import Testing
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard), (.appScene, .standard),
         (.serverCards, WebCardPanel.engineOptions),
     ]
 

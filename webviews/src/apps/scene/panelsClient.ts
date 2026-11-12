@@ -1,5 +1,6 @@
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
 import type { SceneAssetResolver } from "./SceneRenderer";
+import { symbolImageURL, type SceneSymbolResolver } from "./SceneSymbol";
 import { SceneStore, type SceneLimits, type SceneOp, type SceneViolation } from "./store";
 
 /** A page panel: a Session Info section, or a New Tab widget (`size` is a widget's cell). */
@@ -9,17 +10,19 @@ export type MountContext = { session_id: string; cwd?: string; branch?: string; 
 export type NewTabMountContext = { surface: "newTab" };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
 export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
-/** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
- * `failed {reason}`, `disconnected {reason}`). */
+/** The scene stream's three events: an ops batch, the mount's status (`loading`, `ready`,
+ * `failed {reason}`, `disconnected {reason}`), or its kept view's refused save (`reload_failure`:
+ * the app's last saved script did not load; `null` once a scene of one that loaded replaces it). */
 export type SceneEvent =
   | { mount_id: string; ops: SceneOp[]; reset?: boolean }
-  | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+  | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string }
+  | { mount_id: string; reload_failure: { reason: string } | null };
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 /** Why a mounted panel draws nothing: its mount failed, or its scene broke its interface's limits
  * (it is unmounted then). Absent while it draws. */
 export type PanelProblem = { kind: "failed" } | { kind: "over"; violation: SceneViolation };
-export type MountedPanel = {
-  panel: AppPanel;
+/** One mounted scene as a host draws it (`SceneMount`). */
+export type MountedScene = {
   store: SceneStore;
   dispatch: (node: string, event: string, payload?: unknown) => void;
   /** The failure row's Reload: runs the app's saved script again. Call it synchronously from the click. */
@@ -28,8 +31,13 @@ export type MountedPanel = {
   layout: (height: number) => void;
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
-  problem?: PanelProblem;
+  /** Any SF Symbol, drawn by the host as the native renderer draws it (`symbol_base` in the mount reply). */
+  resolveSymbol?: SceneSymbolResolver;
 };
+export type MountedPanel = MountedScene & { panel: AppPanel; problem?: PanelProblem };
+/** What `cmux.apps.panels.mount` takes: the surface, the app, the section of a sidebar, Session
+ * Info or New Tab mount, and the members the host adds to the mount's context. */
+export type MountRequest = { surface: MountSurface; app: string; section?: string; context: object };
 /** What a page shows: every listed panel (the New Tab page's Add Widgets lists them), the person's
  * layout (New Tab only: placed widget ids and built-in names, in order), and the mounted ones. */
 export type PanelsView = {
@@ -48,17 +56,6 @@ export type PanelsOptions = {
   /** Which listed panels mount (New Tab: the placed ones); all when unset. */
   mounts?: (panel: AppPanel, layout: readonly string[]) => boolean;
 };
-type Entry = MountedPanel & {
-  cancelled: boolean;
-  failed: boolean;
-  mountId?: string;
-  assetBase?: string;
-  /** The drawn height the page measured last, and the one the host last heard. */
-  height?: number;
-  sentHeight?: number;
-  unsubscribe?: () => void;
-};
-
 /** A bundle-relative path (already checked by the renderer) under the host's asset base, each
  * component encoded once, so a decoded `%2F` can never become a separator. */
 export function bundleAssetURL(base: string, path: string): string | undefined {
@@ -114,6 +111,154 @@ function readLayout(value: unknown): string[] | undefined {
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
+
+/** How a mount ends early. `limits`: the interface's scene limits, applied to its store; a scene
+ * over them is unmounted. `onFail`: the mount failed or broke its limits (`failed` is set first). */
+export type SceneMountOptions = { limits?: SceneLimits; onFail?: (problem: PanelProblem) => void };
+
+/** One mount's lifetime on the host: `start` mounts and subscribes to its scene, `release` ends
+ * it. Events after `release`, or before the mount answers, go nowhere. */
+export class AppSceneMount implements MountedScene {
+  readonly store: SceneStore;
+  cancelled = false;
+  /** The mount call failed, answered no id, or its scene broke its limits: the owner mounts again on its next list. */
+  failed = false;
+  private mountId?: string;
+  private assetBase?: string;
+  private symbolBase?: string;
+  /** The drawn height the page measured last, and the one the host last heard. */
+  private height?: number;
+  private sentHeight?: number;
+  private unsubscribe?: () => void;
+
+  constructor(
+    private readonly client: PageClient,
+    private readonly request: MountRequest,
+    private readonly options: SceneMountOptions = {},
+  ) {
+    this.store = new SceneStore(options.limits);
+  }
+
+  dispatch = (node: string, event: string, payload?: unknown): void => {
+    if (this.cancelled || !this.mountId) return;
+    void this.client
+      .call("cmux.apps.panels.dispatch", {
+        mount_id: this.mountId,
+        node,
+        event,
+        ...(payload !== undefined && { payload }),
+      })
+      .catch(() => undefined);
+  };
+
+  reload = (): void => {
+    if (this.cancelled || !this.mountId) return;
+    void this.client.call("cmux.apps.panels.reload", { mount_id: this.mountId }).catch(() => undefined);
+  };
+
+  layout = (height: number): void => {
+    const rounded = Math.max(0, Math.ceil(height));
+    if (this.cancelled || !Number.isFinite(rounded)) return;
+    this.height = rounded;
+    // Before the mount answers, the height waits for it (`start` sends it then).
+    this.sendLayout();
+  };
+
+  resolveAsset: SceneAssetResolver = (path) => (this.assetBase ? bundleAssetURL(this.assetBase, path) : undefined);
+
+  resolveSymbol: SceneSymbolResolver = (name) => symbolImageURL(this.symbolBase, name);
+
+  async start(): Promise<void> {
+    const client = this.client;
+    try {
+      const result = await client.call<{ mount_id?: unknown; asset_base?: unknown; symbol_base?: unknown }>(
+        "cmux.apps.panels.mount",
+        {
+          surface: this.request.surface,
+          app: this.request.app,
+          ...(this.request.section !== undefined && { section: this.request.section }),
+          context: this.request.context,
+        },
+      );
+      if (typeof result?.mount_id !== "string" || !result.mount_id) {
+        this.fail({ kind: "failed" });
+        return;
+      }
+      this.mountId = result.mount_id;
+      if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) this.assetBase = result.asset_base;
+      if (typeof result.symbol_base === "string" && result.symbol_base.endsWith("/"))
+        this.symbolBase = result.symbol_base;
+      if (this.cancelled) {
+        this.unmount();
+        return;
+      }
+      const mountId = result.mount_id;
+      const stop = await client.subscribe<SceneEvent>(
+        "cmux.apps.panels.scene",
+        (event) => {
+          if (this.cancelled || event?.mount_id !== mountId) return;
+          if ("reload_failure" in event) {
+            this.store.setReloadFailure(event.reload_failure?.reason);
+            return;
+          }
+          if ("status" in event) {
+            this.store.setStatus(event.status, event.reason);
+            return;
+          }
+          if (!Array.isArray(event.ops)) return;
+          this.store.apply(event.ops, event.reset === true);
+          const violation = this.store.violation;
+          if (violation && this.options.limits) {
+            // Over its interface's limits: it stops (no more work in its VM for this page) and says why.
+            this.unsubscribe?.();
+            this.unsubscribe = undefined;
+            this.unmount();
+            this.fail({ kind: "over", violation });
+          }
+        },
+        { mount_id: mountId },
+      );
+      if (this.cancelled || this.failed) stop();
+      else {
+        this.unsubscribe = stop;
+        this.sendLayout();
+      }
+    } catch (error) {
+      // The row says why, as the host's model does when its mount call fails; the next list mounts again.
+      if (!this.cancelled) this.store.setStatus("failed", error instanceof Error ? error.message : String(error));
+      this.unmount(); // A failed scene subscription must not leave a daemon mount alive.
+      this.fail({ kind: "failed" });
+    }
+  }
+
+  release(): void {
+    this.cancelled = true;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.unmount();
+  }
+
+  private fail(problem: PanelProblem): void {
+    this.failed = true;
+    if (!this.cancelled) this.options.onFail?.(problem);
+  }
+
+  private sendLayout(): void {
+    const { mountId, height } = this;
+    if (this.cancelled || !mountId || height === undefined || height === this.sentHeight) return;
+    this.sentHeight = height;
+    void this.client.call("cmux.apps.panels.layout", { mount_id: mountId, height }).catch(() => undefined);
+  }
+
+  private unmount(): void {
+    if (!this.mountId) return;
+    const mountId = this.mountId;
+    this.mountId = undefined;
+    void this.client.call("cmux.apps.panels.unmount", { mount_id: mountId }).catch(() => undefined);
+  }
+}
+
+type Entry = { panel: AppPanel; mount: AppSceneMount; problem?: PanelProblem };
 
 /** One pane/context's mount lifetime. Scene events notify the touched scene nodes only, never the
  * panel list. Entries exist before mount starts so concurrent list updates cannot mount twice. */
@@ -181,7 +326,7 @@ export class AppPanelsClient {
     ++this.listing;
     this.unwatch?.();
     this.unwatch = undefined;
-    for (const entry of this.entries.values()) this.release(entry);
+    for (const entry of this.entries.values()) entry.mount.release();
     this.entries.clear();
     this.snapshot = EMPTY;
     this.view = EMPTY_VIEW;
@@ -261,50 +406,33 @@ export class AppPanelsClient {
     const wanted = new Set(shown.map(panelId));
     for (const [id, entry] of this.entries) {
       if (wanted.has(id)) continue;
-      this.release(entry);
+      entry.mount.release();
       this.entries.delete(id);
     }
     const next = shown.map((panel) => {
       const id = panelId(panel);
       let entry = this.entries.get(id);
-      if (entry?.failed && retry) {
-        this.release(entry);
+      if (entry?.mount.failed && retry) {
+        entry.mount.release();
         this.entries.delete(id);
         entry = undefined;
       }
       if (!entry) {
-        const created: Entry = {
-          panel,
-          store: new SceneStore(this.options.limits),
-          cancelled: false,
-          failed: false,
-          dispatch: (node, event, payload) => {
-            if (!this.active || created.cancelled || !created.mountId) return;
-            void this.client
-              ?.call("cmux.apps.panels.dispatch", {
-                mount_id: created.mountId,
-                node,
-                event,
-                ...(payload !== undefined && { payload }),
-              })
-              .catch(() => undefined);
+        // `onFail` runs only after `start` awaits, once `created` exists.
+        const mount = new AppSceneMount(
+          this.client!,
+          {
+            surface: this.context && "surface" in this.context ? this.context.surface : "sessionInfoSection",
+            app: panel.app,
+            section: panel.section,
+            context: this.context ?? {},
           },
-          reload: () => {
-            if (!this.active || created.cancelled || !created.mountId) return;
-            void this.client?.call("cmux.apps.panels.reload", { mount_id: created.mountId }).catch(() => undefined);
-          },
-          layout: (height) => {
-            const rounded = Math.max(0, Math.ceil(height));
-            if (!this.active || created.cancelled || !Number.isFinite(rounded)) return;
-            created.height = rounded;
-            // Before the mount answers, the height waits for it (`mount` sends it then).
-            this.sendLayout(created);
-          },
-          resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
-        };
+          { limits: this.options.limits, onFail: (problem) => this.fail(created, problem) },
+        );
+        const created: Entry = { panel, mount };
         entry = created;
         this.entries.set(id, entry);
-        void this.mount(entry);
+        void mount.start();
       } else if (
         entry.panel.title !== panel.title ||
         entry.panel.symbol !== panel.symbol ||
@@ -313,13 +441,15 @@ export class AppPanelsClient {
         entry.panel = panel;
       }
       // A separate snapshot prevents later metadata updates mutating a prior render's value.
+      const { mount } = entry;
       return {
         panel: entry.panel,
-        store: entry.store,
-        dispatch: entry.dispatch,
-        reload: entry.reload,
-        layout: entry.layout,
-        resolveAsset: entry.resolveAsset,
+        store: mount.store,
+        dispatch: mount.dispatch,
+        reload: mount.reload,
+        layout: mount.layout,
+        resolveAsset: mount.resolveAsset,
+        resolveSymbol: mount.resolveSymbol,
         ...(entry.problem && { problem: entry.problem }),
       };
     });
@@ -354,96 +484,14 @@ export class AppPanelsClient {
     for (const listener of this.listeners) listener();
   }
 
-  /** A mount that failed or broke its limits: the page shows why in its place. */
+  /** A mount that failed or broke its limits. Session Info keeps a failed section empty (it
+   * retries on the next list); another interface, or a scene over its limits, shows why in the
+   * panel's place. */
   private fail(entry: Entry, problem: PanelProblem): void {
-    entry.failed = true;
-    if (entry.cancelled) return;
+    if (entry.mount.cancelled) return;
+    if (problem.kind === "failed" && !this.options.interface) return;
     entry.problem = problem;
     this.reconcile(false);
-  }
-
-  private async mount(entry: Entry): Promise<void> {
-    const client = this.client!;
-    try {
-      const result = await client.call<{ mount_id?: unknown; asset_base?: unknown }>("cmux.apps.panels.mount", {
-        surface: (this.context && "surface" in this.context
-          ? this.context.surface
-          : "sessionInfoSection") satisfies MountSurface,
-        app: entry.panel.app,
-        section: entry.panel.section,
-        context: this.context,
-      });
-      if (typeof result?.mount_id !== "string" || !result.mount_id) {
-        this.failMount(entry);
-        return;
-      }
-      entry.mountId = result.mount_id;
-      if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) entry.assetBase = result.asset_base;
-      if (entry.cancelled) {
-        this.unmount(entry);
-        return;
-      }
-      const mountId = result.mount_id;
-      const stop = await client.subscribe<SceneEvent>(
-        "cmux.apps.panels.scene",
-        (event) => {
-          if (entry.cancelled || event?.mount_id !== mountId) return;
-          if ("status" in event) {
-            entry.store.setStatus(event.status, event.reason);
-            return;
-          }
-          if (!Array.isArray(event.ops)) return;
-          entry.store.apply(event.ops, event.reset === true);
-          const violation = entry.store.violation;
-          if (violation && this.options.limits) {
-            // Over its interface's limits: it stops (no more work in its VM for this page) and says why.
-            entry.unsubscribe?.();
-            entry.unsubscribe = undefined;
-            this.unmount(entry);
-            this.fail(entry, { kind: "over", violation });
-          }
-        },
-        { mount_id: mountId },
-      );
-      if (entry.cancelled || entry.failed) stop();
-      else {
-        entry.unsubscribe = stop;
-        this.sendLayout(entry);
-      }
-    } catch (error) {
-      // The row says why, as the host's model does when its mount call fails; the next list mounts again.
-      if (!entry.cancelled) entry.store.setStatus("failed", error instanceof Error ? error.message : String(error));
-      this.unmount(entry); // A failed scene subscription must not leave a daemon mount alive.
-      this.failMount(entry);
-    }
-  }
-
-  /** Session Info keeps a failed section empty (it retries on the next list); another interface
-   * shows the failure in the panel's place. */
-  private failMount(entry: Entry): void {
-    if (this.options.interface) this.fail(entry, { kind: "failed" });
-    else entry.failed = true;
-  }
-
-  private sendLayout(entry: Entry): void {
-    const { mountId, height } = entry;
-    if (!this.active || entry.cancelled || !mountId || height === undefined || height === entry.sentHeight) return;
-    entry.sentHeight = height;
-    void this.client?.call("cmux.apps.panels.layout", { mount_id: mountId, height }).catch(() => undefined);
-  }
-
-  private unmount(entry: Entry): void {
-    if (!entry.mountId) return;
-    const mountId = entry.mountId;
-    entry.mountId = undefined;
-    void this.client?.call("cmux.apps.panels.unmount", { mount_id: mountId }).catch(() => undefined);
-  }
-
-  private release(entry: Entry): void {
-    entry.cancelled = true;
-    entry.unsubscribe?.();
-    entry.unsubscribe = undefined;
-    this.unmount(entry);
   }
 }
 

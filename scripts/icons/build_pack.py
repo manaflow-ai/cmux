@@ -23,8 +23,8 @@ A source icon may also give "sf" (its SF Symbol fallback; it stands for that sym
 "overrides" (SF Symbols the app draws as this icon even where it otherwise draws system symbols: toolbars,
 the palette, menus and the pages' symbol images).
 
-Also writes the catalog (name, meaning, SF Symbol fallback, dense style, family) and the generated Swift
-IconName members. Run with --check to verify the outputs are up to date.
+Also writes the catalog (name, meaning, SF Symbol fallback, dense style, family), the web table of the
+icon each SF Symbol stands for, and the generated Swift IconName members. Run with --check to verify the outputs are up to date.
 """
 import argparse
 import json
@@ -46,6 +46,7 @@ OUTPUTS = {
     "names_swift": NATIVE / "IconName+Members.swift",
     "catalog_swift": NATIVE / "IconName+Catalog.swift",
     "pack_web": WEB / "cmuxIcons.json",
+    "symbols_web": WEB / "iconSymbols.json",
     "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
     "pack_custom_web": WEB / "cmuxIconsCustom.json",
     "pack_neko_web": WEB / "nekoCandidate.json",
@@ -522,9 +523,17 @@ def build():
             neko[name] = {"line": layers(neko_svg), "solid": layers(neko_solid_svg)}
     neko_text = json.dumps({"id": "cmux-neko", "version": 1, "grid": 24, "icons": dict(sorted(neko.items()))},
                            separators=(",", ":"), ensure_ascii=False) + "\n"
+    # The icon each SF Symbol stands for, as IconCatalog.name(forSymbol:) picks it: the first
+    # aliasing entry in name order. The pages' scene symbols read it (apps/scene/SceneSymbol.tsx).
+    symbols = {}
+    for entry in catalog:
+        if entry.get("alias", True) and entry["sf"] and entry["sf"] not in symbols:
+            symbols[entry["sf"]] = entry["name"]
+    symbols_text = json.dumps(dict(sorted(symbols.items())), indent=1, ensure_ascii=False) + "\n"
     return {
         "pack_native": pack_text,
         "pack_web": pack_text,
+        "symbols_web": symbols_text,
         "pack_custom_native": custom_text,
         "pack_custom_web": custom_text,
         "pack_neko_web": neko_text,
