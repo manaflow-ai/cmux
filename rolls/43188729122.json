@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43188729122",
+  "recorded_at": "2026-11-12T09:16:41Z",
+  "reason": "cmux-tui 2b598b4ccd0f changes the image's cmux-tui (pinned d9c1a28df9f2)",
+  "dry_run": false,
+  "cmux_tui": "2b598b4ccd0f404780f04c2624af4e1ac95f2f38",
+  "fixes": [
+    {
+      "sha": "2b598b4ccd0f404780f04c2624af4e1ac95f2f38",
+      "mergedAt": "2026-11-12T00:54:45-08:00",
+      "subject": "acpmux: a chat's transcript folds to rows in the daemon (_acpmux/rows, hq#9655 stage 2) (#41762)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T09:16:41Z",
+    "snapshot_id": "sh-b279f4a5023e44c7a6d79fb6d2e1895a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43188729122): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8b27f6feb1fd73f26850a2effb6130d7a9adfb22",
+    "image": "cloud-native-auto-2b598b4c-43188729122-1",
+    "revision": "ci-43188729122-1",
+    "at": "2026-11-12T09:16:41Z"
+  },
+  "rolled_back": false
+}
