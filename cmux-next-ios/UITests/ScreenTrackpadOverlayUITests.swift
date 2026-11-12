@@ -61,7 +61,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         handle.swipeDown()
         XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down did not tuck the trackpad away\n\(app.debugDescription)")
         XCTAssertTrue(pad.waitForNonExistence(timeout: 5), "trackpad surface still shown while tucked away")
-        XCTAssertGreaterThan(handle.frame.minY, window.maxY - 90, "notch strip not at the bottom edge (\(handle.frame))")
+        XCTAssertLessThan(window.maxY - drawerTop(), 140, "tucked away, the drawer is more than its notch strip (\(handle.frame))")
         XCTAssertTrue(handle.isHittable, "notch not reachable while tucked away")
         settle(app, 1)
         XCTAssertGreaterThan(screen.frame.height, upScreenHeight + 150, "screen did not take the room")
