@@ -127,9 +127,20 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
         height: scroller.clientHeight,
       };
     });
+  /// Presses Jump up and waits for its glide to end: the scroll offset holds for three painted frames
+  /// (its length follows the theme's motion tokens, so a fixed frame count reads it mid-glide).
   const press = async (page: Page) => {
     await page.click(".acpmux-jump-up");
-    await frames(page, 6);
+    await page.waitForFunction(
+      async () => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const top = node.scrollTop;
+        for (let left = 3; left > 0; left -= 1) await window.cmuxPaintFrame();
+        return node.scrollTop === top;
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
   };
   /// The line near the top: inside the view's top fifth, the first unseen row right under it.
   const landedNearTop = (at: Awaited<ReturnType<typeof read>>) => {
