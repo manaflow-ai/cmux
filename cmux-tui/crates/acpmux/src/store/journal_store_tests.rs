@@ -1095,6 +1095,9 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
     });
     let journal = SimStorage::new(47);
     let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    // After the store: a panic before the releases lets both holds go before the unwind drops it.
+    let idle_release = super::journal_store::Release::new(idle_release);
+    let touch_release = super::journal_store::Release::new(touch_release);
     // The checkpointer found nothing to do, marked itself idle and holds the timer lock.
     idle_seen
         .recv_timeout(WAIT)
@@ -1111,8 +1114,8 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
         .unwrap_or_else(|e| panic!("the change never took the idle flag: {e}"));
     // The second look sees the change, so the checkpointer goes to its period wait (30 s), and
     // the change's notify comes in there.
-    idle_release.send(()).unwrap_or_else(|e| panic!("{e}"));
-    touch_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    idle_release.now();
+    touch_release.now();
     appender.join().unwrap_or_else(|_| panic!("the append panicked"));
     std::thread::sleep(Duration::from_millis(300));
     let woke = checkpointer_seams(home.path(), |seams| seams.wakes);
@@ -1922,7 +1925,8 @@ fn every_checkpointer_hold_is_released_by_a_guard_bound_after_the_store() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     sources(&root, &mut files);
-    let installs = ["idle_hold = Some((", "touch_hold = Some(("];
+    // Built here, so this scan's own text is not an install.
+    let installs = ["idle_hold", "touch_hold"].map(|seam| format!("{seam} = Some(("));
     let mut found = Vec::new();
     let mut checked = 0;
     for file in &files {
@@ -1933,7 +1937,7 @@ fn every_checkpointer_hold_is_released_by_a_guard_bound_after_the_store() {
             let held: Vec<&str> = installs
                 .iter()
                 .filter_map(|install| {
-                    let at = body.find(install)?;
+                    let at = body.find(install.as_str())?;
                     let pair = &body[at + install.len()..];
                     let release = pair.split(&[',', ')'][..]).nth(1)?.trim();
                     Some(release)

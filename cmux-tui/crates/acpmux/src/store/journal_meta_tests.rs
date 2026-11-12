@@ -58,8 +58,10 @@ fn open_held_at_idle(
         seams.idle_hold = Some((arrived, released));
     });
     let store = open(home, journal);
+    // After the store: a panic in the wait releases before the unwind drops the store.
+    let release = super::journal_store::Release::new(release);
     wait_idle(&idle);
-    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    release.now();
     store
 }
 
