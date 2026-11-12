@@ -127,6 +127,13 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
               row: Number(getComputedStyle(row).opacity),
               thinking: thinking ? Number(getComputedStyle(thinking).opacity) : -1,
               thread: Number(/\S+\s+(-?[\d.]+)px/.exec(getComputedStyle(thread!).translate)?.[1] ?? 0),
+              dbg: `${bubble.closest(".acpmux-row")?.className} | ${row.className} | ${row
+                .getAnimations()
+                .map(
+                  (a) =>
+                    `${(a as CSSAnimation).animationName}:${a.effect?.getComputedTiming().duration}:${a.effect?.getComputedTiming().delay}`,
+                )
+                .join(",")}`,
             });
           }
           // raf-read: every frame of the motion (above).
@@ -149,8 +156,13 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
   /// The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
   /// move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
   /// The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
-  const openTurns = async (page: Page) => {
-    await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"follow-motion":"eased"}'));
+  /// `follow`: the follow-motion arm, the product's (`blocks`) when undefined.
+  const openTurns = async (page: Page, follow: string | undefined = "eased") => {
+    if (follow)
+      await page.addInitScript(
+        (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "follow-motion": arm })),
+        follow,
+      );
     await openPane(page);
     for (const line of ["first question", "second question", "third question"]) {
       await send(page, line);
@@ -177,7 +189,10 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       expect(frame.thread, `${label}: the thread is not drawn back at ${frame.at} ms`).toBeLessThan(0.5);
       expect(frame.clip, `${label}: the bubble is open at ${frame.at} ms`).toBeLessThan(0.05);
       expect(frame.text, `${label}: the text is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
-      expect(frame.row, `${label}: the prompt is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+      expect(
+        frame.row,
+        `${label}: the prompt is whole at ${frame.at} ms ${(frame as unknown as { dbg: string }).dbg}`,
+      ).toBeGreaterThan(0.99);
       // -1: no thinking row drawn in that frame.
       if (frame.thinking >= 0)
         expect(frame.thinking, `${label}: the thinking row is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
@@ -197,6 +212,38 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
         clocks.some((entry) => entry.target === "morph"),
         "no copy of the composer's prompt moves into the bubble",
       ).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // The product's follow motion chases each move of the rows on a spring (followChase.ts): a send on
+  // the 0 clock is in place in its own pass, with nothing left to chase (review of #41550, F1).
+  test("with the default follow motion, the sent prompt and the thread are in place at once", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
+    try {
+      await openTurns(page, undefined);
+      const line = "what else do you think would be good across the project";
+      await watchSend(page, line);
+      await send(page, line);
+      const { frames, clocks } = await sendFrames(page);
+      expectLanded(frames, clocks, "default follow motion");
+    } finally {
+      await page.close();
+    }
+  });
+
+  // System Reduce Motion fades arrivals; a sent prompt and its thinking row still take the send clock
+  // (review of #41550, F2).
+  test("with Reduce Motion, the sent prompt and its thinking row are whole at once, no fade", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 }, reducedMotion: "reduce" });
+    try {
+      await openTurns(page, undefined);
+      const line = "what else do you think would be good across the project";
+      await watchSend(page, line);
+      await send(page, line);
+      const { frames, clocks } = await sendFrames(page);
+      expectLanded(frames, clocks, "Reduce Motion");
     } finally {
       await page.close();
     }

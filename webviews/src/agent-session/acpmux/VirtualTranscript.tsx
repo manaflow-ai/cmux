@@ -3694,8 +3694,7 @@ function TranscriptView({
         // Read only in a send's window: one style read per pass for at most SEND_RISE_MS.
         const sendLands = sendWindow && !(sendClockMs(node) > 0);
         const cardCleared = dockCard < box.dockCard && box.dockSpace - dockSpace <= box.dockCard - dockCard + 0.5;
-        const dockMoved =
-          box.dockSpace !== dockSpace && (sendLands || !((sendWindow || cardCleared) && dockSpace < box.dockSpace));
+        const dockMoved = box.dockSpace !== dockSpace && !((sendWindow || cardCleared) && dockSpace < box.dockSpace);
         const now = performance.now();
         if (unmeasured || box.height !== height || box.width !== width || (!chasing && box.dockSpace !== dockSpace)) {
           resizedAt.current = now;
@@ -3785,6 +3784,11 @@ function TranscriptView({
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
             if (!riding) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
+          } else if (sendLands && (rows.length > oldRows.length || box.dockSpace !== dockSpace)) {
+            // A send on a 0 clock (the product's): its rows and the room the composer gives back are
+            // in place in this pass, and a chase still drawing the thread back ends where it lands.
+            stopFollowMotion();
+            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else if (lineLeft) {
             // What the pass also brought (the reply's next revealed line) joins the trail first, and
             // the landing takes it home with the rest at no more than a line a frame.
@@ -3819,8 +3823,7 @@ function TranscriptView({
               rows.at(-2)?.id === oldRows.at(-2)?.id &&
               (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
             const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
-            // A send on a 0 clock (the product's) lands its rows at once, with no chase.
-            const atOnce = dockMoved || !live || stepped || (sentRows && sendLands);
+            const atOnce = dockMoved || !live || stepped;
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes

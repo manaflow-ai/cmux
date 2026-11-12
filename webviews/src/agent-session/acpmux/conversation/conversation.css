@@ -5647,6 +5647,15 @@ a.cv-sha:focus-visible {
   .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
+  /* A sent prompt, its pictures and the thinking row that came with it are in place at once, never
+     the ordinary fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do
+     it."). None at all, not a 0 clock: the clamp above makes a fade 0.01ms, whose first frame drew
+     the prompt at opacity 0. */
+  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter .cv-user .cv-enter,
+  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+    animation: none;
+  }
 }
 
 /* SEND-ENTRANCE (Leo 2026-11-07, ask-bc3f176943: "there's space that's given to the user's message,
