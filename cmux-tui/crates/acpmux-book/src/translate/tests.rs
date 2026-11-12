@@ -282,6 +282,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     stretch.steered = true;
                     stretches.push(stretch);
                     stretch = Stretch::default();
+                    open = false;
                 }
             }
         }
@@ -362,7 +363,7 @@ fn claude_split_property_and_final_reply_visibility() {
         assert_eq!(state, whole);
         assert_eq!(view, full);
     }
-    assert!(full.visible(full.reply("Final answer?")));
+    assert!(full.visible(full.reply("Working note.Final answer?")));
 }
 
 #[test]
@@ -447,8 +448,9 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
         1,
         r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\ud800"}}"#,
     );
-    assert_eq!(translate(&mut s, Harness::V1, bad.as_bytes()), Err(Error::InvalidJson));
-    assert_eq!(s, State::default());
+    assert!(translate(&mut s, Harness::V1, bad.as_bytes()).is_ok());
+    assert_eq!(s.counters().invalid_records, 1);
+    assert_eq!(s.last_row_id(), 0);
     let mut m = Mirror::default();
     m.line(&mut s, Harness::V1, &chunk(1, "🙂\n\"\\", "m"));
     assert!(m.visible(m.reply("🙂\n\"\\")));

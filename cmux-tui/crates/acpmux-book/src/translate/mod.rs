@@ -294,6 +294,12 @@ impl State {
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
+    fn mark_steer(&mut self) {
+        if let Some(reply) = &self.reply {
+            self.fold.reply(&reply.facts);
+        }
+        self.fold.steer();
+    }
     fn finish(&mut self, out: &mut input::Output<'_>) {
         self.close_text(out);
         Self::close_row(&mut self.plan, out);
@@ -422,7 +428,7 @@ impl State {
         let already_steer =
             self.prompts.get(&hash).is_some_and(|p| p.row.fields.contains_key("steer"));
         if !already_steer {
-            self.fold.steer();
+            self.mark_steer();
         }
         self.reserve_prompt(key, None, out)?;
         if let Some(prompt) = self.prompts.get_mut(&hash) {
@@ -453,7 +459,7 @@ impl State {
         let steer = steer || already_read;
         if steer {
             if !already_read {
-                self.fold.steer();
+                self.mark_steer();
             }
         } else {
             self.finish(out);
