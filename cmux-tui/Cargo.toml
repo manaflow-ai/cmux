@@ -93,6 +93,7 @@ members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -122,6 +123,7 @@ members = [
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
+    "crates/cmux-usage-patterns",
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
@@ -194,6 +196,7 @@ default-members = [
     "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-config",
+    "crates/cmux-customize",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
     "crates/cmux-terminal-iface",
@@ -300,6 +303,7 @@ cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
@@ -317,6 +321,7 @@ cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
+cmux-customize = { path = "crates/cmux-customize" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }

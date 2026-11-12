@@ -74,6 +74,7 @@ cmux-agent-pane-policy.workspace = true
 cmux-host-budget.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
+cmux-usage-patterns.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
@@ -191,6 +192,10 @@ blake2 = "0.10"
 rusqlite.workspace = true
 # The test-hooks check over this crate's own sources (`src/test_hooks_tree.rs`, cmux#41350).
 cmux-source-scan = { path = "../cmux-source-scan" }
+# The crate's own sources, read by the detector of writes under the home by path
+# (`src/home_writers_by_path_tests.rs`); span-locations for its rows' line numbers.
+syn = { version = "2", default-features = false, features = ["full", "parsing", "visit", "printing"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]
