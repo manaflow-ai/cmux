@@ -43,6 +43,8 @@ public final class AgentPaneLoadingView: NSView {
     /// page that handshakes and then truly hangs holds a spinner for this long after it spoke.
     static let aliveChecks = 3
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
+    /// Which mark delay is the live one: each ``showMarkLater()`` and each ``hideMark()`` starts a new turn.
+    private(set) var markTurn = 0
     private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
     private var onGiveUp: (@MainActor () -> Void)?
     /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
@@ -96,29 +98,29 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
-    /// the indicator sets its own `isHidden` from its config whenever it refreshes. A hidden cover
-    /// starts no delay (``setShown(_:)``).
+    /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        guard !isHidden else { return }
-        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
-            // The timer claims its fire off the main thread, then hops here: a cover hidden, leaving or gone
-            // since then gets no mark, and one that has its mark is not given it again.
-            guard let self, !isHidden, !leaving, superview != nil, indicator.superview !== self else { return }
-            addSubview(indicator)
-        }
+        markTurn += 1
+        let turn = markTurn
+        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.markDelayEnded(turn) }
+    }
+
+    /// The delay that ``showMarkLater()`` started as `turn` ended. The timer claims its fire off the main
+    /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
+    /// newest delay, with no ``hideMark()`` after it, puts the mark in.
+    func markDelayEnded(_ turn: Int) {
+        guard turn == markTurn else { return }
+        addSubview(indicator)
     }
 
     /// Shows or hides this cover, and its mark with it. A cover nobody sees (a New Tab page's, a chat's
     /// over its saved picture) has no mark and no delay: its timer woke the main thread 0.8 s after the
     /// pane was made to put a mark in a hidden view, and AppKit invalidates the window's cursor rects at
     /// each `addSubview` (3 hidden covers did it inside one key resize of a split with a browser pane).
-    /// Shown again in its pane, the delay starts from that moment, so the mark never pops up with the cover.
+    /// Shown again, the delay starts from that moment, so the mark never pops up with the cover.
     func setShown(_ shown: Bool) {
-        guard isHidden == shown else { return }
         isHidden = !shown
-        guard shown else { return hideMark() }
-        // Out of its pane (a spare's cover that left, about to be adopted), `beginLoadingState` starts the delay.
-        if superview != nil { showMarkLater() }
+        if shown { showMarkLater() } else { hideMark() }
     }
 
     /// Runs `giveUp` once the pane has been seen unpainted at ``silentChecks`` checks in a row, or
@@ -166,6 +168,7 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     func hideMark() {
+        markTurn += 1
         markTimer.cancel()
         indicator.removeFromSuperview()
     }

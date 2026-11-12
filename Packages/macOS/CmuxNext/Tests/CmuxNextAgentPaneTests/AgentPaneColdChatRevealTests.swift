@@ -155,6 +155,24 @@ struct AgentPaneColdChatRevealTests {
     }
     #endif
 
+    /// The mark's timer claims its fire off the main thread and then hops to the main actor. A cover that hid in
+    /// between (``AgentPaneView/standOverPicture()``) gets no mark from that fire, and neither does the cover when
+    /// it shows again: its own new delay puts the mark in.
+    @Test func aDelayThatEndedBeforeItsCoverHidPutsNoMarkIn() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        let claimed = view.loadingView.markTurn // the delay the pane started with its cover
+        view.standOverPicture()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(view.loadingView.indicator.superview == nil, "a fire claimed before the cover hid put a busy mark in the hidden cover")
+
+        view.pictureBelowWent()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(!Self.markShows(view), "a fire claimed before the cover hid put the busy mark in the moment the cover showed again")
+        view.loadingView.markDelayEnded(view.loadingView.markTurn)
+        #expect(Self.markShows(view), "the cover's own delay ended and no busy mark showed")
+    }
+
     /// cx-txnr: after a relaunch a page that never reported its first paint (WebKit holds an
     /// occluded window's animation frames) kept the pane on its loading state, a spinner over a
     /// clear page, for good. Seen unpainted at two checks in a row, the page counts as painted.
