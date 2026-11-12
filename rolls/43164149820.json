@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43164149820",
+  "recorded_at": "2026-11-12T06:00:44Z",
+  "reason": "cmux-tui 5c018426fbeb changes the image's cmux-tui (pinned 1aeacffb5d56)",
+  "dry_run": false,
+  "cmux_tui": "5c018426fbeb7c6d2176a11d8be45eef6650ee21",
+  "fixes": [
+    {
+      "sha": "e0e05c3609ef4d0e92ea6a1877c8e91662712a36",
+      "mergedAt": "2026-11-12T05:36:49Z",
+      "subject": "cmux-tui: every provider mutation goes through send_mutation, and a request never sent holds no slot (#41719)"
+    },
+    {
+      "sha": "f17f880d873b542acb4b2a7567b419234eefbaa8",
+      "mergedAt": "2026-11-11T23:28:07-06:00",
+      "subject": "acpmux: a recovered turn that was no inbox notice reads no log at its end"
+    },
+    {
+      "sha": "b347861b512fa9cb020ffc5a27738e448e080800",
+      "mergedAt": "2026-11-11T23:27:57-06:00",
+      "subject": "acpmux: an unread steer's watch is the hub's, and a logged unread answer still requeues it"
+    },
+    {
+      "sha": "e287fc40c67105e46407d4c3ba6253330b12380c",
+      "mergedAt": "2026-11-11T23:27:47-06:00",
+      "subject": "acpmux: test that a steer answered unread while no daemon runs runs next after the restart"
+    },
+    {
+      "sha": "c1202940947ec4b6d632c2cdd7faec294a29faea",
+      "mergedAt": "2026-11-11T23:27:39-06:00",
+      "subject": "acpmux: a notice turn adopted across an update restart answers its senders"
+    },
+    {
+      "sha": "fe61173573651c48c62f2d50469f001f82753035",
+      "mergedAt": "2026-11-11T23:27:32-06:00",
+      "subject": "acpmux: test that a notice turn adopted across an update restart answers its senders"
+    },
+    {
+      "sha": "f5d96264856342e3d29df2156d716d9140d91585",
+      "mergedAt": "2026-11-11T23:27:25-06:00",
+      "subject": "acpmux: a steer its turn never read runs next after an update restart"
+    },
+    {
+      "sha": "7fc1e49b89d6fc3c1b60c81ee68841361d218aa1",
+      "mergedAt": "2026-11-11T23:27:24-06:00",
+      "subject": "acpmux: test that a steer its turn never read runs next after an update restart"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T06:00:44Z",
+    "snapshot_id": "sh-ccd95586d6004f1b8de7e8215f5ca698",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43164149820): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "86384cb33a817abef67410d8d39ae453b5317396",
+    "image": "cloud-native-auto-5c018426-43164149820-1",
+    "revision": "ci-43164149820-1",
+    "at": "2026-11-12T06:00:44Z"
+  },
+  "rolled_back": false
+}
