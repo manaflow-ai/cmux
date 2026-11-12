@@ -2525,6 +2525,13 @@
         "sessionId": {
           "type": "string"
         },
+        "settled": {
+          "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
           "type": [
