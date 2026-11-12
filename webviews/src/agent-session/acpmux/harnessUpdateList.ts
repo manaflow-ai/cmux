@@ -7,7 +7,7 @@
 // The chat's own agent keeps its offer (UpdateOffer: the composer's notice runs it and then offers
 // Restart Chat, and Skip This Version). Any other agent updates in place through the host's
 // `harness.update {id}`; nothing of its runs here, so no restart follows.
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { type HarnessHealth, skipped, type UpdateOffer } from "./harnessHealthNoticeModel";
 
 /// One agent CLI with an update, as a menu row shows it.
@@ -60,8 +60,8 @@ const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
 /// The list for the menus: the chat's own offer first, then every other outdated agent.
-/// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}`; `onUpdated` reads the
-/// health rows again once one finished, so its row leaves for good.
+/// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}`; `onUpdated` (stable, as
+/// `native` is) reads the health rows again once one finished, so its row leaves for good.
 export function useHarnessUpdateList({
   rows,
   offer,
@@ -78,8 +78,6 @@ export function useHarnessUpdateList({
   onUpdated(): void;
 }): HarnessUpdates | undefined {
   const [progress, setProgress] = useState<Progress>({});
-  const updated = useRef(onUpdated);
-  updated.current = onUpdated;
   const start = useCallback(
     (id: string, latest: string) => {
       setProgress((now) => ({ ...now, [id]: { latest, phase: "updating" } }));
@@ -89,12 +87,12 @@ export function useHarnessUpdateList({
           const reply = record(value);
           if (reply.ok !== true) return failed(typeof reply.error === "string" ? reply.error.trim() : "");
           setProgress((now) => ({ ...now, [id]: { latest, phase: "done" } }));
-          updated.current();
+          onUpdated();
         },
         (error: unknown) => failed(error instanceof Error ? error.message.trim() : ""),
       );
     },
-    [native],
+    [native, onUpdated],
   );
   const list = useMemo<HarnessUpdateRow[]>(() => {
     const out: HarnessUpdateRow[] = [];
