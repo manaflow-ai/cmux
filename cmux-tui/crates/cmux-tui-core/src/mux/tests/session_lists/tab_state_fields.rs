@@ -18,7 +18,7 @@ use super::*;
 
 /// A session of `workspaces` workspaces on a FILE registry, and the folder to remove after the
 /// test.
-fn file_session_of(name: &str, workspaces: usize) -> (Arc<Mux>, std::path::PathBuf) {
+pub(super) fn file_session_of(name: &str, workspaces: usize) -> (Arc<Mux>, std::path::PathBuf) {
     let root = std::env::temp_dir()
         .join(format!("cmux-session-lists-{name}-{}", crate::workspace_registry::new_uuid_v4()));
     let mux = open_persistent_test_mux(name, &root);
@@ -30,7 +30,7 @@ fn file_session_of(name: &str, workspaces: usize) -> (Arc<Mux>, std::path::PathB
     (mux, root)
 }
 
-fn close_file_session(mux: Arc<Mux>, root: std::path::PathBuf) {
+pub(super) fn close_file_session(mux: Arc<Mux>, root: std::path::PathBuf) {
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
@@ -40,11 +40,18 @@ fn close_file_session(mux: Arc<Mux>, root: std::path::PathBuf) {
 /// own one and, on a file registry, the read-only one). Setting an authorizer expires each
 /// prepared statement, so a cached one is compiled again and counted. The count is of compiled
 /// statements: a point read for each row (`query_row`) is one for each row.
-fn selects_of(mux: &Arc<Mux>, request: impl FnOnce()) -> usize {
+///
+/// Only the statements of the thread that runs `request` count: the mux's background threads
+/// (exit settling, journal maintenance and the like) use the same connection at their own times,
+/// and their statements are not the request's.
+pub(super) fn selects_of(mux: &Arc<Mux>, request: impl FnOnce()) -> usize {
     let count = Arc::new(AtomicUsize::new(0));
+    let request_thread = std::thread::current().id();
     let counter = |count: Arc<AtomicUsize>| {
         move |context: AuthContext<'_>| {
-            if matches!(context.action, AuthAction::Select) {
+            if matches!(context.action, AuthAction::Select)
+                && std::thread::current().id() == request_thread
+            {
                 count.fetch_add(1, Ordering::Relaxed);
             }
             Authorization::Allow
@@ -115,7 +122,7 @@ fn a_session_wide_tab_list_runs_one_statement_set_on_a_file_registry() {
 /// frontend browser row with an owner, and a conversation. Tab 2 has an agent session (and a page
 /// row: the agent session goes before it). Tab 3 has a page and a kept relaunch record. The other
 /// tabs have no row. Returns the tab ids in that order.
-fn give_each_state_table_a_row(mux: &Arc<Mux>) -> Vec<String> {
+pub(super) fn give_each_state_table_a_row(mux: &Arc<Mux>) -> Vec<String> {
     let connection = mux.registry_connection.get();
     let tabs = connection
         .prepare(
