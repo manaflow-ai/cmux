@@ -9,7 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cmux_tui_machine_protocol::{
-    ConnectionClosedEvent, EventEnvelope, HelloResult, NoticeLevel, OpenMachineResult,
+    ConnectExternalMachineParams, ConnectExternalMachineResult, ConnectionClosedEvent,
+    EventEnvelope, ExternalMachineSpecifier, HelloResult, NoticeLevel, OpenMachineResult,
     ProviderErrorCode, ProviderNotice, ResponseEnvelope, SnapshotChangedEvent, TransportDescriptor,
     TransportHandshake,
 };
@@ -179,11 +180,7 @@ fn hello_capabilities_enable_only_advertised_lifecycle_requests() {
         ProviderClientError::UnsupportedCapability(WORKSPACE_LIFECYCLE_CAPABILITY)
     ));
     let error = provider
-        .connect_external_machine(
-            id("team"),
-            ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
-            id("connect-mutation"),
-        )
+        .mutate::<ConnectExternalMachineResult>(external_connect_request())
         .expect_err("unadvertised external-machine connect must be rejected locally");
     assert!(matches!(
         error,
@@ -601,13 +598,7 @@ fn external_machine_connect_replays_one_idempotent_provider_result() {
         client_descriptor(),
     )
     .expect("authenticate provider");
-    let connect = || {
-        provider.connect_external_machine(
-            id("team"),
-            ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
-            id("connect-mutation"),
-        )
-    };
+    let connect = || provider.mutate::<ConnectExternalMachineResult>(external_connect_request());
     let first = connect().expect("connect external machine");
     let replay = connect().expect("replay external-machine mutation");
 
@@ -1412,4 +1403,12 @@ fn no_mutation_is_bounded_by_the_control_timeout_without_a_listed_reason() {
         })),
         PROVIDER_CREATE_TIMEOUT
     );
+}
+
+fn external_connect_request() -> ProviderRequest {
+    ProviderRequest::ConnectExternalMachine(ConnectExternalMachineParams {
+        scope_id: id("team"),
+        specifier: ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
+        mutation_id: id("connect-mutation"),
+    })
 }

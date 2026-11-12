@@ -43,6 +43,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_resume;
+pub(crate) mod settled_view;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -167,6 +168,7 @@ mod model_hint;
 mod model_probe;
 mod models_view;
 pub(crate) mod native_messaging;
+mod page_first;
 mod paging;
 mod personal_stats;
 mod policy_gate;
@@ -246,6 +248,10 @@ mod start_retry;
 mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+
+/// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
+type WithdrawsInFlight =
+    HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
 pub(super) use session::{newest_first, prompt_text, short_text};
 pub(crate) mod shell_readonly;
 mod shutdown;
@@ -276,6 +282,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
@@ -701,6 +708,19 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
+    /// its `agent_message_chunk` records, until a new message or a prompt (a steer) ends it.
+    pub(super) reply_segment: Option<String>,
+    /// Reply segments started in this turn, which numbers the next one.
+    pub(super) reply_segments: u32,
+    /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
+    pub(super) segment_turn: Option<String>,
+    pub(super) segment_message: Option<String>,
+    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
+    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
+    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
+    pub(super) plan_turn: Option<String>,
+    pub(super) plan_shown: bool,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
@@ -733,12 +753,17 @@ pub struct Hub {
     pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
+    pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Session summaries built, live or closed, with tools or without (tests).
+    #[cfg(test)]
+    pub(super) summaries_built: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -985,6 +1010,9 @@ pub struct Hub {
     /// The fence of an ancestor's answer, by permission id, for the write that delivers it
     /// (`subsession_answer.rs`).
     pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
+    /// Withdraws whose retraction notice is on its way, by session and prompt id: a second
+    /// withdraw of the same message answers as the first (`withdraw.rs`).
+    pub(super) withdraws: StdMutex<WithdrawsInFlight>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -1221,10 +1249,13 @@ impl Hub {
             closed_summary_cache: StdMutex::new(Default::default()),
             closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
+            rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1340,6 +1371,7 @@ impl Hub {
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
             answer_fences: StdMutex::new(HashMap::new()),
+            withdraws: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
@@ -2298,6 +2330,10 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
+        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
+        if dir == "mux" && kind == "user_message" {
+            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
+        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

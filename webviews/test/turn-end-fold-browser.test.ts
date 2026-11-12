@@ -1,20 +1,7 @@
 // l10n-allow-file: test fixture prompts, commands and replies, not shipped UI.
-// A turn's work stays in sight while it runs and folds once, in one motion, at its end (Leo,
-// 2026-11-08: "they disappear without any animation, and then, in addition ... it causes a layout
-// shift. So I'm thinking probably maybe a better solution is while the thing is streaming ... you
-// expose it ... and you only do the overarching fold at the very end"). The real agent pane, from
-// its dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon that runs a
-// Claude turn: four calls (an edit among them), a short note, three more calls, the answer, its end.
-// - While the turn runs, no row and no call the pane drew leaves it.
-// - At the end the work folds under "Worked for" over several painted frames, never in one step,
-//   and the answer at the bottom stays where it was drawn (the bottom stays pinned).
-// - An edits group the reader opened during the turn is open again inside the folded turn.
-//
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-//
-// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the work that stays in
-// sight and folds at the turn's end is finished calls of a turn that still runs, which only `runs` draws
-// (support/liveTurnRuns.ts).
+// Finished runs fold while a turn runs. At its end the whole turn folds under "Worked for",
+// leaving only the final answer. Closing the turn resets every disclosure inside it.
+// The real agent pane talks to a stand-in acpmux daemon and measures each painted frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -273,10 +260,15 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     const live = await page.evaluate(() => {
       (window as any).turnEndProbeStop = true;
       const probe = (window as any).turnEndProbe;
-      return { left: probe.left as string[], frames: probe.frames as number, calls: [...probe.calls] as string[] };
+      const runs = [...document.querySelectorAll(".cv-tool.is-run")];
+      return {
+        calls: [...probe.calls] as string[],
+        runs: runs.map((run) => run.getAttribute("aria-expanded")),
+      };
     });
     if (openGroup) {
-      // The reader opens the edits group while the turn runs.
+      // The reader opens the first run, then its edits group, while the turn runs.
+      await page.locator(".cv-tool.is-run").first().click();
       const edits = page.locator('button[data-tool-group^="group:edits:"]');
       await edits.click();
       expect(await edits.getAttribute("aria-expanded")).toBe("true");
@@ -312,7 +304,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
           work: Math.max(
             0,
             ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
-              .filter((row) => row.textContent?.includes("Pulled changes") && row.getBoundingClientRect().height > 0)
+              .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
               .map((row) => Number(getComputedStyle(row).opacity)),
           ),
           worked: Boolean(scroller.querySelector("button.cv-worked")),
@@ -330,11 +322,11 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
   }
 
   for (const family of ["claude", "codex"]) {
-    test(`${family}: nothing the running turn drew leaves it, and each call stays in sight`, async () => {
+    test(`${family}: finished runs stay folded while the turn runs`, async () => {
       const { page, live } = await playTurn(family, false);
-      // Nothing the running turn drew left it; each finished call is in sight.
-      expect(live.left).toEqual([]);
-      expect(live.calls).toEqual(expect.arrayContaining(["t1", "t3", "t4", "t5", "t6", "t7", "t8"]));
+      expect(live.runs.length).toBeGreaterThan(0);
+      expect(live.runs.every((expanded) => expanded === "false")).toBe(true);
+      for (const id of ["t1", "t3", "t4", "t5", "t6", "t7", "t8"]) expect(live.calls).not.toContain(id);
       await page.close();
     });
 
@@ -383,13 +375,15 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       await page.close();
     });
 
-    test(`${family}: a group the reader opened while the turn ran is open again inside the folded turn`, async () => {
+    test(`${family}: ending the turn resets the run and group the reader opened`, async () => {
       const { page } = await playTurn(family, true);
-      // Opened, the folded turn shows the edits group the reader opened, open.
       await page.locator("button.cv-worked").first().click();
+      const run = page.locator(".cv-tool.is-run").first();
+      expect(await run.getAttribute("aria-expanded")).toBe("false");
+      await run.click();
       const again = page.locator('button[data-tool-group^="group:edits:"]');
       await again.waitFor();
-      expect(await again.getAttribute("aria-expanded")).toBe("true");
+      expect(await again.getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
   }

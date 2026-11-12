@@ -17,6 +17,10 @@ mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+mod settled_attach;
+#[cfg(test)]
+#[path = "requests/settled_attach_tests.rs"]
+mod settled_attach_tests;
 mod successor;
 mod turn_opener;
 mod workflow_dispatch;
@@ -1216,7 +1220,7 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
@@ -2998,13 +3002,17 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // `settled`: the chat's settled view first, read before any log wait; a restart's
+            // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
+            let settled = settled_attach::saved(hub, &s, &params);
+            let answered_settled = settled.as_ref().is_some_and(|(_, view)| view.is_some());
             // A restart reads the chat logs after its ready line: the queue, turn and status
             // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
             // reads it, and its first page below, ahead of agent work (`qos.rs`).
             // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
             // for the full restore here made a restarted long chat blank for tens of seconds.
             // Callers that need authoritative queue/status details keep the old default.
-            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+            if !answered_settled && params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
                 if hidden {
                     hub.session_log(&s).await;
                 } else {
@@ -3021,8 +3029,19 @@ async fn dispatch_request_with_identity(
                 hub,
                 conn,
                 &s,
-                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false },
+                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false, rows: None },
             );
+            let settled_key = match settled {
+                Some((_, Some(view))) => {
+                    let key = view.key.clone();
+                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                        return Ok(reply);
+                    }
+                    Some(key)
+                }
+                Some((key, None)) => Some(key),
+                None => None,
+            };
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
@@ -3066,6 +3085,11 @@ async fn dispatch_request_with_identity(
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener});
+            // Asked `settled` and none answered: say so, and write it for the chat's next open.
+            if let Some(key) = settled_key {
+                reply["settled"] = Value::Null;
+                hub.settle_view_for_open(&s, key);
+            }
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3107,6 +3131,7 @@ async fn dispatch_request_with_identity(
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
+        method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
@@ -3440,6 +3465,29 @@ mod admission_force_tests {
         assert_eq!(name(null).as_deref(), Some("top"));
         assert_eq!(name(json!({})), None);
     }
+}
+
+/// `_acpmux/rows` (`rows/serve.rs`), off the async thread: a chat's first read folds its log.
+/// With `follow`, the connection must be attached to the chat; its later row changes go to it
+/// as `_acpmux/rows_patch` (`deliver`).
+async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    let follow = params.get("follow").and_then(Value::as_bool) == Some(true);
+    if follow && conn.sub_opts(&s.id).is_none() {
+        return Err(RpcError::invalid_params("follow reads an attached chat: attach it first")
+            .with_data(json!({"reason": "rows.not_attached"})));
+    }
+    let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
+    let (reply, following) =
+        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+            .await
+            .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
+    if let Some(following) = following
+        && let Some(sub) = conn.subs.lock_or_recover().get_mut(&s.id)
+    {
+        sub.rows = Some(following);
+    }
+    Ok(reply)
 }
 
 /// `_acpmux/queue_text` (`hub/queue_text.rs`), out of `dispatch_request` and boxed there, so its

@@ -11,7 +11,13 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       app that never rendered Home is a failed smoke, but is not a launch crash and cannot trigger a
       rollback. Anything else could not run (no GUI session, no app, a hop or harness error before
       launch). A crash counts only when both attempts crashed: a check cut short after one crash (a
-      step timeout) is cannot-run, and so is any cannot-run attempt. Prints pass, crash or cannot-run.
+      step timeout) is cannot-run, and so is any cannot-run attempt. An attempt that the publish gate's
+      watchdog stopped (status 124) is read by its report in the same way: a crash when the harness had
+      already seen the app end, else cannot-run. Prints pass, crash or cannot-run.
+
+  attempt --dir DIR --number N
+      The result of harness run N alone (pass, crash or cannot-run). The publish gate asks it after an
+      attempt that its watchdog stopped: only a crash gets the second attempt.
 
   pick --feed LIVE.xml [--build BUILD]
       The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=, ed_signature=, the item's
@@ -52,6 +58,9 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
+# The status that launch-smoke-gate.sh writes for an attempt its watchdog stopped (the harness itself never exits
+# with it: 0, 1, 2, 3, or 128 + the signal).
+CUT = 124
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
@@ -69,6 +78,13 @@ def attempt_result(status: int, report: dict) -> str:
     A failed report from a live app that never rendered Home is not a launch crash, so it cannot roll a
     build back. Exit 1 without the harness or app evidence (a console-session hop or setup error) could
     not run.
+
+    A cut attempt (CUT) has the same rule. The harness puts its verdict in the report before it keeps the
+    evidence (the system log read, the wait for a late crash report), and a stopped harness still writes
+    that report. So a cut after the verdict leaves "fail" with the app's own end, and that is a crash:
+    as cannot-run it let a build that crashed in both attempts be published. `exit` and `crash_reports`
+    are only what the harness saw before it stopped the app itself, so a cut while the app was watched,
+    or of a live app with no Home, has no such evidence and is cannot-run. A cut attempt is never a pass.
     """
     if status == 0 and report.get("verdict") == "pass":
         return PASS
@@ -76,7 +92,7 @@ def attempt_result(status: int, report: dict) -> str:
     app_crashed = (
         isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
     ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions"))
-    if status == 1 and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
+    if status in (1, CUT) and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
         return CRASH
     return CANNOT_RUN
 
@@ -272,6 +288,9 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--build", default="")
     v = sub.add_parser("verdict")
     v.add_argument("--dir", type=Path, required=True)
+    a = sub.add_parser("attempt")  # one attempt's result (pass, crash or cannot-run), for the gate's loop
+    a.add_argument("--dir", type=Path, required=True)
+    a.add_argument("--number", type=int, required=True)
     d = sub.add_parser("decide")
     d.add_argument("--feed", type=Path, required=True)
     d.add_argument("--build", type=int, required=True)
@@ -314,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"in_flight={run or ''}")
     elif args.command == "verdict":
         print(verdict(read_attempts(args.dir)))
+    elif args.command == "attempt":
+        attempts = read_attempts(args.dir)
+        print(attempt_result(*attempts[args.number - 1]) if 0 < args.number <= len(attempts) else CANNOT_RUN)
     elif args.command == "decide":
         print(json.dumps(decide(args.feed.read_text(encoding="utf-8"), args.build, args.verdict)))
     else:

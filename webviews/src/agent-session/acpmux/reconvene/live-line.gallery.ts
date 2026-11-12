@@ -91,7 +91,7 @@ ${LIVE}::before {
     ready: LIVE,
   },
   /// The model's finished thinking as its own row, "Thought for 12s" with its chevron, folded; its
-  /// text opens under it. The rule keeps its body folded. Under the shipped live-turn-work `line` a
+  /// text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
   /// running turn draws no finished thought (turns.ts `codexRuns`), so the stage waits for the live
   /// line, and the row shows once its stretch ended.
   "thinking-block": {
@@ -103,7 +103,7 @@ ${LIVE}::before {
   },
 });
 
-/// The running turn as the shipped live-turn-work `line` draws it (thinking-block only): the earlier
+/// The running turn as the live-turn-work `line` draws it (thinking-block only): the earlier
 /// turn's reply and the prompt in sight, the one live line under them, and no finished thought or
 /// call of the running turn.
 async function lineOnly(ctx: PlayContext) {
@@ -119,6 +119,8 @@ async function lineOnly(ctx: PlayContext) {
 const variant = (arm: keyof typeof ARMS | "now", command: boolean, note: string): AgentPaneVariant => ({
   note,
   snapshot: command ? midCommand() : midThinking(),
+  // The thinking-block arm's play checks the running turn as live-turn-work `line` draws it.
+  ...(arm === "thinking-block" ? { experiments: { "live-turn-work": "line" } } : {}),
   play: async (ctx) => {
     await lineDrawn(ctx);
     if (arm === "thinking-block") await lineOnly(ctx);
@@ -180,12 +182,12 @@ export default agentPaneEntry({
     "thinking-block": variant(
       "thinking-block",
       false,
-      'The model\'s thinking as its own folded row, "Thought for 12s" with a chevron (Leo\'s "separate thinking"). Under the shipped live-turn-work `line` a running turn draws no finished thought, so mid-thinking this is the prompt and the live line alone; the row shows once its stretch ended. Only as good as the harness\'s thinking text (an omitted thought still draws nothing).',
+      'The model\'s thinking as its own folded row, "Thought for 12s" with a chevron (Leo\'s "separate thinking"). Under the live-turn-work `line` a running turn draws no finished thought, so mid-thinking this is the prompt and the live line alone; the row shows once its stretch ended. Only as good as the harness\'s thinking text (an omitted thought still draws nothing).',
     ),
     "thinking-block-command": variant(
       "thinking-block",
       true,
-      "Mid-command under the shipped `line`: no finished thought row, the running command's live line under the prompt.",
+      "Mid-command under `line`: no finished thought row, the running command's live line under the prompt.",
     ),
   },
 });

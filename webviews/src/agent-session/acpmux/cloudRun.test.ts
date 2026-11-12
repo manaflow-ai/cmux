@@ -7,6 +7,7 @@ import {
   cloudFolderGrants,
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
   composerAgentLocal,
   cloudStartFolder,
   cloudStartKeys,
@@ -184,11 +185,39 @@ test("an attachment-only Cloud send preserves its empty task and image bytes", a
   expect(promptBlocks("", attachments)).toEqual([
     { type: "image", mimeType: "image/png", data: "AQID", name: "image.png" },
   ]);
-  expect(cloudPageRefusal(true)).toBeUndefined();
+  expect(cloudPageRefusal({ offerable: true, checked: true })).toBeUndefined();
 });
 
-test("Cloud picked but no longer offered refuses the send, never sending it as a chat here", () => {
-  expect(cloudPageRefusal(false)).toBe("cloud_not_now");
+test("Cloud picked while a chat starts in this tab refuses the send with that reason, never sending it as a chat here", () => {
+  expect(cloudPageRefusal({ offerable: false, checked: true })).toBe("cloud_chat_starting");
+  expect(cloudPageRefusal({ offerable: false, checked: false })).toBe("cloud_chat_starting");
+});
+
+// Leo 2026-11-10: "then i picked bypass permissions and personal and then it said this". The tab's
+// check (sandbox.state) hadn't answered on a busy Mac, so the first Return was refused with
+// "Cloud isn't available for this chat" for every folder and team, and the next one started.
+test("a Cloud send before the tab's check answers waits for it and then goes once, never refused", () => {
+  expect(cloudPageRefusal({ offerable: true, checked: false })).toBe("cloud_checking");
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("first"));
+  after.hold(() => sent.push("hey"));
+  expect(after.waiting()).toBe(true);
+  expect(sent).toEqual([]);
+  expect(after.offered()).toBe(true);
+  expect(sent).toEqual(["hey"]);
+  expect(after.offered()).toBe(false);
+  expect(sent).toEqual(["hey"]);
+});
+
+test("a held Cloud send is dropped when the person leaves Cloud before the check answers", () => {
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("hey"));
+  after.drop();
+  expect(after.waiting()).toBe(false);
+  expect(after.offered()).toBe(false);
+  expect(sent).toEqual([]);
 });
 
 test("a second Return while a start waits on the host starts nothing; after the answer one may start again", async () => {

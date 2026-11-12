@@ -250,6 +250,9 @@ export type AgentPaneVariant = VariantBase & {
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;

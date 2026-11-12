@@ -171,12 +171,6 @@ class Fixture(unittest.TestCase):
     def refused(self, *args):
         return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
 
-    def rebase_on(self, files, message="more base debt"):
-        for relative, text in files.items():
-            self.write(relative, text)
-        self.commit(message)
-        self.base = self.git("rev-parse", "HEAD").stdout.strip()
-
     def report(self, skip, refusals):
         os.environ[guardrails.SKIP_ENV] = skip
         try:
@@ -2515,11 +2509,6 @@ class HookTests(Fixture):
         # Retention is by use, not by age or position: a push holds its copy (the test below); with none running
         # the replaced copy goes, so copies never pile up.
         self.assertFalse(before.exists(), "no push holds the replaced copy")
-
-    def install(self):
-        result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
-                                capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_push_running_on_an_old_checks_copy_keeps_it_through_later_installs(self):
         # The gate resolves the checks link once. A push that started on a days-old copy and is still in swiftlint

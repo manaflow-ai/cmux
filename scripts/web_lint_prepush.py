@@ -1922,7 +1922,10 @@ def main(argv: list[str] | None = None) -> int:
                 ranges, errors = push_range.pushed_ranges(repo, sys.stdin.read().splitlines(), args.remote)
             else:
                 # The working tree (no --head) is linted over the own range of HEAD.
-                ranges, errors = [push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
+                # Fetching the shared base first, as a push does (manual_range; an older installed copy lacks it).
+                manual = getattr(push_range, "manual_range", None)
+                ranges, errors = [manual(repo, args.head or "HEAD", remote=args.remote) if manual
+                                  else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
         if errors:

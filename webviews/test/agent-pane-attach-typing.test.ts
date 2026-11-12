@@ -78,12 +78,16 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
       canvas.width = 1200;
       canvas.height = 800;
       const context = canvas.getContext("2d")!;
-      context.fillStyle = "#101114";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
       const data = new DataTransfer();
-      for (let index = 0; index < count; index += 1)
+      for (let index = 0; index < count; index += 1) {
+        // Each screenshot its own: the same bytes twice are one attachment (attachments.ts filesOnce).
+        context.fillStyle = "#101114";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#202124";
+        context.fillRect(0, 0, index + 1, 1);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
         data.items.add(new File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" }));
+      }
       const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       // Where the next key goes, at once: the prompt, not a stand-in that takes keys for a moment.

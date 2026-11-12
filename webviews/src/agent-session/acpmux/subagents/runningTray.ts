@@ -198,6 +198,17 @@ export function commandStatus(command: BackgroundCommand): SubagentStatus {
   return command.state === "failed" ? "failed" : "stopped";
 }
 
+/// An ended line that failed: a subagent that neither completed nor was stopped, a command that
+/// exited non-zero, a chat the agent started whose run failed. It leaves the hat at once and never
+/// lingers there (Leo, 2026-11-12: "if these failed, I don't know why they still show up"): its
+/// failure stays where it ended, the transcript's failed line with its Retry, and in Session Info.
+export function endedInFailure(item: TrayItem): boolean {
+  if (item.kind === "command") return commandStatus(item.command) === "failed";
+  if (item.kind === "session") return item.session.state === "failed";
+  const { state } = item.agent;
+  return state !== "running" && state !== "completed" && state !== "cancelled" && state !== "disconnected";
+}
+
 /// When an item started, if known.
 export const itemStart = (item: TrayItem): number | undefined =>
   item.kind === "agent" ? item.agent.startedAt : item.kind === "command" ? item.command.startedAt : undefined;

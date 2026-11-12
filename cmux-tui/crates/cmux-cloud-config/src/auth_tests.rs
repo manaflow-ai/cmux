@@ -308,3 +308,24 @@ fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
     assert!(team_rows(&teams, Some("gone")).iter().all(|row| !row.active));
     assert!(team_rows(&teams, None).iter().all(|row| !row.active));
 }
+
+// Leo 2026-11-10: his composer showed "leo@cmux.com's…" with the shared-team icon for the team the
+// sign-in service made for his account by itself.
+#[test]
+fn team_rows_show_the_sign_in_services_email_named_default_team_as_personal() {
+    let teams = [facts("t1", "cmux", Some("team")), facts("t2", "leo@cmux.com's Team", None)];
+    let rows = team_rows(&teams, Some("t2"));
+    assert_eq!(rows[1].title, "Personal");
+    assert_eq!(rows[1].kind, TeamKind::Personal);
+    assert_eq!(rows[1].id, "t2");
+    assert!(rows[1].active);
+    assert_eq!(rows[0].kind, TeamKind::Team);
+    // A curly apostrophe and any case are the same default team.
+    let curly = team_rows(&[facts("t3", "Leo@Cmux.com\u{2019}s team", None)], None);
+    assert_eq!((curly[0].title.as_str(), curly[0].kind), ("Personal", TeamKind::Personal));
+    // A team people named, even after a person, keeps its name.
+    for name in ["Leo's Team", "leo@cmux's Team", "ops team", "a@b.com's Team for ops"] {
+        let rows = team_rows(&[facts("t4", name, None)], None);
+        assert_eq!((rows[0].title.as_str(), rows[0].kind), (name, TeamKind::Team), "{name}");
+    }
+}

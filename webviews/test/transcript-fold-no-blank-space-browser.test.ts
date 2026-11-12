@@ -25,8 +25,8 @@ import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
   /// The gaps the stack places between two drawn rows (transcriptGrid.ts transcriptGap): the footer
-  /// gap under a reply, the block gap, the turn gap around a prompt, and the run gap where the grid has it.
-  const gapTokens = ["gap-footer", "gap-block", "gap-turn", "gap-run"].flatMap((name) => {
+  /// gap under a reply, the block gap, the turn gap around a prompt, and the inner gap used between transcript runs and prose.
+  const gapTokens = ["gap-footer", "gap-block", "gap-turn", "gap-inner"].flatMap((name) => {
     try {
       return [gridLength(name)];
     } catch {

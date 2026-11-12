@@ -77,7 +77,8 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// (https://github.com/manaflow-ai/cmux/issues/39956, measured in https://github.com/manaflow-ai/cmux/issues/28793): the app at
     /// Default density and the sidebar at its own default, Compact. Codex stacks 30 px rows with no gap
     /// (`--height-token-nav-row`), pads their content 8 px from the fill (`--padding-row-x`) inside a 6 px outer
-    /// inset, and rounds the fill 10 px (`--radius-token-row`). Every other density keeps its own rows, so
+    /// inset. The fill rounds as a tab does, Chrome's 8 on 30 (Lawrence 2026-11-11, "same roundness as chrome"),
+    /// not Codex's 10 px (`--radius-token-row`). Every other density keeps its own rows, so
     /// `appearance.density`, `sidebar.density` and the metric overrides still pick them.
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
     /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
@@ -93,14 +94,15 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
         isCodexDensity && density == .compact ? space1 : 0
     }
-    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
-    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// The gap between list rows keeps adjacent hover and selection fills apart.
+    public var rowGap: CGFloat { base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
-    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
-    /// pill's radius.
-    public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
+    /// The list row fill's corner, as the sidebar draws it (the tab's): Chrome's tab corner on the row, 8 on 30
+    /// (`kVerticalTabCornerRadius` on `kVerticalTabHeight`; Lawrence 2026-11-11, "same roundness as chrome"). Pages
+    /// that share the sidebar row geometry read it (``rowCSSVariables(pageZoom:)``).
+    public var listRowCornerRadius: CGFloat { (listRowHeight * 8 / 30).rounded() }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
     public var captionSize: CGFloat { base.caption + textSize.textStep }
@@ -115,6 +117,19 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             cornerRadius: base.cornerRadius + paddingY, titleSize: titleSize, noteSize: captionSize,
             buttonHeight: rowHeight - 2 * base.space1, buttonPaddingX: horizontalInset, buttonRadius: base.cornerRadius,
             closeSide: rowHeight - 2 * base.space2)
+    }
+
+    /// A list row's height, corner and content inset as `--cmux-sidebar-row-*` CSS px of a page zoomed
+    /// by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values are the
+    /// list row's (``listRowHeight``, ``listRowCornerRadius``, ``contentInset``), so at Default a page
+    /// row is Codex's 30 px row with Chrome's 8 px corner and an 8 px content inset, as the sidebar draws it.
+    public func rowCSSVariables(pageZoom: CGFloat) -> [String: String] {
+        let zoom = max(pageZoom, 0.01)
+        return [
+            "--cmux-sidebar-row-height": SidebarCardMetrics.px(listRowHeight / zoom),
+            "--cmux-sidebar-row-radius": SidebarCardMetrics.px(listRowCornerRadius / zoom),
+            "--cmux-sidebar-row-inset": SidebarCardMetrics.px(contentInset / zoom),
+        ]
     }
 
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.

@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LASTING_MS } from "../src/ui/lasting";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -40,8 +41,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];

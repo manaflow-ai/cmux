@@ -2526,6 +2526,31 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: entries[0]", output)
         self.assertNotIn("base-photo.md", output, "only the branch's own highlight is named")
 
+    def test_a_refused_push_retried_after_the_base_moved_fetches_the_base_again(self):
+        # cmux#41310 review: the fetch stamp outlived its hook run, keyed only by the pushed rows, so the same push
+        # tried again after feat-cmux-next moved skipped the fetch and measured from the stale copy.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.write(f"{self.HIGHLIGHTS}/own-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("the branch's own highlight with no link and no picture")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        refused = self.push_ref("topic")
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head())
+
+        old = self.git("rev-parse", "origin/feat-cmux-next").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("later.md", "the base moves again\n")
+        self.commit("the base moves again")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        self.git("checkout", "--quiet", "topic")
+
+        retried = self.push_ref("topic")
+
+        self.assertNotEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head(),
+                         "the retry is its own hook run, so it fetched the shared base again")
+
     def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
         # A push that also weakens the validator cannot pass its own highlight: the hook reads
         # origin/feat-cmux-next's validator, as it runs the installed checks and never the branch's.

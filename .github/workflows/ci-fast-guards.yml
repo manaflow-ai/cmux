@@ -79,6 +79,7 @@ jobs:
             .github/workflows/backend.yml
             scripts/ci/runner_pool_reconcile.py
             tests/test_ci_runner_pool_reconcile.py
+            tests/workflow_jobs.py
           persist-credentials: false
 
       - name: Validate fleet Linux runner-pool reconciliation

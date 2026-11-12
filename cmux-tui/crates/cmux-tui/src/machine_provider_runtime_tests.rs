@@ -1708,7 +1708,6 @@ fn selecting_provider_scope_cancels_ambiguous_external_connect() {
     runtime.pending_external_connect = Some(PendingExternalConnect {
         scope_id: personal.selected_scope_id,
         specifier: protocol::ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
-        mutation_id: id("old-scope-mutation"),
     });
 
     runtime.perform_request(MachineRequest::SelectProviderScope("team-1".into())).unwrap();
@@ -4094,4 +4093,257 @@ fn a_full_unsettled_ledger_refuses_new_creates_and_still_replays_the_oldest() {
 
     drop(runtime);
     server.join().unwrap();
+}
+
+/// A mutation refused before its frame was written left nothing on the
+/// provider, so it must not hold a ledger slot. Forty refused connects in
+/// forty scopes would otherwise fill all 32 slots and block every create.
+#[test]
+fn mutations_refused_before_sending_leave_no_slot_and_a_create_still_goes_through() {
+    const REFUSED: usize = 40;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server = thread::spawn(move || {
+        // The provider does not advertise external connect.
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, catalog);
+        serve_workspace_snapshot(&mut stream, &mut reader, &workspace);
+        // No connect frame arrives: the first frame after them is the create.
+        let (scope, _) = answer_create(&mut stream, &mut reader, "machine-real");
+        assert_eq!(scope, id("scope-real"), "a refused connect reached the provider");
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    for attempt in 0..REFUSED {
+        let connect = protocol::ProviderRequest::ConnectExternalMachine(
+            protocol::ConnectExternalMachineParams {
+                scope_id: id(&format!("stale-scope-{attempt}")),
+                specifier: protocol::ExternalMachineSpecifier::new(format!("PAIR {attempt}"))
+                    .unwrap(),
+                mutation_id: unassigned_mutation_id().unwrap(),
+            },
+        );
+        let error = runtime
+            .send_mutation::<protocol::ConnectExternalMachineResult>(connect)
+            .expect_err("an unadvertised capability is refused locally");
+        assert!(
+            matches!(
+                error.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::UnsupportedCapability(_))
+            ),
+            "attempt {attempt} failed with {error:#}"
+        );
+        assert!(runtime.unsettled_mutations.entries.is_empty(), "attempt {attempt} kept a slot");
+    }
+
+    let created: protocol::CreateMachineResult = runtime
+        .send_mutation(protocol::ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+            scope_id: id("scope-real"),
+            mutation_id: unassigned_mutation_id().unwrap(),
+        }))
+        .expect("a real create after the refused connects");
+    assert_eq!(created.machine_id, id("machine-real"));
+    assert!(runtime.unsettled_mutations.entries.is_empty());
+    drop(runtime);
+    server.join().unwrap();
+}
+
+/// An external connect goes through the one ledger: its unanswered attempt
+/// takes a slot (so 31 more fill the ledger and refuse a new create) and its
+/// retry replays the id the first attempt sent.
+#[test]
+fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_id() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let others = MAX_UNSETTLED_MUTATIONS - 1;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+    catalog.capabilities.connect_external_machine = true;
+    let mut enrolled = catalog.clone();
+    enrolled.revision = 2;
+    enrolled.selected_machine_id = Some(id("machine-1"));
+    enrolled.machines[0].connectable = true;
+    let server_catalog = catalog;
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+            &listener,
+            server_catalog,
+            &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+        );
+        let first: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request else {
+            panic!("first request was not external connect: {:?}", first.request);
+        };
+        for scope in 0..others {
+            let create: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(
+                matches!(create.request, protocol::ProviderRequest::CreateMachine(_)),
+                "create {scope} was {:?}",
+                create.request
+            );
+        }
+        // Neither refused request arrives; the next frame is the retry.
+        let retry: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request else {
+            panic!("retry request was not external connect: {:?}", retry.request);
+        };
+        assert_eq!(retry_params.specifier, first_params.specifier);
+        assert_eq!(retry_params.mutation_id, first_params.mutation_id, "the retry minted a new id");
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                retry.id,
+                protocol::ConnectExternalMachineResult {
+                    machine_id: id("machine-1"),
+                    revision: 2,
+                    notice: None,
+                },
+            ),
+        );
+        serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(20);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: bound,
+        create: bound,
+        open: bound,
+    });
+    let Err(first) = runtime.connect_external_after_refresh("PAIR 4J7K".into()) else {
+        panic!("an unanswered connect completed");
+    };
+    assert!(
+        matches!(first.downcast_ref::<ProviderClientError>(), Some(ProviderClientError::Timeout)),
+        "the connect failed with {first:#} instead of a timeout"
+    );
+    assert_eq!(runtime.unsettled_mutations.entries.len(), 1, "the connect took no slot");
+    assert!(runtime.pending_external_connect.is_some());
+
+    for scope in 0..others {
+        runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(scope))
+            .expect_err("the provider never answers these creates");
+    }
+    let refused = runtime
+        .send_mutation::<protocol::CreateMachineResult>(create_in_scope(others))
+        .expect_err("the connect's slot fills the ledger");
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    let Err(refused) = runtime.connect_external_after_refresh("PAIR OTHER".into()) else {
+        panic!("a new connect must be refused by the full ledger too");
+    };
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    assert!(
+        runtime.pending_external_connect.is_some(),
+        "a refused connect cleared the ambiguous one"
+    );
+
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
+    runtime.connect_external_after_refresh("PAIR 4J7K".into()).expect("the connect's retry");
+    assert!(runtime.pending_external_connect.is_none());
+    assert_eq!(runtime.unsettled_mutations.entries.len(), others);
+    runtime.close();
+    server.join().unwrap();
+}
+
+/// The `.mutate(` calls in `source` outside `send_mutation`'s body, as
+/// 1-based line numbers. Comment lines are ignored.
+fn provider_mutate_calls_outside_send_mutation(source: &str) -> Vec<usize> {
+    let allowed = source.find("fn send_mutation").and_then(|start| {
+        let open = start + source[start..].find('{')?;
+        let mut depth = 0usize;
+        for (offset, byte) in source[open..].bytes().enumerate() {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(open..open + offset);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    });
+    let mut offset = 0;
+    let mut hits = Vec::new();
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        let calls = line.contains(".mutate(") || line.contains(".mutate::<");
+        let comment = line.trim_start().starts_with("//");
+        let inside = allowed.as_ref().is_some_and(|range| range.contains(&offset));
+        if calls && !comment && !inside {
+            hits.push(index + 1);
+        }
+        offset += line.len();
+    }
+    hits
+}
+
+fn crate_sources(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            crate_sources(&path, found);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            found.push(path);
+        }
+    }
+}
+
+/// Detector for the bypass class: a provider mutation sent anywhere but
+/// `send_mutation` skips the replay ledger and its cap. Test files may call
+/// the client directly; production code may not.
+#[test]
+fn every_provider_mutate_call_goes_through_send_mutation() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources = Vec::new();
+    crate_sources(&root, &mut sources);
+    let mut bypasses = Vec::new();
+    let mut scanned = 0;
+    for path in sources {
+        if path.file_name().is_some_and(|name| name.to_string_lossy().ends_with("_tests.rs")) {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        if !source.contains("ProviderClient") && !source.contains("machine_provider_client") {
+            continue;
+        }
+        scanned += 1;
+        for line in provider_mutate_calls_outside_send_mutation(&source) {
+            bypasses.push(format!("{}:{line}", path.display()));
+        }
+    }
+    assert!(scanned > 1, "the scan found no machine-provider sources under {}", root.display());
+    assert!(
+        bypasses.is_empty(),
+        "these provider mutations bypass send_mutation, so a retry can mint a new mutation_id \
+         and the ledger cap does not count them; route them through send_mutation:\n{}",
+        bypasses.join("\n")
+    );
+}
+
+#[test]
+fn the_mutate_bypass_detector_flags_a_call_outside_send_mutation() {
+    let fixture = r#"
+impl ProviderMachineRuntime {
+    /// Only `self.client.mutate(request)` may send.
+    fn send_mutation<T>(&mut self, request: protocol::ProviderRequest) -> anyhow::Result<T> {
+        if true { let _ = 1; }
+        Ok(self.client.mutate(request)?)
+    }
+
+    fn connect_directly(&mut self) -> anyhow::Result<()> {
+        // self.client.mutate(request) in a comment is fine
+        let _: protocol::ConnectExternalMachineResult = self.client.mutate(request)?;
+        let _ = self
+            .client
+            .mutate::<protocol::CreateMachineResult>(create)?;
+        Ok(())
+    }
+}
+"#;
+    assert_eq!(provider_mutate_calls_outside_send_mutation(fixture), vec![11, 14]);
 }

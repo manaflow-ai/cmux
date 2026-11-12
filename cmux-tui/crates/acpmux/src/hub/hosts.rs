@@ -60,6 +60,10 @@ pub(super) struct OpenWork {
     /// so a steer's answer can be the one that ends the turn
     /// (`steer_end.rs`). Never the turn's own prompt (`prompt_request`).
     steers: Vec<(Value, Option<Value>)>,
+    /// Of those, the hub's prompt id of each (`_meta.promptId`), by request id
+    /// (`Value::to_string`): one its agent answers `STEER_NO_TURN` goes back to the queue
+    /// (`unread_steer.rs`).
+    steer_prompts: HashMap<String, String>,
     /// Agent requests to this host with no logged answer: (id, method,
     /// params, hostSeq).
     requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
@@ -154,6 +158,68 @@ impl Hub {
             live.insert(b.session_id);
         }
         Some(HostRecords { live, unreadable })
+    }
+
+    /// Reach `child`, this session's hosted agent, again over a new link when its link was lost
+    /// while its host lives (another owner took the host over, or the socket broke): at the reader's
+    /// notice (`Inbound::LinkBroken`) and when an answer was written to it (`respond_answer`), so
+    /// its open requests get their real answers (`ChildAgent::start_reader` keeps them for this).
+    /// Not under the spawn lock: a start holds that lock while it waits on one of those requests
+    /// (its `initialize`), which only this reattach answers. Two at once make one link
+    /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
+    /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
+    /// waits for it), whose link broke because an entry could not be logged (the next request
+    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
+    pub(super) async fn reach_lost_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> bool {
+        // A reader that stopped on a socket that still looks open (an acknowledgement failed) is
+        // a lost link too: nothing reads its entries.
+        if child.is_alive().await && !child.is_stopped() {
+            return true;
+        }
+        let Some(record) = child.host_record() else { return false };
+        // Ended or replaced on purpose (`ChildAgent::kill`, `terminate`, a failover): never woken.
+        if child.has_exited()
+            || child.is_broken()
+            || child.is_retired()
+            || child.ended_on_purpose()
+            || self.shutting_down()
+            || self.full_access_managed_off()
+        {
+            return false;
+        }
+        let still_asked =
+            session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+        if !still_asked {
+            return false;
+        }
+        let dead = agent_host::wait_dead_async(
+            agent_host::hosts_dir(),
+            record.session_id.clone(),
+            record.start_nonce.clone(),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        if dead || child.has_exited() {
+            return false;
+        }
+        let off = self.off_latch();
+        match child.reattach_if_lost().await {
+            Ok(true) => {
+                self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
+                self.judged_after_reattach(session, child, &off).await.is_some()
+                    && child.is_alive().await
+            }
+            Ok(false) => child.is_alive().await,
+            Err(e) => {
+                tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
+                false
+            }
+        }
     }
 
     /// Adopt this session's running host again (its link was lost, or a
@@ -1117,6 +1183,11 @@ impl Hub {
                     let steer =
                         e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true);
                     if steer && (work.prompt_request.is_some() || work.turn_carried) {
+                        let prompt =
+                            e.msg.pointer("/params/_meta/promptId").and_then(Value::as_str);
+                        if let (Some(id), Some(prompt)) = (&id, prompt) {
+                            work.steer_prompts.insert(id.to_string(), prompt.to_owned());
+                        }
                         work.steers.extend(id.map(|id| (id, None)));
                     } else {
                         work.prompt_request = id;
@@ -1317,13 +1388,22 @@ impl Hub {
                         Some(_) => None,
                         None => Some(child.await_response(request_id).await),
                     };
-                    // The steers still unanswered: one of them may end the turn.
+                    // The steers still unanswered: one of them may end the turn. One its agent
+                    // answers `STEER_NO_TURN` (the turn ended before it read it) goes back to the
+                    // queue, as the daemon that wrote it would have run it (`unread_steer.rs`).
                     let mut steer_answers = Vec::new();
-                    if rx.is_some() {
-                        for (id, logged) in &work.steers {
-                            if logged.is_none() {
-                                steer_answers.push(child.await_response(id.clone()).await);
-                            }
+                    for (id, logged) in &work.steers {
+                        let prompt = work.steer_prompts.get(&id.to_string()).cloned();
+                        // Answered in the host's log already: the turn ended while no daemon
+                        // ran, or a shutdown cancelled the last daemon's watch of the answer.
+                        if let Some(logged) = logged {
+                            self.steer_answered_unread(session, prompt.as_deref(), logged);
+                            continue;
+                        }
+                        let answer = child.await_response(id.clone()).await;
+                        let answer = self.unread_steer_runs_next(session, prompt, answer);
+                        if rx.is_some() {
+                            steer_answers.push(answer);
                         }
                     }
                     let hub = self.clone();
@@ -1369,6 +1449,8 @@ impl Hub {
                                 "turnId": turn_id, "turnSeq": turn_seq}),
                             );
                         }
+                        // A notice's turn answers the messages it carried (`inbox.rs`).
+                        hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),

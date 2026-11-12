@@ -296,6 +296,11 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
       });
     if (!stretch.fold) return drawn;
     const links = runLinks(stretch, row.id);
+    // Its thoughts' ids, as ToolRunSteps numbers them from the row's earlier thoughts.
+    const before = thoughts[stretch.from] ?? 0;
+    const runThoughts = stretch.items
+      .filter((item) => !item.tool && item.kind !== "note")
+      .map((_, at) => `${row.id}:thought:${before + at}`);
     return (
       <ToolRun
         key={key}
@@ -303,6 +308,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         inherits={links.inherits}
         passesDown={links.passesDown}
         closedBy={links.closedBy}
+        thoughts={runThoughts}
         items={stretch.items}
         defaultOpen={start.lineOpen}
       >

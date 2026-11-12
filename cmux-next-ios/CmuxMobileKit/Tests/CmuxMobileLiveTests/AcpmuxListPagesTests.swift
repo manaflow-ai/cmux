@@ -90,6 +90,13 @@ import Testing
         func close(code: String, reason: String) async { continuation.finish() }
     }
 
+    /// How long a test waits for the hub to be ready: past the hub's own 20 s request timeout
+    /// (`AcpmuxHub.bind`'s default), so a slow answer the hub still takes is not a failure, and a
+    /// runner busy with the whole parallel suite only makes it slower. 5 s ran out on two CI
+    /// runs (cmux#40617, #41225) whose changes did not touch the hub. A Mac that never answers
+    /// still fails here, after the full wait (a failed bind does not end `waitUntilReady`).
+    static let readyWait: Duration = .seconds(30)
+
     /// 250 chats: 100 on the watch's page, 100 and 50 after it.
     static func mac() -> HeldPagesChannel {
         HeldPagesChannel(
@@ -145,7 +152,7 @@ import Testing
         let events = Events(hub)
         let bound = Task { await hub.bind(mac) }
         // Ready while the later pages are still on their way.
-        #expect(await hub.waitUntilReady(timeout: .seconds(5), clock: ContinuousClock()))
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
         #expect(mac.params("_acpmux/watch")?["limit"] as? Int == 100)
         #expect(hub.sessions.count == 100)
         #expect(hub.sessions["s0"] != nil && hub.sessions["s120"] == nil)
@@ -166,7 +173,7 @@ import Testing
         let hub = AcpmuxHub()
         let events = Events(hub)
         let bound = Task { await hub.bind(mac) }
-        #expect(await hub.waitUntilReady(timeout: .seconds(5), clock: ContinuousClock()))
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
         mac.notify("_acpmux/session_changed", #"{"session":\#(Self.row("s150", status: "running")),"kind":"updated"}"#)
         mac.notify("_acpmux/session_changed", #"{"session":\#(Self.row("s160")),"kind":"purged"}"#)
         await events.told(2)
