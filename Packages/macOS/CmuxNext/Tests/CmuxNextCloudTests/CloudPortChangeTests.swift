@@ -50,4 +50,18 @@ struct CloudPortChangeTests {
         let data = try JSONSerialization.data(withJSONObject: ["t": "ephemeral", "event": "other", "data": [:]])
         #expect(CloudPortChange.parseWireFrame(data) == nil)
     }
+
+    /// A spare-ready frame names its machine only for the socket's own team, and is never a port change.
+    @Test func aSpareReadyFrameNamesItsMachineForTheSocketsTeamOnly() throws {
+        let frame = try JSONSerialization.data(withJSONObject: [
+            "t": "ephemeral", "stream": "cloud:team_0123456789abcdef0123", "event": "cloud.spare.ready",
+            "data": ["machine": "vm_01234567890123456789", "team": "team_0123456789abcdef0123", "at": 1],
+        ])
+        #expect(CloudMachineWire.spareReady(frame, team: "team_0123456789abcdef0123") == "vm_01234567890123456789")
+        #expect(CloudMachineWire.spareReady(frame, team: "team_ffffffffffffffffffff") == nil)
+        #expect(CloudMachineWire.spareReady(frame, team: nil) == nil)
+        #expect(CloudPortChange.parseWireFrame(frame) == nil)
+        let port = try JSONSerialization.data(withJSONObject: ["t": "ephemeral", "event": "cloud.machine.event", "data": ["team": "team_0123456789abcdef0123", "machine": "vm_01234567890123456789"]])
+        #expect(CloudMachineWire.spareReady(port, team: "team_0123456789abcdef0123") == nil)
+    }
 }
