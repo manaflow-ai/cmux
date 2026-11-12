@@ -3388,7 +3388,10 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     push_range = load_push_range()
     try:
-        own = push_range.given_range(repo, args.base, args.head) if args.base else push_range.own_range(repo, args.head)
+        # A run by hand fetches the shared base first, as a push does (push_range.manual_range); a failed fetch is
+        # in the note describe() prints, so a stale base is named, not used silently.
+        manual = getattr(push_range, "manual_range", None) or push_range.own_range
+        own = push_range.given_range(repo, args.base, args.head) if args.base else manual(repo, args.head)
     except ValueError as error:
         raise SystemExit(f"guardrails: {error}")
     print(f"guardrails: judging {own.describe()}")

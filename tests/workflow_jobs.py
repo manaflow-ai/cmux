@@ -37,7 +37,10 @@ _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNOR
 _TOKEN = re.compile(r"""\s*(?:(?P<string>'(?:[^']|'')*'?)|(?P<string2>"[^"]*"?)|(?P<number>-?\d[\w.+-]*)"""
                     r"""|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>==|!=|<=|>=|&&|\|\||[.\[\](),!<>*])|(?P<other>\S))""")
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
-_MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
+# The matrix context read in any form inside an expression: `matrix.x`, `matrix['x']`, a computed index
+# (`matrix[inputs.axis]`), the whole object (`toJSON(matrix)`). Not a property named matrix (`needs.matrix`, `x-matrix`).
+_MATRIX_CONTEXT = re.compile(r"(?<![\w.-])matrix(?![\w-])", re.IGNORECASE)
+_STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
 # `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
 # env, needs and the outputs of either).
@@ -349,6 +352,13 @@ def _scalar_text(value: Any) -> str:
     return value if isinstance(value, str) else ("true" if value is True else "false" if value is False else str(value))
 
 
+def _reads_matrix(text: str) -> bool:
+    """`text` still reads the matrix context in some expression (string literals aside). expand_matrix calls this
+    after it replaced every whole `${{ matrix.KEY }}`: what is left (a matrix key inside a larger expression, a
+    computed or non-identifier index, the whole matrix object) is a value it cannot resolve."""
+    return any(_MATRIX_CONTEXT.search(_STRING_LITERAL.sub("''", inner)) for inner in _EXPRESSION.findall(text))
+
+
 def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
     `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`."""
@@ -369,7 +379,7 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
     whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
     keys = list(dict.fromkeys(whole.findall(text)))
     if not keys:
-        return None if _MATRIX_REF.search(text) else [text]
+        return None if _reads_matrix(text) else [text]
     choices = []
     for key in keys:
         values = matrix_values(job, key)
@@ -382,7 +392,7 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
         for key, value in zip(keys, combination):
             expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
         expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
-        if _MATRIX_REF.search(expanded):
+        if _reads_matrix(expanded):
             return None
         out.append(expanded)
     return out
