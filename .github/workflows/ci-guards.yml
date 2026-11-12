@@ -36,7 +36,7 @@ jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -66,6 +66,23 @@ jobs:
 
       - name: Test submodule forward-only guard
         run: python3 tests/test_submodule_forward_only.py
+
+      # No build fetches a Zig package from a third-party host: codeberg.org's
+      # outage on 2026-11-11 failed every cold libghostty-vt build (translate_c's
+      # aro is git+https://codeberg.org/ziglang/arocc). Every URL dependency of
+      # the Ghostty sources' trees, transitive ones included, is mirrored in
+      # scripts/ci/zig-packages.lock on a host we control. A change to the lock,
+      # a Ghostty gitlink or the detector also downloads every mirrored copy and
+      # checks its sha256 and its own dependencies.
+      - name: Validate no build fetches a Zig package from a third-party host
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 ghostty ghostty-next
+          args=()
+          if git diff --name-only HEAD^1 HEAD -- scripts/ci/zig-packages.lock scripts/ci/zig_package_mirror.py ghostty ghostty-next | grep -q .; then
+            args+=(--online)
+          fi
+          python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"}
 
   workflow-guard-tests:
     if: ${{ inputs.linux_guard_tests == 'true' }}
@@ -372,6 +389,10 @@ jobs:
             status=$?
           fi
           [[ ! -f "$result_path" ]] || cat "$result_path"
+          # ci-guard.sh's per-command and per-test checks (run_ci_guards.py --results).
+          if [[ -n "${CMUX_GUARD_CHECK_RESULTS:-}" && -f "$state_root/guard-checks.tsv" ]]; then
+            cat "$state_root/guard-checks.tsv" >> "$CMUX_GUARD_CHECK_RESULTS"
+          fi
           exit "$status"
 
       - name: Validate tagged reload works without the shared dev backend
@@ -1012,6 +1033,7 @@ jobs:
           python3 tests/test_nightly_linux_admission.py
           python3 tests/test_nightly_admission_receipt.py
           python3 tests/test_nightly_dedicated_mini.py
+          python3 tests/test_portable_jobs_bring_their_python.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1522,6 +1544,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh
 
+      - name: Validate the Zig package mirror detector and lock
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_zig_package_mirror.py
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         shell: bash
@@ -1586,6 +1612,15 @@ jobs:
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
+
+      # The rule reads main's scripts/ci/delivery_workflows.py, as the workflow does.
+      - name: Validate the nightly-next supersede drops an older run that holds the tip's group and never started
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scripts/ci/delivery_workflows.py > "$RUNNER_TEMP/delivery_workflows.py"
+          NIGHTLY_RULES_PY="$RUNNER_TEMP/delivery_workflows.py" python3 tests/test_nightly_next_supersede.py
 
       - name: Validate the run artifact download waits through a refused GitHub call
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1906,6 +1941,14 @@ jobs:
       - name: Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_owned_minis_only.py
+
+      - name: Validate the nightly runner preflight fails a run whose routing label has no online runner
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_runner_preflight.py
+
+      - name: Validate every App token step names only inputs the action declares, and some permission
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_steps.py
 
       - name: Validate nightly-next signs and publishes on cmux15 first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

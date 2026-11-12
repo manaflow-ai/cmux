@@ -51,11 +51,11 @@ impl Hub {
             meta.history_kept_through = Some(r.through_seq);
         }
         let dir = dest.join(&meta.id);
-        std::fs::create_dir_all(dir.join("events"))?;
-        std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
+        crate::home_fs::create_dirs(dir.join("events"))?;
+        crate::home_fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
         use std::io::Write;
         // Stream the log into the bundle; a long session never sits in memory whole.
-        let file = std::fs::File::create(dir.join("events").join("000001.ndjson"))?;
+        let file = crate::home_fs::create_file(dir.join("events").join("000001.ndjson"))?;
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
@@ -94,7 +94,7 @@ impl Hub {
         });
         let mut copied = Vec::new();
         if !native.is_empty() {
-            std::fs::create_dir_all(dir.join("native"))?;
+            crate::home_fs::create_dirs(dir.join("native"))?;
             for (label, src) in native {
                 if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
@@ -113,7 +113,7 @@ impl Hub {
         if !copied.is_empty() {
             manifest.set("native", Value::Array(copied));
         }
-        std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
+        crate::home_fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
     }
 
@@ -447,7 +447,7 @@ impl Hub {
         if prepared.is_err() && marker_names(&marker, &meta.id) {
             // Renamed into place before a later step failed: no marker was here before, so it is
             // this import's, and the failed preparation must not leave it.
-            let _ = std::fs::remove_file(&marker);
+            let _ = crate::home_fs::remove_file(&marker);
         }
         prepared
     }
@@ -573,9 +573,9 @@ impl Hub {
         };
         let journal_bytes = read_private(&journal, "durable journal")?;
         let target = dir.join("harness");
-        std::fs::create_dir_all(&target)?;
-        std::fs::write(target.join("journal.ndjson"), &journal_bytes)?;
-        std::fs::write(target.join("session.jsonl"), &session_bytes)?;
+        crate::home_fs::create_dirs(&target)?;
+        crate::home_fs::write(target.join("journal.ndjson"), &journal_bytes)?;
+        crate::home_fs::write(target.join("session.jsonl"), &session_bytes)?;
         Ok(json!({
             "sessionId": agent_id,
             "journal": {"path": "harness/journal.ndjson", "size": journal_bytes.len(), "sha256": crate::sha256::sha256_hex(&journal_bytes)},
@@ -722,66 +722,70 @@ impl Hub {
                 "hadPi": std::fs::symlink_metadata(&pi_target).is_ok(),
             }),
         )?;
-        std::fs::create_dir_all(&journal_dir)?;
+        crate::home_fs::create_dirs(&journal_dir)?;
         let mut installed_journal = false;
         let mut installed_pi = false;
         let mut backed_journal = false;
         let mut backed_pi = false;
         let install = (|| -> Result<()> {
             use std::io::Write;
-            let mut file =
-                std::fs::OpenOptions::new().write(true).create_new(true).open(&journal_tmp)?;
+            let mut file = crate::home_fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&journal_tmp)?;
             file.write_all(&journal_bytes)?;
             file.sync_all()?;
-            let mut file =
-                std::fs::OpenOptions::new().write(true).create_new(true).open(&session_tmp)?;
+            let mut file = crate::home_fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&session_tmp)?;
             file.write_all(&session_bytes)?;
             file.sync_all()?;
             if replace_durable {
                 if std::fs::symlink_metadata(&journal).is_ok() {
-                    std::fs::rename(&journal, &journal_backup)?;
+                    crate::home_fs::rename(&journal, &journal_backup)?;
                     backed_journal = true;
                 }
                 if std::fs::symlink_metadata(&pi_target).is_ok() {
-                    if let Err(e) = std::fs::rename(&pi_target, &session_backup) {
-                        let _ = std::fs::rename(&journal_backup, &journal);
+                    if let Err(e) = crate::home_fs::rename(&pi_target, &session_backup) {
+                        let _ = crate::home_fs::rename(&journal_backup, &journal);
                         backed_journal = false;
                         return Err(e.into());
                     }
                     backed_pi = true;
                 }
             }
-            std::fs::rename(&journal_tmp, &journal)?;
+            crate::home_fs::rename(&journal_tmp, &journal)?;
             installed_journal = true;
-            std::fs::rename(&session_tmp, &pi_target)?;
+            crate::home_fs::rename(&session_tmp, &pi_target)?;
             installed_pi = true;
             std::fs::File::open(&journal_dir)?.sync_all()?;
             std::fs::File::open(root)?.sync_all()?;
             Ok(())
         })();
         if let Err(e) = install {
-            let _ = std::fs::remove_file(&journal_tmp);
-            let _ = std::fs::remove_file(&session_tmp);
+            let _ = crate::home_fs::remove_file(&journal_tmp);
+            let _ = crate::home_fs::remove_file(&session_tmp);
             if installed_journal {
-                let _ = std::fs::remove_file(&journal);
+                let _ = crate::home_fs::remove_file(&journal);
             }
             if installed_pi {
-                let _ = std::fs::remove_file(&pi_target);
+                let _ = crate::home_fs::remove_file(&pi_target);
             }
             let mut restored = true;
             if backed_journal {
-                restored &= std::fs::rename(&journal_backup, &journal).is_ok();
+                restored &= crate::home_fs::rename(&journal_backup, &journal).is_ok();
             }
             if backed_pi {
-                restored &= std::fs::rename(&session_backup, &pi_target).is_ok();
+                restored &= crate::home_fs::rename(&session_backup, &pi_target).is_ok();
             }
             if !journal_dir_was_present {
-                let _ = std::fs::remove_dir(&journal_dir);
+                let _ = crate::home_fs::remove_dir(&journal_dir);
             }
             // A backup that could not go back keeps the marker, staged: the next start's sweep
             // puts it back (`recover_durable_marker`) instead of it being lost.
             if restored {
-                let _ = std::fs::remove_file(&durable_state);
+                let _ = crate::home_fs::remove_file(&durable_state);
             }
             return Err(e);
         }
@@ -814,18 +818,15 @@ impl Hub {
         write_json_atomic(&state, &marker)?;
         let filename = marker.get("piFilename").and_then(Value::as_str).unwrap_or("");
         if !filename.is_empty() {
-            std::fs::remove_file(root.join(format!("{filename}.transfer-backup"))).or_else(
+            crate::home_fs::remove_file(root.join(format!("{filename}.transfer-backup"))).or_else(
                 |e| {
                     if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }
                 },
             )?;
         }
-        std::fs::remove_file(root.join(agent_id).join("journal.ndjson.transfer-backup")).or_else(
-            |e| {
-                if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }
-            },
-        )?;
-        std::fs::remove_file(&state)
+        crate::home_fs::remove_file(root.join(agent_id).join("journal.ndjson.transfer-backup"))
+            .or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })?;
+        crate::home_fs::remove_file(&state)
             .or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })?;
         std::fs::File::open(root)?.sync_all()?;
         Ok(())
@@ -1018,7 +1019,7 @@ mod tests {
         }));
         let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
         let spawned = writer.clone();
-        let hook: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent| {
+        let hook = super::super::transfer_in::on_sweep_pause(move |agent| {
             if agent != "agent-0009" {
                 return;
             }
@@ -1030,11 +1031,12 @@ mod tests {
             }));
             let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
         });
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = Some(hook);
         hub.recover_staged_replacements();
+        // The sweep on this thread read the failed import's marker, and only that one.
+        assert_eq!(hook.reached(), ["agent-0009"]);
+        drop(hook);
         let handle = writer.lock().unwrap().take();
         handle.expect("the sweep never read the marker").join().unwrap();
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = None;
         assert!(
             root.join(&id).join("session.json").exists(),
             "the sweep removed the retry's store"

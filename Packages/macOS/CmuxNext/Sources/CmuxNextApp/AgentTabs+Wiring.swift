@@ -271,7 +271,7 @@ extension AgentTabStore {
         // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
         tabs.openToolScoped = { [weak services] chat, kind, cwd in
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
-            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
+            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: if kind == .terminal, services.linkOpener.terminalSplitsAtOnce(from: source) { return false } }
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
             let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)

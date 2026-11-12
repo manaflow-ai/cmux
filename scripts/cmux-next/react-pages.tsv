@@ -22,7 +22,6 @@ github	page	a full tab page
 group-editor	review	an editor opened from a sidebar row
 history	page	a full tab page
 home-channels	page	a full tab page
-home-chat-colors	debt	a Home sheet (#37255)
 home-messages	debt	Home drawn in React; the native Home is back (#40756) and nothing opens this page
 icon-picker	review	a picker opened from native chrome
 import-history	page	a full tab page
@@ -31,8 +30,6 @@ machines	debt	a right sidebar section (#37279); the right sidebar is gone
 markdown	page	a full tab page
 mobile-pairing	page	a full tab page
 onboarding	page	a full tab page
-overlay	debt	dialogs on a web overlay above native views (#37296)
-page-info	debt	a popover on the browser toolbar (#37369)
 passwords	page	a full tab page
 server-cards	review	cards hosted in native chrome
 settings	page	a full tab page

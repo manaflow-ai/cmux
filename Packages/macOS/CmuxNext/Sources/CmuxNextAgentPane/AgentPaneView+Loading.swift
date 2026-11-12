@@ -56,6 +56,8 @@ public final class AgentPaneLoadingView: NSView {
     private var leaving = false
     #if DEBUG || CMUX_BENCH_HOOKS
     var isLeaving: Bool { leaving }
+    /// Whether the give-up (``giveUpWhenSeenUnpainted(_:)``) is still armed.
+    var awaitsGiveUp: Bool { onGiveUp != nil }
     #endif
     /// Whether the page was asked to fade in when this left, nil until it has. The decision, not
     /// what was drawn of it: with motion off a fade and no fade both end in one frame, so this is
@@ -249,7 +251,8 @@ extension AgentPaneView {
         let replacesSavedFrame = loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
                           fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
-                                                                       fromKeptTail: model.paintedFromKeptTail))
+                                                                       fromKeptTail: model.paintedFromKeptTail,
+                                                                       settled: model.paintedSettled))
     }
 
     /// Whether the page fades in over the loading state or simply shows.
@@ -260,8 +263,14 @@ extension AgentPaneView {
     /// fade over them is softness on the one open that is instant — "instant if cached" (Leo
     /// 2026-10-20). A New Tab page, and a page a pane holds hidden for its swap, show in one frame
     /// as they did before.
-    static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool) -> Bool {
-        !hasNewTab && isVisible && !fromKeptTail
+    ///
+    /// A chat whose first frame was its settled view (`pane.painted {settled: true}`, hq#9655 stage
+    /// 1) shows in one step too: the hold ends on "snapshot drawn", and that frame is the chat as it
+    /// stands, so there is nothing left to soften in. The give-up checks (``AgentPaneLoadingView``'s
+    /// ``AgentPaneLoadingView/silentChecks`` and ``AgentPaneLoadingView/aliveChecks``) stay only as the
+    /// safety net for a page that never reports; leaving cancels them.
+    static func pageFades(hasNewTab: Bool, isVisible: Bool, fromKeptTail: Bool, settled: Bool = false) -> Bool {
+        !hasNewTab && isVisible && !fromKeptTail && !settled
     }
 
     func themeLoadingState(_ tokens: ThemeTokens) {
