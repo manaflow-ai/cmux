@@ -647,39 +647,79 @@ def git_commit(repo: str, ref: str) -> str | None:
                 pass
 
 
+def git_tree():
+    """scripts/ci/git_tree.py, the one reader of a commit's tree: imported by name, so one module object (and one
+    Unreadable) is shared with every other caller."""
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import git_tree as module
+    return module
+
+
+@once_per_judgement("git tree")
+def git_tree_entries(repo: str, commit: str) -> dict[str, tuple[str, str]] | None:
+    """Every entry of COMMIT's tree in git_cache(REPO) (GitTree.entries: one `ls-tree -r -t`, which the blob-less
+    fetch holds), or None when git cannot list it. Once per commit per judgement, however many paths are read."""
+    tree = git_tree().GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit)
+    try:
+        return tree.entries()
+    except git_tree().Unreadable:
+        return None
+    finally:
+        tree.close()
+
+
 @once_per_judgement("git")
 def git_text(repo: str, ref: str, path: str, *, missing=None):
     """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
     MISSING, when given, is returned instead when git fetched REF and its tree has no PATH: a definite absence.
 
-    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
-    and the one blob `git show` asks for, and no GitHub API quota at all."""
+    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch,
+    one tree listing (git_tree_entries) and the blobs `git show` asks for, and no GitHub API quota at all. What PATH
+    names is git_tree.GitTree's answer, the reader every other tree read uses (review of cmux#41314, F1, F2): a
+    symlink is followed inside the tree, a symlinked parent too; a directory, a submodule, a binary blob (through a
+    link or not), a link out of the tree and a loop are each Refused by name, never read as text or as absent."""
     commit = git_commit(repo, ref)
     if commit is None:
         return None
+    module = git_tree()
     try:
         git = git_cache(repo)
-        if git is None:
-            return None
-        # A symlink's blob is its target's name: follow it inside the repository (symlinked_path), by the entry's
-        # mode in its parent tree, which the blob-less fetch holds.
-        for hop in range(SYMLINK_HOPS + 1):
-            listed = git("ls-tree", "-z", commit, "--", path)
-            if listed.returncode:
-                return None
-            if not listed.stdout.strip(b"\0"):
-                # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
-                return missing if missing is not None and hop == 0 else None
-            mode = listed.stdout.split(b" ", 1)[0]
-            shown = git("show", f"{commit}:{path}")
-            if shown.returncode:
-                return None
-            if mode != b"120000":
-                return shown.stdout.decode()
-            path = symlinked_path(repo, ref, path, shown.stdout.decode())
-        raise Refused(f"{repo}@{ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        entries = git_tree_entries(repo, commit) if git is not None else None
+    except (OSError, subprocess.SubprocessError):
         return None
+    if entries is None:
+        return None
+    shown: dict[str, bytes] = {}
+
+    def read_blob(where: str, oid: str) -> bytes:
+        # The cache is a promisor clone: `git show` fetches the one blob it lacks (git_cache's partialclonefilter).
+        if oid not in shown:
+            try:
+                done = git("show", f"{commit}:{where}")
+            except (OSError, subprocess.SubprocessError) as why:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed: {why}") from None
+            if done.returncode:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed")
+            shown[oid] = done.stdout
+        return shown[oid]
+
+    tree = module.GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit, entries=entries,
+                          read_blob=read_blob)
+    try:
+        if tree.resolve(path) is None:
+            # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
+            parts = [part for part in path.strip("/").split("/") if part not in ("", ".")]
+            linked = any(entries.get("/".join(parts[:at]), ("",))[0] == module.SYMLINK
+                         for at in range(1, len(parts) + 1))
+            return missing if missing is not None and not linked else None
+        return tree.text(path)
+    except module.NeedsFullTree:
+        return None
+    except module.Unreadable as why:
+        raise Refused(f"{repo}@{ref}: {why}") from None
+    finally:
+        tree.close()
 
 
 @once_per_judgement("source", lambda repo, ref, path, github: (repo, ref, path))
