@@ -8,8 +8,8 @@
 //!
 //! A refusal names the turn it was stopping (`turnId`: the chat's running turn here, or the turn
 //! the peer's row showed when the Stop went on), so the pane acts only on the answer to the Stop
-//! it is still waiting on, never on a late one for a turn that ended. The newest refusal per turn
-//! is kept ([`Waiting`]) and queued in order with every other line (`outbound.rs`).
+//! it is still waiting on, never on a late one for a turn that ended. A refusal is queued in order
+//! with every other line (`outbound.rs`), counted against the connection's byte bound.
 
 use super::*;
 
@@ -46,80 +46,19 @@ fn notice(session_id: Value, e: &RpcError, peer: Option<&str>, turn: Option<&str
     Value::Object(v)
 }
 
-/// How many refusals (one per chat and turn) wait for room at once on one connection.
-const WAITING_KEYS: usize = 16;
-
-/// The refusals that wait for room in a connection's outbound queue, by the chat and turn each
-/// answers ([`wait_key`]), sent in turn by one task into the connection's byte-bounded queue
-/// (`outbound.rs`), which drops nothing; a reader too slow for it is disconnected. The newest
-/// refusal for a chat's turn replaces the one waiting, and at most [`WAITING_KEYS`] wait.
-#[derive(Default)]
-pub(in crate::server) struct Waiting {
-    inner: StdMutex<WaitingInner>,
-}
-
-#[derive(Default)]
-struct WaitingInner {
-    lines: std::collections::BTreeMap<String, String>,
-    draining: bool,
-}
-
-impl WaitingInner {
-    /// Keeps `line` for `key`; false when it is a new key past [`WAITING_KEYS`].
-    fn keep(&mut self, key: String, line: String) -> bool {
-        if self.lines.len() >= WAITING_KEYS && !self.lines.contains_key(&key) {
-            return false;
-        }
-        self.lines.insert(key, line);
-        true
-    }
-}
-
-/// What a waiting refusal replaces: the one waiting for the same chat and turn. Two turns' wait
-/// side by side, since Stops of one chat may be answered out of order (a forward waits up to
-/// [`FORWARD_ANSWER`]) and the pane takes only the one for the turn it stopped.
-fn wait_key(params: &Value) -> String {
-    let session = params["sessionId"].as_str().unwrap_or_default();
-    let turn = params["turnId"].as_str().unwrap_or_default();
-    format!("{session}\n{turn}")
-}
-
-/// `params` as `_acpmux/cancel_refused` to `conn`, through [`Waiting`].
+/// `params` as `_acpmux/cancel_refused` to `conn`, queued in order with every other line in its
+/// byte-bounded queue (`outbound.rs`), which drops nothing and waits for nothing: a reader too
+/// slow for it is disconnected, and reads the refusal's turn from its cursor when it is back.
 fn send(conn: &Conn, params: Value) {
-    let key = wait_key(&params);
     let msg = Message::notification(method::MUX_CANCEL_REFUSED, params);
     let masked = (!conn.raw_text).then(|| peer_text::masked(&msg)).flatten();
-    let line = match masked.as_ref().unwrap_or(&msg).bounded_line() {
-        Ok(line) => line,
-        // Larger than a frame: what `Conn::send` does with one (counted once, just now).
-        Err(bytes) => return conn.left_out_too_large(msg.method(), bytes),
-    };
-    let mut inner = conn.cancel_refusals.inner.lock().unwrap_or_else(|e| e.into_inner());
-    if !inner.keep(key, line) {
-        tracing::warn!(conn = %conn.id, "left out a cancel refusal: {WAITING_KEYS} wait already");
-        return;
-    }
-    if std::mem::replace(&mut inner.draining, true) {
-        return;
-    }
-    drop(inner);
-    let (out, waiting) = (conn.out.clone(), conn.cancel_refusals.clone());
-    tokio::spawn(async move {
-        loop {
-            let line = {
-                let mut inner = waiting.inner.lock().unwrap_or_else(|e| e.into_inner());
-                let Some((_, line)) = inner.lines.pop_first() else {
-                    inner.draining = false;
-                    return;
-                };
-                line
-            };
-            // Ends with the connection (its reader gone, or past its byte bound).
-            if !out.push(line) {
-                return;
-            }
+    match masked.as_ref().unwrap_or(&msg).bounded_line() {
+        Ok(line) => {
+            conn.out.push(line);
         }
-    });
+        // Larger than a frame: what `Conn::send` does with one (counted once, just now).
+        Err(bytes) => conn.left_out_too_large(msg.method(), bytes),
+    }
 }
 
 fn reason(e: &RpcError) -> Option<&str> {
@@ -158,43 +97,4 @@ pub(super) async fn forward(
     };
     tracing::debug!(conn = %conn.id, peer = %peer.name, "forwarded cancel refused: {e}");
     send(conn, notice(Value::from(key), &e, Some(&peer.name), turn.as_deref()));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{WAITING_KEYS, WaitingInner, wait_key};
-    use serde_json::json;
-
-    /// Two Stops of one chat answered out of order (the first a forward that took its 10 s):
-    /// the later turn's refusal, still waiting, is not replaced by the earlier turn's, which
-    /// the pane ignores, or the later Stop would read as stopping for good.
-    #[test]
-    fn refusals_for_two_turns_of_a_chat_both_wait() {
-        let mut w = WaitingInner::default();
-        let later = json!({"sessionId": "a", "turnId": "t2"});
-        let earlier = json!({"sessionId": "a", "turnId": "t1"});
-        assert!(w.keep(wait_key(&later), "t2".into()));
-        assert!(w.keep(wait_key(&earlier), "t1".into()));
-        let mut kept: Vec<&str> = w.lines.values().map(String::as_str).collect();
-        kept.sort();
-        assert_eq!(kept, ["t1", "t2"], "a refusal of an earlier turn replaced the later one's");
-        // The same turn's newer refusal still replaces the one waiting.
-        assert!(w.keep(wait_key(&later), "t2 again".into()));
-        assert_eq!(w.lines.len(), 2);
-    }
-
-    #[test]
-    fn the_newest_refusal_for_a_key_waits_and_only_so_many_wait() {
-        let mut w = WaitingInner::default();
-        assert!(w.keep("a".into(), "1".into()));
-        assert!(w.keep("a".into(), "2".into()));
-        assert_eq!(w.lines.len(), 1);
-        assert_eq!(w.lines["a"], "2", "the newest for a key replaces the one waiting");
-        for n in 1..WAITING_KEYS {
-            assert!(w.keep(format!("k{n}"), "x".into()));
-        }
-        assert_eq!(w.lines.len(), WAITING_KEYS);
-        assert!(!w.keep("one-more".into(), "x".into()), "a key past the cap waits not");
-        assert!(w.keep("a".into(), "3".into()), "a key that waits is still replaced");
-    }
 }

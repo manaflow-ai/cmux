@@ -246,8 +246,6 @@ pub struct Conn {
     in_flight: in_flight::InFlight,
     /// Its windows over the chat index (`chat_windows.rs`).
     chat_windows: chat_windows::ConnWindows,
-    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
-    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
     /// on a transport whose writer does not compress.
     wire: Option<Arc<crate::frame_compress::Wire>>,
@@ -1648,7 +1646,6 @@ async fn serve_connection_from(
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
-        cancel_refusals: Default::default(),
         wire,
         dual_principal,
     });
