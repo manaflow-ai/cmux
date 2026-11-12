@@ -673,6 +673,30 @@ hole_case "a library module that reaches a TEST_ONLY reader" "refuse:TEST_ONLY" 
   'printf "#[path = \"../tests/catalog_manifest.rs\"]\nmod manifest;\n" >> "$bindings/src/lib.rs"'
 hole_case "a library include of a TEST_ONLY reader" "refuse:TEST_ONLY" - \
   'printf "include!(\"../tests/catalog_manifest.rs\");\n" >> "$bindings/src/lib.rs"'
+# #41555 merged into the walk (2026-11-11): Cargo builds no crate's tests/, benches/ or examples/ into its library, so a
+# change that adds the first file of one to an input crate that has none (cmux#41508 added tests/ files) leaves the pin
+# current. The pinned tree has no such folder, and the union of the two trees' inputs must not take its crate directory
+# as the input there (#41555's agreement test: cmux-app-ffi/benches/new.rs is no input for any reader).
+for dir in tests benches examples; do
+  [[ ! -e "$hole/$dir" ]] || fail "the hole crate already has $dir/"
+  pin_head "pin before a first $dir/ file" || fail "the hole crate refused: $(check_out)"
+  mkdir -p "$hole/$dir"
+  echo "// a first file" > "$hole/$dir/new.rs"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "a first $dir/ file"
+  out="$(check_out)" || fail "a first file in cmux-hole/$dir/, which Cargo never builds into the library, made the pin stale: $out"
+  [[ "$out" == *"sources match"* ]] || fail "no match line after a first $dir/ file: $out"
+  git -C "$repo" reset -q --hard "$before_holes"
+done
+# Still fail-closed: a first tests/ file that a library source of the same change names is an input.
+pin_head "pin before a named first tests/ file" || fail "the hole crate refused: $(check_out)"
+mkdir -p "$hole/tests"
+echo '{}' > "$hole/tests/v.json"
+printf 'pub const V: &str = include_str!("../tests/v.json");\n' >> "$hole/src/lib.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a library source names a first tests/ file"
+expect_out "a first tests/ file a library source names" "stale:cmux-tui/crates/cmux-hole/tests/v.json"
+git -C "$repo" reset -q --hard "$before_holes"
 # H: an inherited path entry spelled { "workspace" = true }, on a python3 without tomllib (a macOS runner's 3.9).
 shim="$tmp/no-tomllib"
 mkdir -p "$shim"
