@@ -46,8 +46,23 @@ for locale_dir in "$dest/_locales"/*/; do
     *) rm -rf "$locale_dir"; removed=$((removed + 1)) ;;
   esac
 done
-# GPL-3.0 section 5(a): a modified copy says so.
-printf '%s\n' "cmux modified this copy of uBlock Origin: it removed the _locales catalogs of languages" \
-  "cmux does not ship ($removed of them; scripts/cmux-next/bundle-ublock.sh). Everything else is the" \
-  "release SOURCE.txt names, unchanged." > "$dest/CMUX-MODIFICATIONS.txt"
+# GPL-3.0 section 5(a): a modified copy says what changed and when. The bundled copy's SOURCE.txt
+# (fetch-ublock.sh writes it; the cache keeps its own) names both changes; the date is the day this
+# change to the copy was made, not the build's, so builds stay reproducible.
+/usr/bin/python3 -I - "$dest/SOURCE.txt" "$removed" <<'PY'
+import sys
+path, removed = sys.argv[1], sys.argv[2]
+line = ("cmux changes (2026-11-12): the manifest's \"key\" field (keeps the Chrome Web Store extension id),\n"
+        f"and the _locales catalogs of the {removed} languages cmux does not ship are removed\n"
+        "(scripts/cmux-next/bundle-ublock.sh); the browser falls back to the default locale for them.\n")
+text = open(path).read()
+lines = text.splitlines(keepends=True)
+for i, l in enumerate(lines):
+    if l.startswith("cmux changes"):
+        lines[i] = line
+        break
+else:
+    lines.append(line)
+open(path, "w").write("".join(lines))
+PY
 echo "bundled uBlock Origin from $src ($removed locale catalogs removed)"
