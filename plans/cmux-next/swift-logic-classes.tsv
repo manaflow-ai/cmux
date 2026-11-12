@@ -2723,9 +2723,6 @@ CmuxNextApp	func	remoteViewDebug	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	struct	RemoteViewDebugMethods	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteViewDebugMethods.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	RemoteViewPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteViewPageService.swift	from class RemoteViewPageService:15: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	RestoredNewTabPages	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RestoredNewTabPages.swift	from enum RestoredNewTabPages:9: restored New Tab page rule (without making the page)
-CmuxNextApp	struct	DockSectionActions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionActions.swift	Action bundle
-CmuxNextApp	class	DockSectionHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionHostView.swift	Dock section host
-CmuxNextApp	struct	DockSectionListView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionListView.swift	Dock section list view
 CmuxNextApp	class	DockSectionModel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionModel.swift	from class DockSectionModel:8: Docked columns list copy of layout
 CmuxNextApp	struct	DockSectionRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionRow.swift	Value snapshot row
 CmuxNextApp	class	MachineSectionHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionHostView.swift	Machine section host view
