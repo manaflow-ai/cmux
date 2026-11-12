@@ -119,9 +119,10 @@ pub(super) fn tested_os(version: &str) -> bool {
 
 /// The environment variable that turns the keyboard handoff on. It is
 /// experimental and off by default: menus then behave as Codex Computer
-/// Use's (an open menu holds the keyboard; while anything is denied a menu
-/// with hidden items or submenus is listed and closed; picks run in one
-/// call).
+/// Use's (an open menu holds the keyboard; a menu holding it is left open
+/// only when it hides nothing and has no submenu, else it is listed and
+/// closed, whatever the deny list (`menus::held_menu_decision`); picks run
+/// in one call).
 pub(super) const HANDOFF_ENV: &str = "CMUX_CU_KEY_HANDOFF";
 
 /// Whether the handoff is on: `CMUX_CU_KEY_HANDOFF=1` in the worker's

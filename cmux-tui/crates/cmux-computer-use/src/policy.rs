@@ -199,29 +199,35 @@ pub fn default_denied_apps() -> &'static [&'static str] {
     ]
 }
 
+/// The protected apps' exact ids (see [`protected`]: some prefixes too).
+pub fn protected_ids() -> &'static [&'static str] {
+    PROTECTED_IDS
+}
+
+const PROTECTED_IDS: &[&str] = &[
+    "com.apple.securityagent",
+    "com.apple.loginwindow",
+    "com.apple.authorizationhost",
+    "com.apple.coreautha",
+    "com.apple.coreauthentication.agent",
+    "com.apple.localauthenticationremoteservice",
+    "com.apple.usernotificationcenter",
+    "com.cmuxterm.remote",
+    "com.cmuxterm.remote.dev",
+    "cmux-remote",
+    "cmux-remote.exe",
+    "consent.exe",
+    "credentialuibroker.exe",
+    "logonui.exe",
+    "polkit-gnome-authentication-agent-1",
+    "org.kde.polkit-kde-authentication-agent-1",
+    "gcr-prompter",
+];
+
 /// Never usable, in any mode, and not on the editable list.
 fn protected(app_id: &str) -> bool {
-    const IDS: &[&str] = &[
-        "com.apple.securityagent",
-        "com.apple.loginwindow",
-        "com.apple.authorizationhost",
-        "com.apple.coreautha",
-        "com.apple.coreauthentication.agent",
-        "com.apple.localauthenticationremoteservice",
-        "com.apple.usernotificationcenter",
-        "com.cmuxterm.remote",
-        "com.cmuxterm.remote.dev",
-        "cmux-remote",
-        "cmux-remote.exe",
-        "consent.exe",
-        "credentialuibroker.exe",
-        "logonui.exe",
-        "polkit-gnome-authentication-agent-1",
-        "org.kde.polkit-kde-authentication-agent-1",
-        "gcr-prompter",
-    ];
     let id = app_id.to_ascii_lowercase();
-    IDS.contains(&id.as_str())
+    PROTECTED_IDS.contains(&id.as_str())
         || id.starts_with("com.apple.coreauthentication.")
         || id.starts_with("com.apple.localauthentication.")
         || id.starts_with("com.cmuxterm.remote.")

@@ -432,6 +432,7 @@ fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
         enabled,
         blocked,
         checked: true,
+        unknown: false,
     };
     assert_eq!(roles::pick_shortcut(&[]), P::None);
     assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
@@ -694,6 +695,7 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
         enabled,
         blocked,
         checked: true,
+        unknown: false,
     };
     fn base(matches: &[M]) -> ChordFacts<'_> {
         ChordFacts {
@@ -989,7 +991,8 @@ fn an_unchecked_match_is_never_pressed() {
     use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
     // Its title could not be read, so it was not held to the protected apps;
     // with nothing denied (where it is not marked blocked) the key is posted.
-    let unchecked = [M { title: String::new(), enabled: true, blocked: false, checked: false }];
+    let unchecked =
+        [M { title: String::new(), enabled: true, blocked: false, checked: false, unknown: false }];
     for background in [false, true] {
         let f = ChordFacts {
             matches: &unchecked,
@@ -1107,7 +1110,7 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
         })
         .count();
     assert_eq!(hidden, 0);
-    // An unreadable title fails closed while something is denied.
+    // An unreadable title fails closed, whatever the deny list.
     assert!(d.opened_item_known(&ax::OpenedItem {
         title: "",
         title_failed: true,
@@ -1312,6 +1315,12 @@ fn picks_wait_and_say_so_while_the_app_names_load() {
     // pick_in and the closed pop-up pick share this gate.
     assert_eq!(menus::pick_gate(false), Err(loading));
     assert_eq!(menus::pick_gate(true), Ok(()));
+    // The gate comes before the pick: even a visible exact match is not
+    // chosen while the names load.
+    let titles = vec!["Copy".to_string(), "Open in cmux Remote".to_string()];
+    let hidden = [false, false];
+    assert_eq!(menus::gated_pick(false, &titles, &hidden, "Copy"), Err(loading));
+    assert_eq!(menus::gated_pick(true, &titles, &hidden, "Copy"), Ok(crate::menus::Pick::Item(0)));
     // A menu left open while they load says so.
     assert_eq!(menus::loading_note(false), Some(loading));
     assert_eq!(menus::loading_note(true), None);
@@ -1320,9 +1329,57 @@ fn picks_wait_and_say_so_while_the_app_names_load() {
 #[test]
 fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
     let loading = crate::menus::APP_NAMES_LOADING;
-    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, false), Some(loading));
-    // Names ready: the deny-list refusal stands.
-    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, true), None);
+    // The blocking item's name could not be resolved yet: "loading".
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, true), Some(loading));
+    // A real block keeps the deny-list refusal, loading or not.
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, false), None);
     // Any other refusal is unchanged.
-    assert_eq!(roles::loading_instead(roles::REFUSE_LAYOUT, false), None);
+    assert_eq!(roles::loading_instead(roles::REFUSE_LAYOUT, true), None);
+}
+
+#[test]
+fn a_menu_item_check_tells_a_real_block_from_a_name_not_resolved_yet() {
+    use roles::{ItemCheck, MenuItemContext, menu_item_check};
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let ctx =
+        |t| MenuItemContext { title: t, top_index: None, depth: 1, siblings: &[], launch: None };
+    let loading = |_: &str| -> Option<Vec<String>> { None };
+    assert_eq!(menu_item_check(&guard, &ctx("Copy"), &loading), ItemCheck::Unknown);
+    let known = |n: &str| -> Option<Vec<String>> {
+        Some(if n == "Terminal" { vec!["com.apple.Terminal".into()] } else { vec![] })
+    };
+    assert_eq!(menu_item_check(&guard, &ctx("Copy"), &known), ItemCheck::Allowed);
+    assert_eq!(menu_item_check(&guard, &ctx("Terminal"), &known), ItemCheck::Blocked);
+}
+
+#[test]
+fn before_the_index_is_built_a_blocked_app_is_known_by_its_localized_name() {
+    // LaunchServices matches file names only: the German display name of
+    // System Settings would be "not an app" there.
+    let mut blocked = workspace::NameMap::new();
+    blocked.insert("systemeinstellungen".into(), vec!["com.apple.systempreferences".into()]);
+    let file_names_only = || None;
+    assert_eq!(
+        workspace::cold_resolve("systemeinstellungen", Some(&blocked), file_names_only),
+        Some(vec!["com.apple.systempreferences".to_string()])
+    );
+    // Other names go to LaunchServices.
+    assert_eq!(
+        workspace::cold_resolve("textedit", Some(&blocked), || Some("com.apple.TextEdit".into())),
+        Some(vec!["com.apple.TextEdit".to_string()])
+    );
+    // No blocked names (no guard, LaunchServices unavailable): unresolved.
+    assert_eq!(workspace::cold_resolve("textedit", None, || None), None);
+    // And the Apple menu item is held to the deny list with that resolver.
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let ctx = roles::MenuItemContext {
+        title: "Systemeinstellungen\u{2026}",
+        top_index: Some(0),
+        depth: 1,
+        siblings: &[],
+        launch: None,
+    };
+    let resolve =
+        |n: &str| workspace::cold_resolve(&n.trim().to_lowercase(), Some(&blocked), || None);
+    assert!(roles::menu_item_blocked(&guard, &ctx, &resolve));
 }

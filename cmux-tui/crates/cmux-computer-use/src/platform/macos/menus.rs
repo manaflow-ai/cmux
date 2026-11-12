@@ -328,10 +328,11 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
                 path: path.as_deref(),
                 launch,
             };
-            let denied = d.opened_item_known(&it);
-            if listed_row(&title, title_failed, denied) == Row::Separator {
+            let row = listed_row(&title, title_failed, d.opened_item_known(&it));
+            if row == Row::Separator {
                 return None;
             }
+            let denied = row == Row::Hidden;
             Some(Item {
                 el,
                 info: MenuItemInfo { title, submenu, ..MenuItemInfo::default() },
@@ -373,6 +374,19 @@ pub(super) fn loading_note(names_ready: bool) -> Option<&'static str> {
 /// items are checked against load. Pure, for tests.
 pub(super) fn pick_gate(names_ready: bool) -> Result<(), &'static str> {
     if names_ready { Ok(()) } else { Err(menus::APP_NAMES_LOADING) }
+}
+
+/// A pick of `wanted` among a menu's items, behind [`pick_gate`]: no item,
+/// not even a visible exact match, is chosen while the names load (an item
+/// counted visible then was not checked). Pure, for tests.
+pub(super) fn gated_pick(
+    names_ready: bool,
+    titles: &[String],
+    hidden: &[bool],
+    wanted: &str,
+) -> Result<menus::Pick, &'static str> {
+    pick_gate(names_ready)?;
+    Ok(menus::pick(titles, hidden, wanted))
 }
 
 impl Item {
@@ -1024,11 +1038,6 @@ impl MacDesktop {
         };
         // A path ("Sort By > Name") walks submenus, each level held to the
         // same checks as the item pressed.
-        // Items are checked against the app names: none is chosen while they
-        // load (the protected apps always apply).
-        if let Err(why) = pick_gate(workspace::app_names_ready()) {
-            return refuse(why.into());
-        }
         let path = menus::menu_path(value);
         let mut level = menu.clone();
         let mut chosen: Option<Item> = None;
@@ -1037,7 +1046,13 @@ impl MacDesktop {
             let mut all = items(self, &level);
             let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
             let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
-            let mut item = match menus::pick(&titles, &hidden, part) {
+            // Items are checked against the app names: none is chosen while
+            // they load (the protected apps always apply).
+            let picked = match gated_pick(workspace::app_names_ready(), &titles, &hidden, part) {
+                Ok(p) => p,
+                Err(why) => return refuse(why.into()),
+            };
+            let mut item = match picked {
                 menus::Pick::Item(i) => all.swap_remove(i),
                 menus::Pick::Hidden => return refuse(menus::denied_item_refusal(Some(part))),
                 menus::Pick::Missing(found) => {

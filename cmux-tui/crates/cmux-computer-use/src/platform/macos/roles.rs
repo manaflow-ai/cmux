@@ -429,35 +429,63 @@ pub fn menu_item_blocked(
     ctx: &MenuItemContext,
     resolve: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> bool {
+    menu_item_check(guard, ctx, resolve) != ItemCheck::Allowed
+}
+
+/// What [`menu_item_blocked`] decided, and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemCheck {
+    Allowed,
+    /// It reaches a denied or protected app.
+    Blocked,
+    /// A name it shows could not be resolved yet (the app names are still
+    /// loading): blocked, and a refusal says the names are loading.
+    Unknown,
+}
+
+/// [`menu_item_blocked`], telling a real block from a name not resolved yet.
+pub fn menu_item_check(
+    guard: &dyn crate::desktop::MenuGuard,
+    ctx: &MenuItemContext,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> ItemCheck {
     let (name, version) = menu_app_name(ctx.title);
     if name.is_empty() {
-        return false;
+        return ItemCheck::Allowed;
     }
     // Menus add text after an app's name ("System Settings…, 1 update"):
     // every leading part of the title is checked, so none hides an app.
     for candidate in menu_name_candidates(ctx.title) {
         if guard.app_blocked("", candidate) {
-            return true;
+            return ItemCheck::Blocked;
         }
         match resolve(candidate) {
-            // The name index is still being built: fail closed (the
-            // protected apps always apply, whatever the deny list).
-            None => return true,
-            Some(ids) if ids.iter().any(|id| guard.app_blocked(id, candidate)) => return true,
+            // The name cannot be resolved yet: fail closed (the protected
+            // apps always apply, whatever the deny list).
+            None => return ItemCheck::Unknown,
+            Some(ids) if ids.iter().any(|id| guard.app_blocked(id, candidate)) => {
+                return ItemCheck::Blocked;
+            }
             Some(_) => {}
         }
     }
     let ids = resolve(name).unwrap_or_default();
-    guard.denies_any()
+    if guard.denies_any()
         && is_launch_list(ctx, resolve)
         && (ids.is_empty() || version || ids.len() > 1)
+    {
+        ItemCheck::Blocked
+    } else {
+        ItemCheck::Allowed
+    }
 }
 
-/// The refusal a chord gets: a menu item blocked only because the app names
-/// are still loading (every titled item counts as blocked then) says the
-/// names are loading, not "the deny list". Pure, for tests.
-pub fn loading_instead(why: &str, names_ready: bool) -> Option<&'static str> {
-    (why == REFUSE_BLOCKED && !names_ready).then_some(crate::menus::APP_NAMES_LOADING)
+/// The refusal a chord gets: when the menu item that blocks it is blocked
+/// only because a name it shows could not be resolved yet, it says the
+/// names are loading, not "the deny list"; a real block keeps its refusal.
+/// Pure, for tests.
+pub fn loading_instead(why: &str, blocked_unknown: bool) -> Option<&'static str> {
+    (why == REFUSE_BLOCKED && blocked_unknown).then_some(crate::menus::APP_NAMES_LOADING)
 }
 
 /// Why pressing a menu-bar element is refused, if it is: one that opens a
@@ -475,9 +503,14 @@ pub struct ShortcutMatch {
     pub enabled: bool,
     pub blocked: bool,
     /// Its title was read and held to the deny list and the protected apps.
-    /// An unchecked match is blocked while something is denied; with nothing
-    /// denied it is never pressed (the key is posted, as Codex does).
+    /// An unchecked match (its title could not be read) is blocked while
+    /// something is denied; with nothing denied it is never pressed and the
+    /// key is posted, as Codex does (a posted chord does not leave a menu
+    /// under the person's keys).
     pub checked: bool,
+    /// It is blocked only because a name it shows could not be resolved yet
+    /// (the app names are still loading).
+    pub unknown: bool,
 }
 
 /// What a shortcut does, given its matches in menu order (depth-first).

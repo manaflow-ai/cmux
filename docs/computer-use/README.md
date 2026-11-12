@@ -136,8 +136,15 @@ Prevention, in the desktop (macOS):
     always apply, whatever the deny list), a menu holding the keyboard is
     closed, no menu item is picked, an open menu's items stay hidden, and the
     call says so (retry). The menu bar and key shortcuts are not held back
-    meanwhile: their item names are asked of LaunchServices until the index
-    is ready. A menu item whose title cannot be read is hidden and refused.
+    meanwhile: a name is answered from the blocked apps' own names (their
+    localized display, bundle and file names, read once by bundle id) and
+    else LaunchServices, until the index is ready; a refusal says the names
+    are loading only when a name really could not be resolved. A menu item
+    whose title cannot be read is hidden and refused (a key shortcut on one
+    is posted when nothing is denied, as Codex does).
+  - A click on a point of an open menu that reaches no readable menu item
+    (a separator, the menu's padding) is refused with a plain reason, so
+    the item under it is never guessed.
   - Picks run in one call: `click` with `menu_item` (a right click or
     control-click, a pop-up or menu button), with a path for a submenu's
     item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a

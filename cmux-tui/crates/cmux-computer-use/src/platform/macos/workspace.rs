@@ -290,10 +290,12 @@ pub fn launch_targets(app: &str) -> Vec<String> {
 /// Several ids for a shared name; none for an unknown one.
 ///
 /// The index is built on a background thread and rebuilt when an app
-/// folder changes. Until the first build is done, the name is asked of
-/// LaunchServices alone (as launch_targets does), so the menu bar and key
-/// shortcuts are not held back meanwhile; `None` only when LaunchServices
-/// cannot be asked (the caller refuses, fail-closed). Answers that needed
+/// folder changes. Until the first build is done, a name is answered from
+/// the guard's blocked apps by every name they are known by, else by
+/// LaunchServices (as launch_targets does), so the menu bar and key
+/// shortcuts are not held back meanwhile; `None` when those names cannot be
+/// read (no guard yet, or LaunchServices cannot be asked: the caller
+/// refuses, fail-closed). Answers that needed
 /// LaunchServices are kept per name for ANSWER_TTL and tagged with the index
 /// generation they came from.
 pub fn apps_named(name: &str) -> Option<Vec<String>> {
@@ -303,8 +305,14 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
     }
     let index = names_index();
     let Some((generation, by_name)) = index.current() else {
-        shared_workspace().ok()?;
-        return Some(launch_services_id(name.trim()).into_iter().collect());
+        // Generation 0 until the first build, which clears these answers.
+        if let Some(hit) = index.answer(&key, 0) {
+            return Some(hit);
+        }
+        let blocked = cold_blocked_names();
+        let ids = cold_resolve(&key, blocked.as_deref(), || launch_services_id(name.trim()))?;
+        index.remember(key, 0, ids.clone());
+        return Some(ids);
     };
     if let Some(ids) = by_name.get(&key) {
         return Some(ids.clone());
@@ -387,7 +395,7 @@ const FOLDER_CHECK: Duration = Duration::from_secs(5);
 /// How long one LaunchServices answer is reused.
 const ANSWER_TTL: Duration = Duration::from_secs(60);
 
-type NameMap = std::collections::HashMap<String, Vec<String>>;
+pub(super) type NameMap = std::collections::HashMap<String, Vec<String>>;
 
 struct NamesIndex {
     state: std::sync::Mutex<IndexState>,
@@ -557,29 +565,145 @@ fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
                 let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else {
                     continue;
                 };
-                // The localized display name, without .app (-displayNameAtPath:).
-                if let Some(display) =
-                    ns_string(unsafe { msg_send![&*fm, displayNameAtPath: p_obj] })
-                {
-                    add(display.strip_suffix(".app").unwrap_or(&display), &id);
-                }
-                for key in [c"CFBundleDisplayName", c"CFBundleName"] {
-                    let Some(k) = key.to_str().ok().and_then(Cf::string) else { continue };
-                    let k_obj: *const AnyObject = k.ptr().cast();
-                    // SAFETY: -objectForInfoDictionaryKey: returns nil or an object; only a string is read.
-                    let value: Option<Retained<AnyObject>> =
-                        unsafe { msg_send![&*bundle, objectForInfoDictionaryKey: k_obj] };
-                    if let Some(v) = value.and_then(|v| ns_string(Some(v))) {
-                        add(&v, &id);
-                    }
-                }
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    add(stem, &id);
+                for name in bundle_names(&fm, &bundle, &path) {
+                    add(&name, &id);
                 }
             }
         }
     });
     map
+}
+
+/// Every name an app bundle is known by: its localized display name
+/// (-displayNameAtPath:, without .app), CFBundleDisplayName, CFBundleName
+/// and its file name.
+fn bundle_names(fm: &AnyObject, bundle: &AnyObject, path: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(p) = path.to_str().and_then(Cf::string) else { return out };
+    let p_obj: *const AnyObject = p.ptr().cast();
+    // SAFETY: -displayNameAtPath: takes an NSString and returns an NSString.
+    if let Some(display) = ns_string(unsafe { msg_send![fm, displayNameAtPath: p_obj] }) {
+        out.push(display.strip_suffix(".app").unwrap_or(&display).to_string());
+    }
+    for key in [c"CFBundleDisplayName", c"CFBundleName"] {
+        let Some(k) = key.to_str().ok().and_then(Cf::string) else { continue };
+        let k_obj: *const AnyObject = k.ptr().cast();
+        // SAFETY: -objectForInfoDictionaryKey: returns nil or an object; only a string is read.
+        let value: Option<Retained<AnyObject>> =
+            unsafe { msg_send![bundle, objectForInfoDictionaryKey: k_obj] };
+        if let Some(v) = value.and_then(|v| ns_string(Some(v))) {
+            out.push(v);
+        }
+    }
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        out.push(stem.to_string());
+    }
+    out
+}
+
+/// The names of the bundles with these ids, as the index would hold them
+/// (lower-cased name -> ids): the guard's blocked apps, found by id through
+/// LaunchServices (-URLsForApplicationsWithBundleIdentifier:), about thirty
+/// bundles. None when LaunchServices cannot be asked.
+fn names_of_bundles(ids: &[String]) -> Option<NameMap> {
+    autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        let fm_cls = class(c"NSFileManager").ok()?;
+        let bundle_cls = class(c"NSBundle").ok()?;
+        // SAFETY: +defaultManager returns the shared file manager.
+        let fm: Option<Retained<AnyObject>> = unsafe { msg_send![fm_cls, defaultManager] };
+        let fm = fm?;
+        let mut map = NameMap::new();
+        for id in ids {
+            let Some(id_cf) = Cf::string(id) else { continue };
+            let id_obj: *const AnyObject = id_cf.ptr().cast();
+            // SAFETY: -URLsForApplicationsWithBundleIdentifier: takes an
+            // NSString and returns an NSArray of NSURL (macOS 12+).
+            let urls: Option<Retained<AnyObject>> =
+                unsafe { msg_send![&*ws, URLsForApplicationsWithBundleIdentifier: id_obj] };
+            let Some(urls) = urls else { continue };
+            // SAFETY: an NSArray: -count and -objectAtIndex:.
+            let count: usize = unsafe { msg_send![&*urls, count] };
+            for i in 0..count {
+                let url: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![&*urls, objectAtIndex: i] };
+                let Some(url) = url else { continue };
+                // SAFETY: -path returns nil or an NSString.
+                let Some(path) = ns_string(unsafe { msg_send![&*url, path] }) else { continue };
+                let path = std::path::PathBuf::from(path);
+                let Some(p) = path.to_str().and_then(Cf::string) else { continue };
+                let p_obj: *const AnyObject = p.ptr().cast();
+                // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
+                let bundle: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let Some(bundle) = bundle else { continue };
+                for name in bundle_names(&fm, &bundle, &path) {
+                    let key = name.trim().to_lowercase();
+                    if key.is_empty() {
+                        continue;
+                    }
+                    let ids = map.entry(key).or_default();
+                    if !ids.contains(id) {
+                        ids.push(id.clone());
+                    }
+                }
+            }
+        }
+        Some(map)
+    })
+}
+
+/// How a name is answered before the full index is built: the guard's
+/// blocked apps by every name they are known by first (LaunchServices
+/// matches file names only, so "Systemeinstellungen" on a German Mac would
+/// be missed), then LaunchServices. None when the blocked names could not
+/// be read. Pure, for tests.
+pub(super) fn cold_resolve(
+    key: &str,
+    blocked_names: Option<&NameMap>,
+    launch_services: impl FnOnce() -> Option<String>,
+) -> Option<Vec<String>> {
+    let blocked = blocked_names?;
+    if let Some(ids) = blocked.get(key) {
+        return Some(ids.clone());
+    }
+    Some(launch_services().into_iter().collect())
+}
+
+/// Where the cold path learns the guard's blocked ids (set with the menu
+/// guard).
+type BlockedIds = Box<dyn Fn() -> Vec<String> + Send + Sync>;
+
+fn blocked_ids_source() -> &'static std::sync::Mutex<Option<BlockedIds>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<Option<BlockedIds>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Tells the cold path which ids the guard blocks (the desktop calls it
+/// when the engine sets the menu guard).
+pub fn set_blocked_ids_source(source: BlockedIds) {
+    *blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+}
+
+/// The blocked apps' names, built once for a set of ids (again if it
+/// changes). None with no guard yet or when LaunchServices cannot be asked.
+fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
+    static CACHE: std::sync::Mutex<Option<(Vec<String>, std::sync::Arc<NameMap>)>> =
+        std::sync::Mutex::new(None);
+    let ids = {
+        let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
+        (source.as_ref()?)()
+    };
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cached, map)) = cache.as_ref()
+        && *cached == ids
+    {
+        return Some(map.clone());
+    }
+    let map = std::sync::Arc::new(names_of_bundles(&ids)?);
+    *cache = Some((ids, map.clone()));
+    Some(map)
 }
 
 /// The bundle id of the app LaunchServices finds by name, if any.
