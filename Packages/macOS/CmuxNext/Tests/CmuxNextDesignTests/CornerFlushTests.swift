@@ -38,17 +38,37 @@ import Testing
         #expect(CornerFlush.off.sidebarGap == nil)
     }
 
-    /// Both top wedges by default; the sidebar side's goes under `squareLeading`, on either side.
+    /// Both top wedges by default; the leading one (minX, where the first tab sits) goes under `squareLeading`.
+    /// Tabs run from minX whichever side the sidebar is on, so there is no right-sidebar mirror: with the
+    /// sidebar on the right the selected first tab's folder (no leading foot) used to land on the rounded
+    /// wedge and end in a 12 pt shaded notch (Leo 2026-11-12, "all corners looking good").
     @Test func theLeadingWedgeGoesWhenTheFirstTabIsSelected() {
         let card = CGRect(x: 100, y: 0, width: 400, height: 300) // unflipped: the top is maxY
         let topLeft = CGPoint(x: 100.5, y: 299.5), topRight = CGPoint(x: 499.5, y: 299.5)
-        let both = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: false, sidebarOnLeft: true)
+        let both = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: false)
         #expect(both.contains(topLeft) && both.contains(topRight))
         #expect(!both.contains(CGPoint(x: 300, y: 299.5)))
-        let left = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: true, sidebarOnLeft: true)
-        #expect(!left.contains(topLeft) && left.contains(topRight))
-        let right = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: true, sidebarOnLeft: false)
-        #expect(right.contains(topLeft) && !right.contains(topRight))
+        let leading = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: true)
+        #expect(!leading.contains(topLeft) && leading.contains(topRight))
+    }
+
+    /// The tab row's divider starts at the card's left edge under a squared leading corner and always stops
+    /// short of the rounded trailing one.
+    @Test func theDividerRunsFromTheSquaredLeadingCorner() {
+        let card = CGRect(x: 100, y: 0, width: 400, height: 300)
+        #expect(CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: true) == CGRect(x: 100, y: 300, width: 388, height: 0))
+        #expect(CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: false) == CGRect(x: 112, y: 300, width: 376, height: 0))
+    }
+
+    /// A fullscreen window (no corner radius) keeps the windowed card: the titled window's radius less the
+    /// frame's gap, at any interface scale and on either macOS window radius, so a fullscreen toggle reshapes
+    /// no corner. It was a fixed 12 pt scaled, 6 pt windowed against 12 pt fullscreen on macOS 15.
+    @Test func theFullscreenCardKeepsTheWindowedRadius() {
+        let flush = CornerFlush.goo
+        let windowed = max(0, Metrics.standardWindowCornerRadius - flush.gap)
+        #expect(flush.cardRadius == windowed)
+        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: 0) == Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
+                || !CornerFlush.current.isOn)
     }
 }
 
