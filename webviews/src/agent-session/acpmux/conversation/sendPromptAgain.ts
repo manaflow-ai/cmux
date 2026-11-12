@@ -1,6 +1,7 @@
 import type { AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isStopped, offersRetry, retryTargetIn } from "./turns";
+import { continuesTurn } from "../turnStart";
 import { retryModelSections, type RetryModel } from "./retryModelSections";
 
 export type SendPromptAgainMenu = {
@@ -30,13 +31,15 @@ export function sendPromptAgainTarget(state: SendPromptAgainState) {
   const { sessionId, selectedSessionId, drawnSessionId, canSend, rows } = state;
   if (!canSend || !sessionId || sessionId !== selectedSessionId || sessionId !== drawnSessionId) return undefined;
   const target = retryTargetIn(rows);
-  if (!target.promptId || !target.footerId) return undefined;
-  const footer = rows.find((row) => row.id === target.footerId);
+  if (!target.promptId) return undefined;
+  const promptAt = rows.findIndex((row) => row.id === target.promptId);
+  const prompt = rows[promptAt]!;
+  const footer = rows.slice(promptAt + 1).find((row) => row.kind === "turnSummary");
   if (
     !footer ||
     (footer.status !== undefined && footer.status !== "completed" && !isStopped(footer)) ||
     !offersRetry(footer) ||
-    footer.retryRowId !== target.promptId
+    (footer.retryRowId !== target.promptId && !continuesTurn(prompt))
   )
     return undefined;
   return {
@@ -44,7 +47,7 @@ export function sendPromptAgainTarget(state: SendPromptAgainState) {
     footerId: footer.id,
     messageId: footer.answerId ?? footer.id,
     promptId: target.promptId!,
-    prompt: footer.prompt!,
+    prompt: footer.retryRowId === prompt.id ? footer.prompt! : (prompt.resend ?? prompt.text ?? ""),
   };
 }
 

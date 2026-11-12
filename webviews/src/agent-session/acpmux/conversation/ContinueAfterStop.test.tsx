@@ -5,8 +5,9 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "../i18n";
 import { layoutConversation, type AcpmuxRow } from "../model";
-import { CONTINUE_PROMPT, resumeThrough, TurnActionsContext } from "./turnActions";
+import { CONTINUE_PROMPT, resumeThrough, RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { TurnFooter } from "./TurnRows";
+import { PromptActions } from "./MessageActions";
 import { isEmptyFooter, turnView } from "./turns";
 
 const prompt = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -224,4 +225,15 @@ test("a stopped footer keeps resend off its action row", () => {
   );
   expect(html).not.toContain("cv-turn-retry");
   expect(html).not.toContain("cv-turn-continue");
+});
+
+test("an empty stopped footer does not move resend under the user prompt", () => {
+  const html = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: async () => undefined }}>
+      <RetryTargetContext.Provider value={{ promptId: "p1" }}>
+        <PromptActions row={prompt("p1", 1000)} text="Add retries" />
+      </RetryTargetContext.Provider>
+    </TurnActionsContext.Provider>,
+  );
+  expect(html).not.toContain("cv-message-retry");
 });

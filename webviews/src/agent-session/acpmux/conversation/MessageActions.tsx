@@ -20,8 +20,7 @@ import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
-import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
-import { retryPlacement } from "./turns";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
 import { resendsAttachments } from "../inlinePrompt";
@@ -406,17 +405,8 @@ export function PromptActions({
   text: string;
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
-  // Retry is the last turn's reply footer's (TurnFooter), but the Messages view draws no footer for a
-  // turn that ended well, so its prompts, sent or queued, keep Retry there; and a prompt whose turn's
-  // footer draws none keeps it too (turns.ts retryPlacement).
-  const messagesView = useContext(PresentationContext) === "messages";
-  const retryTarget = useContext(RetryTargetContext);
-  const canResend = Boolean(useContext(TurnActionsContext).retry);
-  const readOnly = useTranscriptReadOnly();
-  const promptRetry =
-    messagesView ||
-    (retryTarget?.promptId === row.id &&
-      retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
+  // Transcript resend lives in the menu, including turns with no final answer.
+  const promptRetry = useContext(PresentationContext) === "messages";
   const prompt = row.resend ?? row.text ?? "";
   // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
   const retryProps = { rowId: row.id, prompt, hasAttachment: resendsAttachments(row) };

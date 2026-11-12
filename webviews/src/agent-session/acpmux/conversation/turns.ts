@@ -2927,7 +2927,7 @@ export function mergeShortNotes(
 
 /// An agent message with no visible text: it draws no row (visibleMessage.ts), so it splits nothing.
 const drawsNothing = (row: AcpmuxRow | undefined) =>
-  row?.kind === "assistant" && !row.incoming && isVisiblyEmptyText(row.text);
+  row?.kind === "assistant" && !row.incoming && isVisiblyEmptyMessage(row);
 
 const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483_647;
 

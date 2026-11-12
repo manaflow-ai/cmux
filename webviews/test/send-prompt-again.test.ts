@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { withSendPromptAgain } from "../src/agent-session/acpmux/conversation/messageMenu";
 import {
   sendPromptAgain,
@@ -57,9 +58,11 @@ test("the latest successful footer owns the action, preserving reply copy and pi
   expect(sendPromptAgainTarget(state())?.prompt).toBe("Check /$emil-color");
 });
 
-test("a blank tool-only footer retains its prompt fallback instead of gaining a menu", () => {
+test("a blank tool-only footer keeps resend available through the menu", () => {
   const toolOnly = { ...footer, text: undefined, answerId: undefined };
-  expect(withSendPromptAgain(undefined, footer.id, state({ rows: [prompt, toolOnly] }), t)).toBeUndefined();
+  expect(
+    withSendPromptAgain(undefined, footer.id, state({ rows: [prompt, toolOnly] }), t)?.sendPromptAgain?.rowId,
+  ).toBe(footer.id);
 });
 
 test("a reply that ended on tools keeps an action-only menu on its existing nonblank footer", () => {
@@ -304,4 +307,32 @@ test("stopped and interrupted turns retain resend through the menu", () => {
     expect(sendPromptAgainMenu(stopped, t)?.rowId).toBe(footer.id);
     expect(withSendPromptAgain({ text: answer.text! }, answer.id, stopped, t)?.sendPromptAgain?.rowId).toBe(footer.id);
   }
+});
+
+test("a landed personal steer retains its own resend in the menu", async () => {
+  const steer = row("steer", "user", { at: 3, text: "Also check the caller.", steer: "landed" });
+  const projected = turnView([prompt, steer, answer, { ...footer, at: 5 }], new Set(), { working: false, now: 10 });
+  const current = state({ rows: projected });
+  const target = sendPromptAgainTarget(current)!;
+  expect(target.promptId).toBe(steer.id);
+  expect(target.prompt).toBe(steer.text!);
+  expect(sendPromptAgainMenu(current, t)?.rowId).toBe(footer.id);
+  const restored: string[] = [];
+  expect(
+    await sendPromptAgain(
+      { sessionId: "chat-a", rowId: footer.id },
+      {
+        read: () => current,
+        pickModel: async () => true,
+        restore: async (id, text) => {
+          restored.push(id);
+          return text;
+        },
+        send: async (text) => {
+          expect(text).toBe(steer.text!);
+        },
+      },
+    ),
+  ).toBe(true);
+  expect(restored).toEqual([steer.id]);
 });
