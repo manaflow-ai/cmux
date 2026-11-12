@@ -16,7 +16,7 @@ arc-swap.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = "2"
-tokio = { version = "1.52", features = ["rt", "sync", "time"] }
+tokio = { version = "1.52", features = ["sync"] }
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }

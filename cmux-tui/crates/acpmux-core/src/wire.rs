@@ -10,6 +10,7 @@ use std::fmt;
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub const MAX_PAGE_BYTES: usize = 256 * 1024;
 const HEADER_BYTES: usize = std::mem::size_of::<u32>();
 const KIND_BYTES: usize = 1;
 const MAX_PAYLOAD_BYTES: usize = MAX_FRAME_BYTES - HEADER_BYTES - KIND_BYTES;
@@ -65,10 +66,27 @@ pub enum AnchorSide {
 
 /// A row anchor. `End` opens at the newest rows; an id anchor restores a
 /// person's previous viewport.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Anchor {
     End,
     Row { row_id: u64, side: AnchorSide },
+    List { key: ListKey, side: AnchorSide },
+}
+
+/// Stable key for the list's recent-activity ordering. Offset paging is not
+/// stable while summaries are being updated; this keyset is.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListKey {
+    pub last_activity: u64,
+    pub chat_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Position {
+    Row(u64),
+    List(ListKey),
 }
 
 impl Serialize for Anchor {
@@ -84,6 +102,15 @@ impl Serialize for Anchor {
                 }
                 RowAnchor { row_id: *row_id, side: *side }.serialize(serializer)
             }
+            Self::List { key, side } => {
+                #[derive(Serialize)]
+                #[serde(rename_all = "camelCase")]
+                struct ListAnchor<'a> {
+                    key: &'a ListKey,
+                    side: AnchorSide,
+                }
+                ListAnchor { key, side: *side }.serialize(serializer)
+            }
         }
     }
 }
@@ -96,14 +123,24 @@ impl<'de> Deserialize<'de> for Anchor {
             row_id: u64,
             side: AnchorSide,
         }
-
-        let value = serde_json::Value::deserialize(deserializer)?;
-        match value {
-            serde_json::Value::String(value) if value == "end" => Ok(Self::End),
-            serde_json::Value::Object(_) => RowAnchor::deserialize(value)
-                .map(|row| Self::Row { row_id: row.row_id, side: row.side })
-                .map_err(D::Error::custom),
-            other => Err(D::Error::custom(format!("invalid anchor {other}"))),
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ListAnchor {
+            key: ListKey,
+            side: AnchorSide,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum AnchorWire {
+            End(String),
+            Row(RowAnchor),
+            List(ListAnchor),
+        }
+        match AnchorWire::deserialize(deserializer)? {
+            AnchorWire::End(value) if value == "end" => Ok(Self::End),
+            AnchorWire::End(value) => Err(D::Error::custom(format!("invalid anchor {value:?}"))),
+            AnchorWire::Row(row) => Ok(Self::Row { row_id: row.row_id, side: row.side }),
+            AnchorWire::List(anchor) => Ok(Self::List { key: anchor.key, side: anchor.side }),
         }
     }
 }
@@ -171,9 +208,9 @@ pub struct Page {
     pub sid: String,
     pub stream: Stream,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<u64>,
+    pub before: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<u64>,
+    pub after: Option<Position>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
 }
@@ -195,8 +232,8 @@ impl Page {
         Self {
             sid: sid.into(),
             stream: stream.into(),
-            before: (side == PageSide::Before).then_some(row_id),
-            after: (side == PageSide::After).then_some(row_id),
+            before: (side == PageSide::Before).then_some(Position::Row(row_id)),
+            after: (side == PageSide::After).then_some(Position::Row(row_id)),
             max_bytes: default_page_bytes(),
         }
     }
@@ -206,13 +243,37 @@ impl Page {
         self
     }
 
-    pub fn side(&self) -> Option<(PageSide, u64)> {
-        match (self.before, self.after) {
+    pub fn side(&self) -> Option<(PageSide, &Position)> {
+        match (&self.before, &self.after) {
             (Some(row_id), None) => Some((PageSide::Before, row_id)),
             (None, Some(row_id)) => Some((PageSide::After, row_id)),
             _ => None,
         }
     }
+}
+
+/// A generic bounded window shared by list and chat streams.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Window<T> {
+    pub sid: String,
+    pub cursor: u64,
+    pub rows: Vec<T>,
+    pub has_before: bool,
+    pub has_after: bool,
+}
+
+/// A generic delta shared by list and chat streams.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", tag = "op")]
+pub enum Delta<T> {
+    Summary { sid: String, seq: u64, summary: T },
+    Gone { sid: String, seq: u64, chat_id: String },
+    Queue { sid: String, seq: u64, bytes: u64 },
+}
+
+pub fn delta_frame<T: Serialize>(delta: &Delta<T>) -> Result<Frame, FrameError> {
+    Frame::json(FrameKind::Delta, delta)
 }
 
 /// A frame kind. The payload is encoded separately so the framing layer can be
@@ -311,12 +372,13 @@ impl Frame {
 #[derive(Default)]
 pub struct FrameDecoder {
     bytes: Vec<u8>,
+    head: usize,
     expected: Option<usize>,
 }
 
 impl FrameDecoder {
     pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty() && self.expected.is_none()
+        self.head == self.bytes.len() && self.expected.is_none()
     }
 
     pub fn push(&mut self, input: &[u8]) -> Result<Vec<Frame>, FrameError> {
@@ -324,29 +386,40 @@ impl FrameDecoder {
         let mut frames = Vec::new();
         loop {
             if self.expected.is_none() {
-                if self.bytes.len() < HEADER_BYTES {
+                if self.bytes.len().saturating_sub(self.head) < HEADER_BYTES {
                     break;
                 }
-                let header = self.bytes.get(..HEADER_BYTES).ok_or(FrameError::Truncated)?;
+                let header = self
+                    .bytes
+                    .get(self.head..self.head + HEADER_BYTES)
+                    .ok_or(FrameError::Truncated)?;
                 let mut length = [0_u8; HEADER_BYTES];
                 length.copy_from_slice(header);
                 let len = u32::from_be_bytes(length) as usize;
                 if !(KIND_BYTES..=MAX_FRAME_BYTES - HEADER_BYTES).contains(&len) {
                     return Err(FrameError::InvalidLength(len));
                 }
-                self.bytes.drain(..HEADER_BYTES);
+                self.head += HEADER_BYTES;
                 self.expected = Some(len);
             }
             let Some(expected) = self.expected else {
                 return Err(FrameError::Truncated);
             };
-            if self.bytes.len() < expected {
+            if self.bytes.len().saturating_sub(self.head) < expected {
                 break;
             }
-            let body: Vec<u8> = self.bytes.drain(..expected).collect();
+            let body = self.bytes[self.head..self.head + expected].to_vec();
+            self.head += expected;
             self.expected = None;
             let (kind, payload) = body.split_first().ok_or(FrameError::Truncated)?;
             frames.push(Frame::new(FrameKind::try_from(*kind)?, payload.to_vec())?);
+        }
+        if self.head == self.bytes.len() {
+            self.bytes.clear();
+            self.head = 0;
+        } else if self.head >= 4096 && self.head > self.bytes.len() / 2 {
+            self.bytes.drain(..self.head);
+            self.head = 0;
         }
         Ok(frames)
     }
