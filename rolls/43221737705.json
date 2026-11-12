@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43221737705",
+  "recorded_at": "2026-11-12T13:07:55Z",
+  "reason": "cmux-tui b5fb849f7f3f changes the image's cmux-tui (pinned e6049f3aa0ac)",
+  "dry_run": false,
+  "cmux_tui": "b5fb849f7f3f9f9ee14f63f502fc126f46f6e48e",
+  "fixes": [
+    {
+      "sha": "b5fb849f7f3f9f9ee14f63f502fc126f46f6e48e",
+      "mergedAt": "2026-11-12T06:35:42-06:00",
+      "subject": "cmux-tui layout: a tab move restates every screen whose pane it changed"
+    },
+    {
+      "sha": "58a81013792cef725ba9cc35d78d66b0f7410f33",
+      "mergedAt": "2026-11-12T06:35:41-06:00",
+      "subject": "cmux-tui layout: red test, a tab moved out of an inactive screen leaves that screen's old tab list"
+    },
+    {
+      "sha": "d85eb8cd87517e255dfc5d044d1a4aa7c09c99d5",
+      "mergedAt": "2026-11-12T06:35:41-06:00",
+      "subject": "cmux-tui layout: a tab move stores its source pane's active tab by the live move's rule"
+    },
+    {
+      "sha": "e1e02f72fca6d7df1e43eeb74f2c89dc9349fd0a",
+      "mergedAt": "2026-11-12T06:35:41-06:00",
+      "subject": "cmux-tui layout: red test, a tab moved out from before its pane's active tab stores the wrong active tab"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T13:07:55Z",
+    "snapshot_id": "sh-1c12e1c75101412fab962d583b33f172",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43221737705): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d93af11e0a6718927d5198cbdca4e5095d47828f",
+    "image": "cloud-native-auto-b5fb849f-43221737705-1",
+    "revision": "ci-43221737705-1",
+    "at": "2026-11-12T13:07:55Z"
+  },
+  "rolled_back": false
+}
