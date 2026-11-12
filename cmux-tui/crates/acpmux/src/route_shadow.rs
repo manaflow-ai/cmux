@@ -33,11 +33,8 @@ pub fn codex_base() -> Option<PathBuf> {
 /// holds a login. Entries `home` already has stay as they are.
 #[cfg(unix)]
 pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    let mut dirs = std::fs::DirBuilder::new();
-    dirs.recursive(true).mode(0o700);
-    dirs.create(base.join(CONVERSATIONS))?;
-    dirs.create(home)?;
+    crate::home_fs::create_dir_all(base.join(CONVERSATIONS), 0o700)?;
+    crate::home_fs::create_dir_all(home, 0o700)?;
     // A folder with conversations of its own would not share the base's: refuse it, never make a
     // shadow that cannot move a chat.
     let sessions = home.join(CONVERSATIONS);
@@ -47,7 +44,7 @@ pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
             format!("{} has conversations of its own; pick an empty folder", home.display()),
         ));
     }
-    std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
+    crate::home_fs::set_mode(home, 0o700)?;
     for entry in std::fs::read_dir(base)? {
         let name = entry?.file_name();
         if OWN.iter().any(|own| name == *own) {
@@ -57,7 +54,7 @@ pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
         if at.symlink_metadata().is_ok() {
             continue;
         }
-        std::os::unix::fs::symlink(base.join(&name), &at)?;
+        crate::home_fs::symlink(base.join(&name), &at)?;
     }
     Ok(())
 }

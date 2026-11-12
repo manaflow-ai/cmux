@@ -102,8 +102,7 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true, contextMenu: params["context_menu"]?.boolValue == true)
-                ? ["clicked": .bool(true)] : ["error": .string("no element matches \(selector)")]
+            return await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true, contextMenu: params["context_menu"]?.boolValue == true) ? ["clicked": .bool(true)] : ["error": .string("no element matches \(selector)")]
         case "drag":
             let numbers = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
@@ -113,6 +112,7 @@ enum DebugPages {
             let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
             return await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true) ? ["pressed": .bool(true)] : ["error": "the press did not reach the page"]
+        case "paste": return await page.debugPaste()
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)

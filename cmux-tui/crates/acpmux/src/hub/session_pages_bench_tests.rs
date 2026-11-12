@@ -27,6 +27,21 @@ async fn read(hub: &Arc<Hub>, method: &str, params: Value) -> (Value, usize, f64
     result
 }
 
+/// `method` read whole: every page from its `nextCursor` on, its rows in one `sessions`, with the
+/// bytes and milliseconds of all its pages (a list past `REPLY_PAGE_BYTES` goes in pages).
+async fn read_whole(hub: &Arc<Hub>, method: &str, params: Value) -> (Value, usize, f64) {
+    let (mut rows, mut bytes, mut ms, mut params) = (Vec::new(), 0, 0.0, params);
+    loop {
+        let (page, size, time) = read(hub, method, params.clone()).await;
+        rows.extend(page["sessions"].as_array().cloned().unwrap_or_default());
+        (bytes, ms) = (bytes + size, ms + time);
+        match page["nextCursor"].as_str() {
+            Some(cursor) => params["cursor"] = json!(cursor),
+            None => break (json!({"sessions": rows}), bytes, ms),
+        }
+    }
+}
+
 #[tokio::test]
 async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     let mut cfg = crate::config::Config::default();
@@ -53,7 +68,7 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
     // Warm the shared snapshot equally for both paths. No agents or peers are started.
     let _ = read(&hub, "_acpmux/sessions", json!({"limit": 1})).await;
-    let (full, before_bytes, before_ms) = read(&hub, "_acpmux/sessions", json!({})).await;
+    let (full, before_bytes, before_ms) = read_whole(&hub, "_acpmux/sessions", json!({})).await;
     assert_eq!(full["sessions"].as_array().unwrap().len(), 3000);
     assert_eq!(
         full["sessions"].as_array().unwrap().iter().filter(|s| s["status"] == "closed").count(),

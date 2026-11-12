@@ -13,6 +13,7 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { guardedChatMenu, type ChatMenuItem } from "../src/agent-session/acpmux/header/chatHeaderToolsModel";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -58,6 +59,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

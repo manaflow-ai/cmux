@@ -2,6 +2,7 @@
 // better with sections"): the sidebar lists its categories under small headers, the layout the Swift
 // `SettingsPageLayout.sidebarSections` exports, and no card is a wall of rows.
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -43,7 +44,7 @@ test("the sidebar draws each section's header above its categories", async () =>
   expect(shown[0]).toEqual({ header: null, links: ["general", "updates"] });
   expect(shown.find((section) => section.links.includes("agents"))).toEqual({
     header: "AI",
-    links: ["agents", "chief"],
+    links: ["chat", "agents", "chief"],
   });
   expect(shown.flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));
   // A header labels its group for VoiceOver and is never a link a click or Tab lands on.
@@ -62,4 +63,15 @@ test("outside DEV builds Development is gone and its section keeps the rest", as
   const links = sidebar(page.container).flatMap((section) => section.links);
   expect(links).not.toContain("development");
   expect(links).toContain("experimental");
+});
+
+test("a click on the category already shown takes its page back to the top; another category does not", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const content = page.container.querySelector<HTMLElement>(".content")!;
+  const tops: number[] = [];
+  content.scrollTo = ((options: ScrollToOptions) => void tops.push(options.top ?? -1)) as typeof content.scrollTo;
+  await act(async () => page!.container.querySelector<HTMLElement>('[data-section-link="general"]')!.click());
+  expect(tops).toEqual([0]);
+  await act(async () => page!.container.querySelector<HTMLElement>('[data-section-link="updates"]')!.click());
+  expect(tops).toEqual([0]);
 });

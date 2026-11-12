@@ -10,9 +10,9 @@ import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
+import { DurationEditor, isDuration } from "./DurationEditor";
 import { NumberListEditor } from "./NumberListEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
-import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
 import { StringMapEditor } from "./StringMapEditor";
 import { TextEditor } from "./TextEditor";
@@ -34,17 +34,16 @@ export function Editor(props: EditorProps): ReactNode {
     case "choice":
       // The accent is a swatch popup like the Theme section's, wherever it shows.
       if (row.key === ACCENT_KEY) return <AccentRowEditor {...props} />;
-      return (row.choices?.length ?? 0) <= 3 && row.default !== null ? (
-        <SegmentedEditor {...props} />
-      ) : (
-        <MenuEditor {...props} />
-      );
+      // Every choice is a menu (Lucas 2026-11-12, after segments read as "containers inside
+      // containers" in the cards): one control shape for every row, as Aside's settings draw it.
+      return <MenuEditor {...props} />;
     case "choice_or_number":
       return <ChoiceOrNumberEditor {...props} />;
     case "choice_or_url":
       return <ChoiceOrUrlEditor {...props} />;
     case "number":
-      return <NumberEditor {...props} />;
+      // A time row with a wide range is a menu of durations; a slider would park its value at the start.
+      return isDuration(row) ? <DurationEditor {...props} /> : <NumberEditor {...props} />;
     case "color":
       return <ColorEditor {...props} />;
     case "theme":

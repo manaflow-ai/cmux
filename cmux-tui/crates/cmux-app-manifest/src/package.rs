@@ -120,10 +120,19 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
                 format!("{p} is not listed in files"),
             ));
         }
-        if at == "/runtime/main"
-            && std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false)
-        {
-            out.push(Issue::error(at, "limit.main", "runtime.main is larger than 2 MiB"));
+        if at == "/runtime/main" {
+            if std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false) {
+                out.push(Issue::error(at, "limit.main", "runtime.main is larger than 2 MiB"));
+            } else if let Ok(script) = std::fs::read(&full) {
+                // The script the host runs: no character that hides what it
+                // does (hidden.rs). Not UTF-8 is the host's own refusal.
+                if let Some(issue) = std::str::from_utf8(&script)
+                    .ok()
+                    .and_then(|text| crate::hidden::script_issue(&at, &p, text))
+                {
+                    out.push(issue);
+                }
+            }
         }
     }
     out
