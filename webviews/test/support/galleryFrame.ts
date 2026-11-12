@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import type { ViteDevServer } from "vite";
 import { galleryFiles, SRC } from "../../scripts/gallery/entries";
+import { sharedViteOf, sharedViteReloads, sharedViteSettled } from "./sharedDevServers";
 
 const ids = new Map<string, string>();
 
@@ -86,8 +87,11 @@ const reloadCounts = new WeakMap<ViteDevServer, { sent: number }>();
  * How many full-page reloads `server` has sent since its first warm-up (none for a server given by
  * URL). The count wraps the client's hot channel once per server, so warm-ups that overlap share it.
  */
-function reloadsSent(server: ViteDevServer | string): number {
+async function reloadsSent(server: ViteDevServer | string): Promise<number> {
   if (typeof server === "string") return 0;
+  // The run's shared server (support/sharedDevServers.ts) counts its reloads where it runs.
+  const shared = sharedViteOf(server);
+  if (shared) return sharedViteReloads(shared);
   let count = reloadCounts.get(server);
   if (!count) {
     const counted = { sent: 0 };
@@ -109,6 +113,8 @@ function reloadsSent(server: ViteDevServer | string): number {
  * reloads every page a few microtasks after it commits: the extra turn lets that reload be counted.
  */
 async function optimizerSettled(server: ViteDevServer, left: () => number): Promise<void> {
+  const shared = sharedViteOf(server);
+  if (shared) return sharedViteSettled(shared, left());
   const client = server.environments.client;
   for (;;) {
     // Both waits share the warm-up's deadline: an optimizer that never goes idle fails it, with
@@ -180,7 +186,7 @@ export async function warmGalleryFrame(
         // a goto on that page then never commits: #26637's warm-up on a cold fleet worker waited out
         // its whole budget in one goto (85 s, 2026-10-28), where a new page loaded in about 1 s.
         for (;;) {
-          const sent = reloadsSent(server);
+          const sent = await reloadsSent(server);
           let raced = false;
           try {
             await page.goto(`${base}${galleryFrame(entry, params)}`, {
@@ -201,7 +207,7 @@ export async function warmGalleryFrame(
             raced = ready === "error" && outdatedOptimizeDep(message);
             // A reload since this load began (the optimizer's own signal), or Vite's 504 for a
             // stale optimized dependency: load again. Any other mount error fails below at once.
-            if (reloadsSent(server) === sent && !raced) break;
+            if ((await reloadsSent(server)) === sent && !raced) break;
           } catch (error) {
             if (Date.now() >= deadline || !(reloaded(error) || stalled(error)))
               throw new Error(`warmGalleryFrame: ${entry}: ${String(error)}`, { cause: error });
