@@ -279,11 +279,11 @@ pub(crate) fn harness_command(
                 // SAFETY: getuid has no preconditions.
                 let uid = unsafe { libc::getuid() };
                 let mut pins =
-                    session_tmp::env_for(&dir, &agent, blank, cfg!(target_os = "macos"), uid);
+                    session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid);
                 pins.extend(session_tmp::compile_cache_env(
                     &base,
                     &pins,
-                    &agent,
+                    agent,
                     |k| env.contains_key(k),
                     uid,
                 ));
