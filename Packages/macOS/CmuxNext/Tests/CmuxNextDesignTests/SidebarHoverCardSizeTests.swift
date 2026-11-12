@@ -15,6 +15,6 @@ struct SidebarHoverCardSizeTests {
 
     @Test func theHistoryIsShorterThanBefore() {
         #expect(M.timelineRows <= 6, "the history shows \(M.timelineRows) rows before it scrolls")
-        #expect(M.timelineRows < M.logRows, "the full history is no taller than the default card's")
+        #expect(M.timelineRows < M.logRows, "the full history is no taller than the default card")
     }
 }

@@ -19,10 +19,13 @@ extension SidebarContainerView {
     public var paneReach: CGFloat { model.style == .rail || isFloatOverlay || model.isFloating ? 0 : Self.paneReach }
 
     /// Keeps the curved-card edge line in the titlebar band, above the card: the row-to-card gap
-    /// stays plain sidebar background, and flat styles keep the full-height line. `rootY` is in the
-    /// container's superview coordinates, which is also where the main-pane card frame is reported.
+    /// stays plain sidebar background, and flat styles keep the full-height line. A shaded chrome
+    /// (`appearance.sidebarSurface` separate, as in Two-Tone) keeps it full height too: the card's
+    /// edge on a faint shade does not read as the seam (Leo 2026-11-12: "in two-tone mode, it, like,
+    /// the one between the sidebar and the transcript disappears"). `rootY` is in the container's
+    /// superview coordinates, which is also where the main-pane card frame is reported.
     public func updateResizeLine(cardMaxY rootY: CGFloat) {
-        guard Metrics.mainPaneCurved else {
+        guard Metrics.mainPaneCurved, DesignSettings.shared.sidebarSurface != .separate else {
             handle.lineMinY = 0
             return
         }
