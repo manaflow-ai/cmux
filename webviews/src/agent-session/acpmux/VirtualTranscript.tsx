@@ -70,7 +70,8 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
-import { createFollowChase, type FollowChase } from "./conversation/followChase";
+import { finishCarry, notePinPass, pinLiveLine } from "./conversation/pinnedLiveLine";
+import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -2474,7 +2475,11 @@ function TranscriptView({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    /// This transcript's box as last measured (`shown` below compares the box on show with it).
+    const box = { height: -1, width: -1 };
     const measure = (resized: boolean) => {
+      box.height = node.clientHeight;
+      box.width = node.offsetWidth;
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
       if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
       // The column's width is the scroller's with its scrollbar's lane (`lane`). Measured as the
@@ -2496,7 +2501,26 @@ function TranscriptView({
     });
     observer.observe(node);
     measure(false);
-    return () => observer.disconnect();
+    // Shown again (a workspace switch back): the host sized the page while it was away, and the
+    // ResizeObserver reports that size only in the rendering steps of the first frame back, after
+    // that frame's own callbacks. When nothing committed at the new size while away, the first frame
+    // drew the rows at the old box's offset, then the observer's pass moved them by the difference
+    // (a shorter pane: 80 px up, the newest lines under the composer for a frame;
+    // agent-pane-reveal-in-place.test.ts "hidden, shorter"). The box is read as the page shows, so
+    // the placement pass for it runs before any frame draws (Leo, 2026-11-11: "a sliver of space at
+    // the bottom that the newest few lines started from the top").
+    const doc = node.ownerDocument;
+    const shown = () => {
+      if (doc.visibilityState === "hidden" || node.clientHeight <= 0) return;
+      if (node.clientHeight === box.height && node.offsetWidth === box.width) return;
+      noteQueue();
+      flushSync(() => measure(true));
+    };
+    doc.addEventListener("visibilitychange", shown);
+    return () => {
+      observer.disconnect();
+      doc.removeEventListener("visibilitychange", shown);
+    };
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
@@ -3043,19 +3067,21 @@ function TranscriptView({
   const sessionSwitched = previousSession.current !== sessionId;
   // Overlay (the default; composer/dockMotion.experiment.ts, Leo, 2026-11-11: "do we even want stuff
   // to push up vs just simple... covering stuff?"): the composer growing a line as the person types
-  // moves no row. Its growth lies over the transcript's foot as glass, held out of the room under the
-  // last row (`cardHold`) until the rows move anyway: the next pass whose rows grow (a reply's line,
-  // the sent prompt) gives the room all of it, in that pass's one move, and so do Jump to latest and
-  // the reader's wheel past the end (`takeRoom`, `giveTrayRoom`), so nothing stays out of reach. The
-  // card shrinking (a send clearing it) gives back only what it held: a send is one move. Push (the
-  // before): the rows are drawn up with the card (`lift`), on the field growth's curve.
+  // reflows no layout. While the view follows the latest row, the rows are drawn up with the card
+  // (`lift`) in the frame it grows, on its own curve, so the rest gap holds over the taller card and
+  // the line the reader is watching stays in sight: covering it while a reply streams hid what they
+  // were reading (agent-pane-composer-rest-gap, the composer grown two lines: 10.5 px). A rise on the
+  // card's clock is the fast version Leo asked about ("if we can get it fast, MAYBE"). Scrolled up,
+  // the card's growth lies over the transcript's foot as glass and moves no row: the room stays as it
+  // was (`heldRoom`). Where the view follows but cannot lift (`cardHold`: no rest height yet), the
+  // growth is held out of the room until the rows move anyway, and Jump to latest or the reader's
+  // wheel past the end gives it (`takeRoom`, `giveTrayRoom`). Push (the before) lifts the same way.
   const overlayDock = experimentArm(composerDockMotion) === "overlay";
   // What the last pass left (its layout effect writes them), read once for this pass.
   const openedAtLatest = didOpenAtLatest.current;
   const cardAtRest = cardRest.current;
   const cardHeldAt = cardBase.current;
-  const lifting =
-    !overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
+  const lifting = following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
   const grown = lifting ? Math.min(dockSpace, dockCard - cardAtRest) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
   // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
@@ -3085,7 +3111,9 @@ function TranscriptView({
   const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
   const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const cardHolds = overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
+  const cardHolds = lifting
+    ? false
+    : overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
@@ -3408,6 +3436,8 @@ function TranscriptView({
     }
   });
   useLayoutEffect(() => {
+    // What the pinned live line is drawn held back by, before this pass's chase moves the thread.
+    notePinPass(thread.current);
     /// This pass is the follow chase's (the last branch below): the rows under a change glide, against
     /// the row the chase measured from.
     let tailGlides = false;
@@ -3909,7 +3939,49 @@ function TranscriptView({
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
-    tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
+    // The live line, the thread's last row, holds still at the bottom against the chase while the
+    // rows above it grow or come (pinnedLiveLine.ts), for as long as it stays the last row: a pin
+    // dropped and taken again a pass later left the line on its own glide, whose translate wins over
+    // the pin's, under a reply clipped for where the pin would draw it (overlap). A send's rows rise
+    // with theirs, and the turn's end folds them itself, so those let it go; the reader taking the
+    // view holds it where it is drawn.
+    const lastRow = rows.at(-1);
+    const lineStays = oldRows.at(-1)?.id === LIVE_THINKING;
+    // A prompt that comes over the line (a steer sent while a call runs) lets it go: the prompt's
+    // rows rise with it as a send's do, and the pin takes the line again once they rest. Pinned
+    // through it, the line was held back by the prompt's whole height at once, which the chase
+    // brought home in a step (105 px in turn-transition-jumps steer-tools). The reply's own rows
+    // (its text, a call's row) come under the pin as before.
+    // Rows come at the tail (before the live line): O(rows that came), never the chat's length.
+    let rowsCame = false;
+    for (let index = rows.length - 2; index >= Math.max(0, oldRows.length - 2); index -= 1) {
+      const row = rows[index]!;
+      if (row.kind === "user" && row.id !== oldRows[index]?.id) rowsCame = true;
+    }
+    const pinLive =
+      chasing &&
+      followingRef.current &&
+      lineStays &&
+      !rowsCame &&
+      lastRow?.id === LIVE_THINKING &&
+      Boolean(lastRow.below) &&
+      turnEndCapture.current === undefined &&
+      !thread.current?.hasAttribute(TURN_END_ATTR) &&
+      !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
+    const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
+    tailGlide.current?.place(
+      thread.current,
+      tailGlides && chasing,
+      tailAnchor,
+      chasing && followingRef.current,
+      pinLive ? LIVE_THINKING : undefined,
+      carry,
+    );
+    finishCarry(thread.current, carry, (px) => {
+      const style = thread.current ? getComputedStyle(thread.current) : undefined;
+      const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;
+      return { ms: floor > 0 ? arrivalStepMs(px, 1, floor) : 0, easing: ARRIVAL_EASE };
+    });
     previousLayout.current = layout;
     previousRows.current = rows;
     // The rows a fold ride moved are placed where they showed: its hand-over is spent.
@@ -4529,7 +4601,9 @@ function TranscriptView({
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
         follow(false);
       },
-      { explicit: true },
+      // A send's ride is the reader's newest input: it plays over the frames the page draws, never
+      // spent before its first one (WebKit runs a ride started in the send's commit a frame later).
+      { explicit: true, paced: send },
     );
   };
   /// The older-history check (below), which every scroll event runs too.

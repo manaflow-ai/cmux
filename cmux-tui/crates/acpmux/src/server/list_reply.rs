@@ -365,7 +365,7 @@ const STUB_TEXT_BYTES: usize = 4 << 10;
 /// prompt's acknowledgement too, waited behind it (2026-11-11). Web and peer connections had
 /// 4 MB pages since 2026-11-06 (one Mac's 24.8 MB list to its phone host, read about every
 /// minute). Detector: `reply_size_tests.rs`.
-const LIST_PAGE_BYTES: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+pub(super) const LIST_PAGE_BYTES: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

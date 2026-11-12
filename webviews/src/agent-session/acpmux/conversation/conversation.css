@@ -1479,7 +1479,7 @@
    animation on appear/disappear"): each width is a registered length, so it transitions, on the
    pane's arrive token with its ease-out. The mask stays on while the table is wider than its box
    (`data-cmux-sideways`, sideways.ts), so a fade going out runs to 0 instead of being cut.
-   Reduce Motion and motion off (a 0 token) show and hide them at once. */
+   The app's Reduce Motion and motion off show and hide them at once. */
 @property --cv-table-fade-left {
   syntax: "<length>";
   inherits: false;
@@ -1490,16 +1490,30 @@
   inherits: false;
   initial-value: 0px;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-table-wrap {
-    transition:
-      --cv-table-fade-left calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out),
-      --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
+/* The app's own Reduce Motion decides (`data-cmux-motion`, WebTheme.motionValue: the system
+   setting, calm mode and the app's override); a page with no host falls back to the system's.
+   A row that streams into a table already in the reply fades in where it lands (opacity only, so
+   nothing below moves more than the row's own height). */
+.cv-table-wrap {
+  transition:
+    --cv-table-fade-left calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out),
+    --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
+}
+.cv-table-block.cv-enter tbody tr {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+}
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .cv-table-wrap {
+  transition: none;
+}
+:root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .cv-table-block.cv-enter tbody tr {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-cmux-motion]) .cv-table-wrap {
+    transition: none;
   }
-  /* A row that streams into a table already in the reply fades in where it lands (opacity only,
-     so nothing below moves more than the row's own height). */
-  .cv-table-block.cv-enter tbody tr {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  :root:not([data-cmux-motion]) .cv-table-block.cv-enter tbody tr {
+    animation: none;
   }
 }
 .cv-table-wrap[data-cmux-sideways] {
@@ -2711,7 +2725,8 @@ pre.cv-math-source {
    line's time and counts after its words (`data-tail`), drawn past the words' own box, and the new
    line's time and counts roll in with its words (`.cv-worked--live[data-roll]`), so no count pops off
    or on and nothing slides sideways while the words roll. */
-.cv-roll-out {
+.cv-roll-out,
+.cv-roll-out__tail {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2736,14 +2751,30 @@ pre.cv-math-source {
     content: attr(data-lead);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
-    content: attr(data-text) attr(data-tail);
+    content: attr(data-text);
   }
-  /* The old line's tail runs past its words' box: the copy is as wide as its text, and the live
-     line's own clip (above) bounds it. */
+  /* The old line as it was drawn: its words cut where they were (their drawn width, set inline, the
+     ellipsis kept), and its time and counts in a box of their own from there on, past the new words'
+     box; the live line's own clip (above) bounds them. Review of cmux#41078: one box running words
+     and tail together dropped the ellipsis and moved the tail. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out[data-tail] {
     right: auto;
-    overflow: visible;
-    text-overflow: clip;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    color: var(--cv-text-dim);
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
+    content: attr(data-tail);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
@@ -4923,11 +4954,15 @@ a.cv-sha:focus-visible {
 /* Show more / Show less under every cut block (ExpandRow.tsx): one button, its block's full width
    and its whole bottom row, so a click anywhere along that edge toggles it (Leo, 2026-11-07: "what
    if the whole bottom row area were clickable ... my mouse is in the general vicinity, it's in the
-   general height area"). On its block's own surface; under the pointer only its fill and ink change,
-   never its size, padding, border or weight, so pointing at it moves nothing. Its bottom corners
-   follow its block's; the focus ring is drawn inside it, so a card's clip never cuts it. Alone (a
-   search's files, an agent message) it is the text column's width, 4px under the text. No
-   transition: the tint comes and goes at once, and a prompt's row is already moving with its fold. */
+   general height area"). It looks like its words alone: under the pointer anywhere along the row,
+   only the words light, on a small tint behind them, never a band across the row (Leo, 2026-11-11:
+   "the whole line should not be highlighted. Just the text. The text. The point is that it looks
+   like you're clicking just the text, but the whole clickable range is the whole thing"). Nothing's
+   size, padding, border or weight changes, so pointing at it moves nothing; the tint is the words'
+   own box, out past them by its padding (a negative margin keeps the words where they were). The
+   keyboard's focus ring is the words' too. Alone (a search's files, an agent message) it is the text
+   column's width, 4px under the text. No transition: the tint comes and goes at once, and a prompt's
+   row is already moving with its fold. */
 .cv-expand-row {
   all: unset;
   box-sizing: border-box;
@@ -4949,13 +4984,38 @@ a.cv-sha:focus-visible {
   cursor: default;
   user-select: none;
 }
+.cv-expand-row__label {
+  margin-inline: calc(-1 * var(--ds-space-2));
+  padding: calc(var(--ds-space-1) / 2) var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+}
 .cv-expand-row:hover {
-  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
   color: var(--cv-text);
 }
+.cv-expand-row:hover > .cv-expand-row__label {
+  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+}
 .cv-expand-row:focus-visible {
+  outline: none;
+}
+.cv-expand-row:focus-visible > .cv-expand-row__label {
   outline: 2px solid var(--agent-accent-soft);
-  outline-offset: -2px;
+  outline-offset: 0;
+}
+/* Gallery arms of the hover (ExpandRow.gallery.tsx `*-hover-*`), set on the root by its play:
+   `band`, the row's whole width tinted as before; `ink`, the words alone brighten with no tint;
+   `underline`, the words underlined. The shipped look, the tint behind the words, sets nothing. */
+:root[data-expand-row-hover="band"] .cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+}
+:root[data-expand-row-hover="band"] .cv-expand-row:hover > .cv-expand-row__label,
+:root[data-expand-row-hover="ink"] .cv-expand-row:hover > .cv-expand-row__label,
+:root[data-expand-row-hover="underline"] .cv-expand-row:hover > .cv-expand-row__label {
+  background-color: transparent;
+}
+:root[data-expand-row-hover="underline"] .cv-expand-row:hover > .cv-expand-row__label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 /* In a card the row is a row: the card's header height, the words at the card's text inset. */
 :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {

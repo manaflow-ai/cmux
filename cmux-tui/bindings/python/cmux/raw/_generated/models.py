@@ -2671,6 +2671,18 @@ class BrowserWheelGuardedRequest:
 
 
 @dataclass(frozen=True)
+class CancelCreatingInputRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-creating-input/request'
+    terminal_id: str
+
+
+@dataclass(frozen=True)
+class CancelCreatingInputResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-creating-input/result'
+    cancelled: bool
+
+
+@dataclass(frozen=True)
 class ChiefInspectRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/request'
     path: str
@@ -6751,6 +6763,8 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'CancelCreatingInputRequest',
+    'CancelCreatingInputResult',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ChiefWorkRequest',

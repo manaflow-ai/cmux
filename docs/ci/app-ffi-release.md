@@ -89,6 +89,15 @@ change. So a pull request cannot pin a release of its own FFI sources, and
 FFI inputs: split it into a Rust-only step A and a Swift step B after the
 re-pin.
 
+A crate's `tests/`, `benches/` and `examples/` are not FFI inputs
+(`--list-excluded`): Cargo never builds them into the library, so a test-only
+change (a new test, a `cargo fmt` of one) needs no release and no re-pin. A
+library file that names one of those folders (an `include_str!` of a test
+vector, a build script) keeps it an input. `scripts/ci/app_ffi_pin.py`
+(`NOT_BUILT`) is the one definition; the pin check, the pin on the base, the
+release workflow's push paths, the router, `build_class.py` and
+`base_red_excuse.py` read it.
+
 1. **Step A: the Rust change only.** Make it additive, so that the Swift on
    `feat-cmux-next` keeps working with the new Rust. Do not change Swift,
    `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin
@@ -163,8 +172,13 @@ gh run view "$RUN" --repo manaflow-ai/cmux --json headSha,workflowName --jq '.he
    ```
 
 7. Pin move, by the lane that owns the window: in a fresh worktree from the
-   newest `origin/feat-cmux-next`, set the `CCmuxAppFFI` binaryTarget `url`
-   and `checksum` in `Packages/macOS/CmuxNext/Package.swift`, commit, then
+   newest `origin/feat-cmux-next`, run
+   `scripts/cmux-next/repin-app-ffi.sh <source sha> <checksum>`, which writes
+   `url` and `checksum` into `Packages/macOS/CmuxNext/app-ffi-pin.json` (the
+   file Package.swift reads) and the same checksum into Package.swift's one
+   `// app-ffi-pin-checksum:` line (SwiftPM caches the manifest by its text, so
+   the manifest must change with the pin; never edit anything else there),
+   commit, then
 
    ```bash
    if scripts/cmux-next/check-app-ffi-pin.sh --verify-release; then <safe-push>; fi

@@ -1129,16 +1129,20 @@ mod tests {
         .unwrap(); // archive tag
         cached_rows_equal_uncached(&hub);
 
+        // The tag expires when this thread's test clock is moved past it, between the two
+        // checks: a 20 ms life on the wall clock could run out in the middle of the first one,
+        // between its uncached walk and the cached rows it compares with.
+        const LIFE_MS: u64 = 60 * 60 * 1_000;
         parent.meta.lock().unwrap().tags.insert(
             "expires".into(),
             crate::store::Tag {
                 value: "soon".into(),
-                expires_at: Some(crate::store::now_ms() + 20),
+                expires_at: Some(crate::store::now_ms() + LIFE_MS),
             },
         );
         hub.save_meta_answered(&parent).unwrap();
         cached_rows_equal_uncached(&hub);
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        crate::store::test_clock::advance(LIFE_MS);
         cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
 
         hub.set_visible(&parent, true); // mark-seen
@@ -1170,6 +1174,7 @@ mod tests {
         parent.purged.store(true, Ordering::SeqCst);
         hub.remove_cached_closed_summary(&parent.id);
         assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
+        crate::store::test_clock::reset();
     }
 
     /// While one live chat streams, a list build reuses every closed row's bytes: a streamed

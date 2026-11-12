@@ -932,6 +932,8 @@ impl Hub {
             // Messages this daemon sent near the per-message cap, or refused over it
             // (`wire_size.rs`): the next one too large to send is seen coming.
             "largeMessages": crate::wire_size::global().status(),
+            // The session list each client is sent, by its name (`list_bytes.rs`).
+            "listReplies": crate::list_bytes::global().status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
