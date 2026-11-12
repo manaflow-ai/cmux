@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 @testable import CmuxNextPages
 import Testing
 
@@ -42,6 +43,19 @@ struct PageSharedAssetsTests {
         // A third-party root never acquires access to its sibling directory.
         #expect(PageSchemeHandler.fileURL(for: foreign, page: thirdParty, root: root)
             == root.appendingPathComponent("__shared/runtime.js"))
+    }
+
+    @Test func everyShippedPageUsesThePagesSharedDirectory() throws {
+        // GitHub is shipped by build-pages-web.sh but is intentionally absent from the
+        // daemon's first-party WebSocket trust table. Shared assets must still resolve from
+        // the sibling pages/__shared directory without granting it daemon access.
+        let pages = URL(fileURLWithPath: "/fixture/pages", isDirectory: true)
+        let root = pages.appendingPathComponent("github", isDirectory: true)
+        let url = try #require(URL(string: "cmux-page://cmux.github/__shared/runtime.js"))
+        #expect(PageSchemeHandler.fileURL(for: url, page: .github, root: root)?.path
+            == pages.appendingPathComponent("__shared/runtime.js").path)
+        #expect(!PageID.isFirstParty("cmux.github"))
+        #expect(FirstPartyPages.shippedIDs.contains("cmux.github"))
     }
 
     @Test @MainActor func readsSharedCodeAndRefusesSymlinkEscapes() async throws {
