@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -452,6 +453,56 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
             self.assertEqual(call["env"]["GIT_TERMINAL_PROMPT"], "0")
             self.assertEqual(call["env"]["GCM_INTERACTIVE"], "never")
             self.assert_no_prompt(call)
+
+
+    # -- cmux#41750 review: the fetch ends with whatever cancels its caller -------------------------------------
+
+    def test_the_fast_tier_s_cancel_ends_the_fetch_and_stamps_the_attempt(self):
+        """prepush_fast_tier.py kills its worker's process group with SIGKILL after 4 s. The fetch ran in a session
+        of its own, so it escaped: ssh ran on with no 30 s limit and no stamp, and the next checker of the same hook
+        run fetched again beside it. Runs the real fast-tier entry point against an ssh that never answers."""
+        self.over_ssh()
+        pids = self.tmp / "slow-ssh.pids"
+        slow = self.tmp / "bin" / "slow" / "ssh"
+        slow.parent.mkdir(parents=True, exist_ok=True)
+        slow.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if sys.argv[1:2] != ['-G']:\n"
+                        f"    open({str(pids)!r}, 'a').write(f'{{os.getpid()}}\\n')\n"
+                        f"    time.sleep(120)\n")
+        slow.chmod(0o755)
+        os.environ.update(GIT_SSH_COMMAND=str(slow), CMUX_PREPUSH_RUN="run-1")
+        tier = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/cmux-next/prepush_fast_tier.py"),
+                               "--repo", str(self.work), "--remote", "origin"], input=self.key + "\n",
+                              capture_output=True, text=True, timeout=60)
+        self.assertIn("4s budget exhausted", tier.stdout, f"the fast tier cancelled its worker: {tier.stdout}")
+        self.assertTrue(pids.exists(), "the fetch reached ssh before the cancel")
+        started = [int(line) for line in pids.read_text().split()]
+
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            try:  # an orphan its reaper has not collected yet is gone too
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            except (OSError, IndexError):
+                return True
+
+        deadline = time.monotonic() + 5
+        while any(alive(pid) for pid in started) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = [pid for pid in started if alive(pid)]
+        for pid in left:
+            os.kill(pid, 9)
+        self.assertEqual(left, [], "the fetch's ssh outlived the fast tier that cancelled it")
+        stamp = Path(self.git(self.work, "rev-parse", "--path-format=absolute", "--git-common-dir")) / \
+            "cmux-guardrails" / self.push_range.UPSTREAM_REFRESH_FILE
+        self.assertTrue(stamp.exists(), "the cancelled fetch is stamped for its hook run")
+        note = self.finish(self.checker("run-1"))
+        self.assertIn("could not be fetched", note)
+        self.assertEqual(len(pids.read_text().split()), 1, "the next checker of the run did not fetch again")
 
 
 class SshBatchModeWins(StaleBaseFixture):
