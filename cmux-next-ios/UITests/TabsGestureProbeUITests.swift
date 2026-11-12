@@ -54,7 +54,9 @@ final class TabsGestureProbeUITests: XCTestCase {
         // address or title, whatever the tab shows), at the screen's centre.
         let tabsButton = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
         XCTAssertTrue(tabsButton.waitForExistence(timeout: 15), "bar's Tabs button\n\(app.debugDescription)")
-        let probe = app.descendants(matching: .any)["tabs.gestureProbe"]
+        // Found by its label: the workspace screen's identifier overrides the
+        // element's own (`tabs.gestureProbe`) in the tree.
+        let probe = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'runs '")).firstMatch
         XCTAssertTrue(probe.waitForExistence(timeout: 10), "probe element (DEBUG build with the probe on)")
         Thread.sleep(forTimeInterval: 1.0)
         attach(app, "\(run)-before")
