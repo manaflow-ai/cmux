@@ -554,6 +554,13 @@ def run_phase(phase, only, plan, opts, runs, values):
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue
         os.makedirs(out, exist_ok=True)
+        if not os.path.isdir(opts.app):
+            # The bench run before this one removed or moved the app (the Release run dab7c870: it was gone after
+            # the sidebar bench, so home and idle measured nothing). Say which, and keep the rest from failing blind.
+            print(f"\n=== {name}: PERF-BUDGETS-APP-GONE {opts.app} is gone (last bench: {next(reversed(runs), 'none')});"
+                  " its rows stay n/a", flush=True)
+            runs[name + suffix] = {"exit": "app-gone", "seconds": 0, "after": next(reversed(runs), None)}
+            continue
         procs = start_load(phase, scratch) if phase in LOAD_TIERS else []
         try:
             runs[name + suffix] = run_bench(name + suffix.replace("@", "-"), argv, out, opts.bench_timeout)
