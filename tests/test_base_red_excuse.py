@@ -6270,6 +6270,49 @@ class LostRunnerIsInfra(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
 
+class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
+    """A pull-request-only check (language-boundaries) has no base run. Its red that only asks for a re-run (cmux#41500
+    at d059d7bd, job 130862862041: the PR-files listing rate-limited, the merge-ref fallback unusable) is Infra, a
+    refusal naming the re-run; any other red of it keeps the "no base run" refusal."""
+
+    NAME = "language-boundaries"
+    STEP = "Check the changed files against the language boundaries"
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        del github.jobs[2]  # no base run has the job: it runs on pull requests only
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_red_that_only_asks_for_a_re_run_is_infra(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*re-run this check.*needs a re-run"):
+            self.judge("gh: API rate limit exceeded for installation. (HTTP 403)",
+                       "##[warning]The REST file listing failed; reading the changed files from refs/pull/41500/merge.",
+                       "##[error]Could not list the changed files; re-run this check.",
+                       "##[error]Process completed with exit code 1.")
+
+    def test_a_red_with_a_verdict_beside_the_ask_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]Could not list the changed files; re-run this check.",
+                       "##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_a_real_boundary_red_keeps_the_no_base_refusal(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_only_the_ask_line_matches(self):
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not read the reviews; re-run this check."))
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not list the changed paths; re-run this check"))
+        self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
+
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
@@ -7248,6 +7291,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.gh.logs[1] = self.unplaced_pin_log(shared, "##[error]red check: Localization")
         with self.assertRaisesRegex(excuse.Refused, "more on this head: .*red check: Localization"):
             self.judge()
+
+    GENERATED = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
+    LINT = "Package conventions lint"
+
+    def placed_warn_only(self, listed=("Package conventions lint",)):
+        """cmux#40449 at d375f032 (job 130887709749), placed: the pin red, a continue-on-error style guard that printed
+        its own `##[error]` line, and the rollup listing LISTED as warn-only with the pin its one red check."""
+        steps = [(self.PIN, "success", 10, 11), (self.LINT, "success", 12, 13), (self.ROLLUP, "failure", 14, 15)]
+        lines = [(self.PIN, 10, "##[group]Run scripts/cmux-next/check-app-ffi-pin.sh"),
+                 (self.PIN, 10.4, f"error: the app FFI sources changed since the pinned source {self.PINNED}:"),
+                 (self.PIN, 10.6, EXIT),
+                 (self.LINT, 12, "##[group]Run scripts/ci/run-checks-concurrently.sh --wait x package-conventions"),
+                 (self.LINT, 12.3, "FAIL: convention violations found (ERROR lines above)."),
+                 (self.LINT, 12.4, "1 checks, 16 at a time: 0 passed, 1 failed"),
+                 (self.LINT, 12.5, "##[error]./scripts/lint-ios-package-conventions.sh"),
+                 (self.LINT, 12.6, EXIT),
+                 (self.ROLLUP, 14, "##[group]Run failed=()"), (self.ROLLUP, 14.1, "##[endgroup]")]
+        if listed:
+            lines += [(self.ROLLUP, 14.2, f"##[warning]{self.LINT} found issues; see that step's log"),
+                      (self.ROLLUP, 14.3, f"### {len(listed)} style guard(s) reported findings (warn-only)"),
+                      (self.ROLLUP, 14.4, "")]
+            lines += [(self.ROLLUP, 14.5, f"- {name}") for name in listed]
+            lines += [(self.ROLLUP, 14.6, "")]
+        lines += [(self.ROLLUP, 14.7, f"##[error]red check: {self.PIN}"), (self.ROLLUP, 14.8, EXIT)]
+        self.gh.jobs[1] = dict(self.gh.jobs[1], steps=framed_steps(steps))
+        self.gh.logs[1] = framed_log(lines, job_name=self.JOB)
+        self.assertIsNot(excuse.failed_view(copy.deepcopy(self.gh.jobs[1]), self.gh.logs[1], base=False, **UNKNOWN),
+                         excuse.UNPLACED)
+
+    def test_40449_generated_data_swift_and_a_warn_only_guard_leave_a_step_a_pin_excused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+
+    def test_a_guard_the_rollup_does_not_list_as_warn_only_still_sets_the_pin_aside(self):
+        self.pr_files(*self.RUST)
+        for listed in ((), (self.PIN,), ("Some other guard",)):
+            with self.subTest(listed=listed):
+                self.placed_warn_only(listed)
+                with self.assertRaises(excuse.Refused) as raised:
+                    self.judge()
+                self.assertNotIn("excused", str(raised.exception))
+
+    def test_hand_written_swift_beside_the_generated_file_is_still_refused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppActions.swift")
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*AppActions.swift\)"):
+            self.judge()
+
+    def test_data_only_swift_is_a_named_list_of_generated_files(self):
+        for path in excuse.FFI_PIN_DATA_SWIFT:
+            self.assertTrue(path.endswith(".generated.swift"), path)
+            text = (ROOT / path).read_text()
+            self.assertTrue(text.startswith("// GENERATED by "), path)
+            self.assertNotRegex(text, r"\bfunc\b|\bimport\b|\bvar\b|\binit\(|\{\s*\$|\bCCmuxAppFFI\b", path)
 
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
         # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
@@ -9764,6 +9864,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
+    "asks_only_rerun", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
@@ -12399,6 +12500,9 @@ SCANNERS = {
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
     "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
     "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
+    "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
+    "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
