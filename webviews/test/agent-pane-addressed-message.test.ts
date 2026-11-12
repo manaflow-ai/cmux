@@ -4,6 +4,8 @@
 // bubble: "summary-panel -> claude-sr2: Confirmed. …". acpmux records such a prompt with only its
 // client (`acpmux-peer#…`) and its text, so the pane reads the address line: a message names this
 // chat as its receiver, or a listed chat as its sender. The person's own "foo -> bar:" stays theirs.
+// Since 2026-11-12 another agent's message draws nothing (incomingMessage.ts `relayedBetweenAgents`;
+// Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES"), so a prompt read as one is hidden.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -84,7 +86,7 @@ async function rowsOf(history: Rec[], daemon = fakeDaemon(history)): Promise<Acp
 const CONFIRMED =
   "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is as tall as its content and ends 15px under its last section.";
 
-test("another agent's addressed report, relayed from a peer as a steer, is its message card", async () => {
+test("another agent's addressed report, relayed from a peer as a steer, draws nothing; the person's stays", async () => {
   const rows = await rowsOf(
     record([
       ["mux", "user_message", { text: "Check the overlay card's height", client: "cmux-next#0001", promptId: "p-1" }],
@@ -104,22 +106,22 @@ test("another agent's addressed report, relayed from a peer as a steer, is its m
     ]),
   );
   const prompts = rows.filter((row) => row.kind === "user");
-  expect(
-    prompts.map((row) => [row.text, row.incoming?.kind === "message" ? row.incoming.message.name : undefined]),
-  ).toEqual([
-    ["Check the overlay card's height", undefined],
-    [
-      "Confirmed. On feat-cmux-next today, the overlay card is as tall as its content and ends 15px under its last section.",
-      "summary-panel",
-    ],
-    ["Also #24020.", "summary-panel"],
-    ["foo -> bar: rename it", undefined],
+  expect(prompts.map((row) => [row.promptId, row.text ?? "", row.incoming?.kind])).toEqual([
+    ["p-1", "Check the overlay card's height", undefined],
+    ["p-2", "", "hidden"],
+    ["p-3", "", "hidden"],
+    ["p-4", "foo -> bar: rename it", undefined],
   ]);
-  // Retry resends the message as the agent got it.
-  expect(prompts[1]?.resend).toBe(CONFIRMED);
+  // The agent's replies stay (one row here: the fixture's chunks name no message).
+  const replies = rows
+    .filter((row) => row.kind === "assistant")
+    .map((row) => row.text)
+    .join("\n");
+  expect(replies).toContain("Asked summary-panel.");
+  expect(replies).toContain("Confirmed by summary-panel.");
 });
 
-test("a sender listed after its addressed prompt was read makes that prompt its message", async () => {
+test("a sender listed after its addressed prompt was read hides that prompt as its message", async () => {
   const history = record([
     [
       "mux",
@@ -142,7 +144,8 @@ test("a sender listed after its addressed prompt was read makes that prompt its 
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   const prompt = () => rows.find((row) => row.kind === "user");
   expect(prompt()?.incoming).toBeUndefined();
-  // The chat on huge-blue is listed: the prompt is its message.
+  expect(prompt()?.text).toBe("summary-panel -> coord-deputy: Also #24020.");
+  // The chat on huge-blue is listed: the prompt is its message, which draws nothing.
   daemon.socket().onmessage?.({
     data: JSON.stringify({
       jsonrpc: "2.0",
@@ -151,10 +154,10 @@ test("a sender listed after its addressed prompt was read makes that prompt its 
     }),
   });
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(prompt()?.incoming).toMatchObject({
-    kind: "message",
-    message: { name: "summary-panel", text: "Also #24020." },
-  });
+  expect(prompt()?.incoming?.kind).toBe("hidden");
+  expect(prompt()?.text ?? "").toBe("");
+  // Its reply stays.
+  expect(rows.some((row) => row.kind === "assistant" && row.text === "Noted.")).toBe(true);
 });
 
 const QUEUED = "summary-panel -> coord-deputy: Also #24020.";

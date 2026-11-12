@@ -91,30 +91,36 @@ test("a live sender_claim draws on the prompt that follows it", async () => {
   }
 });
 
-test("a send its harness shell named (fromAgent) draws its sender_claim on the incoming message", async () => {
-  const named = {
-    mux: "user_message",
-    // As acpmux records it (prompt_provenance.rs `named_sender`).
-    msg: {
-      promptId: "p-named",
-      text: "from the desktop",
-      fromAgent: "Claude Code desktop on mac · cc-1",
-      _meta: {
-        provenance: {
-          kind: "agent_message",
-          from: "fromAgent",
-          fromName: "Claude Code desktop on mac · cc-1",
-          to: "x",
-        },
+// Another agent's message draws no row at all, claim or not (Leo, 2026-11-12: "STOP f***ing
+// SHOWING THESE f***ing MESSAGES"; incomingMessage.ts `relayedBetweenAgents`).
+const harnessNamed = (promptId: string) => ({
+  mux: "user_message",
+  // As acpmux records it (prompt_provenance.rs `named_sender`).
+  msg: {
+    promptId,
+    text: "from the desktop",
+    fromAgent: "Claude Code desktop on mac · cc-1",
+    _meta: {
+      provenance: {
+        kind: "agent_message",
+        from: "fromAgent",
+        fromName: "Claude Code desktop on mac · cc-1",
+        to: "x",
       },
     },
-  };
-  const io = await connect([claim("p-named"), named]);
+  },
+});
+const drawsNothing = (shown: AcpmuxSnapshot | undefined, promptId: string) => {
+  const hidden = row(shown, promptId);
+  expect(hidden?.incoming?.kind).toBe("hidden");
+  expect(hidden?.text ?? "").toBe("");
+};
+
+test("a send its harness shell named (fromAgent) draws no row, with its sender_claim before it", async () => {
+  const io = await connect([claim("p-named"), harnessNamed("p-named")]);
   try {
     await settle(() => row(io.snapshot(), "p-named") !== undefined);
-    const shown = row(io.snapshot(), "p-named");
-    expect(shown?.incoming?.kind).toBe("message");
-    expect(shown?.sentFrom).toMatchObject({ label: "Claude desktop", confirmed: true });
+    drawsNothing(io.snapshot(), "p-named");
   } finally {
     io.close();
   }
@@ -144,7 +150,7 @@ test("a live sender_claim after its prompt's row draws on it", async () => {
 });
 
 // The default route of another agent's send (agentInbox): an inbox notice names it by its prompt id
-// (acpmux hub/inbox.rs `render`), and its thread line carries the claim of that id.
+// (acpmux hub/inbox.rs `render`). It is relayed between agents too, so it draws nothing.
 const inboxNoticeOf = (promptId: string) => ({
   mux: "user_message",
   msg: {
@@ -169,61 +175,42 @@ const inboxNoticeOf = (promptId: string) => ({
     },
   },
 });
-const noticeThread = (shown: AcpmuxSnapshot | undefined, promptId: string) => {
-  const notice = shown?.rows.find((r) => r.kind === "user" && r.incoming?.kind === "inbox");
-  return notice?.incoming?.kind === "inbox"
-    ? notice.incoming.notice.threads.find((t) => t.promptIds.includes(promptId))
-    : undefined;
-};
+const noInboxRow = (shown: AcpmuxSnapshot | undefined) =>
+  expect(shown?.rows.some((r) => r.kind === "user" && r.incoming?.kind === "inbox")).toBe(false);
 
-test("an inbox notice's thread carries the sender_claim of each message it names", async () => {
+test("an inbox notice draws no row, with the sender_claim of the message it names before it", async () => {
   const io = await connect([claim("p-inbox"), inboxNoticeOf("p-inbox")]);
   try {
-    await settle(() => noticeThread(io.snapshot(), "p-inbox") !== undefined);
-    expect(noticeThread(io.snapshot(), "p-inbox")?.sentFrom?.["p-inbox"]).toMatchObject({
-      label: "Claude desktop",
-      confirmed: true,
-    });
+    await settle(() => row(io.snapshot(), "notice-p-inbox") !== undefined);
+    drawsNothing(io.snapshot(), "notice-p-inbox");
+    noInboxRow(io.snapshot());
   } finally {
     io.close();
   }
 });
 
-test("a sender_claim after its inbox notice still reaches the notice's thread", async () => {
+test("a sender_claim after its inbox notice draws no row for it", async () => {
   const io = await connect([inboxNoticeOf("p-inbox-late")]);
   try {
-    await settle(() => noticeThread(io.snapshot(), "p-inbox-late") !== undefined);
+    await settle(() => row(io.snapshot(), "notice-p-inbox-late") !== undefined);
     io.feed.emit(io.target, claim("p-inbox-late"));
-    await settle(() => noticeThread(io.snapshot(), "p-inbox-late")?.sentFrom !== undefined);
-    expect(noticeThread(io.snapshot(), "p-inbox-late")?.sentFrom?.["p-inbox-late"]?.label).toBe("Claude desktop");
+    io.feed.emit(io.target, prompt("p-after-inbox"));
+    await settle(() => row(io.snapshot(), "p-after-inbox") !== undefined);
+    drawsNothing(io.snapshot(), "notice-p-inbox-late");
+    noInboxRow(io.snapshot());
   } finally {
     io.close();
   }
 });
 
-test("a sender_claim after a harness-named message's row still draws on it", async () => {
-  const named = {
-    mux: "user_message",
-    msg: {
-      promptId: "p-named-late",
-      text: "from the desktop",
-      fromAgent: "Claude Code desktop on mac · cc-1",
-      _meta: {
-        provenance: {
-          kind: "agent_message",
-          from: "fromAgent",
-          fromName: "Claude Code desktop on mac · cc-1",
-          to: "x",
-        },
-      },
-    },
-  };
-  const io = await connect([named]);
+test("a sender_claim after a harness-named message's row leaves it drawing nothing", async () => {
+  const io = await connect([harnessNamed("p-named-late")]);
   try {
     await settle(() => row(io.snapshot(), "p-named-late") !== undefined);
     io.feed.emit(io.target, claim("p-named-late"));
-    await settle(() => row(io.snapshot(), "p-named-late")?.sentFrom !== undefined);
-    expect(row(io.snapshot(), "p-named-late")?.sentFrom?.label).toBe("Claude desktop");
+    io.feed.emit(io.target, prompt("p-after-named"));
+    await settle(() => row(io.snapshot(), "p-after-named") !== undefined);
+    drawsNothing(io.snapshot(), "p-named-late");
   } finally {
     io.close();
   }

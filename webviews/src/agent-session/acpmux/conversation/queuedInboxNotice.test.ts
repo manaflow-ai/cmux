@@ -2,13 +2,13 @@
 // `deliver_notice`) is other agents' messages, not the person's prompt (Leo, 2026-11-03: "have it be
 // rendered differently than just a regular queued message"). direct.ts reads it from its `queued`
 // record (`queuedInbox`) and keeps it through acpmux's list (`mergeQueue`, whose `fromAgent` is null
-// for a notice); queuedMessages.ts leaves it out of the composer's queue and draws it in the one
-// group of waiting messages, as its threads, the queue's Send now on the first.
+// for a notice); queuedMessages.ts leaves it out of the composer's queue and draws no row for it, a
+// message relayed between agents (incomingMessage.ts `relayedBetweenAgents`).
 import { expect, test } from "bun:test";
 import { mergeQueue, queuedInbox } from "../direct";
-import { QUEUED_MESSAGE, type AcpmuxSnapshot } from "../model";
+import { type AcpmuxSnapshot } from "../model";
 import { pendingMessagesRow } from "./pendingMessages";
-import { ownQueue, queuedMessageRowId, queuedMessageRows } from "./queuedMessages";
+import { ownQueue, queuedMessageRows } from "./queuedMessages";
 
 const threads = [
   {
@@ -74,24 +74,12 @@ test("acpmux's list keeps the notice its record named, and an edit drops it", ()
   expect(edited?.inbox).toBeUndefined();
 });
 
-test("the notice is no composer-queue row; it joins the waiting messages as its threads", () => {
+// Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES".
+test("the notice is no composer-queue row, and draws no row while it waits", () => {
   const own = { id: "p1", prompt: "Then add a test" };
   const notice = { id: "inbox-notice-1", prompt: text, inbox: queuedInbox(record)! };
   const queue: AcpmuxSnapshot["queue"] = [notice, own];
   expect(ownQueue(queue)).toEqual([own]);
-  const rows = queuedMessageRows(queue);
-  expect(rows.map((row) => row.id)).toEqual([queuedMessageRowId("inbox-notice-1")]);
-  expect(rows[0]?.kind).toBe(QUEUED_MESSAGE);
-  expect(rows[0]?.incoming?.kind).toBe("inbox");
-  // Its text is the messages', never the instruction written for the agent.
-  expect(rows[0]?.text).not.toContain("inbox_read");
-  const group = pendingMessagesRow([], rows)!;
-  const display = group.pendingMessages?.displayRows ?? [];
-  expect(display.map((row) => row.text)).toEqual([
-    "Review passed at e34ce27; landing it now.",
-    "Which branch should the picker polish go on?",
-  ]);
-  expect(display.some((row) => row.text?.includes("New messages from other agents"))).toBe(false);
-  // One queue target for the whole notice: its Send now sits on the first line alone.
-  expect(display.filter((row) => row.inboxQueue?.promptId === "inbox-notice-1")).toHaveLength(1);
+  expect(queuedMessageRows(queue)).toEqual([]);
+  expect(pendingMessagesRow([], queuedMessageRows(queue))).toBeUndefined();
 });

@@ -113,17 +113,29 @@ test("a reloaded queue keeps distinct messages whose first 200 characters match"
   const { queuedMessageRows } = await import("./queuedMessages");
   const prefix = "Shared status update: ".padEnd(200, "x");
   const fullMessages = [`${prefix} keep this change`, `${prefix} revert this change`];
+  // A guest's held prompts: another agent's draw no row (Leo, 2026-11-12: "STOP f***ing SHOWING
+  // THESE f***ing MESSAGES").
   const listed = fullMessages.map((message, index) => ({
     promptId: `reloaded-${index}`,
     preview: message.slice(0, 200),
-    fromAgent: "same-lane",
+    awaitingOwner: true,
+    author: { id: "guest:sam", name: "Sam" },
   }));
   const rows = queuedMessageRows(mergeQueue([], listed));
+  expect(rows).toHaveLength(2);
   expect(rows[0]?.text).toBe(rows[1]?.text);
   expect(pendingMessagesRow([], rows)?.pendingMessages?.rows).toEqual(rows);
   expect(searchablePendingRows([], rows)).toEqual(rows);
+  expect(
+    queuedMessageRows(
+      mergeQueue(
+        [],
+        listed.map(({ promptId, preview }) => ({ promptId, preview, fromAgent: "same-lane" })),
+      ),
+    ),
+  ).toEqual([]);
   // The waiting steer and the queue can name the same delivery using different row ids.
-  const deliveredTwice = steer("reloaded-0", "same-lane", fullMessages[0]!);
+  const deliveredTwice = steer("reloaded-0", "Sam", fullMessages[0]!);
   expect(pendingMessagesRow([deliveredTwice], rows)?.pendingMessages?.rows).toEqual([deliveredTwice, rows[1]!]);
 });
 

@@ -199,7 +199,8 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
     expect(tools(child).map((entry) => entry.id)).toEqual(["helper-read", "helper-live-read"]);
     expect(replies(snapshot().rows)).toEqual(["Parent replay reply", "Parent live reply"]);
 
-    // A report explicitly addressed to the parent remains a received message in that chat.
+    // A report addressed to the parent is its prompt there, and like any message relayed between
+    // agents it draws nothing (Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES").
     daemon.push([
       "mux",
       "user_message",
@@ -212,11 +213,12 @@ test("helper activity stays in its own chat when attach starts after its spawn, 
         },
       },
     ]);
-    await until(({ rows }) => rows.some((row) => row.text === "The helper's report for the parent"));
-    expect(snapshot().rows.find((row) => row.text === "The helper's report for the parent")?.incoming).toMatchObject({
-      kind: "message",
-      message: { name: "Reviewer", text: "The helper's report for the parent" },
-    });
+    const report = (rows: readonly AcpmuxRow[]) => rows.find((row) => row.promptId === "helper-report");
+    await until(({ rows }) => report(rows) !== undefined);
+    expect(report(snapshot().rows)?.incoming?.kind).toBe("hidden");
+    expect(report(snapshot().rows)?.text ?? "").toBe("");
+    expect(snapshot().rows.some((row) => row.text?.includes("The helper's report for the parent"))).toBe(false);
+    expect(replies(snapshot().rows)).toEqual(["Parent replay reply", "Parent live reply"]);
     expect(tools(snapshot().rows).map((entry) => entry.id)).toEqual(["parent-read", "parent-live-read"]);
   } finally {
     client.close();

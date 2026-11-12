@@ -3,15 +3,15 @@
 // hub/cancel.rs) wait until the person's next turn completes or the queue is resumed, not for the
 // turn to end. Their cards said "Read after this turn" all the same, and nothing in the pane read
 // the hold (Leo, 2026-10-29: "this is so awkward the stop button doesnt really work and resume
-// doesnt really appear!?"). Now the first card says they are held and what lets them in.
+// doesnt really appear!?"). The pane keeps reading the hold, but the held messages, relayed between
+// agents, draw no row (Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES").
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "./i18n";
 import type { QueuedPrompt } from "./model";
 import { QueuedMessageCard } from "./conversation/QueuedMessageCard";
-import { queuedMessageRows } from "./conversation/queuedMessages";
+import { ownQueue, queuedMessageRows } from "./conversation/queuedMessages";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -65,6 +65,9 @@ async function pane() {
 }
 
 const held = (shown: Shown) => (shown.queue ?? []).map((entry) => [entry.id, entry.heldByStop === true]);
+/// The ids of the queue's transcript rows, and of the composer's queue rows.
+const drawn = (shown: Shown) => queuedMessageRows(shown.queue ?? []).map((row) => row.queuedMessage?.promptId);
+const composer = (shown: Shown) => ownQueue(shown.queue ?? []).map((entry) => entry.id);
 /// The lead line over the queued agent messages, as the transcript draws it.
 const lead = async (shown: Shown) => {
   const first = queuedMessageRows(shown.queue ?? [])[0];
@@ -86,7 +89,7 @@ const listed = (id: string, fromAgent: string | null, isHeld: boolean) => ({
   fromAgent,
 });
 
-test("other agents' messages a Stop holds say so, and what lets them in, until they are let go", async () => {
+test("other agents' messages a Stop holds stay held, drawing no row, until they are let go", async () => {
   const { daemon, view, until, id, close } = await pane();
   try {
     daemon.emit(id, { mux: "turn_started", msg: { turnId: "t-1" } });
@@ -94,7 +97,8 @@ test("other agents' messages a Stop holds say so, and what lets them in, until t
     daemon.emit(id, { mux: "queued", msg: { promptId: "p-b", text: "Lint is green", fromAgent: "linter" } });
     daemon.emit(id, { mux: "queued", msg: { promptId: "p-me", text: "Then run the tests" } });
     await until(() => view.shown.queue?.length === 3);
-    expect(await lead(view.shown)).toBeUndefined();
+    expect(drawn(view.shown)).toEqual([]);
+    expect(composer(view.shown)).toEqual(["p-me"]);
     // The person's Stop: acpmux holds the agents' messages, and the turn ends stopped.
     daemon.emit(id, { mux: "queue_paused", msg: { stoppedTurnId: "t-1", held: ["p-a", "p-b"], reason: "stop" } });
     daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", turnId: "t-1" } });
@@ -104,7 +108,10 @@ test("other agents' messages a Stop holds say so, and what lets them in, until t
       ["p-b", true],
       ["p-me", false],
     ]);
-    expect(await lead(view.shown)).toBe(translate("message.heldByStop"));
+    // Held, they still draw no row, nor any line saying so; the person's prompt stays the composer's.
+    expect(drawn(view.shown)).toEqual([]);
+    expect(await lead(view.shown)).toBeUndefined();
+    expect(composer(view.shown)).toEqual(["p-me"]);
     // acpmux's own list keeps them held while it lists them held.
     daemon.touch(id, {
       status: "ready",
@@ -125,7 +132,8 @@ test("other agents' messages a Stop holds say so, and what lets them in, until t
       ["p-b", true],
       ["p-me", false],
     ]);
-    expect(await lead(view.shown)).toBeUndefined();
+    expect(drawn(view.shown)).toEqual([]);
+    expect(composer(view.shown)).toEqual(["p-me"]);
     daemon.emit(id, { mux: "queue_resumed", msg: { queued: 3 } });
     await until(() => view.shown.queue?.[1]?.heldByStop !== true);
     expect(held(view.shown).every(([, isHeld]) => !isHeld)).toBe(true);
@@ -155,7 +163,7 @@ test("a list that names a held message unheld lets it go; a failed turn's hold i
   }
 });
 
-test("acpmux's list says which messages a Stop holds, also with no record of it, and an edit keeps it", async () => {
+test("acpmux's list says which messages a Stop holds, also with no record of it, and a reorder keeps it", async () => {
   const { daemon, view, until, id, close } = await pane();
   try {
     // An attach whose page holds none of the Stop's records: the list alone says so.
@@ -172,7 +180,10 @@ test("acpmux's list says which messages a Stop holds, also with no record of it,
       ["p-a", true],
       ["p-b", false],
     ]);
-    expect(await lead(view.shown)).toBe(translate("message.heldByStop"));
+    // Other agents' messages: no row, held or not.
+    expect(drawn(view.shown)).toEqual([]);
+    expect(await lead(view.shown)).toBeUndefined();
+    expect(composer(view.shown)).toEqual([]);
     // A reorder rebuilds every entry; the hold stays.
     daemon.emit(id, { mux: "queue_order", msg: { order: ["p-b", "p-a"], promptId: "p-b", next: true } });
     await until(() => view.shown.queue?.[0]?.id === "p-b");

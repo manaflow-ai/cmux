@@ -138,8 +138,10 @@ test("a listed inbox notice is no queue row, with or without its record", () => 
   const listed = { promptId: "n1", prompt: NOTICE_TEXT, client: "acpmux", held: true, fromAgent: null };
   const withThreads = mergeQueue([], [{ ...listed, inboxNotice: { kind: "inbox_notice", noticeId: "n1", threads } }]);
   expect(ownQueue(withThreads)).toEqual([]);
-  // It draws as the messages it carries, in the transcript's waiting group.
-  expect(queuedMessageRows(withThreads).length).toBe(1);
+  // Nor does it draw in the transcript: a message relayed between agents (Leo, 2026-11-12: "STOP
+  // f***ing SHOWING THESE f***ing MESSAGES").
+  expect(withThreads[0]?.inbox?.threads).toHaveLength(1);
+  expect(queuedMessageRows(withThreads)).toEqual([]);
   // One that names no thread, and one from an acpmux that lists no provenance: nothing to draw.
   const bare = mergeQueue([], [{ ...listed, inboxNotice: { kind: "inbox_notice", noticeId: "n1" } }]);
   expect(ownQueue(bare)).toEqual([]);

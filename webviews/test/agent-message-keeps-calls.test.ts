@@ -8,8 +8,11 @@
 //
 // Since 2026-11-10 a closed "Worked for" draws nothing beside it but the replies, as chatgpt.com
 // does (turn-fold-hides-every-call.test.ts): the stretch is checked opened, where it must still hold
-// the received message and every command, and closed, where nothing between the replies may be an
-// empty row.
+// every command, and closed, where nothing between the replies may be an empty row.
+//
+// Since 2026-11-12 the received message itself draws nothing (incomingMessage.ts
+// `relayedBetweenAgents`; Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES"): its row
+// stays as the hidden start of what it steered, and the commands around it stay in sight.
 //
 // Leo, 2026-11-07: "I think some of the tool calls, like, literally just get swallowed. They get
 // deleted completely when you, like, finish up a thing or whatever. Like in this particular
@@ -228,12 +231,12 @@ function holds(row: AcpmuxRow): string[] {
 }
 
 /// A row between two replies that draws something: a tool line with a call, a folded message run, or
-/// another agent's line.
+/// an incoming line that is not hidden.
 const drawsSomething = (row: AcpmuxRow) =>
   (row.kind === "activity" && (row.items ?? []).some((item) => item.tool)) ||
   row.kind === MESSAGE_RUN ||
   row.kind === LANE_NOTICE_BATCH ||
-  (row.kind === "user" && row.incoming !== undefined);
+  (row.kind === "user" && row.incoming !== undefined && row.incoming.kind !== "hidden");
 
 /// The finished turn's closed fold, as a Claude chat draws it, and what sits between its two replies.
 function between(rows: AcpmuxRow[], open = true) {
@@ -249,12 +252,18 @@ function between(rows: AcpmuxRow[], open = true) {
   return view.rows.slice(first + 1, last);
 }
 
-const received = (rows: AcpmuxRow[]) => rows.find((row) => row.kind === "user" && row.incoming !== undefined)!;
+/// The other agent's message: still a row, read as hidden, so it draws nothing.
+const received = (rows: AcpmuxRow[]) =>
+  rows.find((row) => row.kind === "user" && row.promptId === "0190a000-0000-7000-8000-00000000aa02")!;
+const drawnNowhere = (rows: AcpmuxRow[], shown: string[]) => {
+  expect(received(rows)?.incoming?.kind).toBe("hidden");
+  expect(shown).not.toContain(received(rows).id);
+  expect(rows.some((row) => row.text?.includes(AGENT_TEXT))).toBe(false);
+};
 
 for (const live of [true, false])
   test(`a command running when another agent's message came stays between the replies once the turn ends (${live ? "live" : "cold reload"})`, async () => {
     const rows = await rowsOf(runningCall, live);
-    expect(received(rows)).toBeDefined();
     // Closed, nothing between the two replies draws empty.
     expect(between(rows, false).filter((row) => !drawsSomething(row))).toEqual([]);
     const drawn = between(rows);
@@ -263,7 +272,7 @@ for (const live of [true, false])
     expect(drawn.filter((row) => !drawsSomething(row))).toEqual([]);
     const shown = drawn.flatMap(holds);
     expect(shown).toContain("call-2");
-    expect(shown).toContain(received(rows).id);
+    drawnNowhere(rows, shown);
   });
 
 for (const live of [true, false])
@@ -275,7 +284,7 @@ for (const live of [true, false])
     const shown = drawn.flatMap(holds);
     expect(shown).toContain("call-2");
     expect(shown).toContain("call-4");
-    expect(shown).toContain(received(rows).id);
+    drawnNowhere(rows, shown);
     // The file it wrote stays on the turn's edited-files card, once.
     const view = turnViewFrom(rows, new Set(), { now: START + 3_600_000, agentFamily: "claude" });
     const card = view.rows.filter((row) => row.kind === "activity" && row.items?.some((i) => i.tool?.id === "call-3"));

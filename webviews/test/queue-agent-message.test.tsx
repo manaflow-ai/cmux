@@ -1,9 +1,10 @@
 // Another agent's message waiting in the queue is no composer-queue row (Leo, 2026-10-25: "I don't
-// know why these things are queued up. It's kind of strange."): the transcript draws it at once as
-// its received line with no "Read after this turn" (Leo, 2026-10-29: "why the fuck do you guys keep
-// doing this fucking bullshit with the red after this turn?"), and a message's ⋯ menu, never the
-// queue row's (conversation/QueuedMessageCard.tsx). The queue's rows, its fold and its "N more queued" count are the person's own
-// prompts alone (ComposerQueue.tsx).
+// know why these things are queued up. It's kind of strange."), and the transcript draws no row for
+// it either (Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES"). A tool's notice that
+// waits still draws as its received line with no "Read after this turn" (Leo, 2026-10-29: "why the
+// fuck do you guys keep doing this fucking bullshit with the red after this turn?"), and a message's
+// ⋯ menu, never the queue row's (conversation/QueuedMessageCard.tsx). The queue's rows, its fold and
+// its "N more queued" count are the person's own prompts alone (ComposerQueue.tsx).
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -78,6 +79,20 @@ const agent = (index: number) => {
   };
 };
 const agents = Array.from({ length: 11 }, (_, index) => agent(index + 1));
+/// A tool's notice waiting in the queue (agentNotice.ts): no message relayed between agents, so it draws.
+const toolNotice = (index: number) => {
+  const text = `Build ${index} finished`;
+  return {
+    id: `n${index}`,
+    prompt: text,
+    message: {
+      name: "cmux",
+      text,
+      raw: text,
+      notice: { sender: "cmux", severity: "info" as const, title: text, links: [], system: true as const },
+    },
+  };
+};
 const own = (index: number) => ({ id: `p${index}`, prompt: `My prompt ${index}` });
 
 async function show(element: React.ReactElement) {
@@ -184,7 +199,7 @@ const item = (label: string) =>
     (each) => each.textContent?.trim() === label,
   )!;
 
-async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?: unknown[] }, calls: string[]) {
+async function card(entry: ReturnType<typeof toolNotice> & { next?: boolean; images?: unknown[] }, calls: string[]) {
   const [row] = queuedMessageRows([entry as never]);
   const actions = {
     steer: async (id: string) => (calls.push(`steer ${id}`), true),
@@ -219,24 +234,24 @@ const PERSON_QUEUE_ITEMS = [
   "composer.queueDelete",
 ] as const;
 
-test("an agent's waiting message: its line, no Read after this turn, a message's ⋯ menu", async () => {
-  const calls: string[] = [];
+test("an agent's waiting message draws no row: no line, no Read after this turn, no queue row", async () => {
   const entry = agent(1);
-  await card(entry, calls);
-  expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
-  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
+  expect(queuedMessageRows([entry as never])).toEqual([]);
+  await show(<ComposerQueue queue={[entry] as never} t={t} onRemove={async () => true} onChange={async () => true} />);
+  expect(host.querySelector(".acpmux-composer-queue, .acpmux-queued, .cv-received")).toBeNull();
+  expect(host.textContent).not.toContain("CI is green on #24001");
+  expect(host.textContent).not.toContain("Read after this turn");
+});
+
+test("a tool's waiting notice: its line, no Read after this turn, a message's ⋯ menu", async () => {
+  const calls: string[] = [];
+  await card(toolNotice(1), calls);
+  expect(host.textContent).toContain("Build 1 finished");
   expect(host.querySelector(".cv-received__queued-head, .cv-received__queued")).toBeNull();
   expect(host.textContent).not.toContain("Read after this turn");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
-  expect(host.querySelector(".cv-received__text")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!.click());
-  expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green on #24001");
-  // The sender's name opens its chat.
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());
-  expect(calls).toEqual(["open s-1"]);
-
-  // Another session's message: the ⋯ alone in its group, no hover Copy and no Pin (Leo, 2026-10-30:
-  // "all these weird button stuff from messages from other sessions... weird to be able to pin them").
+  // The ⋯ alone in its group, no hover Copy and no Pin (Leo, 2026-10-30: "all these weird button
+  // stuff from messages from other sessions... weird to be able to pin them").
   const group = host.querySelector(".cv-received__hover .cv-received-actions")!;
   expect(group.querySelector(`[aria-label="${t("turn.copy")}"]`)).toBeNull();
   expect(group.querySelector(".cv-message-pin")).toBeNull();
@@ -247,17 +262,17 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
   await act(async () => item(t("steer.sendNow")).click());
   await settle();
-  expect(calls.at(-1)).toBe("steer a1");
+  expect(calls.at(-1)).toBe("steer n1");
   // Send now goes once.
   await openMenu();
   expect(items()).toEqual([t("message.dismiss")]);
   await act(async () => item(t("message.dismiss")).click());
   await settle();
-  expect(calls.at(-1)).toBe("remove a1");
+  expect(calls.at(-1)).toBe("remove n1");
 });
 
 test("queued message actions stay revealed for either open-menu marker", async () => {
-  await card(agent(1), []);
+  await card(toolNotice(1), []);
   const slot = host.querySelector<HTMLElement>(".cv-received__hover")!;
   const trigger = slot.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
   expect(getComputedStyle(slot).opacity).toBe("0");
@@ -270,7 +285,9 @@ test("queued message actions stay revealed for either open-menu marker", async (
 });
 
 test("several queued messages carry no Read after this turn, the first one included", async () => {
-  const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
+  // Agents' messages among them draw no row at all.
+  const rows = queuedMessageRows([agent(4), toolNotice(4), agent(5), toolNotice(5), toolNotice(6)] as never);
+  expect(rows.map((row) => row.queuedMessage?.promptId)).toEqual(["n4", "n5", "n6"]);
   await show(
     <>
       {rows.map((row) => (
@@ -284,10 +301,10 @@ test("several queued messages carry no Read after this turn, the first one inclu
 });
 
 test("a message sent now offers no second Send now, and never the person's queue actions", async () => {
-  await card({ ...agent(2), next: true }, []);
+  await card({ ...toolNotice(2), next: true }, []);
   await openMenu();
   expect(items()).toEqual([t("message.dismiss")]);
-  await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, []);
+  await card({ ...toolNotice(3), images: [{ id: "img", mimeType: "image/png" }] }, []);
   await openMenu();
   expect(items()).toEqual([t("steer.sendNow"), t("message.dismiss")]);
   for (const key of PERSON_QUEUE_ITEMS) expect(items()).not.toContain(t(key));
