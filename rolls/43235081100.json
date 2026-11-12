@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43235081100",
+  "recorded_at": "2026-11-12T14:24:16Z",
+  "reason": "cmux-tui 2d6d0ea1fbf4 changes the image's cmux-tui (pinned 62fef3883660)",
+  "dry_run": false,
+  "cmux_tui": "2d6d0ea1fbf476f9eca5f4cf5deb7b5f5024ab74",
+  "fixes": [
+    {
+      "sha": "2d6d0ea1fbf476f9eca5f4cf5deb7b5f5024ab74",
+      "mergedAt": "2026-11-12T13:58:01Z",
+      "subject": "acpmux: a first chat on a harness that is not set up names its next step (#42015)"
+    },
+    {
+      "sha": "fc6b15a24f81b6cc763d055400154080d8ac3543",
+      "mergedAt": "2026-11-12T07:46:23-06:00",
+      "subject": "fix(cmux-tui): the PTY reader stack test reads mincore's page bits with no cast on either target"
+    },
+    {
+      "sha": "7f842d2fb90a962c223de2e8adbb430a9d5002c3",
+      "mergedAt": "2026-11-12T05:37:35-08:00",
+      "subject": "acpmux: the chats page's text follows a transcript from its last read, so a 1 GB chat costs what a small one does (#41870)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T14:24:16Z",
+    "snapshot_id": "sh-58ebe32a28814a3191da83748f6e00d9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43235081100): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0e08927fa474689cbb216c084fd6f5563a06bc29",
+    "image": "cloud-native-auto-2d6d0ea1-43235081100-1",
+    "revision": "ci-43235081100-1",
+    "at": "2026-11-12T14:24:16Z"
+  },
+  "rolled_back": false
+}
