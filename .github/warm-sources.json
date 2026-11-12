@@ -10,6 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
+    "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": ["actions-cache"]},
     "acpmux-sim-sweep.yml:sweep": {"class": "linux-rust", "warm": ["actions-cache"]},
     "agent-brands.yml:swift-test": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "app-ffi-release.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo from an empty target directory; a build script from a clean tree; no warm source wired yet"},

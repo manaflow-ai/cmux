@@ -139,7 +139,7 @@ jobs:
           mkdir -p "$out"
           report_args=(report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
+            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
           if [[ -f "$out/v2-god-small.json" ]]; then
