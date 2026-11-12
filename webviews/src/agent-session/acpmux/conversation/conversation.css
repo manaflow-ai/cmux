@@ -1916,8 +1916,10 @@
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
    tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
-   tall with a scrollbar as without one. A long diff scrolls in a box eight rows and a lane tall,
-   each hunk's box scrolling sideways inside it. Wrapped rows never scroll sideways: no lane. */
+   tall with a scrollbar as without one. A long diff shows eight rows and the lane under them:
+   Pierre's box is cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS) and scrolls down
+   itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
+   rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
   --cv-lane: 6px;
   --cv-bar: var(--cv-lane);
@@ -1930,7 +1932,8 @@
 /* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
    block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
-  max-height: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
+  --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
+  max-height: var(--cv-block-cut);
   overflow-y: auto;
 }
 /* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
