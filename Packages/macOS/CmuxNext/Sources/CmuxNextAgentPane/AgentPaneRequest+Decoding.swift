@@ -284,10 +284,17 @@ extension AgentPaneRequest {
         case "account.add":
             self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
-            // A harness id (profile file name), never a command.
-            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
-               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
-                self = .harnessUpdate(id: id)
+            // Harness ids (profile file names), never a command: one `id`, or `ids` for Update all.
+            let harnessId = { (value: Any?) -> String? in
+                guard let id = value as? String, !id.isEmpty, id.utf8.count <= 128,
+                      id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) else { return nil }
+                return id
+            }
+            if let id = harnessId(params?["id"]) {
+                self = .harnessUpdate(ids: [id], each: false)
+            } else if let list = params?["ids"] as? [Any], (1 ... 32).contains(list.count) {
+                let ids = list.compactMap(harnessId)
+                self = ids.count == list.count && Set(ids).count == ids.count ? .harnessUpdate(ids: ids, each: true) : .unsupported(method)
             } else {
                 self = .unsupported(method)
             }

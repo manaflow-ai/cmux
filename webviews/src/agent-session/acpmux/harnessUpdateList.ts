@@ -20,13 +20,16 @@ export type HarnessUpdateRow = {
   phase?: "updating" | "failed";
   error?: string;
   update(): void;
+  /// Starts it on its answer from Update all's one `harness.update {ids}` call.
+  updateWith(reply: Promise<unknown>): void;
   /// Skip This Version: the chat's own agent only, as before.
   skip?(): void;
 };
 
 export type HarnessUpdates = {
   rows: HarnessUpdateRow[];
-  /// Starts every row's update that is not already running.
+  /// Starts every row's update that is not already running, in one host call: the host spends the
+  /// person's click on its first `harness.update`, so one call per row would run only the first.
   updateAll(): void;
 };
 
@@ -59,9 +62,20 @@ type Progress = Record<string, { latest: string; phase: "updating" | "failed" | 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
+/// Update all's one answer (`{results: [{id, ok, version?, error?}]}`) as `id`'s own, in the shape
+/// `harness.update {id}` answers; a failed call fails every row with its words.
+export function answerFor(batch: Promise<unknown>, id: string): Promise<unknown> {
+  return batch.then((value) => {
+    const results = record(value).results;
+    const row = Array.isArray(results) ? results.find((entry) => record(entry).id === id) : undefined;
+    return row ?? { ok: false };
+  });
+}
+
 /// The list for the menus: the chat's own offer first, then every other outdated agent.
-/// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}`; `onUpdated` (stable, as
-/// `native` is) reads the health rows again once one finished, so its row leaves for good.
+/// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}` (or `{ids}` ->
+/// `{results}`); `onUpdated` (stable, as `native` is) reads the health rows again once one
+/// finished, so its row leaves for good.
 export function useHarnessUpdateList({
   rows,
   offer,
@@ -79,10 +93,10 @@ export function useHarnessUpdateList({
 }): HarnessUpdates | undefined {
   const [progress, setProgress] = useState<Progress>({});
   const start = useCallback(
-    (id: string, latest: string) => {
+    (id: string, latest: string, reply?: Promise<unknown>) => {
       setProgress((now) => ({ ...now, [id]: { latest, phase: "updating" } }));
       const failed = (error: string) => setProgress((now) => ({ ...now, [id]: { latest, phase: "failed", error } }));
-      native("harness.update", { id }).then(
+      (reply ?? native("harness.update", { id })).then(
         (value) => {
           const reply = record(value);
           if (reply.ok !== true) return failed(typeof reply.error === "string" ? reply.error.trim() : "");
@@ -103,6 +117,7 @@ export function useHarnessUpdateList({
         version: offer.version,
         latest: offer.latest,
         update: offer.update,
+        updateWith: offer.updateWith,
         skip: offer.skip,
       });
     for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness)) {
@@ -120,15 +135,19 @@ export function useHarnessUpdateList({
         ...(state ? { phase: state.phase } : {}),
         ...(state?.error ? { error: state.error } : {}),
         update: () => start(id, latest),
+        updateWith: (reply) => start(id, latest, reply),
       });
     }
     return out;
   }, [rows, offer, own, progress, nameFor, start]);
-  return useMemo(
-    () =>
-      list.length === 0
-        ? undefined
-        : { rows: list, updateAll: () => list.forEach((row) => row.phase !== "updating" && row.update()) },
-    [list],
-  );
+  return useMemo(() => {
+    if (list.length === 0) return undefined;
+    const updateAll = () => {
+      const due = list.filter((row) => row.phase !== "updating");
+      if (due.length === 0) return;
+      const batch = native("harness.update", { ids: due.map((row) => row.harness) });
+      for (const row of due) row.updateWith(answerFor(batch, row.harness));
+    };
+    return { rows: list, updateAll };
+  }, [list, native]);
 }

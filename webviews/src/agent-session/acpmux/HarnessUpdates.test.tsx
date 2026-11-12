@@ -82,7 +82,8 @@ afterEach(async () => {
   saved.clear();
 });
 
-type Call = { id: unknown; resolve: (value: unknown) => void };
+/// One `harness.update` call: `{id}` (one row's Update) or `{ids}` (Update all, one call for every row).
+type Call = { id: unknown; ids?: unknown; resolve: (value: unknown) => void };
 
 function List(props: {
   rows: unknown[];
@@ -109,7 +110,7 @@ async function mount(rows: unknown[], offer?: UpdateOffer) {
   const native = (method: string, params: Record<string, unknown>) =>
     new Promise<unknown>((resolve) => {
       expect(method).toBe("harness.update");
-      calls.push({ id: params.id, resolve });
+      calls.push({ id: params.id, ids: params.ids, resolve });
     });
   const draw = async (next: unknown[]) =>
     act(async () => {
@@ -134,6 +135,7 @@ test("the chat's own offer leads, then the others; each Update runs its own upda
     version: "2.1.30",
     latest: "2.1.34",
     update: () => ran.push("offer"),
+    updateWith: () => ran.push("offer.with"),
     skip: () => ran.push("skip"),
   };
   // acpmux's rows include the chat's own; it is listed once, as the offer.
@@ -161,17 +163,45 @@ test("the chat's own offer leads, then the others; each Update runs its own upda
   expect(view.names()).toEqual(["claude", "codex"]);
 });
 
-test("Update all starts every row; a failure stays on its row with Try Again", async () => {
-  const view = await mount([codex, opencode]);
+test("Update all is one host call for every row, the chat's own too; each row takes its own answer", async () => {
+  // The host spends the person's click on its first `harness.update` (AgentPaneHarnessCard), so
+  // one call per row would update only the first agent.
+  const own: Promise<unknown>[] = [];
+  const offer: UpdateOffer = {
+    harness: "claude",
+    agent: "Claude Code",
+    version: "2.1.30",
+    latest: "2.1.34",
+    update: () => {
+      throw new Error("Update all must not ask the host again for the chat's own agent");
+    },
+    updateWith: (reply) => own.push(reply),
+    skip: () => undefined,
+  };
+  const view = await mount([codex, opencode], offer);
   await view.click(view.container.querySelector(".acpmux-harness-updates-all"));
-  expect(view.calls.map((call) => call.id)).toEqual(["codex", "opencode"]);
-  await act(async () => view.calls[0]!.resolve({ ok: false, error: "npm error code EACCES" }));
+  expect(view.calls.map((call) => call.ids)).toEqual([["claude", "codex", "opencode"]]);
+  expect(view.log.closed).toBe(1);
+  expect(own).toHaveLength(1);
+  await act(async () =>
+    view.calls[0]!.resolve({
+      results: [
+        { id: "claude", ok: true, version: "2.1.34" },
+        { id: "codex", ok: false, error: "npm error code EACCES" },
+        { id: "opencode", ok: true, version: "1.19.5" },
+      ],
+    }),
+  );
+  // The chat's own answer goes to its offer (the composer's notice then offers Restart Chat).
+  expect(await own[0]).toEqual({ id: "claude", ok: true, version: "2.1.34" });
+  expect(view.names()).toEqual(["claude", "codex"]);
   const failed = view.rowOf("codex")!;
   expect(failed.getAttribute("data-phase")).toBe("failed");
   expect(failed.textContent).toContain("Try Again");
   expect(failed.querySelector("[title]")?.getAttribute("title")).toBe("npm error code EACCES");
+  expect(view.log.updated).toBe(1);
   await view.click(failed.querySelector(".acpmux-harness-update-run"));
-  expect(view.calls.map((call) => call.id)).toEqual(["codex", "opencode", "codex"]);
+  expect(view.calls.map((call) => call.id)).toEqual([undefined, "codex"]);
 });
 
 test("one outdated agent has no Update all; a version skipped in this profile is not listed", async () => {

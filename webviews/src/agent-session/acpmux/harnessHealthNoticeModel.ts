@@ -48,6 +48,9 @@ export type UpdateOffer = {
   version: string;
   latest: string;
   update(): void;
+  /// Starts it on an update already asked of the host (`reply`, its `harness.update` answer): the
+  /// model menus' Update all runs every agent's update on the person's one click.
+  updateWith(reply: Promise<unknown>): void;
   skip(): void;
 };
 
