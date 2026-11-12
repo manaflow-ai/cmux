@@ -32,7 +32,7 @@ use super::{Hub, PromptOptions, Session, SessionStatus};
 use crate::protocol::session::{RetryKind, RetryResult};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -59,9 +59,10 @@ pub(super) fn marker(old: &str) -> String {
     format!("[acpmux-resume:{old}]")
 }
 
-/// The old subagent id a prompt's [`marker`] names.
+/// The old subagent id a prompt's [`marker`] names: the last one, since a resumed run's brief
+/// already carries the marker of the run it resumed.
 fn marked(prompt: &str) -> Option<&str> {
-    let at = prompt.find("[acpmux-resume:")? + "[acpmux-resume:".len();
+    let at = prompt.rfind("[acpmux-resume:")? + "[acpmux-resume:".len();
     let end = prompt[at..].find(']')?;
     Some(&prompt[at..at + end]).filter(|id| !id.is_empty())
 }
@@ -118,18 +119,18 @@ impl Brief {
     }
 }
 
-/// Each chat's top-level subagents acpmux saw, by id, oldest first.
+/// Each chat's top-level subagents acpmux saw, by id, oldest first; and the (chat, subagent)
+/// pairs whose Resume prompt is out, from its send until its turn ends, so a second Resume (another
+/// surface, another device) is refused busy instead of starting the helper twice.
 #[derive(Default)]
-pub(crate) struct Resumes(Mutex<HashMap<String, Vec<(String, Brief)>>>);
+pub(crate) struct Resumes(
+    Mutex<HashMap<String, Vec<(String, Brief)>>>,
+    Mutex<HashSet<(String, String)>>,
+);
 
 impl Resumes {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<(String, Brief)>>> {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn get(&self, session: &str, id: &str) -> Option<Brief> {
-        let all = self.lock();
-        all.get(session)?.iter().find(|(i, _)| i == id).map(|(_, b)| b.clone())
     }
 
     /// Folds `e` into subagent `id`'s brief: the brief after it, and the one before.
@@ -475,6 +476,40 @@ impl Hub {
             return Err(refused("retry.nothing_failed", "the chat closed"));
         }
         self.retry_allowed(session, &by).await?;
+        let key = (session.id.clone(), id.clone());
+        if !self
+            .subagent_resumes
+            .1
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key.clone())
+        {
+            return Err(refused("retry.busy", "a Resume of this subagent is already out"));
+        }
+        let result = self.send_resume(session, id, brief, by, key.clone()).await;
+        if result.is_err() {
+            self.resume_done(&key);
+        }
+        result
+    }
+
+    /// The Resume of `key` is over: its prompt was refused, or its turn ended.
+    fn resume_done(&self, key: &(String, String)) {
+        self.subagent_resumes
+            .1
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(key);
+    }
+
+    async fn send_resume(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: String,
+        brief: Brief,
+        by: RetryBy,
+        key: (String, String),
+    ) -> Result<Value, RpcError> {
         let transcript = match brief.agent_id.clone() {
             Some(agent) => {
                 let meta = session.meta();
@@ -521,7 +556,9 @@ impl Hub {
         let (hub, s) = (self.clone(), session.clone());
         // The turn runs on: only acceptance is awaited.
         let task = self.scope.spawn_named("subagent-resume", async move {
-            hub.prompt_with(&s, blocks, "acpmux", false, opts).await
+            let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
+            hub.resume_done(&key);
+            result
         });
         let accepted = match rx.await {
             Ok(v) => v,

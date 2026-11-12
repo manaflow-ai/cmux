@@ -223,6 +223,39 @@ async fn a_resumed_subagent_continues_as_the_same_helper_and_reports_back() {
     assert_eq!((&old["state"], &old["resumedBy"]), (&json!("completed"), &json!("s/t9")));
 }
 
+/// A second Resume while the first one's prompt is out (another surface, another device) is
+/// refused busy: one prompt, one new run. A resume of a resumed run links to the run it resumes.
+#[tokio::test]
+async fn a_second_resume_while_one_is_out_is_refused_busy() {
+    let (hub, session, _conn) = chat().await;
+    hub.observe_resumable(&session, &[spawned("s/t1", "Fix CI")]);
+    hub.observe_resumable(&session, &[stopped("s/t1")]);
+    let (id, brief) = hub.resumable_subagent(&session, "s/t1").await.unwrap();
+    // Two at once: the first one out holds the helper until its turn ends.
+    let (a, b) = tokio::join!(
+        hub.resume_subagent(&session, id.clone(), brief.clone(), by_person()),
+        hub.resume_subagent(&session, id, brief, by_person()),
+    );
+    let busy = |r: &Result<Value, RpcError>| {
+        r.as_ref().err().and_then(|e| e.data.as_ref()).map(|d| d["reason"].clone())
+            == Some(json!("retry.busy"))
+    };
+    assert!(a.is_ok() != b.is_ok() && (busy(&a) || busy(&b)), "{a:?} {b:?}");
+    let mut sent = prompts(&hub, &session);
+    for _ in 0..50 {
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        sent = prompts(&hub, &session);
+    }
+    assert_eq!(sent.len(), 1, "one prompt: {sent:?}");
+    // A brief that already carries an older run's marker names the newest one last.
+    let seeded =
+        format!("Fix CI\n{}\n## Continuing an earlier run\n{}", marker("s/t0"), marker("s/t1"));
+    assert_eq!(marked(&seeded), Some("s/t1"));
+}
+
 #[tokio::test]
 async fn a_brief_is_read_from_the_log_after_a_restart() {
     let (hub, session, _conn) = chat().await;

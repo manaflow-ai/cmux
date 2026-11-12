@@ -180,7 +180,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       </div>
     );
   // An agent a shell call started stops with that call, not through Claude.
-  if (!stop || agent.command) return line;
+  if (!stop || !running(agent) || agent.command) return line;
   return (
     <div className="cv-subagent-stoppable">
       {line}
