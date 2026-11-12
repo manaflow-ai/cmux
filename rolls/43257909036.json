@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43257909036",
+  "recorded_at": "2026-11-12T16:30:49Z",
+  "reason": "cmux-tui 7069fa0984ec changes the image's cmux-tui (pinned edc0cb96604a)",
+  "dry_run": false,
+  "cmux_tui": "7069fa0984ec3946a6b52259581eddc9fab70e91",
+  "fixes": [
+    {
+      "sha": "7069fa0984ec3946a6b52259581eddc9fab70e91",
+      "mergedAt": "2026-11-12T07:56:29-08:00",
+      "subject": "acpmux test: carrier_faults reads the link state before the cut and at the end itself (#41899)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T16:30:49Z",
+    "snapshot_id": "sh-9e7a4b4875ae492994750ae2d9d1a3ce",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43257909036): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8ce81e512fee7199475f87cb3fdcac345eb79a91",
+    "image": "cloud-native-auto-7069fa09-43257909036-1",
+    "revision": "ci-43257909036-1",
+    "at": "2026-11-12T16:30:49Z"
+  },
+  "rolled_back": false
+}
