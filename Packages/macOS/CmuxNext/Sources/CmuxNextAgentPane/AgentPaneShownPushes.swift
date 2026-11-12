@@ -22,6 +22,9 @@ import AppKit
     private var owed: [(name: String, send: @MainActor (AgentPaneView) -> Void)] = []
     private var scheduled = false
     private var probe: AgentPaneVisibilityProbe?
+    /// The pane's page moved to another chat in place (``AgentPaneModel/adoptSession(_:)``): the
+    /// owner of the chats' owed work hands the pane the new chat's (``AgentPaneOwedWork``).
+    var onSessionChange: (@MainActor () -> Void)?
 
     /// Owes `name`'s push to `view`'s page: `send` runs once, on a later turn while `view` is seen,
     /// replacing any `name` push still owed.
@@ -87,8 +90,9 @@ extension AgentPaneView {
 ///
 /// The debt is the chat's, not a pane's. A chat nobody looks at often has no pane: its page was
 /// released to save memory, or no tab shows it yet. The pane made when the person comes to the
-/// chat takes the debt (``hand(to:)``). Each pane of the chat is asked
-/// (``AgentPaneView/whenSeen(_:_:)``), and the first one seen runs the work, once.
+/// chat takes the debt (``hand(to:)``), and so does a pane whose page moves to the chat in place.
+/// Each pane of the chat is asked (``AgentPaneView/whenSeen(_:_:)``), and the first one seen
+/// that still shows the chat runs the work, once.
 ///
 /// The diff warm of a turn's end goes through here: about 50 agents that end turns in bursts
 /// each ran a full-patch `git.diff` nobody waited for, in front of the git reads of the view
@@ -100,7 +104,11 @@ extension AgentPaneView {
 /// debts to the panes it makes.
 @MainActor public final class AgentPaneOwedWork {
     static let limit = 256
-    private var owed: [(session: String, name: String, work: @MainActor () -> Void)] = []
+    private var owed: [(session: String, name: String, work: @MainActor () -> Void)] = [] {
+        didSet { sessions = Set(owed.map(\.session)) }
+    }
+    /// The chats that owe work, so a pane of a chat that owes nothing costs one lookup.
+    private var sessions: Set<String> = []
 
     public init() {}
 
@@ -118,14 +126,21 @@ extension AgentPaneView {
     }
 
     /// Asks each pane in `views` whose chat owes work to run it when someone can see the pane: the
-    /// tab store calls it when it made a pane.
+    /// tab store calls it when it made a pane. A pane it saw asks again by itself when its page
+    /// moves to another chat. Work runs only in a pane that still shows the chat that owes it; a
+    /// pane that left the chat leaves the debt for the chat's next pane.
     public func hand(to views: some Sequence<AgentPaneView>) {
-        guard !owed.isEmpty else { return }
         for view in views {
-            guard let session = view.model.sessionId else { continue }
-            let names = owed.filter { $0.session == session }.map(\.name)
-            for name in names {
-                view.whenSeen(name) { [weak self] in self?.run(session, name) }
+            view.shownPushes.onSessionChange = { [weak self, weak view] in
+                guard let self, let view else { return }
+                hand(to: CollectionOfOne(view))
+            }
+            guard let session = view.model.sessionId, sessions.contains(session) else { continue }
+            for name in owed.filter({ $0.session == session }).map(\.name) {
+                view.whenSeen(name) { [weak self, weak view] in
+                    guard view?.model.sessionId == session else { return }
+                    self?.run(session, name)
+                }
             }
         }
     }
