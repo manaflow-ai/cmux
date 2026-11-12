@@ -1831,7 +1831,16 @@ function Columns({
             </div>
           </div>
           {menu.updates ? (
-            <HarnessUpdatesSection updates={menu.updates} onOwnUpdate={close} />
+            <HarnessUpdatesSection
+              updates={menu.updates}
+              onOwnUpdate={close}
+              firstAction={updateAction}
+              onFirstKeyDown={(event) => {
+                if (event.key !== "ArrowUp") return;
+                event.preventDefault();
+                field.current?.focus();
+              }}
+            />
           ) : (
             menu.update && (
               <>
