@@ -253,7 +253,6 @@ struct Pane {
     input: mpsc::Sender<String>,
     queue: Arc<std::sync::Mutex<PaneQueue>>,
     waiting: Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
-    closed: Arc<tokio::sync::Notify>,
     /// Until when the page draws its chat and takes no push.
     busy_until: Arc<std::sync::Mutex<Option<Instant>>>,
     next: std::sync::atomic::AtomicU64,
@@ -337,7 +336,7 @@ impl Pane {
                 }
             }
         });
-        Arc::new(Self { input, queue, waiting, closed, busy_until, next: 0.into() })
+        Arc::new(Self { input, queue, waiting, busy_until, next: 0.into() })
     }
 
     fn is_closed(&self) -> bool {
@@ -424,7 +423,7 @@ async fn pane_reconnect_bench() {
                 let i = n as usize % MIRRORED;
                 let row = json!({"sessionId": format!("{}-chat-{i}", PEERS[0]), "name": "lane",
                     "harness": "claude", "cwd": "/work",
-                    "status": if n % 2 == 0 { "running" } else { "idle" },
+                    "status": if n.is_multiple_of(2) { "running" } else { "idle" },
                     "updatedAt": i as u64 + 10, "planStep": "x".repeat(LARGE_PLAN_BYTES)});
                 let notice =
                     PeerNotice::SessionChanged { session: row, kind: "status".into(), seq: n };
