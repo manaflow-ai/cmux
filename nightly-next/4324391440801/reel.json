@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4324391440801",
+  "notes": "notes/4324391440801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41743,
+      "title": "acpmux: the home read detector keeps a path's shape through clone, to_owned, to_path_buf and as_path (#41721 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42033,
+      "title": "optchat-chief: read the settings file through cmux-config's path and JSONC reader",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41927,
+      "title": "prepush-gate: exit-0 unreadable output, a rustfmt that will not start, and look-alike rustup text are no verdict (#41888 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
