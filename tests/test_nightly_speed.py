@@ -144,6 +144,107 @@ class Record(unittest.TestCase):
         self.assertEqual(st["records"], [])
 
 
+def one_job_run(run_id=43300000001, conclusion="success", status="completed"):
+    return {"id": run_id, "event": "push", "status": status, "conclusion": conclusion, "run_attempt": 1,
+            "display_title": "chat: a landing", "head_branch": "nightly-next", "head_sha": "c" * 40,
+            "created_at": "2026-11-13T01:00:00Z", "updated_at": "2026-11-13T01:25:00Z"}
+
+
+def one_job_jobs(feed=True):
+    """decide (20 s), then one job on one Mac: hook 6 s, compile 8 min, sign 30 s, notarize 9 min, upload 1 min."""
+    def step(name, start, end):
+        return {"name": name, "conclusion": "success", "started_at": f"2026-11-13T01:{start}Z",
+                "completed_at": f"2026-11-13T01:{end}Z"}
+    steps = [step(ns.HOOK_STEP, "02:00", "02:06"), step(ns.BUILD_STEP, "02:06", "10:06"),
+             step("Sign the app", "10:06", "10:36"), step(ns.NOTARIZE_STEP, "10:36", "19:36"),
+             step("Write the build number", "19:36", "19:40")]
+    if feed:
+        steps.append(step(ns.FEED_STEP, "19:40", "20:40"))
+    return [{"name": "decide", "conclusion": "success", "runner_name": "cmux15-glaeda-nightly-only-3",
+             "created_at": "2026-11-13T01:00:30Z", "started_at": "2026-11-13T01:00:40Z",
+             "completed_at": "2026-11-13T01:01:00Z", "steps": []},
+            {"name": "nightly", "conclusion": "success", "runner_name": "cmux15-glaeda",
+             "created_at": "2026-11-13T01:01:00Z", "started_at": "2026-11-13T01:02:00Z",
+             "completed_at": "2026-11-13T01:21:00Z", "steps": steps}]
+
+
+class OneJob(unittest.TestCase):
+    """Build, sign and publish in one job of the push run: no sign run names it, and it uploads the feed itself."""
+
+    def test_a_one_job_nightly_is_recorded_from_its_push_run(self):
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + RUNS},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()},
+                         "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
+                         "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new"], ["4318547490101", "4330000000101"], "the two-run build and the one-job build")
+        apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"]]
+        self.assertEqual(len(apis), 4, "one list, two job lists for the two-run build, one for the one-job build")
+        self.assertEqual(sum("runs/43185474901/" in a for a in apis), 1,
+                         "a push run its sign run names is not read as a one-job nightly as well")
+        r = st["records"][-1]
+        self.assertEqual((r["push_run"], r["sign_run"], r["feed_at"]), (43300000001, 43300000001, "2026-11-13T01:20:40Z"))
+        self.assertEqual(r["push_to_feed"], 20.67)
+        self.assertEqual(r["stages"], {"a_push_wait": 0.5, "b_pre_build": 1.5, "j_one_job": 18.67, "c1_compile": 8.0,
+                                       "g1_notarize": 9.0, "step:Sign the app": 0.5,
+                                       f"step:{ns.FEED_STEP}": 1.0, "job:decide": 0.33, "job:nightly": 19.0})
+        self.assertEqual(r["runners"], {"build": "cmux15", "publish": "cmux15"})
+        self.assertEqual(r["hosts"]["cmux15"][:3], [2, 1.17, 0.1])
+        # Judged like any record: the budget, and its stages against their own trailing medians.
+        self.assertIn("j_one_job", ns.TOP_STAGES)
+        # Again with that history in the issue: one list read, nothing new.
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + RUNS}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual((st2["new"], st2["new_unpublished"]), ([], []))
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1)
+
+    def test_a_push_run_that_published_nothing_is_read_once(self):
+        runs = [one_job_run()]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs(feed=False)}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
+        self.assertEqual(st["unpublished"][0]["conclusion"], "success, no feed upload")
+        self.assertEqual(st["unpublished"][0]["push_run"], 43300000001)
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": runs}})
+        ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1, "its jobs are not read again")
+
+    def test_a_push_run_listed_before_its_sign_run_is_forgotten_once_the_sign_run_is_listed(self):
+        push = next(r for r in RUNS if r["id"] == 43185474901)
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [push]},
+                         "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new_unpublished"], [43185474901])
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+                          "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
+                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(st2["new"], ["4318547490101"])
+        self.assertNotIn(43185474901, [u["sign_run"] for u in st2["unpublished"]])
+
+    def test_only_a_push_run_that_succeeded_is_read(self):
+        runs = [one_job_run(1, "failure"), one_job_run(2, "cancelled"), one_job_run(3, None, "in_progress"),
+                {**one_job_run(4), "event": "workflow_dispatch"}]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": runs}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"], st["why"]), ([], [], None))
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 1)
+
+    def test_a_step_is_shown_in_the_diff_only_when_it_moved(self):
+        then = synthetic(1, 20.0, {"j_one_job": 18.0, "step:Sign the app": 0.5, "step:Make the DMG": 2.0})
+        now = synthetic(2, 40.0, {"j_one_job": 38.0, "step:Sign the app": 0.6, "step:Make the DMG": 21.0})
+        text = ns.render_verdict(ns.check([then, now], ".", run=FakeGh()))
+        self.assertIn("| step:Make the DMG | 21.0 | 2.0 | +19.0 |", text)
+        self.assertNotIn("step:Sign the app", text)
+
+
 BASE = {"promote": 2.0, "c_build": 15.0, "g_sign": 20.0, "tiny": 0.07}
 
 

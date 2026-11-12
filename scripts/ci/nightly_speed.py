@@ -25,6 +25,13 @@ publish-nightly, and the build number is <push run><attempt as 2 digits>. The st
   i_publish      publish-nightly started -> feed time
   job:<name>     every job that ran, start to end, by its name in the run
 
+A one-job nightly is one run: the push run itself uploads the feed and no sign run names it. It is found as a push
+run that succeeded with no sign run, and its record carries promote, a_push_wait, then:
+
+  b_pre_build    first job created -> the job with FEED_STEP started
+  j_one_job      that job started -> feed time; c1_compile and g1_notarize are its steps, when it has them
+  step:<name>    every step of that job that took STEP_FLOOR_MIN or more
+
 The named stages follow today's job graph; the job:<name> walls follow whatever jobs a run has, so when the
 pipeline changes shape (build, sign, notarize and publish in one job on one Mac is next) its new jobs are recorded
 and judged with no change here, and a named stage a run does not have is left out, never an error. The feed step
@@ -108,6 +115,9 @@ BUILD_STEP = "Build nightly app (Release)"
 NOTARIZE_STEP = "Notarize app ticket through final DMG"
 HOOK_STEP = "Set up runner"
 SIGN_RE = re.compile(r"^Sign nightly-next run (\d+) attempt (\d+)$")
+# A one-job nightly's steps are its stages. One under this many minutes is left out of the record (the history is
+# one issue body), and a slow one still shows in the job's own wall.
+STEP_FLOOR_MIN = 0.2
 # (key, label, nested): a nested stage is a step inside the stage before it, so it is left out of sums and of the
 # quality report's largest stage.
 STAGES: List[Tuple[str, str, bool]] = [
@@ -123,6 +133,7 @@ STAGES: List[Tuple[str, str, bool]] = [
     ("g1_notarize", "g1 notarize step", True),
     ("h_verify", "h verify + publish queue", False),
     ("i_publish", "i publish to feed", False),
+    ("j_one_job", "j one job (start -> feed)", False),
 ]
 STAGE_LABEL = {k: label for k, label, _ in STAGES}
 TOP_STAGES = [k for k, _, nested in STAGES if not nested]
@@ -261,15 +272,20 @@ def host_sums(lines: List[List[Any]]) -> Dict[str, List[Any]]:
 
 def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dict[str, Any]],
                  push_jobs: List[Dict[str, Any]], landed: Optional[float]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """The timing record of one published nightly, or (None, why) when its sign run has no feed upload."""
+    """The timing record of one published nightly, or (None, why) when its sign run has no feed upload. A one-job
+    nightly has no sign run: its push run uploads the feed, and is passed as `sign` too, with no sign jobs."""
+    one_job = sign.get("id") == push.get("id")
     m = SIGN_RE.match(sign.get("display_title") or "")
-    pub = find_job(sign_jobs, "publish-nightly")
+    feed_jobs = push_jobs if one_job else sign_jobs
+    pub = find_job(feed_jobs, "publish-nightly")
     feed_step = find_step(pub, FEED_STEP)
     if not feed_step:  # a reshaped pipeline: the upload in any job of the run
-        pub = next((j for j in sign_jobs if find_step(j, FEED_STEP)), None)
+        pub = next((j for j in feed_jobs if find_step(j, FEED_STEP)), None)
         feed_step = find_step(pub, FEED_STEP)
-    if not m or not feed_step or feed_step.get("conclusion") != "success" or not ts(feed_step.get("completed_at")):
+    if not (m or one_job) or not feed_step or feed_step.get("conclusion") != "success" \
+            or not ts(feed_step.get("completed_at")):
         return None, "no feed upload"
+    push_run, push_attempt = (int(m.group(1)), int(m.group(2))) if m else (push.get("id"), push.get("run_attempt") or 1)
     feed = ts(feed_step["completed_at"])
     p_created = ts(push.get("created_at"))
     s_created = ts(sign.get("created_at"))
@@ -296,28 +312,38 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
         "h_verify": minutes(g_end, pub_start),
         "i_publish": minutes(pub_start, feed),
     }
+    if one_job:
+        # One job builds, signs and publishes: the wait for it, its wall up to the feed, and its steps. The compile
+        # and notarize steps keep their names so their medians carry over from the two-run pipeline.
+        stages = {"promote": stages["promote"], "a_push_wait": stages["a_push_wait"],
+                  "b_pre_build": minutes(p_first, pub_start), "j_one_job": minutes(pub_start, feed),
+                  "c1_compile": span(find_step(pub, BUILD_STEP)), "g1_notarize": span(find_step(pub, NOTARIZE_STEP))}
+        for step in (pub or {}).get("steps") or []:
+            wall = span(step) if step.get("conclusion") != "skipped" else None
+            if wall is not None and wall >= STEP_FLOOR_MIN and step.get("name") not in (BUILD_STEP, NOTARIZE_STEP):
+                stages.setdefault(f"step:{(step.get('name') or '?')[:60]}", wall)
     for j in push_jobs + sign_jobs:
         wall = span(j) if j.get("conclusion") != "skipped" else None
         if wall is not None:
             stages.setdefault(f"job:{(j.get('name') or '?')[:60]}", wall)
     lines = job_lines(push_jobs) + job_lines(sign_jobs)
     return {
-        "build": f"{m.group(1)}{int(m.group(2)):02d}", "sha": push.get("head_sha"),
-        "push_run": int(m.group(1)), "push_attempt": int(m.group(2)),
+        "build": f"{push_run}{push_attempt:02d}", "sha": push.get("head_sha"),
+        "push_run": push_run, "push_attempt": push_attempt,
         "sign_run": sign.get("id"), "sign_attempt": sign.get("run_attempt") or 1,
         "sign_created": sign.get("created_at"), "pushed_at": push.get("created_at"),
         "landed_at": iso(landed), "feed_at": iso(feed),
         "merge_to_feed": minutes(landed, feed), "push_to_feed": minutes(p_created, feed),
         "stages": {k: v for k, v in stages.items() if v is not None},
         "runners": {k: host_of((j or {}).get("runner_name")) for k, j in
-                    (("build", build), ("sign", signer), ("publish", pub)) if j},
+                    (("build", pub if one_job else build), ("sign", signer), ("publish", pub)) if j},
         "hosts": host_sums(lines), "jobs": lines,
     }, None
 
 
 def unpublished_line(sign: Dict[str, Any], why: Optional[str] = None) -> Dict[str, Any]:
     m = SIGN_RE.match(sign.get("display_title") or "")
-    return {"sign_run": sign.get("id"), "push_run": int(m.group(1)) if m else None,
+    return {"sign_run": sign.get("id"), "push_run": int(m.group(1)) if m else sign.get("id"),
             "conclusion": why or sign.get("conclusion"), "created_at": sign.get("created_at"),
             "held_min": minutes(ts(sign.get("created_at")), ts(sign.get("updated_at")))}
 
@@ -387,6 +413,13 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
     by_id = {r.get("id"): r for r in runs}
     signs = [r for r in runs if SIGN_RE.match(r.get("display_title") or "") and r.get("status") == "completed"
              and r.get("id") not in known and (r.get("created_at") or "") >= oldest]
+    # A one-job nightly: a push run that succeeded and that no sign run names. With the two-run pipeline a push run
+    # that succeeded has dispatched its sign run before it ends (48 of 48 on 2026-11-11 and 12; the superseded ones
+    # are cancelled), so none is read here for nothing. One listed before its sign run is forgotten once that run is.
+    signed = {int(SIGN_RE.match(r["display_title"]).group(1)) for r in runs if SIGN_RE.match(r.get("display_title") or "")}
+    signs += [r for r in runs if r.get("event") == "push" and not SIGN_RE.match(r.get("display_title") or "")
+              and r.get("status") == "completed" and r.get("conclusion") == "success" and r.get("id") not in signed
+              and r.get("id") not in known and (r.get("created_at") or "") >= oldest]
     signs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
     new_recs, new_unp, whys = [], [], []
@@ -394,11 +427,12 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         if sign.get("conclusion") != "success":
             new_unp.append(unpublished_line(sign))
             continue
-        push_id, push_attempt = SIGN_RE.match(sign["display_title"]).groups()
+        m = SIGN_RE.match(sign.get("display_title") or "")
+        push_id, push_attempt = m.groups() if m else (sign["id"], sign.get("run_attempt") or 1)
         try:
             push = by_id.get(int(push_id)) or gh_api(f"repos/{repo}/actions/runs/{push_id}", token, run)
             sign_jobs = gh_api(f"repos/{repo}/actions/runs/{sign['id']}/attempts/{sign.get('run_attempt') or 1}/jobs?per_page=100",
-                               token, run).get("jobs") or []
+                               token, run).get("jobs") or [] if m else []
             push_jobs = gh_api(f"repos/{repo}/actions/runs/{push_id}/attempts/{push_attempt}/jobs?per_page=100",
                                token, run).get("jobs") or []
         except (SourceError, AttributeError) as e:
@@ -410,7 +444,8 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         else:
             new_unp.append(unpublished_line(sign, f"success, {why}"))
     state["records"] = merge(state["records"], new_recs, "feed_at", HISTORY_KEEP)
-    state["unpublished"] = merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
+    state["unpublished"] = [u for u in merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
+                            if u["sign_run"] not in signed]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
     state["why"] = "; ".join(whys) or None
@@ -596,8 +631,9 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                     f"merge to feed {num(d['ref_merge_to_feed'], ' min')}", "",
                 "| Stage | Now | Then | Delta | Trailing median |", "| --- | --- | --- | --- | --- |"]
         for s in d["stages"]:
-            # A job wall is shown when it is slow or moved a minute; the named stages always.
-            if s["stage"].startswith("job:") and s["stage"] not in c["slow"] and abs(s["delta"] or 0) < SLOW_FLOOR_MIN:
+            # A job wall or a step is shown when it is slow or moved a minute; the named stages always.
+            if s["stage"].startswith(("job:", "step:")) and s["stage"] not in c["slow"] \
+                    and abs(s["delta"] or 0) < SLOW_FLOOR_MIN:
                 continue
             mark = " **slow**" if s["stage"] in c["slow"] else ""
             out.append(f"| {STAGE_LABEL.get(s['stage'], s['stage'])}{mark} | {num(s['now'])} | {num(s['ref'])} | "
@@ -674,8 +710,8 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
                  f"(`scripts/ci/nightly_speed.py`). Do not edit: the next run replaces this body.\n", render_verdict(c),
                  f"## Newest {len(c['rows'])} nightlies (minutes)\n", render_table(c["rows"]), ""]
         if unp:
-            lines += [f"## Sign runs that did not publish (newest {len(unp)} of {len(unpublished)} kept)\n",
-                      "| Created (UTC) | Sign run | Push run | Conclusion | Open in the sign group, min |", "| --- | --- | --- | --- | --- |"]
+            lines += [f"## Runs that did not publish (newest {len(unp)} of {len(unpublished)} kept)\n",
+                      "| Created (UTC) | Run | Push run | Conclusion | Open in the sign group, min |", "| --- | --- | --- | --- | --- |"]
             lines += [f"| {(u.get('created_at') or '')[5:16].replace('T', ' ')} | {u['sign_run']} | {u.get('push_run')} | "
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
