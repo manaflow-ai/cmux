@@ -245,8 +245,11 @@ import Testing
         #expect(JoystickGeometry.travel == 14)
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
         // The screenshot's case: a long drag up moves the dot 14 pt.
-        #expect(geometry.thumbOffset(for: CGSize(width: 0, height: -120)) == CGSize(width: 0, height: -14))
-        #expect(geometry.thumbOffset(for: CGSize(width: 200, height: 0)) == CGSize(width: 14, height: 0))
+        // (Scaling rounds: 200 x 14 / 200 is 14.000000000000002.)
+        let up = geometry.thumbOffset(for: CGSize(width: 0, height: -120))
+        #expect(abs(up.width) < 0.001 && abs(up.height + 14) < 0.001)
+        let right = geometry.thumbOffset(for: CGSize(width: 200, height: 0))
+        #expect(abs(right.width - 14) < 0.001 && abs(right.height) < 0.001)
         // Diagonally it keeps the finger's direction, on the same edge.
         let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
         #expect(abs(hypot(diagonal.width, diagonal.height) - 14) < 0.001)
