@@ -305,3 +305,88 @@ fn a_recorder_without_a_watch_stops_counting_when_the_setting_goes_off() {
     recorder.wake_writer();
     writer.join().unwrap();
 }
+
+/// A recorder with the setting on and no watch. Its writer thread is started
+/// by [`start_writer`] and stopped by [`stop_writer`].
+fn recorder_without_a_watch(name: &str) -> (PathBuf, Arc<Recorder>) {
+    let dir = scratch(name);
+    let settings = config(&dir, true);
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", settings));
+    assert!(recorder.enabled());
+    (dir, recorder)
+}
+
+fn start_writer(
+    recorder: &Arc<Recorder>,
+    flush_every: Duration,
+) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let recorder = Arc::clone(recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            recorder.run_writer(flush_every, &|| stop.load(Ordering::Relaxed));
+        })
+    };
+    (stop, writer)
+}
+
+fn stop_writer(recorder: &Recorder, stop: &AtomicBool, writer: std::thread::JoinHandle<()>) {
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// The setting goes off, then a command is counted, and only then does the
+/// writer get to its wait: the wake of that count is pending, which is the
+/// path of a writer that the count woke from its sleep. The writer rereads
+/// the setting at that wake: it does not count on until the write that the
+/// count made due (here 30 s later). The thread starts after the count, so
+/// its first reread always finds the whole off file.
+#[test]
+fn a_writer_without_a_watch_stops_counting_when_the_next_count_wakes_it() {
+    let (dir, recorder) = recorder_without_a_watch("no-watch-wake");
+    config(&dir, false);
+    recorder.count("command", "split");
+    let (stop, writer) = start_writer(&recorder, Duration::from_secs(30));
+    let started = Instant::now();
+    while recorder.enabled() {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the writer did not reread the setting when a count woke it: the recorder \
+             still counts 5 s later"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    recorder.count("command", "split");
+    assert_eq!(
+        recorder.snapshot().counts["command"]["split"],
+        1,
+        "a command was counted after the writer read that the setting is off"
+    );
+    stop_writer(&recorder, &stop, writer);
+}
+
+/// The writer waits for its timed write when the setting goes off, and
+/// nothing is counted after that. It rereads the setting at that write: with
+/// no count to come, no later wake would read it.
+#[test]
+fn a_writer_without_a_watch_that_waits_for_its_write_stops_counting_at_that_write() {
+    let (dir, recorder) = recorder_without_a_watch("no-watch-write-due");
+    let (stop, writer) = start_writer(&recorder, Duration::from_millis(300));
+    recorder.count("command", "split");
+    // Time for the writer to start its 300 ms wait. A writer that starts
+    // later than this reads the off file at its first wake, which also passes.
+    std::thread::sleep(Duration::from_millis(100));
+    config(&dir, false);
+    let turned_off = Instant::now();
+    while recorder.enabled() {
+        assert!(
+            turned_off.elapsed() < Duration::from_secs(5),
+            "the writer did not reread the setting at its timed write: the recorder \
+             still counts 5 s after the setting went off"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stop_writer(&recorder, &stop, writer);
+}
