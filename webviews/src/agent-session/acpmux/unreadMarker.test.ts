@@ -15,15 +15,7 @@ import {
   unreadPending,
   unreadRead,
 } from "./conversation/unreadState";
-import {
-  jumpUpShown,
-  jumpUpTarget,
-  newerMark,
-  placeOffScreen,
-  placeOffView,
-  pressJumpUp,
-  type ManualMark,
-} from "./jumpUp";
+import { jumpUpShown, jumpUpTarget, placeOffScreen, placeOffView, pressJumpUp, type ManualMark } from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
 
 beforeEach(() => resetUnreadForTest());
@@ -70,18 +62,13 @@ test("hiding the banner keeps the line; Jump and the latest message end it (#400
   expect(unreadPending("s:41", readUnread())).toBe(false);
 });
 
-const mark = (rowId: string, at: number, why: ManualMark["why"]): ManualMark => ({
-  place: { rowId, offset: 0 },
-  at,
-  why,
-});
+const mark = (rowId: string, at: number): ManualMark => ({ place: { rowId, offset: 0 }, at, why: "idle" });
 
-test("Jump up goes to the unread line first, else the newer of the last prompt and the last stop", () => {
-  expect(jumpUpTarget("sinceDivider", mark("p", 5, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("sinceDivider");
-  expect(jumpUpTarget(undefined, mark("p", 5, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("r");
-  expect(jumpUpTarget(undefined, mark("p", 12, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("p");
-  expect(jumpUpTarget(undefined, undefined, undefined)).toBeUndefined();
-  expect(newerMark(undefined, mark("r", 1, "stopped"))?.place.rowId).toBe("r");
+test("Jump up goes to the unread line first, else where the reader's idle stretch pinned its mark", () => {
+  expect(jumpUpTarget("sinceDivider", mark("r", 9))?.rowId).toBe("sinceDivider");
+  expect(jumpUpTarget("sinceDivider", undefined)?.rowId).toBe("sinceDivider");
+  expect(jumpUpTarget(undefined, mark("r", 9))?.rowId).toBe("r");
+  expect(jumpUpTarget(undefined, undefined)).toBeUndefined();
 });
 
 test("Jump up shows only while its place is off screen, and while it holds a way back", () => {

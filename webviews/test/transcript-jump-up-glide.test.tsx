@@ -1,7 +1,9 @@
 // Jump up (jumpUp.ts) glides to where the reader left off, on Jump to latest's ride, instead of cutting
 // there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
 // gracefully than whatever's going on here."). A long way skips at once to one viewport from the
-// place and eases the rest; the way back glides too.
+// place and eases the rest; the way back glides too. The place is set by idle detection (Leo,
+// 2026-11-12: "at least one full screen of idleness"): only once a screen of new content came in
+// below the reader's last prompt does Jump up have somewhere to go.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -87,17 +89,27 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
   const root = createRoot(dom.window.document.getElementById("root")!);
   const expanded = new Set<string>();
   try {
-    await act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(rows, expanded)}
-          jumpButton
-          onToggleActivity={() => {}}
-          expanded={expanded}
-        />,
-      ),
-    );
+    const show = (shown: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(shown, expanded)}
+            jumpButton
+            onToggleActivity={() => {}}
+            expanded={expanded}
+          />,
+        ),
+      );
+    // The chat opens many screens into the reply: nothing new came in since, so no mark yet.
+    await show(rows.slice(0, 51));
     await act(async () => nextFrame());
+    await act(async () => nextFrame());
+    const early = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-up");
+    expect(early?.hasAttribute("data-shown") ?? false).toBe(false);
+    // The reply goes on, a few more screens, while the reader is idle: the mark pins at the prompt.
+    await show(rows);
+    // The rows that came land on the follow's own motion: let it settle before the press.
+    for (let i = 0; i < 60; i++) await act(async () => nextFrame());
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const end = scrollerEnd(scroller);
     expect(end).toBeGreaterThan(VIEWPORT * 4);

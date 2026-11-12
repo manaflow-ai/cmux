@@ -78,8 +78,13 @@ thread."
 - **Jump to latest** (unchanged): a glass disc on the composer's center line while the reader is scrolled up.
 - **Jump up** stands one control and one gap above it (`jumpPair.css`): the same disc, size, glass, focus and
   fade, its arrow up. The two read as one column, and neither moves for the other.
-- It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else the newer of the
-  person's last sent prompt and where they last stopped scrolling by hand.
+- It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else where their view was
+  when they went idle, once a full screen of new content came in below it (Leo, 2026-11-12: "it's more so,
+  like, idle detection... when you have, like, at least one full screen of idleness, that's when it starts
+  having that"). An idle stretch starts only at the reader's own acts: a scroll by hand (a third down the
+  view) or a send (the prompt's row). Once set, the mark stays until they act again: restarts, reconnects,
+  app updates, hot reloads, the view's own moves and notice rows never move it. It is kept per chat across
+  reloads.
 - It shows only while that place is off screen.
 - Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
