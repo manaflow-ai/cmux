@@ -74,6 +74,15 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(TESTS))
 
 import workflow_jobs  # noqa: E402
+# Every test module a fixture runs or patches, imported by literal name: tests/test_script_module_loads.py reads
+# these to keep one module object per file, and the tables below look them up in sys.modules.
+import test_ci_fork_runner_routing  # noqa: E402,F401
+import test_ci_signing_keychain_is_deleted_before_bundle_code  # noqa: E402,F401
+import test_ci_signing_owned_mac  # noqa: E402,F401
+import test_nightly_sign_runner  # noqa: E402,F401
+import test_nightly_trusted_routing  # noqa: E402,F401
+import test_publish_app_token_workflow  # noqa: E402,F401
+import test_seed_derived_data  # noqa: E402,F401
 
 KEYCHAIN = "test_ci_signing_keychain_is_deleted_before_bundle_code"
 
@@ -160,7 +169,7 @@ class KeychainListFixtures(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.guard = importlib.import_module(KEYCHAIN)
+        cls.guard = sys.modules[KEYCHAIN]
         cls.documents = _documents()
 
     def test_step_level_only(self) -> None:
@@ -277,7 +286,7 @@ class ResolverGaps(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.documents = _documents()
-        cls.keychain = importlib.import_module(KEYCHAIN)
+        cls.keychain = sys.modules[KEYCHAIN]
         cls.routing = importlib.import_module("test_nightly_trusted_routing")
         cls.overflow = importlib.import_module("test_ci_overflow_pick_reads_pool")
 
@@ -384,7 +393,7 @@ class MatrixReadsNothingResolves(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.keychain = importlib.import_module(KEYCHAIN)
+        cls.keychain = sys.modules[KEYCHAIN]
 
     def _failures(self, runs_on: str, matrix: dict) -> list[str]:
         job = {"runs-on": runs_on, "strategy": {"matrix": matrix}, "steps": [self.SECRET]}
@@ -479,14 +488,14 @@ PRE_FIX_ONLY = {
     "fromJSON literal matrix (a control on the nightly pool)": (("workflow_jobs", "_matrix", _matrix_as_written),),
     "SCRIPT_MADE_KEYCHAINS (a mention is no invocation)": (
         (KEYCHAIN, "script_made_keychain", lambda job: next(
-            (script for script in importlib.import_module(KEYCHAIN).KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
+            (script for script in sys.modules[KEYCHAIN].KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
             None)),),
     # Codex, #40846 F2: the pre-fix readers matched the script path anywhere in the step's or the job's text.
     "RELEASE_POOL_SIGNERS (a mention is no invocation)": (
         (KEYCHAIN, "release_pool_signer", lambda job: min(
             {path for step in job.get("steps") or [] if isinstance(step, dict)
              and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")
-             for path in importlib.import_module(KEYCHAIN).RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", "")))},
+             for path in sys.modules[KEYCHAIN].RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", "")))},
             default=None)),),
     "MANAGED_KEYCHAINS (a mention is no invocation)": (
         (KEYCHAIN, "makes_managed_keychain", lambda job: "signing-keychain.sh create" in json.dumps(job)),),
@@ -571,7 +580,7 @@ FIXTURES = (
 
 
 def run_fixture(module: str, cls: str, method: str) -> unittest.TestResult:
-    case = getattr(sys.modules[module] if module == HERE else importlib.import_module(module), cls)(method)
+    case = getattr(sys.modules[module], cls)(method)
     result = unittest.TestResult()
     unittest.TestSuite([case]).run(result)
     return result
@@ -600,7 +609,7 @@ class PreFixMutation(unittest.TestCase):
             with self.subTest(list=label, fixture=red):
                 with (ExitStack() if label in PRE_FIX_ONLY else PreFixReader.patched()) as stack:
                     for owner, name, old in (*PRE_FIX_GUARDS.get(label, ()), *PRE_FIX_ONLY.get(label, ())):
-                        stack.enter_context(mock.patch.object(importlib.import_module(owner), name, old))
+                        stack.enter_context(mock.patch.object(sys.modules[owner], name, old))
                     found = outcome(run_fixture(module, cls, red))
                 print(f"pre-fix reader: {label}: {red}: {found}", file=sys.stderr)
                 self.assertTrue(found.startswith("red"), f"{label}: {red} stays green with the pre-fix reader")
