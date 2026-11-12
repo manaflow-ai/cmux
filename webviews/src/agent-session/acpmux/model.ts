@@ -645,6 +645,10 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// A turn with no answer keeps its footer beside this work label, in the same layout row.
+  workedFooter?: AcpmuxRow;
+  /// Its footer is drawn by the turn's final Worked for row; keep this logical turn boundary.
+  footerInWorked?: true;
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -2311,7 +2315,10 @@ function fallbackRowHeight(
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
   // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
   // The running turn's "Working for" over its work keeps the "Worked for" line's box (WorkingFor.tsx).
-  if (row.kind === WORKED || row.kind === WORKING) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
+  if (row.kind === WORKED || row.kind === WORKING)
+    return finish(
+      (row.workedFooter ? Math.max(toolRowHeight(), metaRow()) : toolRowHeight()) + WORKED_GAP_PT * chromeScale,
+    );
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.

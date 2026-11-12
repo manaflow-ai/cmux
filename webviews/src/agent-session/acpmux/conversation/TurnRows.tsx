@@ -121,10 +121,10 @@ export function WorkedFor({
   // that was stopped or failed did not succeed, so it gets none.
   const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
   const finished = ended && !UNFINISHED.has(row.status ?? "");
-  return (
+  const disclosure = (
     <button
       type="button"
-      className="cv-worked has-divider is-toggle"
+      className={`cv-worked is-toggle${row.workedFooter ? "" : " has-divider"}`}
       data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
@@ -136,6 +136,14 @@ export function WorkedFor({
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
       {finished && <FinishCheck />}
     </button>
+  );
+  return row.workedFooter ? (
+    <div className="cv-worked-row">
+      {disclosure}
+      <TurnFooter row={row.workedFooter} inline />
+    </div>
+  ) : (
+    disclosure
   );
 }
 
@@ -356,7 +364,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// on the reply only after a failure. Put it, with the model switch, in the last turn's footer."). A
 /// failed turn's row always shows; so does the footer that ends the chat (#31503), so a finished
 /// reply's Copy and Retry are in sight.
-export function TurnFooter({ row }: { row: AcpmuxRow }) {
+export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: boolean }) {
   const t = useT();
   const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
@@ -549,13 +557,15 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )}
       <div
         className={
-          failed
-            ? "cv-turn-actions cv-turn-actions--failed"
-            : resumable
-              ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
-                ? "cv-turn-actions cv-turn-actions--empty"
-                : "cv-turn-actions"
+          inline
+            ? "cv-turn-actions cv-turn-actions--empty cv-turn-actions--inline"
+            : failed
+              ? "cv-turn-actions cv-turn-actions--failed"
+              : resumable
+                ? "cv-turn-actions cv-turn-actions--resumable"
+                : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+                  ? "cv-turn-actions cv-turn-actions--empty"
+                  : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">

@@ -244,3 +244,16 @@ test("the first visible turn's separator ages even after an invisible first turn
   const updated = turnViewFrom(rows, folds, { now: start + 2 * 3_600_000 }, previous);
   expect(updated.rows.filter((row) => row.kind === "date").map((row) => row.id)).toEqual(["date-next"]);
 });
+
+test("a tool-only turn hosts its footer beside work and retains one logical boundary", () => {
+  const rows = [row("hover-u", "user"), tool("hover-tool"), summary(), row("hover-next", "user")];
+  for (const expanded of [new Set<string>(), new Set(["worked-hover-u"])]) {
+    const shaped = turnView(rows, expanded);
+    const worked = shaped.find((entry) => entry.id === "worked-hover-u")!;
+    const boundary = shaped.find((entry) => entry.id === "end")!;
+    expect(worked.workedFooter?.id).toBe("end");
+    expect(boundary.footerInWorked).toBe(true);
+    expect(shaped.filter((entry) => entry.workedFooter)).toHaveLength(1);
+    expect(worked.workedFooter?.at).toBe(boundary.at);
+  }
+});
