@@ -200,6 +200,26 @@ import Testing
         #expect(reads.count == before + 1, "the page that shows again does not read again")
     }
 
+    /// A hide in a list's first read ends the read, so the palette is not loading any more (a script reads
+    /// this as `palette_loading`). The page that shows again reads again.
+    @Test(.timeLimit(.minutes(1))) func aPaletteThatHidesInARunningReadIsNotLoading() async throws {
+        let clock = ManualClock()
+        let slow = AsyncPaletteProvider(id: "history.agents") {
+            try? await clock.sleep(for: .seconds(60))
+            return []
+        }
+        let model = PaletteModel(persistence: nil)
+        defer { model.send(.close) }
+        model.reset(to: PalettePageSpec(id: "history.agents", title: "Agent Sessions", placeholder: "", providers: [slow]))
+        try await clock.waitForSleeper()
+        #expect(model.isLoading)
+
+        model.didHide()
+        #expect(!model.isLoading, "a hidden palette whose read ended says that it loads")
+        model.didShowAgain()
+        #expect(model.isLoading, "the page that shows again does not read again")
+    }
+
     @Test(.timeLimit(.minutes(1))) func aHeadlessReadOfTheListDoesNotWaitForTheRest() async {
         let reads = Reads([HistoryRead(entries: [], pending: [.agent])])
         let rows = await Self.provider(reads, clock: ManualClock()).items()
