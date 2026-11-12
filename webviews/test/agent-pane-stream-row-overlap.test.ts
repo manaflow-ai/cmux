@@ -432,6 +432,40 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       [busy, every] as const,
     );
 
+  /// Resolves once the transcript is at rest: for REST_FRAMES painted frames in a row, no animation
+  /// with an end runs on the page (a spinner's endless one does not count) and no row moved, resized
+  /// or changed its text, with the scroll offset unchanged. A fixed pause raced the drain of the
+  /// reply's last words, which a busy runner stretches past it (agent-pane-stream-row-overlap red on
+  /// WebKit in #41282 and on Chromium on its base). The timeout bounds a page that never settles.
+  const REST_FRAMES = 12;
+  async function atRest(page: Page) {
+    await page.evaluate(() => {
+      delete (window as unknown as { __rest?: unknown }).__rest;
+    });
+    await page.waitForFunction(
+      (frames) => {
+        const w = window as unknown as { __rest?: { key: string; same: number } };
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        if (!scroller) return false;
+        const moving = document.getAnimations().some((animation) => {
+          if (animation.playState !== "running") return false;
+          const end = animation.effect?.getComputedTiming().endTime;
+          return typeof end === "number" && Number.isFinite(end);
+        });
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")].map((row) => {
+          const rect = row.getBoundingClientRect();
+          return `${Math.round(rect.top * 2)}:${Math.round(rect.height * 2)}:${row.textContent?.length ?? 0}`;
+        });
+        const key = [Math.round(scroller.scrollTop), scroller.scrollHeight, ...rows].join("|");
+        const same = !moving && w.__rest?.key === key ? w.__rest.same + 1 : 0;
+        w.__rest = { key, same };
+        return same >= frames;
+      },
+      REST_FRAMES,
+      { polling: "raf", timeout: 30_000 },
+    );
+  }
+
   async function open(name: string) {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
@@ -439,8 +473,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 13.").waitFor();
-    // fixed-wait: the opened chat settles (its fades end) before the frames under test.
-    await page.waitForTimeout(600);
+    // The opened chat settles (its fades end) before the frames under test.
+    await atRest(page);
     return page;
   }
 
@@ -468,8 +502,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           await page.mouse.wheel(0, -60);
         });
         await page.locator(".acpmux-row--last-footer").waitFor({ timeout: 60_000 });
-        // fixed-wait: the reply's last lines drain and its rows come to rest.
-        await page.waitForTimeout(800);
+        // The reply's last lines drain and its rows come to rest.
+        await atRest(page);
         // At rest no row keeps a clip: a tail glide's clip held under the reader's scroll and left on
         // once the turn's fold ended hid the reply's last lines over nothing (review of cmux#41034).
         const heldClips = await page.evaluate(
