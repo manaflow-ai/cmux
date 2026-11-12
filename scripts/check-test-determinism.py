@@ -5296,6 +5296,91 @@ def _self_test() -> int:
             "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], check=True)\n",
             {RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
+        # Only text names the helper: a string, a docstring, an echo, a heredoc or an inline comment does not load it,
+        # so none of them may suppress the rule (Codex F2 on cmux#41447).
+        (
+            "tests/git_write_string_names_helper.py",
+            "import subprocess\nHINT = 'load tests/git_fixture_env.py first'\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_docstring_names_helper.py",
+            '"""Like the tests that import git_fixture_env."""\nimport subprocess\n'
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_call_string_names_helper.py",
+            "import subprocess\nprint('git_fixture_env is not loaded')\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_echo_names_helper.test.sh",
+            'echo "run: source lib/git-fixture.sh first"\nw=$(mktemp -d)\ngit -C "$w" init -q\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_heredoc_names_helper.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/child.sh\" <<'EOF'\nsource lib/git-fixture.sh\nEOF\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_assigned_string_names_helper.test.sh",
+            "hint='. lib/git-fixture.sh'\nw=$(mktemp -d)\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # The same text match let a comment or a string turn git-temp-repo-maintenance off.
+        (
+            "tests/temp_repo_comment_names_helper.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()  # unlike git_fixture_env users\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_string_names_helper.test.sh",
+            'echo "see git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # An EXIT action the rule did not read: an assignment on the trap's own line, a double-quoted one, a
+        # git_fixture_trap_exit of a variable, a double-quoted text or a function name, and an action it cannot
+        # resolve at all (Codex F1 on cmux#41677). Each re-raises before its cleanup.
+        (
+            "scripts/cmux-next/tests/reraise_inline_assign.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'; trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_double_quoted_assign.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na=\"s=\\$?; (exit \\\"\\$s\\\"); rm -rf $tmp\"\ntrap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_variable.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\ngit_fixture_trap_exit \"$a\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_double_quoted.test.sh",
+            "set -e\ntmp=$(mktemp -d)\ngit_fixture_trap_exit \"s=\\$?; (exit \\\"\\$s\\\"); rm -rf $tmp\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ngit_fixture_trap_exit cleanup\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_unresolved.test.sh",
+            "set -e\ntmp=$(mktemp -d)\ntrap \"$CLEANUP_ACTION\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_substituted.test.sh",
+            "set -e\na=$(make_action)\ngit_fixture_trap_exit \"$a\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
         # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
         (
             "scripts/cmux-next/tests/trap_after.test.sh",
@@ -6457,6 +6542,54 @@ def _self_test() -> int:
         (
             "tests/git_read_only_plain.py",
             "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
+        ),
+        # Real loads: the by-path loader every Python test uses, a loader function, a runpy load, and a shell
+        # `source` or `.` after a separator or inside an if.
+        (
+            "tests/git_write_by_path_loader.py",
+            "import importlib.util as _git_fixture_importlib  # noqa: E402\n"
+            "from os import path as _git_fixture_path  # noqa: E402\n"
+            "_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(\n"
+            "    \"git_fixture_env\", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)),"
+            " \"git_fixture_env.py\"))\n"
+            "git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)\n"
+            "_git_fixture_spec.loader.exec_module(git_fixture_env)\n"
+            "subprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "tests/git_write_loader_function.py",
+            "import importlib.util\nfrom pathlib import Path\nHELPER = Path(__file__).parent / 'git_fixture_env.py'\n"
+            "def _load():\n    spec = importlib.util.spec_from_file_location('fixture', HELPER)\n"
+            "    module = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(module)\n"
+            "    return module\nfixture = _load()\nsubprocess.run(['git', 'init', d], check=True)\n",
+        ),
+        (
+            "tests/git_write_runpy.py",
+            "import runpy, tempfile\nrunpy.run_path('tests/git_fixture_env.py')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_sourced_after_separator.test.sh",
+            'set -e; . "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "scripts/ci/tests/git_write_sourced_in_if.test.sh",
+            'if [[ -n "$ROOT" ]]; then\n  source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nfi\n'
+            'w=$(mktemp -d)\ngit_fixture_init "$w"\ngit -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        # Text naming the helper does not start git-fixture-exit-trap either: no source, no helper trap to replace.
+        (
+            "scripts/ci/tests/exit_trap_echo_names_helper.test.sh",
+            'echo "run: source lib/git-fixture.sh first"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+        ),
+        # Resolved actions that clean up first: an inline assignment, a variable, a function name, a double-quoted
+        # text, and a forwarded positional parameter (the helper's own `trap` wrapper).
+        (
+            "scripts/cmux-next/tests/reraise_resolved_ok.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; rm -rf \"$tmp\"; exit \"$s\"'; trap \"$a\" EXIT\n"
+            "git_fixture_trap_exit \"$a\"\ncleanup() { rm -rf \"$tmp\"; }\ngit_fixture_trap_exit cleanup\n"
+            "trap \"rm -rf '$tmp'\" EXIT\nforward() {\n  local action=$1\n  git_fixture_trap_exit \"$action\"\n}\n",
         ),
         # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
         # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
