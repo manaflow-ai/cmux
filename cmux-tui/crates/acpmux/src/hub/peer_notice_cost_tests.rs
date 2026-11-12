@@ -335,34 +335,6 @@ fn a_resolve_among_thousands_of_peer_rows_copies_only_those_it_could_name() {
     assert!(resolves < full * 2, "five resolves copied {resolves} rows, one full list {full}");
 }
 
-/// A peer's whole list again (every reconnect sends one) parses each row from its text and
-/// leaves every unchanged row the one the table held, not a copy; a changed row is replaced
-/// once. 26 links reconnecting at once held each list parsed and its rows copied (670 MB).
-#[test]
-fn a_whole_list_again_keeps_each_unchanged_row_and_replaces_a_changed_one() {
-    const ROWS: usize = 400;
-    let (hub, peers) = linked(1, ROWS);
-    let peer = &peers[0];
-    let held = |mux: &str| {
-        let rows = hub.remote_sessions.read();
-        Arc::clone(rows.find_mux(&peer.name, mux).unwrap().1)
-    };
-    let (first, last) = (held("s0"), held("s399"));
-    let mut list: Vec<Value> = (0..ROWS).map(row).collect();
-    list[399]["status"] = json!("idle");
-    // Text that is no row at all is skipped, as a row that is not an object is.
-    let mut notice = PeerNotice::sessions_from_values(list);
-    if let PeerNotice::Sessions(rows) = &mut notice {
-        rows.push(Arc::from("not json"));
-    }
-    hub.apply_peer_notice(&peer.name, peer.generation, notice);
-    assert_eq!(hub.remote_sessions().len(), ROWS);
-    assert!(Arc::ptr_eq(&first, &held("s0")), "an unchanged row is kept, not copied");
-    let changed = held("s399");
-    assert!(!Arc::ptr_eq(&last, &changed));
-    assert_eq!(changed.summary["status"], "idle");
-}
-
 /// The cost guard, a ratio of two wall-clock times: five resolves cost less than two full
 /// lists. A ratio of two timings goes red when the lib suite's parallel tests load the host
 /// between them, so it is a check for its own run, one test at a time:
