@@ -270,6 +270,9 @@ pub(super) struct RenderService {
     pub(super) graphic_base64: Mutex<RenderGraphicBase64Cache>,
     pub(super) outbound_budget: Arc<OutboundByteBudget>,
     pub(super) control_budget: Arc<OutboundByteBudget>,
+    /// Test seam: the values this service serialized into control messages.
+    #[cfg(test)]
+    pub(super) control_serializations: AtomicUsize,
 }
 
 impl RenderService {
@@ -293,6 +296,8 @@ impl RenderService {
             )),
             outbound_budget: Arc::new(OutboundByteBudget::new(max_bytes)),
             control_budget: Arc::new(OutboundByteBudget::new(control_max_bytes)),
+            #[cfg(test)]
+            control_serializations: AtomicUsize::new(0),
         }
     }
 
@@ -343,6 +348,8 @@ impl RenderService {
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        #[cfg(test)]
+        self.control_serializations.fetch_add(1, Ordering::Relaxed);
         let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
         Ok(writer.finish())

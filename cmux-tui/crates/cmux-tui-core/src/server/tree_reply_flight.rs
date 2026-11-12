@@ -134,5 +134,13 @@ impl TreeReplyFlight {
 }
 
 #[cfg(test)]
+impl TreeReplyFlight {
+    /// Test seam: the readers that wait for a build.
+    pub(crate) fn waiting_readers(&self) -> usize {
+        self.state.lock().recover_poison().waiting.values().sum()
+    }
+}
+
+#[cfg(test)]
 #[path = "tree_reply_flight_tests.rs"]
 mod tests;
