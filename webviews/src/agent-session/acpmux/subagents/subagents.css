@@ -2462,13 +2462,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line:has(.cv-subagent-resume__note) .acpmux-agent-line__trail {
   visibility: hidden;
 }
+/* Centered on the row, whatever its height (the list's 48px, the summary card's 40px). */
 .cv-subagent-stoppable > .cv-subagent-resume-control {
   position: absolute;
-  top: 10px;
+  top: 50%;
   right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
-}
-.acpmux-summary-subagent-rows .cv-subagent-stoppable > .cv-subagent-resume-control {
-  top: 6px;
+  transform: translateY(-50%);
 }
 .cv-subagent-stoppable:has(.cv-subagent-resume__note) > .cv-subagent > .cv-subagent__time {
   visibility: hidden;
