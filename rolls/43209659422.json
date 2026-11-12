@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43209659422",
+  "recorded_at": "2026-11-12T11:37:53Z",
+  "reason": "cmux-tui 11097fd268e5 changes the image's cmux-tui (pinned df781661ff49)",
+  "dry_run": false,
+  "cmux_tui": "11097fd268e5fda186de6eb55aa680e7127ebafd",
+  "fixes": [
+    {
+      "sha": "11097fd268e5fda186de6eb55aa680e7127ebafd",
+      "mergedAt": "2026-11-12T11:13:46Z",
+      "subject": "acpmux: a turn open while the agent host link is lost ends as its agent ends it"
+    },
+    {
+      "sha": "082ff07cdd0533fc449f120e20d9bd9c169e975a",
+      "mergedAt": "2026-11-12T11:13:46Z",
+      "subject": "acpmux tests: a turn open while the agent host link is lost ends as its agent ends it (red)"
+    },
+    {
+      "sha": "b9688b645c1cab59a26bf1519e24e8f76e22a66e",
+      "mergedAt": "2026-11-12T04:47:43-06:00",
+      "subject": "cmux-tui tests: the router connection operation check names its operations"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T11:37:53Z",
+    "snapshot_id": "sh-a74ff8f358324703bdd62f5e173d8f97",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43209659422): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7f07f507e1c583c796ffec9c978f142f54d62ad3",
+    "image": "cloud-native-auto-11097fd2-43209659422-1",
+    "revision": "ci-43209659422-1",
+    "at": "2026-11-12T11:37:53Z"
+  },
+  "rolled_back": false
+}
