@@ -80,11 +80,20 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move { hub.follow_default_policy().await });
         }
+        // Each step is a phase in `daemon status` (`gauges.rs`).
+        let gauges = crate::gauges::global();
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
-        self.resume_queues();
+        {
+            let _phase = gauges.phase("resume queues");
+            self.resume_queues();
+        }
         // The last live model lists and the ACP agents' last probed lists (OpenCode, Gemini),
         // before anything slow; `_acpmux/models` waits for them.
-        self.load_model_caches().await;
+        {
+            let _phase = gauges.phase("model caches");
+            self.load_model_caches().await;
+        }
+        let login_phase = gauges.phase("login environment");
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env {
@@ -113,13 +122,21 @@ impl Hub {
                 });
             }
         }
+        drop(login_phase);
         self.catalog_ready.send_replace(true);
-        self.verify_launchers().await;
+        {
+            let _phase = gauges.phase("verify launchers");
+            self.verify_launchers().await;
+        }
         // The person's vault (`crate::vault`): a joined machine with no vault
         // state pulls it before the first agent spawns (at most a few seconds),
         // then every 15 minutes; its env goes to every local agent.
-        crate::vault::start_worker().await;
+        {
+            let _phase = gauges.phase("vault");
+            crate::vault::start_worker().await;
+        }
         self.startup_ready.send_replace(true);
+        gauges.mark("agents may spawn");
         self.care_worker();
         // A spare for each harness this machine used (`pool/spare.rs`).
         {

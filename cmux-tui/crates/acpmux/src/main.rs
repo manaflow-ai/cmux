@@ -1,3 +1,8 @@
+// The `dhat-heap` profile's allocator (`heap_profile.rs`); never in a shipped build.
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 fn main() -> anyhow::Result<()> {
     // A terminal's launch credential names that one terminal: this process
     // and everything it starts serve many, so it is dropped before any thread
@@ -9,5 +14,6 @@ fn main() -> anyhow::Result<()> {
         // SAFETY: as above, before any thread exists.
         unsafe { std::env::remove_var(key) };
     }
+    acpmux::heap_profile::start();
     acpmux::cli::entry::main(std::env::args_os().skip(1).collect(), Default::default())
 }
