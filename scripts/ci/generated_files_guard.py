@@ -58,6 +58,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -73,6 +74,15 @@ SETTINGS_EXPORTS = "scripts/cmux-next/settings-exports.txt"
 # check that times out twice warns and does not fail (hand_edits). The guard's workflow step allows for both.
 CHECK_TIMEOUT_SECONDS = 120
 RETRY_CHECK_TIMEOUT_SECONDS = 240
+# Seconds every check of one guard run shares, tries and retries together: checks run one after another, so two slow
+# ones at 120 + 240 s each ran past the workflow step's 8 minutes, Actions killed the guard before it printed its
+# warnings, and the step was red (cmux#41752 review F2). Below the step's limit (cmux-next-guards.yml, "cmux-next no
+# new generated files") with room for the checkout and the tree reads; a check that cannot finish inside it warns.
+DEADLINE_SECONDS = 400
+
+# Run as a script, this directory is already first on sys.path; imported or under `python3 -I`, it is not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_process_tree import run_bounded  # noqa: E402
 # The start of a note main prints as a warning.
 TIMED_OUT = "timed out: "
 
@@ -321,19 +331,30 @@ class TimedOut(str):
     """regenerated()'s answer when the check timed out twice: the runner's, not a verdict on the output."""
 
 
-def run_check(repo: Path, script: Path, args: list[str]) -> subprocess.CompletedProcess[str] | TimedOut:
-    """The check's run, retried once with a longer limit when it times out; TimedOut when both did."""
+def run_check(repo: Path, script: Path, args: list[str],
+              until: float | None = None) -> subprocess.CompletedProcess[str] | TimedOut:
+    """The check's run, retried once with a longer limit when it times out; TimedOut when both did or the guard's
+    shared deadline (UNTIL, a time.monotonic() value) came first. A timed-out check is stopped with everything it
+    started (run_bounded)."""
     limits = (CHECK_TIMEOUT_SECONDS, RETRY_CHECK_TIMEOUT_SECONDS)
+    tried: list[str] = []
     for limit in limits:
+        left = float("inf") if until is None else until - time.monotonic()
+        if left <= 0:
+            tried.append("the guard's shared deadline was spent" + (" before its retry" if tried else
+                                                                     " before it could start"))
+            break
+        limit = min(limit, left)
         try:
-            return subprocess.run([sys.executable, "-I", str(script), *args], cwd=repo,
-                                  capture_output=True, text=True, timeout=limit, check=False)
+            return run_bounded([sys.executable, "-I", str(script), *args], cwd=repo,
+                               capture_output=True, text=True, timeout=limit)
         except subprocess.TimeoutExpired:
-            continue
-    return TimedOut(f"it timed out after {limits[0]:g} s and again after {limits[1]:g} s")
+            tried.append(f"{'again' if tried else 'it timed out'} after {limit:g} s")
+    return TimedOut(" and ".join(tried))
 
 
-def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -> str | None:
+def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None],
+                until: float | None = None) -> str | None:
     """None when `found`'s check passes in `repo`'s working tree (every output is what the generator
     writes from the inputs there); otherwise why not, a TimedOut when the check timed out twice. A check
     that cannot run counts as failed. `verdicts` caches one run per generator."""
@@ -347,7 +368,7 @@ def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -
         verdict = f"{found.generator} is missing"
     else:
         try:
-            result = run_check(repo, script, found.check)
+            result = run_check(repo, script, found.check, until)
         except OSError as error:
             verdict = f"`{command}` did not start: {error}"
         else:
@@ -358,7 +379,7 @@ def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -
 
 
 def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None,
-               notes: list[str] | None = None) -> list[str]:
+               notes: list[str] | None = None, until: float | None = None) -> list[str]:
     """Outputs `changed` edits without changing their generator or inputs. An output whose generator's
     check (from `rules`, the base's) passes in `repo` is a regeneration from inputs already there, not a
     hand edit: a base input that changed without a regeneration leaves the output stale, and only a pull
@@ -377,7 +398,7 @@ def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None =
         sources = [found.generator, *found.inputs]
         if any(matches(other, sources) and not found.owns(other) for other in paths):
             continue
-        why = regenerated(repo, found, verdicts) if repo is not None else "no tree to check"
+        why = regenerated(repo, found, verdicts, until) if repo is not None else "no tree to check"
         if why is None:
             continue
         if isinstance(why, TimedOut):
@@ -419,7 +440,7 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
     base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
     errors += rule_changes(base, head, base_tracked)
     notes: list[str] = []
-    errors += hand_edits(base, changed, repo, notes)
+    errors += hand_edits(base, changed, repo, notes, until=time.monotonic() + DEADLINE_SECONDS)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
     # A file reported above is not reported twice. The rest are this change's when it touched the file
     # or uncovered one the base covered (a dropped baseline line, a narrowed generator); otherwise the
