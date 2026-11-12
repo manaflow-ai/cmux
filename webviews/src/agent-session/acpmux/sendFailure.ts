@@ -77,6 +77,9 @@ export function failedSendText(
     case "too-large":
       return tooLargeText(attachments);
     case "host-away":
+      // A kept prompt that waited for the agent service is quiet: "Not sent" and its Retry, never
+      // that the service is slow or that the message is kept (Leo, 2026-11-12: "STOP F---ING
+      // SHOWING THESE F---ING MESSAGES"). The host line already says when the service is away.
       return translate("prompt.failure.hostAway");
     default:
       break;
