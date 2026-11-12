@@ -8,32 +8,32 @@ import subprocess
 import time
 
 
-def signal_group(pgid, sig):
-    """Signal a process group; False when no member can take the signal.
+def stop_group(process):
+    """Signal the group, then stop a leader the group refused.
 
     ESRCH means the group is empty. macOS returns EPERM when every member left
     is a zombie (an exited leader not yet reaped, or orphans awaiting launchd),
-    so EPERM on a group we created is the same "already gone" answer.
+    or while its members are exiting: either way a leader that has not exited
+    is still killed by its handle, not dropped with the refusal (cmux#41880
+    review F1).
     """
-    try:
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        return False
-    return True
-
-
-def stop_group(process):
     if process is None:
         return
     # Kill the group even if its leader exited: grandchildren can still be alive.
-    if not signal_group(process.pid, signal.SIGTERM):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except OSError:
         # The group refused the signal; still stop a leader that has not exited.
         if process.poll() is None:
             process.kill()
         process.wait()
         return
     time.sleep(0.2)
-    signal_group(process.pid, signal.SIGKILL)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        if process.poll() is None:
+            process.kill()
     process.wait()
 
 

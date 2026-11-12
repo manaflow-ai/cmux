@@ -37,6 +37,8 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 DX_VERSION = "0.7.10"
 DX_URL = f"https://github.com/DioxusLabs/dioxus/releases/download/v{DX_VERSION}/dx-x86_64-unknown-linux-gnu.tar.gz"
@@ -213,9 +215,7 @@ def main() -> int:
             # dx and the daemon it started run in this process group only. SIGKILL the group after the grace
             # period whether or not dx exited: the daemon may ignore SIGTERM (cmux#41767 review F1).
             for sig in (signal.SIGTERM, signal.SIGKILL):
-                try:
-                    os.killpg(proc.pid, sig)
-                except (ProcessLookupError, PermissionError):
+                if not kill_group(proc, sig):
                     break
                 try:
                     proc.wait(timeout=20)

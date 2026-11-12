@@ -19,6 +19,9 @@ import subprocess
 import tempfile
 import threading
 import time
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 
 class Conn:
@@ -154,12 +157,8 @@ def main():
         stop.set()
         # The daemon's group, whatever the daemon's state: a child can outlive it (cmux#41767 review F1).
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(daemon.pid, sig)
-            except ProcessLookupError:
+            if not kill_group(daemon, sig):
                 break
-            except PermissionError:
-                pass
             try:
                 daemon.wait(10)
             except subprocess.TimeoutExpired:

@@ -121,8 +121,12 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
         raise AssertionError(f"the reload's child {child}, which ignores SIGTERM, outlived the run")
 # macOS answers killpg with EPERM once the group holds only zombies: the cleanup takes that as gone, not an error
 # that would cut it short and replace the stop that started it.
+# Its pid is a child this test started and reaped, not a made-up one: a refused killpg signals the group's members
+# directly (cmux#41880 review F1), and a made-up pid could name a real process group on this host.
+_reaped = subprocess.Popen([sys.executable, "-c", "pass"])
+_reaped.wait()
 class Gone:
-    pid = 4242
+    pid = _reaped.pid
     def poll(self):
         return 0
 real_killpg, sr.os.killpg = sr.os.killpg, lambda pgid, sig: (_ for _ in ()).throw(PermissionError(1, "EPERM"))

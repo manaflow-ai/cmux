@@ -41,6 +41,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, Sequence
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 # git aborts a transfer slower than this many bytes per second for LOW_SPEED_SECONDS.
 LOW_SPEED_BYTES = 1024
@@ -335,10 +337,7 @@ def run_once(command: Sequence[str], timeout: float) -> int:
 
 
 def signal_group(pgid: int, sig: int) -> None:
-    try:
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        pass
+    kill_group(pgid, sig)
 
 
 def group_alive(pgid: int) -> bool:

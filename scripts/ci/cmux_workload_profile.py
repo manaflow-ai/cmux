@@ -18,6 +18,8 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = ROOT / "scripts/ci/cmux-workload-profiles.json"
@@ -805,9 +807,7 @@ def settle_process_group(
     # Any member other than the known exited leader is leaked descendant state.
     # Do not synchronize on wall-clock polling: force that residual group down
     # once and mark the semantic result ambiguous.
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    if not kill_group(pid, signal.SIGKILL):
         return True, "complete"
     return False, "forced"
 
@@ -999,20 +999,14 @@ def run_profile(args: argparse.Namespace) -> int:
             )
         except subprocess.TimeoutExpired:
             timed_out = True
-            try:
-                os.killpg(child.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(child, signal.SIGTERM)
             try:
                 exit_code = wait_child_unreaped(child.pid, 5)
             except subprocess.TimeoutExpired:
                 exit_code = 124
             # After the grace period the whole group goes, whether or not the leader exited: a child that ignores
             # SIGTERM would outlive it (cmux#41767 review F1).
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(child, signal.SIGKILL)
             if exit_code == 124:
                 wait_child_unreaped(child.pid, None)
         elapsed = time.monotonic() - started_monotonic

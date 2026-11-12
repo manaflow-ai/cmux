@@ -93,6 +93,8 @@ import sys
 import threading
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HARD_LIMIT_S = 600
 DEFAULT_MAX_S = 240
@@ -606,17 +608,11 @@ def cmd_start(args) -> int:
         if state and state.get("token") == token and state.get("ready"):
             break
         if sup.poll() is not None:
-            try:
-                os.killpg(sup.pid, signal.SIGKILL)  # what it left in its group (cmux#41767 review F1)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(sup, signal.SIGKILL)  # what it left in its group (cmux#41767 review F1)
             return fail("the supervisor ended at once (exit %s); see %s" % (sup.returncode, log.name))
         time.sleep(0.05)
     else:
-        try:
-            os.killpg(sup.pid, signal.SIGTERM)  # the supervisor this run started, and its group
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(sup, signal.SIGTERM)  # the supervisor this run started, and its group
         return fail("the supervisor was not ready in 20 s; stopped")
     sys.stderr.write(json.dumps({k: state[k] for k in (
         "pid", "owner", "watch_pid", "shape", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos",

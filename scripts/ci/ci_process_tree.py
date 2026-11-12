@@ -9,12 +9,36 @@ parent links instead.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional, Union
+
+
+def _load_safe_print():
+    """safe_print from scripts/cmux-next/safe_log.py, by its path (putting that folder on sys.path would let its
+    trace.py shadow the stdlib's). A sparse checkout of scripts/ci alone has no such file: the same guarded print."""
+    path = Path(__file__).resolve().parents[1] / "cmux-next" / "safe_log.py"
+    if path.is_file():
+        spec = importlib.util.spec_from_file_location("ci_process_tree_safe_log", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.safe_print
+
+    def guarded_print(*args: object, **kwargs: object) -> None:
+        try:
+            print(*args, **kwargs)  # type: ignore[call-overload]
+        except (BrokenPipeError, OSError, ValueError):
+            pass  # the line is lost; the kill after it still runs
+
+    return guarded_print
+
+
+safe_print = _load_safe_print()
 
 TERM_GRACE_SECONDS = 5.0
 KILL_REAP_SECONDS = 1.0
@@ -78,6 +102,67 @@ def signal_pid(pid: int, signum: int) -> None:
         pass
 
 
+def group_members(pgid: int) -> list[int]:
+    """The pids whose process group is PGID, from one `ps` snapshot ([] when ps fails)."""
+    try:
+        listing = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "pgid="], check=False, capture_output=True,
+                                 text=True, timeout=1).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    members = []
+    for row in listing.splitlines():
+        fields = row.split()
+        if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit() and int(fields[1]) == pgid:
+            members.append(int(fields[0]))
+    return members
+
+
+def kill_group(
+    leader: Union[int, subprocess.Popen],
+    signum: int,
+    children: Iterable[int] = (),
+    *,
+    reaped: bool = False,
+) -> bool:
+    """Send SIGNUM to the process group LEADER leads (start_new_session: the group's id is the leader's pid).
+
+    macOS can refuse os.killpg with EPERM (a group whose members are exiting, cmux-lawrence-2 2026-10-09). A cleanup
+    that swallowed that refusal also lost the direct kill of the leader it used to make (cmux#41880 review F1). Here
+    any refusal but ProcessLookupError signals the leader, the known CHILDREN and every member `ps` still lists in the
+    group one by one, and says so. The leader's own pid is skipped once it exited (a Popen whose poll() answers, or
+    REAPED), since it may name another process by then. Returns False only when the group is gone
+    (ProcessLookupError); a caller that escalates (SIGTERM, wait, SIGKILL) stops there."""
+    pgid = int(leader) if isinstance(leader, int) else leader.pid
+    try:
+        os.killpg(pgid, signum)
+    except ProcessLookupError:
+        return False
+    except OSError as refused:
+        _kill_directly(pgid, signum, children, refused, reaped or _exited(leader))
+    return True
+
+
+def _exited(leader: Union[int, subprocess.Popen]) -> bool:
+    """A Popen (or anything with poll()) that has exited: poll() reaps it, so its pid may name another process."""
+    poll = getattr(leader, "poll", None)
+    return poll is not None and poll() is not None
+
+
+def _kill_directly(pgid: int, signum: int, children: Iterable[int], refused: OSError, reaped: bool) -> None:
+    targets = [] if reaped else [pgid]
+    for pid in [*children, *group_members(pgid)]:
+        if pid not in targets and pid != os.getpid():
+            targets.append(pid)
+    try:
+        name = signal.Signals(signum).name
+    except ValueError:
+        name = str(signum)
+    safe_print(f"killpg({pgid}, {name}) refused ({refused}); signalling {targets or 'nothing left'} directly",
+               file=sys.stderr, flush=True)
+    for pid in targets:
+        signal_pid(pid, signum)
+
+
 def terminate(
     process: subprocess.Popen,
     first_signal: int = signal.SIGTERM,
@@ -92,22 +177,16 @@ def terminate(
     if process.pid not in strays:
         strays.append(process.pid)
     # macOS refuses killpg with EPERM once the reaped leader's group holds only
-    # exiting members (cmux-lawrence-2, 2026-10-09): the group is as good as
-    # gone, and the strays below are still signalled one by one.
-    try:
-        os.killpg(process.pid, first_signal)
-    except (ProcessLookupError, PermissionError):
-        pass
+    # exiting members (cmux-lawrence-2, 2026-10-09): kill_group then signals the
+    # group's members one by one, and the strays below are signalled too.
+    kill_group(process, first_signal, strays)
     for pid in strays:
         signal_pid(pid, first_signal)
     try:
         process.wait(timeout=TERM_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    kill_group(process, signal.SIGKILL, strays)
     for pid in strays:
         signal_pid(pid, signal.SIGKILL)
     # A SIGKILL can still fail to become waitable immediately (for example
@@ -132,10 +211,7 @@ def terminate_pid(
     coverage for those children, and reap the direct child before returning.
     """
     strays = [child_pid for child_pid, _ in (tree if tree is not None else process_tree(pid))]
-    try:
-        os.killpg(pid, first_signal)
-    except (ProcessLookupError, PermissionError):
-        pass
+    kill_group(pid, first_signal, strays)
     # A caller may use a child that is not its group's leader. Always address
     # the owned root directly too, including when the snapshot is unavailable.
     signal_pid(pid, first_signal)
@@ -155,10 +231,8 @@ def terminate_pid(
             break
         time.sleep(0.05)
 
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    # Reaped: PID may name another process now, so a refused killpg signals the group's members, not PID itself.
+    kill_group(pid, signal.SIGKILL, strays, reaped=reaped)
     if not reaped:
         signal_pid(pid, signal.SIGKILL)
     for child_pid in strays:

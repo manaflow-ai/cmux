@@ -46,6 +46,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
@@ -130,10 +132,7 @@ def stop_running() -> None:
     with RUNNING_LOCK:
         pids = list(RUNNING)
     for pid in pids:
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(pid, signal.SIGKILL)
 
 
 def cache_root() -> Path:
@@ -477,10 +476,7 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
         finally:
             with RUNNING_LOCK:
                 RUNNING.discard(proc.pid)
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(proc, signal.SIGKILL)
         out.seek(0)
         return returncode, out.read()
 

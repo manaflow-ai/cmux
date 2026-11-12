@@ -14,11 +14,17 @@ group is empty.
 - An AST scan of scripts/ flags (A) an os.killpg reached only while the leader is alive (inside `if p.poll() is
   None`, `if p.returncode is None`, `if t.is_alive()`, or after `if p.poll() is not None: return`), and (B) a
   .kill() or .terminate() of a Popen started in its own session (start_new_session=True, process_group=0 or
-  preexec_fn=os.setsid) in a function or class that never kills its group. Self-check rows keep the scan honest.
+  preexec_fn=os.setsid) in a function or class that never kills its group, and (C) an os.killpg whose refusal
+  (PermissionError, which macOS raises for a group whose members are exiting) is swallowed by an except or a
+  contextlib.suppress with no direct kill of the leader in its place (cmux#41880 review F1). Self-check rows keep the
+  scan honest.
+- Refused-killpg rows (cmux#41880 review F1): with os.killpg mocked to raise PermissionError, arena.py's stop_proc,
+  cu_bench.py's Mcp.close and ci_process_tree.kill_group still kill a real leader and its child.
 """
 from __future__ import annotations
 
 import ast
+import errno
 import importlib.util
 import os
 import signal
@@ -30,6 +36,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -42,6 +49,17 @@ def _is_killpg(node: ast.AST) -> bool:
         return False
     func = node.func
     return (isinstance(func, ast.Attribute) and func.attr == "killpg") or (isinstance(func, ast.Name) and func.id == "killpg")
+
+
+def _is_group_kill(node: ast.AST) -> bool:
+    """os.killpg(...) or ci_process_tree's kill_group(...): either signals the whole group."""
+    if _is_killpg(node):
+        return True
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Attribute) and func.attr == "kill_group") or \
+        (isinstance(func, ast.Name) and func.id == "kill_group")
 
 
 def _liveness_reads(test: ast.AST) -> list[tuple[str, bool]]:
@@ -67,9 +85,11 @@ def _liveness_reads(test: ast.AST) -> list[tuple[str, bool]]:
 
 
 def _killpg_subject(call: ast.Call) -> str | None:
-    """p for os.killpg(p.pid, ...)."""
+    """p for os.killpg(p.pid, ...) and for kill_group(p, ...)."""
     if call.args and isinstance(call.args[0], ast.Attribute) and call.args[0].attr == "pid":
         return ast.unparse(call.args[0].value)
+    if call.args and not _is_killpg(call) and isinstance(call.args[0], (ast.Name, ast.Attribute)):
+        return ast.unparse(call.args[0])
     return None
 
 
@@ -105,7 +125,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
         if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for call in ast.walk(func):
-            if not _is_killpg(call):
+            if not _is_group_kill(call):
                 continue
             gate = None
             node = call
@@ -128,7 +148,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
                 for stmt in ast.walk(func):
                     if (isinstance(stmt, ast.If) and stmt.lineno < call.lineno and (subject, False) in _liveness_reads(stmt.test)
                             and stmt.body and isinstance(stmt.body[-1], ast.Return)
-                            and not any(_is_killpg(n) for n in ast.walk(stmt))
+                            and not any(_is_group_kill(n) for n in ast.walk(stmt))
                             and not any(stmt in set(ast.walk(ast.Module(body=t.body, type_ignores=[]))) for t in finals)):
                         gate = stmt
                         break
@@ -154,14 +174,71 @@ def scan(source: str, name: str = "<source>") -> list[str]:
                 if isinstance(target, ast.Name) and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     scope = node
                     break
-            if any(_is_killpg(n) for n in ast.walk(scope)):
+            if any(_is_group_kill(n) for n in ast.walk(scope)):
                 continue
             for call in ast.walk(scope):
                 if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
                         and call.func.attr in ("kill", "terminate") and ast.unparse(call.func.value) == key):
                     findings.append(f"{name}:{call.lineno}: {key}.{call.func.attr}() stops only the leader of the group "
                                     f"started at line {assign.lineno}; its children keep running")
+
+    # (C) a refused group kill swallowed with no direct kill in its place.
+    for call in ast.walk(tree):
+        if not _is_killpg(call) or _is_probe(call):
+            continue
+        node = call
+        while node in parents:
+            parent = parents[node]
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                break
+            if isinstance(parent, ast.Try) and node in parent.body:
+                for handler in parent.handlers:
+                    if _catches_permission_error(handler.type) and not _kills_directly(handler.body):
+                        findings.append(f"{name}:{call.lineno}: a refused os.killpg (PermissionError, line "
+                                        f"{handler.lineno}) is swallowed and nothing kills the leader directly; use "
+                                        f"ci_process_tree.kill_group (cmux#41880 review F1)")
+                break  # the nearest try decides
+            if isinstance(parent, (ast.With, ast.AsyncWith)) and node in parent.body and any(
+                    _is_suppress(item.context_expr) for item in parent.items):
+                findings.append(f"{name}:{call.lineno}: contextlib.suppress swallows a refused os.killpg "
+                                f"(PermissionError) and nothing kills the leader directly; use ci_process_tree.kill_group "
+                                f"(cmux#41880 review F1)")
+                break
+            node = parent
     return findings
+
+
+_REFUSALS = {"PermissionError", "OSError", "EnvironmentError", "IOError", "Exception", "BaseException"}
+
+
+def _catches_permission_error(kind: ast.AST | None) -> bool:
+    """`except PermissionError`, `except OSError`, `except Exception`, a tuple holding one of them, or a bare except."""
+    if kind is None:
+        return True
+    names = kind.elts if isinstance(kind, ast.Tuple) else [kind]
+    return any(ast.unparse(n).split(".")[-1] in _REFUSALS for n in names)
+
+
+def _is_suppress(expr: ast.AST) -> bool:
+    if not (isinstance(expr, ast.Call) and ast.unparse(expr.func).split(".")[-1] == "suppress"):
+        return False
+    return any(_catches_permission_error(arg) for arg in expr.args)
+
+
+def _is_probe(call: ast.Call) -> bool:
+    """os.killpg(pgid, 0): a liveness probe, not a kill."""
+    return len(call.args) >= 2 and isinstance(call.args[1], ast.Constant) and call.args[1].value == 0
+
+
+def _kills_directly(body: list[ast.stmt]) -> bool:
+    """The handler signals the leader (or its children) itself: a call named like kill or terminate, not killpg again."""
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Call) and not _is_killpg(node):
+                callee = ast.unparse(node.func).split(".")[-1].lower()
+                if "kill" in callee or "terminate" in callee or callee in ("send_signal", "signal_pid"):
+                    return True
+    return False
 
 
 def scan_scripts() -> list[str]:
@@ -280,6 +357,133 @@ class ScanTests(unittest.TestCase):
                 plain.kill()
         """)
         self.assertEqual(scan(source), [])
+
+    def test_scan_flags_a_refused_killpg_that_is_swallowed(self) -> None:
+        source = textwrap.dedent("""
+            def stop(proc):
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    return
+                except PermissionError:
+                    pass
+            def close(proc):
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            def preempt(proc):
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+            def end(proc):
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except OSError:
+                    log("refused")
+        """)
+        self.assertEqual(len(scan(source)), 4, scan(source))
+
+    def test_scan_passes_a_refused_killpg_with_a_direct_kill(self) -> None:
+        source = textwrap.dedent("""
+            def stop(proc):
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    return
+                except PermissionError:
+                    proc.terminate()
+            def gone(pgid):
+                try:
+                    os.killpg(pgid, 0)
+                except (ProcessLookupError, PermissionError):
+                    return True
+            def strict(proc):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+            def shared(proc):
+                ci_process_tree.kill_group(proc, signal.SIGKILL)
+        """)
+        self.assertEqual(scan(source), [])
+
+
+# ---------------------------------------------------------------- refused killpg: the leader still dies
+
+def _load(name: str, relative: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _refused(*_args, **_kwargs):
+    raise PermissionError(errno.EPERM, "Operation not permitted")
+
+
+class RefusedGroupKillTests(unittest.TestCase):
+    """cmux#41880 review F1 [P2]: on macOS os.killpg can raise PermissionError. A cleanup that swallowed it lost the
+    direct kill of the leader that used to follow. With killpg refused, the leader and its child must still die."""
+
+    def _leader(self, scratch: Path) -> tuple[subprocess.Popen, int]:
+        pid_file = scratch / "child.pid"
+        proc = subprocess.Popen(["sh", "-c", f'sleep 600 & echo $! > "{pid_file}"; wait'], start_new_session=True,
+                                stdin=subprocess.DEVNULL)
+        self.addCleanup(self._reap, proc, pid_file)
+        self.assertTrue(_wait_for(lambda: pid_file.is_file() and pid_file.read_text().strip(), 10),
+                        "the leader never recorded its child")
+        return proc, int(pid_file.read_text().strip())
+
+    @staticmethod
+    def _reap(proc: subprocess.Popen, pid_file: Path) -> None:
+        # This row's own processes only: the leader by its handle, the child by the pid it recorded.
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if pid_file.is_file() and pid_file.read_text().strip():
+            child = int(pid_file.read_text().strip())
+            if not _gone(child):
+                try:
+                    os.kill(child, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def _assert_dead(self, proc: subprocess.Popen, child: int, what: str) -> None:
+        self.assertTrue(_wait_for(lambda: proc.poll() is not None, 10),
+                        f"{what} left the leader {proc.pid} running when killpg was refused (cmux#41880 review F1)")
+        self.assertTrue(_wait_for(lambda: _gone(child), 10),
+                        f"{what} left the leader's child {child} running when killpg was refused")
+
+    def test_arena_stop_proc_kills_the_leader_when_killpg_is_refused(self) -> None:
+        arena = _load("arena_refused_killpg", "scripts/measure/cu-driver-eval/arena/arena.py")
+        with tempfile.TemporaryDirectory(prefix="killpg-refused-") as scratch:
+            proc, child = self._leader(Path(scratch))
+            with mock.patch("os.killpg", side_effect=_refused) as killpg:
+                arena.stop_proc(proc)
+            self.assertTrue(killpg.called, "stop_proc never tried the group")
+            self._assert_dead(proc, child, "arena.stop_proc")
+
+    def test_cu_bench_close_kills_the_leader_when_killpg_is_refused(self) -> None:
+        cu_bench = _load("cu_bench_refused_killpg", "scripts/measure/cu-bench/cu_bench.py")
+        with tempfile.TemporaryDirectory(prefix="killpg-refused-") as scratch:
+            proc, child = self._leader(Path(scratch))
+            mcp = cu_bench.Mcp.__new__(cu_bench.Mcp)
+            mcp.proc, mcp.stderr = proc, None
+            with mock.patch("os.killpg", side_effect=_refused) as killpg:
+                mcp.close()
+            self.assertTrue(killpg.called, "close never tried the group")
+            self._assert_dead(proc, child, "cu_bench Mcp.close")
+
+    def test_kill_group_falls_back_to_the_leader_and_its_children(self) -> None:
+        tree = _load("ci_process_tree_refused_killpg", "scripts/ci/ci_process_tree.py")
+        with tempfile.TemporaryDirectory(prefix="killpg-refused-") as scratch:
+            proc, child = self._leader(Path(scratch))
+            with mock.patch("os.killpg", side_effect=_refused), mock.patch.object(tree, "safe_print") as logged:
+                self.assertTrue(tree.kill_group(proc, signal.SIGKILL))
+            self.assertTrue(logged.called, "the refused killpg was not logged")
+            self._assert_dead(proc, child, "kill_group")
+            # The group is empty now: the real killpg says so, and kill_group reports it gone.
+            self.assertTrue(_wait_for(lambda: not tree.group_members(proc.pid), 10))
+            self.assertFalse(tree.kill_group(proc, signal.SIGKILL))
 
 
 # ---------------------------------------------------------------- the behaviour row

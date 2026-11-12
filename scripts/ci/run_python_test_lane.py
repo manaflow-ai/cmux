@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from test_execution_registry import load_tree
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -105,10 +107,7 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
                 returncode = process.wait(timeout=timeout)
                 note = ""
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                kill_group(process, signal.SIGKILL)
                 process.wait()
                 returncode = TIMEOUT_EXIT
                 note = f"\nrun_python_test_lane: killed after {timeout:.0f}s timeout\n"

@@ -58,6 +58,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 BRANCH = "feat-cmux-next"
 PR_NUMBER = re.compile(r"^[0-9]{1,7}$")
@@ -322,9 +324,7 @@ def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
         # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
         # SIGTERM must not outlive its gate into the next one.
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+            if not kill_group(process, sig):
                 break
             try:
                 process.wait(timeout=10)

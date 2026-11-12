@@ -27,6 +27,8 @@ Usage: home-tree-thread-check.py --tag <tag> [--app APP] [--out DIR]
 import argparse, json, os, re, signal, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -338,10 +340,7 @@ finally:
     exited = poll(lambda: process.poll() is not None, timeout=30)
     print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)  # the app this script started, and its group
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(process, signal.SIGTERM)  # the app this script started, and its group
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,

@@ -32,6 +32,8 @@ from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from home_pixels import read_png  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -295,10 +297,7 @@ finally:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
         print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
-        try:
-            os.killpg(process.pid, signal.SIGKILL)  # the `open -W` this script started, and its group
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(process, signal.SIGKILL)  # the `open -W` this script started, and its group
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))

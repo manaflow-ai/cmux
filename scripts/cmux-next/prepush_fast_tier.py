@@ -209,10 +209,14 @@ def main(argv=None) -> int:
             except (subprocess.TimeoutExpired, ValueError):
                 # The group, whatever the worker's state: a worker that exited with no result can leave a child
                 # running in it (cmux#41767 review F1).
+                # This file runs alone from the hook's copy with -I, so it cannot import ci_process_tree.kill_group:
+                # a refused killpg (macOS EPERM) kills the worker by its handle (cmux#41880 review F1).
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
+                except ProcessLookupError:
                     pass
+                except OSError:
+                    proc.kill()
                 proc.communicate()
                 receipt["checks"] = [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}]
     receipt["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)

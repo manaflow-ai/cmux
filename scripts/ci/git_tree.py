@@ -30,6 +30,9 @@ import posixpath
 import signal
 import subprocess
 from pathlib import Path
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 GIT_SECONDS = 120
 # Which named objects this clone lacks, never fetching (leo-workspace tools/git_missing.py's ARGS): `?oid` lines are
@@ -131,10 +134,7 @@ class GitTree:
             try:
                 out, err = proc.communicate("".join(f"{oid}\n" for oid in oids).encode(), timeout=GIT_SECONDS)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                kill_group(proc, signal.SIGKILL)
                 proc.communicate()
                 raise Unreadable(f"git rev-list in {self.root} could not say within {GIT_SECONDS} s which of "
                                  f"{len(oids)} blobs this clone holds") from None

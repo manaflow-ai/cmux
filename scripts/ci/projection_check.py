@@ -27,12 +27,15 @@ import asyncio
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -293,10 +296,7 @@ def check(args) -> int:
             return failures
         finally:
             EDIT.write_text(original)
-            try:
-                os.killpg(server.pid, 15)
-            except OSError:
-                pass
+            kill_group(server, signal.SIGTERM)
 
     smoke.AFTER_RENDER = journey
     smoke.PREPARE_HOME = ui.login_keychain

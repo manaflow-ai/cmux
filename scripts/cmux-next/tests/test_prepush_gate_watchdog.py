@@ -43,8 +43,10 @@ class GateWatchdogTest(unittest.TestCase):
             finally:
                 try:
                     os.killpg(child.pid, 9)  # the fake git this test started still sleeps in the child's own group
-                except OSError:
+                except ProcessLookupError:
                     pass
+                except OSError:  # refused (macOS EPERM): the child itself, by its handle
+                    child.kill()
         self.assertNotEqual(child.returncode, 0, "a gate that ran out of time must refuse the push")
         self.assertIn("ran past its 2s limit", err)
         self.assertIn("Thread", err, "the stacks of every thread name where it hung")
