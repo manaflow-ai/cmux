@@ -1,13 +1,13 @@
 // l10n-allow-file: browser fixture prompts and diagnostics, not shipped UI.
 // cmux-web-test-timeout: 300
 // Leo, 2026-11-08 (ask-157340f908): "if you're at the bottom or something, then the transformation
-// applies whatever's in your composer into your depicted message." A prompt sent from the latest row:
-// what is in the composer (its words and its attachments) becomes the sent message in place, on the
-// send motion (MOTION_SEND_MS): a copy drawn over the pane starts where the composer drew it, in the frame the
-// composer empties, and lands on the sent bubble and thumbnail as the thread rises to them; the real
-// bubble and thumbnail are hidden while it flies and drawn in the frame it lands, never both and never
-// neither. Sent while scrolled up, or with Reduce Motion, nothing flies: the prompt fades in place
-// (conversation.css SEND-ENTRANCE). Every frame from the send is read in the agent pane's dev entry.
+// applies whatever's in your composer into your depicted message." Then Leo, 2026-11-11: "that slow
+// settle animation is just so bad. Like, just do it." The scale's send step is 0 (MOTION_SEND_MS), so
+// a sent prompt draws no copy over the pane: from the latest row, scrolled up or in a new chat, the
+// sent bubble and its thumbnail are in their place, whole, in the frame the composer empties, and a
+// scrolled-up send cuts to the latest row. The flight (sendMorph.ts) plays only for a page that sets
+// `--agent-motion-send` itself (a gallery): the echo and the short-chat gate are read on that clock.
+// Every frame from the send is read in the agent pane's dev entry.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-morph.test.ts
@@ -22,9 +22,11 @@ type Box = { left: number; top: number; width: number; height: number };
 type Ghost = Box & { kind: string; opacity: number };
 /// One frame from the send: the composer's words and chips still drawn, the copies drawn over the
 /// pane, and the sent row's bubble and thumbnail (their boxes, whether they are drawn, and their ink:
-/// their own opacity and every box's around them up to the row).
+/// their own opacity and every box's around them up to the row); `gap`: how far the transcript is
+/// from its latest row (px).
 type Frame = {
   at: number;
+  gap: number;
   typed: string;
   chips: number;
   ghosts: Ghost[];
@@ -151,8 +153,10 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
           );
           const row = bubble?.closest(".acpmux-row") ?? null;
           const preview = row?.querySelector("img.cv-user__image, .cv-user__image-placeholder");
+          const scroll = document.querySelector(".acpmux-scroll")!;
           frames.push({
             at: Math.round(performance.now() - start),
+            gap: scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop,
             typed: document.querySelector(field)?.textContent ?? "",
             chips: document.querySelectorAll(".acpmux-composer .acpmux-attachment").length,
             ghosts: [...document.querySelectorAll<HTMLElement>("[data-send-morph-ghost]")].map((ghost) => ({
@@ -190,78 +194,65 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   };
   const ghost = (frame: Frame, kind: string) => frame.ghosts.find((entry) => entry.kind === kind);
 
-  test("at the bottom, the composer's words and screenshot become the sent message on the send motion", async () => {
+  /// The flight's clock for a page that sets the send token itself, as a gallery does: the product's
+  /// step is 0 and draws no flight (sendMorph.ts plays only on a clock above 0).
+  const galleryClock = (page: Page) =>
+    page.addStyleTag({
+      content: ":root { --agent-motion-send: 180ms !important; --agent-motion-send-fade: 180ms !important; }",
+    });
+
+  /// Lands in place: no copy is drawn over the pane in any frame, the composer stays empty, and the
+  /// sent bubble and its thumbnail are drawn, whole, from its first frame (the composer's
+  /// or the next) and stays where it is from frame `from` on (the cut to the latest row): no flight,
+  /// no fade, no rise.
+  const expectLanded = (seen: Frame[], label: string, from = 0) => {
+    for (const frame of seen) {
+      expect(frame.ghosts, `${label}: no copy is drawn at ${frame.at} ms`).toEqual([]);
+      expect(frame.typed.trim(), `${label}: the composer stays empty at ${frame.at} ms`).toBe("");
+    }
+    const mounted = seen.findIndex((frame) => frame.bubble);
+    expect(mounted, `${label}: the sent row never drew`).toBeGreaterThanOrEqual(0);
+    expect(mounted, `${label}: the sent row draws in the composer's empty frame or the next`).toBeLessThanOrEqual(1);
+    const drawn = seen.slice(mounted);
+    expect(drawn.length, `${label}: the sent row was never drawn`).toBeGreaterThan(2);
+    for (const frame of drawn) {
+      expect(frame.bubble?.shown, `${label}: the bubble is drawn at ${frame.at} ms`).toBe(true);
+      expect(frame.bubble!.ink, `${label}: the bubble is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+      expect(frame.preview?.shown, `${label}: the screenshot is drawn at ${frame.at} ms`).toBe(true);
+      expect(frame.preview!.ink, `${label}: the screenshot is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
+    }
+    const placed = seen.slice(Math.max(mounted, from));
+    // A thinking row that grows under it may nudge it a few px; a rise is the row's height.
+    for (const frame of placed)
+      near(frame.bubble, placed[0]!.bubble, `${label}: the bubble stays in its place at ${frame.at} ms`, 12);
+  };
+
+  test("at the bottom, the composer's words and screenshot are the sent message at once; nothing flies", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
-      const from = await compose(page);
+      await compose(page);
       await watch(page);
       await page.keyboard.press("Enter");
       const seen = await frames(page);
       const first = seen[0]!;
-
-      // The first frame: the composer is empty, and the copies are where it drew the prompt: the
-      // bubble's shell on its card, the words on its words, the screenshot on its chip.
       expect(first.typed.trim(), "the composer empties in the send's first frame").toBe("");
       expect(first.chips, "the chip leaves the composer in the send's first frame").toBe(0);
-      near(ghost(first, "bubble"), from.card, "the bubble starts as the composer's card");
-      near(ghost(first, "attachment"), from.chip, "the screenshot starts on its chip");
-      const words = first.ghosts.filter((entry) => entry.kind === "text" && entry.opacity > 0.99);
-      expect(words.length, `the words are drawn where they were typed (${JSON.stringify(first.ghosts)})`).toBe(1);
-      expect(Math.abs(words[0]!.left - from.words.left), "the words' left").toBeLessThan(1.5);
-      expect(Math.abs(words[0]!.top - from.words.top), "the words' top").toBeLessThan(1.5);
-
-      // Every frame: the copy or the sent message is drawn, never both and never neither, and the
-      // composer stays empty.
-      for (const frame of seen) {
-        const flying = frame.ghosts.length > 0;
-        expect(frame.typed.trim(), `the composer stays empty at ${frame.at} ms`).toBe("");
-        if (flying) {
-          if (frame.bubble) expect(frame.bubble.shown, `the bubble hides under its copy at ${frame.at} ms`).toBe(false);
-          if (frame.preview)
-            expect(frame.preview.shown, `the screenshot hides under its copy at ${frame.at} ms`).toBe(false);
-        } else {
-          expect(frame.bubble?.shown, `the bubble is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
-          expect(frame.preview?.shown, `the screenshot is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
-        }
-      }
-
-      // One clock: the copies land on the send motion (MOTION_SEND_MS from the row's first frame) and then
-      // only the sent message is drawn, whole, with no entrance of its own after it.
-      const mounted = seen.findIndex((frame) => frame.bubble);
-      const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
-      expect(mounted, "the sent row never drew").toBeGreaterThanOrEqual(0);
-      expect(landed, "the copies never landed").toBeGreaterThan(mounted);
-      const flight = seen[landed]!.at - seen[mounted]!.at;
-      expect(flight, "the flight's length").toBeGreaterThanOrEqual(MOTION_SEND_MS - 15);
-      expect(flight, "the flight's length").toBeLessThan(MOTION_SEND_MS + 70);
-      const last = seen[landed - 1]!;
-      near(ghost(last, "bubble"), last.bubble, "the bubble's copy lands on the bubble");
-      near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
-      for (const frame of seen.slice(landed)) {
-        expect(frame.bubble!.ink, `the bubble is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
-        expect(frame.preview!.ink, `the screenshot is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
-        near(frame.bubble, seen[landed]!.bubble, `the bubble stays where it landed at ${frame.at} ms`, 60);
-      }
-      // The copy's way is continuous: the bubble's shell never jumps more than a quarter of the way.
-      for (let index = 1; index < landed; index += 1) {
-        const [a, b] = [ghost(seen[index - 1]!, "bubble"), ghost(seen[index]!, "bubble")];
-        if (a && b)
-          expect(Math.abs(b.top - a.top), `the shell's step at ${seen[index]!.at} ms`).toBeLessThan(
-            Math.abs(from.card.top - last.bubble!.top) * 0.5 + 2,
-          );
-      }
+      expect(MOTION_SEND_MS, "the scale's send step").toBe(0);
+      expectLanded(seen, "at the bottom");
     } finally {
       await page.close();
     }
   });
 
   // The host's echo of the prompt can come inside the flight: it gives the screenshot its lasting id,
-  // and the thumbnail drawn under the old one is replaced. The copy follows the new thumbnail.
-  test("an echo inside the flight: the screenshot's copy still lands on its thumbnail", async () => {
+  // and the thumbnail drawn under the old one is replaced. The copy follows the new thumbnail. The
+  // product draws no flight (its send step is 0); this reads the flight a gallery page still opts into.
+  test("on a gallery's send clock, an echo inside the flight: the screenshot's copy still lands on its thumbnail", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
+      await galleryClock(page);
       await page.evaluate(() => Object.assign(window, { cmuxAcpmuxMockSlowMs: 40 }));
       await compose(page);
       await watch(page);
@@ -302,9 +293,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   });
 
   // A prompt sent while a turn runs is queued: no row comes for it (the queue draws it over the
-  // composer), so its copies fade where they are on the send's clock, never hold over the next
-  // draft for long (review of #38217, F3).
-  test("a prompt queued behind a running turn: its copies fade where they are", async () => {
+  // composer), and no copy of it is drawn or held over the next draft (review of #38217, F3).
+  test("a prompt queued behind a running turn: no copy of it is drawn", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
@@ -320,15 +310,13 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
         seen.some((frame) => frame.bubble),
         "the queued prompt drew no row",
       ).toBe(false);
-      const gone = seen.findIndex((frame) => frame.ghosts.length === 0);
-      expect(gone, "the copies never went").toBeGreaterThan(0);
-      expect(seen[gone]!.at - seen[0]!.at, "the copies go on the send's clock").toBeLessThan(MOTION_SEND_MS + 120);
+      for (const frame of seen) expect(frame.ghosts, `no copy is drawn at ${frame.at} ms`).toEqual([]);
     } finally {
       await page.close();
     }
   });
 
-  test("sent while scrolled up: nothing flies, the prompt fades in place", async () => {
+  test("sent while scrolled up: the view cuts to the latest row, where the prompt is in place, whole", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
@@ -366,21 +354,25 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       await watch(page, 900);
       await page.keyboard.press("Enter");
       const seen = await frames(page);
-      for (const frame of seen) expect(frame.ghosts, `no copy flies at ${frame.at} ms`).toEqual([]);
-      const drawn = seen.filter((frame) => frame.bubble);
-      expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
-      expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
-      expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
-      expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
+      // The ride to the latest row is a cut (its send clock is 0): there in the composer's empty
+      // frame or the next, and it stays.
+      const gaps = JSON.stringify(seen.slice(0, 3).map((frame) => frame.gap));
+      const there = seen.findIndex((frame) => frame.gap < 2);
+      expect(there, `the view never cut to the latest row (${gaps})`).toBeGreaterThanOrEqual(0);
+      expect(there, `the view is at the latest row by the empty frame or the next (${gaps})`).toBeLessThanOrEqual(1);
+      for (const frame of seen.slice(there))
+        expect(frame.gap, `the view stays at the latest row at ${frame.at} ms`).toBeLessThan(2);
+      expectLanded(seen, "scrolled up", there);
     } finally {
       await page.close();
     }
   });
 
   // The PR's first-send gate: a new chat's first prompt has no transcript yet to say it is at the
-  // bottom, so nothing flies and it fades in place (SEND-ENTRANCE), whichever way the transcript
-  // comes to draw it. A short chat that already has rows and fits is at its latest row and morphs.
-  test("a new chat's first prompt: nothing flies, the prompt fades in place", async () => {
+  // bottom, so nothing flies and it is in place, whole, whichever way the transcript comes to draw
+  // it. A short chat that already has rows and fits is at its latest row: on a gallery's send clock
+  // it morphs (the gate still tells the two apart).
+  test("a new chat's first prompt: nothing flies, the prompt is in place, whole", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page, []);
@@ -388,22 +380,17 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       await compose(page);
       await watch(page, 900);
       await page.keyboard.press("Enter");
-      const seen = await frames(page);
-      for (const frame of seen) expect(frame.ghosts, `no copy flies at ${frame.at} ms`).toEqual([]);
-      const drawn = seen.filter((frame) => frame.bubble);
-      expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
-      expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
-      expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
-      expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
+      expectLanded(await frames(page), "a new chat's first prompt");
     } finally {
       await page.close();
     }
   });
 
-  test("a short chat that fits, sent from its latest row, morphs", async () => {
+  test("on a gallery's send clock, a short chat that fits, sent from its latest row, morphs", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page, ["first question"]);
+      await galleryClock(page);
       expect(
         await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight <= scroll.clientHeight + 1),
         "one turn fits the pane",
