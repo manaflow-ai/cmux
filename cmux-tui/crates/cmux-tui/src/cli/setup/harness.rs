@@ -263,6 +263,22 @@ fn saved() -> Vec<HarnessHealth> {
         .unwrap_or_default()
 }
 
+/// What to add when the sign-in check knew the harness's family only from a part of its
+/// program's name (`acpmux::config::guessed_family`): the entry's `"family"`, without which
+/// cmux applies no family's rules to its chats (their permission policies among them). Null
+/// when the entry or its program names the family exactly. Setup's output is English JSON.
+fn family_hint(cfg: &Config, id: &str) -> Value {
+    let Some(family) = cfg.harnesses.get(id).and_then(acpmux::config::guessed_family) else {
+        return Value::Null;
+    };
+    json!({
+        "family": family,
+        "text": format!(
+            "Add \"family\": \"{family}\" to the {id:?} entry in the acpmux config so cmux applies the {family} rules to its chats. The sign-in check guessed the family from the program's name."
+        ),
+    })
+}
+
 fn report(
     cfg: &Config,
     configured: &BTreeSet<String>,
@@ -342,6 +358,7 @@ fn report(
         "update": row.update.filter(|_| outdated == Some(true)).map(|plan| plan.command),
         "problem": row.problem,
         "user_action": user_action,
+        "family_hint": family_hint(cfg, &row.id),
     })
 }
 

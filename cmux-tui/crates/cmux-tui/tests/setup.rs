@@ -1135,6 +1135,10 @@ env_key = "CXS_UNSET_ROUTER_KEY"
     for report in [&status["checks"][2]["harnesses"][0], &named["harnesses"][0]] {
         assert_eq!(report["id"], "router-codex", "{report}");
         assert_eq!(report["installed"], true, "{report}");
+        // Its family came only from its program's name: setup says to add it.
+        assert_eq!(report["family_hint"]["family"], "codex", "{report}");
+        let hint = report["family_hint"]["text"].as_str().unwrap_or_default();
+        assert!(hint.contains(r#"Add "family": "codex" to the "router-codex" entry"#), "{report}");
         assert_eq!(report["signed_in"], Value::Null, "{report}");
         let detail = report["auth_detail"].as_str().unwrap_or_default();
         assert!(detail.contains("CXS_UNSET_ROUTER_KEY"), "{report}");

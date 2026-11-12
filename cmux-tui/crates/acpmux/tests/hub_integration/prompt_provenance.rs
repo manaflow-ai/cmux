@@ -1633,7 +1633,7 @@ async fn a_named_sender_is_verified_by_the_host_token() {
     // A session the Web may prompt (an asking mode and policy, `hub/web_control.rs`), so the
     // Web's send below reaches it.
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "fake"}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "webAskingModes": {"fake": ["normal"]},

@@ -538,3 +538,17 @@ fn a_refused_agent_under_another_family_stays_refused() {
         assert!(refused.contains(family), "{family}: {refused:?}");
     }
 }
+
+/// A part of a program's name suggests a family for a sign-in diagnosis only, and only when the
+/// entry and the program name none exactly.
+#[test]
+fn a_part_of_a_programs_name_only_suggests_a_family_for_a_diagnosis() {
+    let wrapper = prof(HarnessKind::Acp, &["/opt/bin/router-codex-acp"]);
+    assert_eq!(guessed_family(&wrapper).as_deref(), Some("codex"));
+    assert_eq!(exact_family(&wrapper), None, "never a policy family");
+    let mut named = wrapper.clone();
+    named.family = Some("codex".into());
+    assert_eq!(guessed_family(&named), None, "the entry names it");
+    assert_eq!(guessed_family(&prof(HarnessKind::Acp, &["codex-acp"])), None, "an exact name");
+    assert_eq!(guessed_family(&prof(HarnessKind::Acp, &["/opt/bin/agent"])), None);
+}

@@ -33,7 +33,7 @@ async fn hub() -> Arc<Hub> {
         env: BTreeMap::new(),
         description: None,
         fallback: None,
-        family: None,
+        family: Some("fake".into()),
         models: vec![],
         model: None,
         effort: None,

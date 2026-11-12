@@ -114,7 +114,10 @@ impl Subject {
         Some(Self {
             id: id.to_owned(),
             program: profile.argv.first()?.clone(),
-            family: crate::config::derive_family(id, profile),
+            // A sign-in diagnosis only (it holds no policy): a part of the program's name may name
+            // the family when the entry names none (`config::guessed_family`).
+            family: crate::config::guessed_family(profile)
+                .unwrap_or_else(|| crate::config::derive_family(id, profile)),
             check: auth.map(|a| a.check.clone()).unwrap_or_default(),
             env: resolved.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             login: auth.and_then(|a| a.login.clone()),

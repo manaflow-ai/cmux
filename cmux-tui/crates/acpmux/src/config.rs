@@ -984,6 +984,17 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
         .unwrap_or_else(|| name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase())
 }
 
+/// The family a part of the name of the program `profile` runs suggests (`router-codex-acp` →
+/// `codex`, by [`FAMILY_NEEDLES`]), when [`exact_family`] names none. For a sign-in diagnosis
+/// only (`harness_health::Subject`), which fails open and holds no policy; a policy check never
+/// reads it (`web_modes::trusted_mode_family`). Setup then says to add `"family"` to the entry.
+pub fn guessed_family(profile: &HarnessProfile) -> Option<String> {
+    if exact_family(profile).is_some() {
+        return None;
+    }
+    launch_program(&profile.argv).as_deref().and_then(family_of_word)
+}
+
 /// The family a program file name `word` names by [`FAMILY_NEEDLES`], case folded.
 fn family_of_word(word: &str) -> Option<String> {
     let word = word.to_lowercase();

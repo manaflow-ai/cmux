@@ -1031,6 +1031,33 @@ mod tests {
         assert!(!super::super::policy_gate::has_gate(&claude, &cfg), "entry changed");
     }
 
+    /// cmux#40568: a paired machine's chat whose agent names itself `claude-stdio` and runs
+    /// Claude Code's `default` is judged by its trusted family's modes (`lane`, which asks only
+    /// in `ask`), never by what it says: it is out of its policy, so the end of a machine's Full
+    /// access moves it back (`hold_policies_again`). Judged as Claude Code, `default` asks.
+    /// A unit test: a paired machine cannot move a non-bridge chat into `default` at all (the
+    /// remote guard takes only the reviewed asking modes, `any_mode_for_web` is the bridge's).
+    #[test]
+    fn an_agent_that_names_itself_claude_code_is_judged_by_its_own_family() {
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "impostor",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0, "remoteOrigin": true,
+            "permissionPolicy": "ask", "agentInfo": {"name": "claude-stdio"},
+            "modes": {"currentModeId": "default",
+                      "availableModes": [{"id": "ask"}, {"id": "default"}, {"id": "plan"}]},
+        }))
+        .unwrap();
+        let asking =
+            std::collections::BTreeMap::from([("lane".to_owned(), vec!["ask".to_owned()])]);
+        let (table, _) = crate::web_modes::WebModeTable::build(&asking);
+        assert!(out_of_policy(&meta, PermissionPolicy::ApproveAll, "lane", &table));
+        assert!(!out_of_policy(&meta, PermissionPolicy::ApproveAll, "claude", &table));
+        // In its own asking mode it is within its policy.
+        let mut back = meta.clone();
+        back.modes = Some(json!({"currentModeId": "ask", "availableModes": [{"id": "ask"}]}));
+        assert!(!out_of_policy(&back, PermissionPolicy::ApproveAll, "lane", &table));
+    }
+
     /// Deny-all holds in a read-only mode only of a family whose own mode is it: Codex's
     /// `read-only`, Muse Code's `readOnly`. Another family that offers a mode of that name is
     /// held in its mode that asks, or not at all (review of #40790).
