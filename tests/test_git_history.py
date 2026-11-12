@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -100,6 +101,31 @@ class ShallowClone(unittest.TestCase):
         timer.start()
         self.addCleanup(timer.cancel)
         self.assertIsNone(git_history.missing_history(self.clone, [self.b], depth=2))
+
+    def hold_shallow_lock(self, seconds: float | None) -> None:
+        shallow_lock = Path(_git(self.clone, "rev-parse", "--path-format=absolute", "--git-dir")) / "shallow.lock"
+        shallow_lock.write_text("")  # what another `git fetch` into this clone holds while it runs
+        if seconds is None:
+            self.addCleanup(shallow_lock.unlink, missing_ok=True)
+            return
+        timer = threading.Timer(seconds, shallow_lock.unlink)
+        timer.start()
+        self.addCleanup(timer.cancel)
+
+    def test_a_git_lock_held_past_four_quick_retries_is_still_waited_out(self) -> None:
+        # cmux#41434 review: four retries (3 s in all) and a slow concurrent fetch came back as "needs history".
+        self.hold_shallow_lock(4.5)
+        self.assertIsNone(git_history.missing_history(self.clone, [self.b], depth=2))
+
+    def test_a_git_lock_that_never_frees_is_lock_contention_not_needs_history(self) -> None:
+        self.hold_shallow_lock(None)
+        patch = unittest.mock.patch.object(git_history, "GIT_LOCK_WAIT_SECONDS", 1, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        reason = git_history.missing_history(self.clone, [self.b], depth=2)
+        self.assertIsNotNone(reason)
+        self.assertTrue(reason.startswith("git lock held: "), reason)
+        self.assertNotIn("needs history", reason)
 
     def test_a_commit_origin_lacks_is_still_needs_history(self) -> None:
         reason = git_history.missing_history(self.clone, ["0" * 40], depth=1)
