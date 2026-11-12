@@ -18,7 +18,8 @@ entitlement, are requested in the developer portal, not here.
 
 usage: asc_developer_id_app.py MODE --bundle-id ID --name NAME --profile-name NAME
 Auth: ASC_API_KEY_ID, ASC_API_ISSUER_ID and ASC_API_KEY_P8_BASE64 (or ASC_API_KEY_PATH).
-Clock: certificate expiry is judged against CMUX_NOW_EPOCH (seconds) when it is set, else the real clock.
+Clock: certificate expiry is judged against CMUX_NOW_EPOCH when it is set, else the real clock
+(scripts/ci/cmux_now_epoch.py: a malformed value exits 2 with one line).
 """
 from __future__ import annotations
 
@@ -26,7 +27,6 @@ import argparse
 import datetime as dt
 import importlib.util
 import json
-import os
 from pathlib import Path
 import sys
 import urllib.error
@@ -72,14 +72,24 @@ def _parse_date(value: str) -> dt.datetime:
     return dt.datetime.strptime(value.replace("Z", "+0000"), "%Y-%m-%dT%H:%M:%S.%f%z")
 
 
+def _load_clock():
+    # The one CMUX_NOW_EPOCH parser, shared with lint-feature-flags.py; by path, as -I drops this folder.
+    spec = importlib.util.spec_from_file_location("cmux_now_epoch", Path(__file__).resolve().parent / "cmux_now_epoch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_clock = _load_clock()
+
+
 def utc_now() -> dt.datetime:
     """The clock certificate expiry is judged against: CMUX_NOW_EPOCH when set, else the real one.
 
     Tests pass their own `now`; the tooling-tests time-bomb row sets CMUX_NOW_EPOCH far in the
     future, so a test that leans on the real clock instead goes red there, not on the day a
-    fixture date passes."""
-    epoch = os.environ.get("CMUX_NOW_EPOCH")
-    return dt.datetime.fromtimestamp(int(epoch), dt.timezone.utc) if epoch else dt.datetime.now(dt.timezone.utc)
+    fixture date passes. A malformed value exits 2 with one line (scripts/ci/cmux_now_epoch.py)."""
+    return _clock.utc_now()
 
 
 def lookup(asc, bundle_id: str, profile_name: str, now: dt.datetime):
@@ -165,12 +175,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--name", required=True, help="App ID display name")
     parser.add_argument("--profile-name", required=True)
     args = parser.parse_args(argv)
+    now = utc_now()  # before auth: a malformed CMUX_NOW_EPOCH stops here, whatever the key
     try:
         token = _asc_auth()._token()
     except RuntimeError as error:
         print(f"App Store Connect: {error}")
         return 0 if args.mode == "check" else 1
-    return run(http_client(token), args.mode, args.bundle_id, args.name, args.profile_name)
+    return run(http_client(token), args.mode, args.bundle_id, args.name, args.profile_name, now=now)
 
 
 if __name__ == "__main__":
