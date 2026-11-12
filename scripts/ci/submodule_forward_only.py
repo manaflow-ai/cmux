@@ -15,6 +15,8 @@ from urllib.request import Request, urlopen
 MARKER_PREFIX = "submodule-forward-only: allow "
 FETCH_TIMEOUT_SECONDS = 15
 INIT_TIMEOUT_SECONDS = 60
+# A clone that timed out runs once more with this limit: a busy runner makes the guard slower, never red.
+RETRY_INIT_TIMEOUT_SECONDS = 180
 DEEPEN_CHUNK = 256
 MAX_DEEPEN_ROUNDS = 8
 
@@ -81,13 +83,28 @@ def initialize_changed_submodule(path: str) -> bool:
     shallow recursive update keeps this fallback bounded. The caller treats
     an update failure as a guard failure instead of silently falling back to a
     less authoritative result.
+
+    Only a gitlink the change moves gets here, so the change touched what is
+    cloned: a clone that times out is retried once with a longer limit, then
+    fails, saying it timed out (cmux#41742's class: a busy runner makes a check
+    slower; it fails only on what the change touched).
     """
-    result = run(
-        "git", "submodule", "update", "--init", "--depth", "1", "--recursive", "--", path,
-        timeout=INIT_TIMEOUT_SECONDS,
-    )
-    if result.returncode == 0:
-        return True
+    limits = (INIT_TIMEOUT_SECONDS, RETRY_INIT_TIMEOUT_SECONDS)
+    for limit in limits:
+        result = run(
+            "git", "submodule", "update", "--init", "--depth", "1", "--recursive", "--", path,
+            timeout=limit,
+        )
+        if result.returncode == 0:
+            return True
+        if result.returncode != 124:
+            break
+        print(f"submodule-forward-only: {path}: git submodule update timed out after {limit:g} s", file=sys.stderr)
+    if result.returncode == 124:
+        print(f"FAIL {path}: could not initialize changed submodule: git submodule update timed out after "
+              f"{limits[0]:g} s and again after {limits[1]:g} s. This change moves the gitlink, so the guard "
+              "cannot pass it unchecked; rerun the job.", file=sys.stderr)
+        return False
     detail = result.stderr.strip() or result.stdout.strip() or "git submodule update failed"
     print(f"FAIL {path}: could not initialize changed submodule: {detail}", file=sys.stderr)
     return False

@@ -41,9 +41,10 @@ struct PhoneAccessSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["phone.cloudDesktop"] == .privacy)
     }
 
-    @Test func theRowsShowUnderAccountsWithTheDisclosure() throws {
-        let accounts = try #require(SettingsPageLayout().categories().first { $0.spec.id == "accounts" })
-        let rows = accounts.groups.flatMap(\.rows).filter { $0.hasPrefix("phone.") }
+    @Test func theRowsShowUnderMobileWithTheDisclosure() throws {
+        // Beside the iPhone host's own switch, on Settings > Mobile (2026-11-11).
+        let mobile = try #require(SettingsPageLayout().categories().first { $0.spec.id == "mobile" })
+        let rows = mobile.groups.flatMap(\.rows).filter { $0.hasPrefix("phone.") }
         #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "phone.cloudReplica",
                          "phone.cloudDesktop"])
         // Opt-in until #13742 decides the default.

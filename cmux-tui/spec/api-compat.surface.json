@@ -9249,6 +9249,9 @@
         "ty": "string",
         "nullable": true
       },
+      "/create_workspace": {
+        "ty": "boolean"
+      },
       "/cwd": {
         "ty": "string",
         "nullable": true
@@ -9307,6 +9310,10 @@
       },
       "/workspace": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/workspace_name": {
+        "ty": "string",
         "nullable": true
       }
     },

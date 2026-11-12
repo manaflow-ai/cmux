@@ -106,7 +106,8 @@ import Testing
         #expect(abs(inset - leading) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side, \(inset) pt from the top")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
-        let concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
+        // At Default the tab takes the workspace row's Codex corner instead (Metrics.tabRowCornerRadius, tabs follow rows).
+        let concentric = Metrics.tabRowCornerRadius ?? min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
         #expect(abs(radius - concentric) <= 0.01,
                 "\(style) \(density): the tab's radius is \(radius) pt in a \(cardRadius) pt card \(inset) pt away; concentric is \(concentric) pt")
     }

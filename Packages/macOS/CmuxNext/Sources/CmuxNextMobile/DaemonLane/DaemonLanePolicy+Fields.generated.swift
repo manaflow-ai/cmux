@@ -31,7 +31,7 @@ extension DaemonLanePolicy {
         "close-workspace": ["end_terminals", "expected_generation", "expected_revision", "if_empty", "key", "mutation_id", "origin", "reason", "report_closed_ids", "workspace"],
         "copy": ["mode", "surface"],
         "create-tab-group": ["color", "group", "name", "surfaces", "transaction"],
-        "create-terminal": ["cols", "detached", "expected_generation", "expected_revision", "keep", "key", "mutation_id", "name", "origin", "rows", "terminal_id", "workspace"],
+        "create-terminal": ["cols", "create_workspace", "detached", "expected_generation", "expected_revision", "keep", "key", "mutation_id", "name", "origin", "rows", "terminal_id", "workspace", "workspace_name"],
         "create-workspace": ["expected_generation", "expected_revision", "first_tab", "key", "mutation_id", "name", "origin"],
         "create-workspace-group": ["collapsed", "color", "group", "index", "name"],
         "delete-saved-tab-group": ["saved"],

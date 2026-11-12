@@ -245,8 +245,11 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    let gone =
-        if meta.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+    let gone = if meta.is_dir() {
+        crate::home_fs::remove_dir_all(path)
+    } else {
+        crate::home_fs::remove_file(path)
+    };
     match gone {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         other => other,

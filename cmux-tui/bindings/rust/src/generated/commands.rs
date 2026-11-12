@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 808c9812c05a29c17e91371199dc53b27af1cc09ebec158f188795c60f73a605.
+// cmux-tui mux protocol 12, IR 9d6b04c3154c6e22a0281b9280ea26de5e89df57e6521b8e5e7b7c04e14243bb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1558,6 +1558,9 @@ pub struct CreateTerminalRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub command: Optional<String>,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub create_workspace: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1586,6 +1589,9 @@ pub struct CreateTerminalRequest {
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
+    /// The name of the workspace create_workspace makes.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace_name: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -4791,6 +4797,10 @@ impl CmuxClient {
     }
 
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if request.create_workspace.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
+        }
         if request.detached.is_some() {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "detached-terminals-v1")?;
@@ -4809,6 +4819,10 @@ impl CmuxClient {
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
+        }
+        if !request.workspace_name.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "create-terminal-workspace-v1")?;
         }
         self.execute(&CREATE_TERMINAL_METADATA, &request)
     }
