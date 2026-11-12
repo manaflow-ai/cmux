@@ -386,6 +386,98 @@ class AgentSessionSource:
 
 
 @dataclass(frozen=True)
+class Appearance:
+    __cmux_schema_path__: ClassVar[str] = 'types/Appearance'
+    accent: Union[JsonValue, None]
+    background: Union[AppearanceBackground, None]
+    chat: AppearanceChat
+    chrome_style: Union[JsonValue, None]
+    glass_transparency: Union[JsonValue, None]
+    groups: AppearanceGroups
+    hue: Union[JsonValue, None]
+    revision: int
+    saturation: Union[JsonValue, None]
+    sidebar_surface: Union[JsonValue, None]
+    terminal: AppearanceTerminal
+    theme: AppearanceTheme
+
+
+@dataclass(frozen=True)
+class AppearanceBackground:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceBackground'
+    blur: Union[JsonValue, None]
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    height: int
+    luminance: float
+    opacity: Union[JsonValue, None]
+    sha256: str
+    width: int
+    path: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppearanceBackgroundRequest:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceBackgroundRequest'
+    height: int
+    luminance: float
+    path: str
+    sha256: str
+    width: int
+
+
+@dataclass(frozen=True)
+class AppearanceChat:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceChat'
+    received: Union[JsonValue, None]
+    received_text: Union[JsonValue, None]
+    sent: Union[JsonValue, None]
+    sent_text: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class AppearanceGroups:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceGroups'
+    gradient: Union[JsonValue, None]
+    palette: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class AppearanceTerminal:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceTerminal'
+    font_family: Union[JsonValue, None]
+    font_size: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class AppearanceTheme:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceTheme'
+    dark: AppearanceThemeSide
+    follows_system: bool
+    light: AppearanceThemeSide
+
+
+@dataclass(frozen=True)
+class AppearanceThemeInput:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceThemeInput'
+    background: str
+    background_blur: int
+    background_opacity: float
+    foreground: str
+    palette: List[str]
+    accent_color: Union[str, None, MissingType] = field(default=MISSING)
+    cursor: Union[str, None, MissingType] = field(default=MISSING)
+    selection_background: Union[str, None, MissingType] = field(default=MISSING)
+    selection_foreground: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppearanceThemeSide:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppearanceThemeSide'
+    input: AppearanceThemeInput
+    name: Union[str, None]
+
+
+@dataclass(frozen=True)
 class AppliedPane:
     __cmux_schema_path__: ClassVar[str] = 'types/AppliedPane'
     surface: Id
@@ -887,6 +979,12 @@ class FrontendProjection:
     scope: str
     subject_key: str
     replayed: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class GetAppearanceResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GetAppearanceResult'
+    appearance: Appearance
 
 
 @dataclass(frozen=True)
@@ -1858,6 +1956,12 @@ class ServerStatsWritePath:
     registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
     wal_commits: Union[int, MissingType] = field(default=MISSING)
     wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetAppearanceBackgroundResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetAppearanceBackgroundResult'
+    revision: int
 
 
 @dataclass(frozen=True)
@@ -3786,6 +3890,12 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
+class GetAppearanceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-appearance/request'
+    include_path: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class GetBlobRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-blob/request'
     blob: str
@@ -4828,6 +4938,12 @@ class ServerStatsRequest:
 
 
 @dataclass(frozen=True)
+class SetAppearanceBackgroundRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-appearance-background/request'
+    background: Union[AppearanceBackgroundRequest, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetAttachVisibilityRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/request'
     surface: Id
@@ -5514,6 +5630,14 @@ class AgentPresenceChangedEvent(EventBase):
     session: Union[str, None]
     tool: Union[str, None]
     updated_at_ms: Union[int, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AppearanceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/appearance-changed/payload'
+    event: Literal['appearance-changed']
+    revision: int
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6487,7 +6611,7 @@ TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, AppearanceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6537,6 +6661,15 @@ __all__ = [
     'ActivitySubscribeResult',
     'AgentRecord',
     'AgentSessionSource',
+    'Appearance',
+    'AppearanceBackground',
+    'AppearanceBackgroundRequest',
+    'AppearanceChat',
+    'AppearanceGroups',
+    'AppearanceTerminal',
+    'AppearanceTheme',
+    'AppearanceThemeInput',
+    'AppearanceThemeSide',
     'AppliedPane',
     'ApplyLayoutResult',
     'AttachedViewOutcomeResult',
@@ -6588,6 +6721,7 @@ __all__ = [
     'FrontendJournalEventResize',
     'FrontendJournalEventViewport',
     'FrontendProjection',
+    'GetAppearanceResult',
     'GetCellPixelsResult',
     'GetHostSizePolicyResult',
     'GetSizeStateResult',
@@ -6680,6 +6814,7 @@ __all__ = [
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',
+    'SetAppearanceBackgroundResult',
     'SetCellPixelsResult',
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
@@ -6899,6 +7034,7 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'GetAppearanceRequest',
     'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
@@ -7023,6 +7159,7 @@ __all__ = [
     'SendResult',
     'SendKeyRequest',
     'ServerStatsRequest',
+    'SetAppearanceBackgroundRequest',
     'SetAttachVisibilityRequest',
     'SetAttachVisibilityResult',
     'SetCellPixelsRequest',
@@ -7103,6 +7240,7 @@ __all__ = [
     'AgentInventoryChangedEvent',
     'AgentInventoryWatchEndedEvent',
     'AgentPresenceChangedEvent',
+    'AppearanceChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',
     'BrowserStateEvent',

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1846,6 +1846,13 @@ pub struct ForgetSessionRequest {
 pub type ForgetSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetAppearanceRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub include_path: Optional<bool>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetBlobRequest {
     pub blob: String,
@@ -3363,6 +3370,13 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetAppearanceBackgroundRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub background: Optional<T::AppearanceBackgroundRequest>,
 }
 
 #[rustfmt::skip]
@@ -4924,6 +4938,10 @@ impl CmuxClient {
         self.execute(&FORGET_SESSION_METADATA, &request)
     }
 
+    pub fn get_appearance(&mut self, request: GetAppearanceRequest) -> Result<T::GetAppearanceResult> {
+        self.execute(&GET_APPEARANCE_METADATA, &request)
+    }
+
     pub fn get_blob(&mut self, request: GetBlobRequest) -> Result<GetBlobResult> {
         self.execute(&GET_BLOB_METADATA, &request)
     }
@@ -5615,6 +5633,10 @@ impl CmuxClient {
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn set_appearance_background(&mut self, request: SetAppearanceBackgroundRequest) -> Result<T::SetAppearanceBackgroundResult> {
+        self.execute(&SET_APPEARANCE_BACKGROUND_METADATA, &request)
     }
 
     pub fn set_attach_visibility(&mut self, request: SetAttachVisibilityRequest) -> Result<SetAttachVisibilityResult> {

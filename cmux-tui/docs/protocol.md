@@ -457,6 +457,33 @@ desktop app sends `linux` or `windows` on those systems; only clients that send
 `open-device-kinds-v1` receive those kinds, others read them as `unknown`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
+## Appearance
+
+`appearance-v1` means the daemon describes this machine's look for its phones
+(cmux-next-ios/PROTOCOL.md "Appearance"). `get-appearance` answers one snapshot:
+the terminal theme resolved here with `cmux-theme-tokens` (the Ghostty config
+with `appearance.theme` over it, the app's `appearance.themeEdits` and
+`appearance.highlightColor` applied, once `dark` and once `light`), the
+appearance settings a phone draws with, and the backdrop the cmux app shows:
+
+```json
+{"id":30,"cmd":"get-appearance"}
+{"id":30,"ok":true,"data":{"appearance":{"revision":42,"theme":{"dark":{"name":"Nord","input":{"background":"#2E3440","foreground":"#D8DEE9","palette":["#3B4252","..."],"background_opacity":1.0,"background_blur":0}},"light":{"name":"Nord Light","input":{"background":"#E5E9F0","foreground":"#2E3440","palette":["#3B4252","..."],"background_opacity":1.0,"background_blur":0}},"follows_system":true},"accent":"neutral","chrome_style":"two-tone","hue":0.5,"saturation":1,"glass_transparency":0,"sidebar_surface":"same","terminal":{"font_family":"JetBrains Mono","font_size":13},"chat":{"sent":null,"sent_text":null,"received":null,"received_text":null},"groups":{"palette":"glass","gradient":"sunset"},"background":{"sha256":"9f2c...","bytes":412233,"width":2560,"height":1600,"luminance":0.31,"opacity":null,"blur":null}}}}
+```
+
+Only the cmux app may set the background (`set-appearance-background
+{background: {path, sha256, width, height, luminance} | null}` → `{revision}`);
+every other connection, a phone's lane included, gets `forbidden`. The daemon
+checks the file is a regular file of at most 32 MiB and keeps the value in
+memory. `include_path: true` adds the file's `path` to `background` and is
+accepted only from the cmux app and the bundled cmux-mobile-host (which
+strips it from phone requests and serves the file by hash itself).
+
+`subscribe` streams `{"event":"appearance-changed","revision":43}` after any
+setting the snapshot reads, a watched Ghostty file or the background changes:
+the first change at once, then at most one event per 50 ms carrying the newest
+revision. A client answers it with `get-appearance`.
+
 ## Client Compatibility
 
 The remote TUI requires protocol v12. It rejects protocol-v11 servers because v12 adds lifecycle readiness to the strict identify response. Protocol v11 changed terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v12 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.

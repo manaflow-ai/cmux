@@ -11134,6 +11134,550 @@
    },
    "additional_properties": false
   },
+  "AppearanceThemeInput": {
+   "kind": "object",
+   "fields": {
+    "background": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "foreground": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "palette": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Sixteen #RRGGBB colors."
+     ]
+    },
+    "selection_background": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "selection_foreground": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "cursor": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "background_opacity": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "background_blur": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "accent_color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceThemeSide": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The resolved theme's name; null when it has none."
+     ]
+    },
+    "input": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceThemeInput"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceTheme": {
+   "kind": "object",
+   "fields": {
+    "dark": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceThemeSide"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "light": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceThemeSide"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "follows_system": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceTerminal": {
+   "kind": "object",
+   "fields": {
+    "font_family": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "font_size": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceChat": {
+   "kind": "object",
+   "fields": {
+    "sent": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "sent_text": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "received": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "received_text": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceGroups": {
+   "kind": "object",
+   "fields": {
+    "palette": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "gradient": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceBackground": {
+   "kind": "object",
+   "fields": {
+    "sha256": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "height": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "luminance": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Average relative luminance, 0 to 1."
+     ]
+    },
+    "opacity": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "blur": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Only with include_path: the exported file's absolute path."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "Appearance": {
+   "kind": "object",
+   "fields": {
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "theme": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceTheme"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "accent": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "chrome_style": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "hue": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "saturation": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "glass_transparency": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "sidebar_surface": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The settings file's raw JSON value, or null when unset."
+     ]
+    },
+    "terminal": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceTerminal"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "chat": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceChat"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "groups": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceGroups"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "background": {
+     "type": {
+      "kind": "ref",
+      "name": "AppearanceBackground"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Null when the Mac app has set no background."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "GetAppearanceResult": {
+   "kind": "object",
+   "fields": {
+    "appearance": {
+     "type": {
+      "kind": "ref",
+      "name": "Appearance"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AppearanceBackgroundRequest": {
+   "kind": "object",
+   "fields": {
+    "path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Absolute path of a regular file of 1 byte to 32 MiB."
+     ]
+    },
+    "sha256": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "64 hex digits."
+     ]
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "1 to 65535."
+     ]
+    },
+    "height": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "1 to 65535."
+     ]
+    },
+    "luminance": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "0 to 1."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "SetAppearanceBackgroundResult": {
+   "kind": "object",
+   "fields": {
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "ColumnSide": {
    "kind": "enum",
    "values": [
@@ -28160,6 +28704,69 @@
     "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
    ]
   },
+  "get-appearance": {
+   "authority": "control",
+   "since": 12,
+   "capability": "appearance-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "include_path": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "Adds the background file's path; forbidden unless the caller is the verified cmux app or cmux-mobile-host."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GetAppearanceResult"
+   },
+   "stream": null,
+   "constraints": [
+    "This Mac's look for its phones: the resolved terminal theme (dark and light) and the appearance settings the phone draws with."
+   ]
+  },
+  "set-appearance-background": {
+   "authority": "control",
+   "since": 12,
+   "capability": "appearance-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "background": {
+      "type": {
+       "kind": "ref",
+       "name": "AppearanceBackgroundRequest"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "null or absent clears the background."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetAppearanceBackgroundResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app connection; any other connection is refused with forbidden. A bad value is refused with bad_request.",
+    "Kept in memory only; a change advances the appearance revision and publishes appearance-changed."
+   ]
+  },
   "cloud-environment": {
    "authority": "local-admin",
    "since": 12,
@@ -29292,6 +29899,36 @@
         "app",
         "file"
        ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "appearance-changed": {
+   "since": 12,
+   "capability": "appearance-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "appearance-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

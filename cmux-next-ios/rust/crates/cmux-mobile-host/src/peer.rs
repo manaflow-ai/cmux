@@ -98,7 +98,7 @@ pub enum Need {
 pub fn need_for(service: &str) -> Option<Need> {
     Some(match service {
         "echo" | "version" | "machine" => Need::Paired,
-        "file" | "file-preview" | "needs-you" => Need::Grant(Grant::View),
+        "file" | "file-preview" | "needs-you" | "appearance-asset" => Need::Grant(Grant::View),
         "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => Need::Grant(Grant::Control),
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.
         _ => return None,

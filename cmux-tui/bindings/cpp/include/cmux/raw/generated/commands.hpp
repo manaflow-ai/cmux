@@ -159,6 +159,7 @@ public:
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<GetAppearanceResult> get_appearance(const GetAppearanceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> get_blob(const GetBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> get_browser_provider(const GetBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
@@ -270,6 +271,7 @@ public:
     [[nodiscard]] Result<SendResult> send(const SendRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send_key(const SendKeyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<SetAppearanceBackgroundResult> set_appearance_background(const SetAppearanceBackgroundRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetAttachVisibilityResult> set_attach_visibility(const SetAttachVisibilityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});

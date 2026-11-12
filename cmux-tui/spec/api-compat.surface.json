@@ -189,6 +189,19 @@
         "nullable": true
       }
     },
+    "event:appearance-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"appearance-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:bell": {
       "/event": {
         "ty": "literal",
@@ -9608,6 +9621,12 @@
         "required": true
       }
     },
+    "request:get-appearance": {
+      "/include_path": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
     "request:get-blob": {
       "/blob": {
         "ty": "string",
@@ -11684,6 +11703,32 @@
       },
       "/include/*": {
         "ty": "string"
+      }
+    },
+    "request:set-appearance-background": {
+      "/background": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/background/height": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/background/luminance": {
+        "ty": "float64",
+        "required": true
+      },
+      "/background/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/background/sha256": {
+        "ty": "string",
+        "required": true
+      },
+      "/background/width": {
+        "ty": "uint32",
+        "required": true
       }
     },
     "request:set-attach-visibility": {
@@ -17001,6 +17046,249 @@
         "required": true
       }
     },
+    "response:get-appearance": {
+      "/data/appearance": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/accent": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/background": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/background/blur": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/background/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/appearance/background/height": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/appearance/background/luminance": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/appearance/background/opacity": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/background/path": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/background/sha256": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/appearance/background/width": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/appearance/chat": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/chat/received": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/chat/received_text": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/chat/sent": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/chat/sent_text": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/chrome_style": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/glass_transparency": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/groups": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/groups/gradient": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/groups/palette": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/hue": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/revision": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/appearance/saturation": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/sidebar_surface": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/terminal": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/terminal/font_family": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/terminal/font_size": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/theme": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/theme/dark": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/accent_color": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/dark/input/background": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/background_blur": {
+        "ty": "int32",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/background_opacity": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/dark/input/foreground": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/palette": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/appearance/theme/dark/input/palette/*": {
+        "ty": "string"
+      },
+      "/data/appearance/theme/dark/input/selection_background": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/dark/input/selection_foreground": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/dark/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/appearance/theme/follows_system": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/appearance/theme/light": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/theme/light/input": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/accent_color": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/light/input/background": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/background_blur": {
+        "ty": "int32",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/background_opacity": {
+        "ty": "float64",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/light/input/foreground": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/palette": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/appearance/theme/light/input/palette/*": {
+        "ty": "string"
+      },
+      "/data/appearance/theme/light/input/selection_background": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/light/input/selection_foreground": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/appearance/theme/light/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
     "response:get-blob": {
       "/data": {
         "ty": "json",
@@ -21536,6 +21824,12 @@
         "ty": "uint64"
       },
       "/data/write_path/writer_registry_locks": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:set-appearance-background": {
+      "/data/revision": {
         "ty": "uint64",
         "required": true
       }

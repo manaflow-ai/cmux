@@ -227,6 +227,7 @@ mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod cmd_appearance;
 mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
@@ -758,6 +759,17 @@ struct HostSizePolicyRequest {
     order: Option<Vec<String>>,
 }
 
+/// `set-appearance-background`'s `background`: the image the app exported.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppearanceBackgroundRequest {
+    path: String,
+    sha256: String,
+    width: u32,
+    height: u32,
+    luminance: f64,
+}
+
 /// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
@@ -1069,6 +1081,18 @@ enum Command {
     /// Store the host sizing policy in the settings file and apply it.
     SetHostSizePolicy {
         policy: HostSizePolicyRequest,
+    },
+    /// This Mac's look for its phones (`appearance-v1`); `include_path`
+    /// (the cmux app and cmux-mobile-host only) adds the background file.
+    GetAppearance {
+        #[serde(default)]
+        include_path: Option<bool>,
+    },
+    /// The backdrop image the cmux app shows, or `null` for none (the cmux
+    /// app only).
+    SetAppearanceBackground {
+        #[serde(default)]
+        background: Option<AppearanceBackgroundRequest>,
     },
     /// Record explicit input or focus activity for the caller's own view, or
     /// with `view` for one of its relay sub-views (input a relay forwards).

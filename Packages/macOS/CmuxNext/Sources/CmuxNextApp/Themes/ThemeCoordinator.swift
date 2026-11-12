@@ -36,6 +36,8 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?, _ machineID: String?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// The shown backdrop, exported for this Mac's phones (`appearance-v1`).
+    private var mobileAppearance: MobileAppearanceExport?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
@@ -164,6 +166,10 @@ final class ThemeCoordinator {
         let appearanceScopes = self.appearanceScopes
         Task { await appearanceScopes.load() }
         dayObservers = observeDayChanges()
+        let mobileAppearance = MobileAppearanceExport(daemon: services.daemon,
+                                                      bundleIdentifier: services.environment.launch.bundleID)
+        mobileAppearance.start()
+        self.mobileAppearance = mobileAppearance
         Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the

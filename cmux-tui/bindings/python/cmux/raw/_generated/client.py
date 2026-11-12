@@ -366,6 +366,9 @@ class GeneratedClientMixin:
     def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
 
+    def get_appearance(self, *, include_path: Union[bool, None, MissingType] = MISSING) -> GetAppearanceResult:
+        return self._invoke_command('get-appearance', GetAppearanceRequest(include_path=include_path))
+
     def get_blob(self, blob: str) -> JsonValue:
         return self._invoke_command('get-blob', GetBlobRequest(blob=blob))
 
@@ -698,6 +701,9 @@ class GeneratedClientMixin:
 
     def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING) -> ServerStatsResult:
         return self._invoke_command('server-stats', ServerStatsRequest(include=include))
+
+    def set_appearance_background(self, *, background: Union[AppearanceBackgroundRequest, None, MissingType] = MISSING) -> SetAppearanceBackgroundResult:
+        return self._invoke_command('set-appearance-background', SetAppearanceBackgroundRequest(background=background))
 
     def set_attach_visibility(self, surface: Id, visible: bool) -> SetAttachVisibilityResult:
         return self._invoke_command('set-attach-visibility', SetAttachVisibilityRequest(surface=surface, visible=visible))
@@ -1034,6 +1040,7 @@ GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-rea
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
+GeneratedClientMixin.get_appearance.__cmux_command__ = COMMANDS['get-appearance']
 GeneratedClientMixin.get_blob.__cmux_command__ = COMMANDS['get-blob']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
@@ -1145,6 +1152,7 @@ GeneratedClientMixin.select_workspace.__cmux_command__ = COMMANDS['select-worksp
 GeneratedClientMixin.send.__cmux_command__ = COMMANDS['send']
 GeneratedClientMixin.send_key.__cmux_command__ = COMMANDS['send-key']
 GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
+GeneratedClientMixin.set_appearance_background.__cmux_command__ = COMMANDS['set-appearance-background']
 GeneratedClientMixin.set_attach_visibility.__cmux_command__ = COMMANDS['set-attach-visibility']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']

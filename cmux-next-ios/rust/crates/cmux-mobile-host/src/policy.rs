@@ -65,6 +65,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "note-size-activity",
         "get-host-size-policy",
         "set-host-size-policy",
+        // This Mac's look (`appearance-v1`): read only. `include_path` is
+        // stripped (`appearance_verdict`); `set-appearance-background` is
+        // the Mac app's own.
+        "get-appearance",
         // Per-client focus (never moves the Mac's view).
         "client-focus",
         "report-focus",
@@ -369,6 +373,9 @@ impl DaemonPolicy {
         if command == "set-client-info" {
             return self.client_info_verdict(object);
         }
+        if command == "get-appearance" && object.contains_key("include_path") {
+            return appearance_verdict(object);
+        }
         if command == "resize-attached-view" && object.contains_key("identity") {
             return sub_view_verdict(object);
         }
@@ -465,6 +472,17 @@ impl DaemonPolicy {
 /// A relay sub-view's `identity` from a phone, without `user_id` and
 /// `device_id`: a phone relays no other device, so its sub-views can never
 /// take another device's place in the Mac's sizing order.
+/// `get-appearance` from a phone without `include_path`: the background
+/// file's path never leaves this Mac (the phone fetches the image by hash
+/// over `appearance-asset`).
+fn appearance_verdict(mut object: Map<String, Value>) -> Verdict {
+    object.remove("include_path");
+    match serde_json::to_vec(&Value::Object(object)) {
+        Ok(line) => Verdict::Rewrite(line),
+        Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+    }
+}
+
 fn sub_view_verdict(mut object: Map<String, Value>) -> Verdict {
     if let Some(Value::Object(identity)) = object.get_mut("identity") {
         identity.remove("user_id");
@@ -1537,6 +1555,21 @@ mod tests {
         assert_eq!(sent["device_id"], "phone-1");
         assert_eq!(sent["device_kind"], "mac");
         assert_eq!(sent["id"], "c1");
+    }
+
+    /// A phone reads this Mac's appearance but never the background file's
+    /// path, and never sets the background (`appearance-v1`).
+    #[test]
+    fn phone_reads_the_appearance_without_the_background_path() {
+        let plain = br#"{"cmd":"get-appearance","id":"a1"}"#;
+        assert_eq!(policy().evaluate(plain), Verdict::Forward);
+        let line = br#"{"cmd":"get-appearance","id":"a2","include_path":true}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent, json!({"cmd":"get-appearance","id":"a2"}));
+        let set = br#"{"cmd":"set-appearance-background","id":"a3","background":null}"#;
+        let Verdict::Refuse(refusal) = policy().evaluate(set) else { panic!("forwarded") };
+        assert!(refusal.contains("forbidden"), "{refusal}");
     }
 
     /// A relay sub-view's identity from a phone never names a user or a

@@ -59,6 +59,9 @@ public struct DaemonLanePolicy: Sendable {
         // Shared sizing: the size state, the phone's own activity, and this Mac's sizing
         // policy (`host-size-policy-v1`; the phone sets the Mac-wide preference only).
         "get-size-state", "note-size-activity", "get-host-size-policy", "set-host-size-policy",
+        // This Mac's look (`appearance-v1`): read only, without the background file's path
+        // (`include_path` is stripped); `set-appearance-background` is the Mac app's own.
+        "get-appearance",
         // Per-client focus (never moves the Mac's view).
         "client-focus", "report-focus",
         // Topology: the same authority the Mac frontend grants a signed-in phone today.
@@ -174,6 +177,17 @@ public struct DaemonLanePolicy: Sendable {
         guard Self.allowedCommands.contains(command) else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) is not available to a phone"))
+        }
+        // The background file's path never leaves this Mac: the phone fetches the image by hash
+        // (`appearance-asset`). Judged again without it, and sent rewritten.
+        if command == "get-appearance", object["include_path"] != nil {
+            var stripped = object
+            stripped["include_path"] = nil
+            guard let data = try? JSONSerialization.data(withJSONObject: stripped, options: [.sortedKeys]) else {
+                return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
+            }
+            let verdict = evaluate(data)
+            return verdict == .forward ? .rewrite(data) : verdict
         }
         // Fields too are an allowlist per command: the reviewed creation fields, else the daemon's
         // schema minus program-choosing fields (`commandFields`, generated). A field added later is refused.

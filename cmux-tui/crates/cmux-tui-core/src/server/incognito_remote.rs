@@ -49,8 +49,9 @@ const REMOTE_RESOURCE_OPERATIONS: [&str; 7] = [
 /// target: reads of the whole session, the connection's own settings, and
 /// creating a new workspace or group. Any other command that names no target
 /// is refused while the current workspace is incognito (fail closed).
-const NO_CURRENT_TARGET: [&str; 36] = [
+const NO_CURRENT_TARGET: [&str; 37] = [
     "identify",
+    "get-appearance",
     "ping",
     "server-stats",
     "set-client-info",

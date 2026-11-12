@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde'
+IR_SHA256 = '817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206'
 
 
 @dataclass(frozen=True)
@@ -1615,6 +1615,17 @@ COMMANDS = {
             'session_id': CommandFieldMetadata(None, None),
         },
     ),
+    'get-appearance': CommandMetadata(
+        'get-appearance',
+        'control',
+        12,
+        'appearance-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'include_path': CommandFieldMetadata(None, None),
+        },
+    ),
     'get-blob': CommandMetadata(
         'get-blob',
         'control',
@@ -3098,6 +3109,17 @@ COMMANDS = {
             'include': CommandFieldMetadata(None, None),
         },
     ),
+    'set-appearance-background': CommandMetadata(
+        'set-appearance-background',
+        'control',
+        12,
+        'appearance-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'background': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-attach-visibility': CommandMetadata(
         'set-attach-visibility',
         'frontend',
@@ -4073,6 +4095,7 @@ EVENTS = {
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
+    'appearance-changed': EventMetadata('appearance-changed', 12, 'appearance-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
