@@ -9,6 +9,8 @@ before the close). Run on cmux-lawrence-2 (GUI host), never the laptop.
 Usage: close-toast-live.py TAG APP OUT_DIR
 """
 import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -295,12 +297,12 @@ try:
         undo_state("group")
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "end.png")}, timeout=60)
 finally:
-    print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
+    safe_print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
     for proc in launched:
         try:
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
-            print("pid %d did not quit; SIGKILL" % proc.pid, flush=True)
+            safe_print("pid %d did not quit; SIGKILL" % proc.pid, flush=True)
             os.kill(proc.pid, signal.SIGKILL)  # the PID launched here, never a pattern
     subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
