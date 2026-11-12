@@ -434,30 +434,29 @@ class PrePushGateTests(unittest.TestCase):
         env = {**self.env, "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)}
         if deadline is not None:
             env["CMUX_PREPUSH_ADVISORY_SECONDS"] = str(deadline)
-        started = time.monotonic()
         result = subprocess.run(["python3", "-I", GATE, "--base", "origin/feat-cmux-next", "--head", "HEAD", "--advisory"],
                                 cwd=self.repo, env=env, text=True, capture_output=True, timeout=300)
-        return result, time.monotonic() - started, (summary.read_text() if summary.exists() else "")
+        return result, (summary.read_text() if summary.exists() else "")
 
     def test_ci_advisory_that_stalls_is_killed_at_its_deadline_with_its_process_group_and_the_gate_passes(self):
         # Codex review of #40811 (F1): the advisory ran on a daemon thread, but a stalled check's executor workers are
         # joined at interpreter exit, so the gate's 600 s watchdog failed a gate that had passed. The advisory is a
         # child in its own process group: at its deadline the whole group is killed and the gate's exit code stands.
+        # The stalled check outlasts advisory_run's 300 s timeout, so a gate that waits for it never returns here.
         mark = self.root / "stalled-pgid"
         self.write("scripts/cmux-next/arch-ratchet.py",
                    "import concurrent.futures, os, subprocess\n"
                    "def push_refusals(repo, ranges, upstream_ref=None):\n"
                    "    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)\n"
-                   "    pool.submit(subprocess.run, ['sleep', '300'])\n"
+                   "    pool.submit(subprocess.run, ['sleep', '3600'])\n"
                    f"    open({str(mark)!r}, 'w').write(str(os.getpgrp()))\n"
-                   "    subprocess.run(['sleep', '300'])\n"
+                   "    subprocess.run(['sleep', '3600'])\n"
                    "    return [], []\n")
         self.kit("Fresh", NEW_CLEAN)
         self.commit("clean")
-        result, elapsed, table = self.advisory_run(deadline=3)
+        result, table = self.advisory_run(deadline=3)
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
-        self.assertLess(elapsed, 3 + 60, output)
         self.assertIn("::warning title=prepush advisory timed out::", result.stdout, output)
         self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
         pgid = int(mark.read_text())
@@ -471,7 +470,7 @@ class PrePushGateTests(unittest.TestCase):
                    "def check(base, head, changes):\n    raise RuntimeError('fixture boom')\n")
         self.kit("Fresh", NEW_CLEAN)
         self.commit("clean")
-        result, _, table = self.advisory_run()
+        result, table = self.advisory_run()
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
         self.assertRegex(table, r"\| arch ratchet \| incomplete: 0 finding\(s\), 1 check\(s\) did not run", output)

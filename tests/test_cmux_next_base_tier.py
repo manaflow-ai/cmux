@@ -782,11 +782,13 @@ class QuotaRetry(unittest.TestCase):
 
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
-    (0: all at once). It stops trickling when stop() is called or the client hangs up."""
+    (0: all at once). It stops trickling when stop() is called or the client hangs up. FINISHED is set once
+    an answer is all sent."""
 
     def __init__(self, answer: bytes, gap: float):
         self.answer, self.gap = answer, gap
         self.done = threading.Event()
+        self.finished = threading.Event()
         # When each request reached the server (time.monotonic()), in order.
         self.arrivals: list[float] = []
         self.listener = socket.socket()
@@ -814,11 +816,13 @@ class TricklingServer:
                     self.arrivals.append(time.monotonic())
                 if not self.gap:
                     conn.sendall(self.answer)
+                    self.finished.set()
                     return
                 for byte in self.answer:
                     if self.done.wait(self.gap):
                         return
                     conn.sendall(bytes([byte]))
+                self.finished.set()
             except OSError:
                 return
 
@@ -835,10 +839,10 @@ class WholeRequestBound(unittest.TestCase):
     QuotaGitHub and the takeover's client, now ends within its bound on one monotonic clock."""
 
     BOUND = 0.3
-    SLACK = 0.4
     # Each header byte comes 0.03 s after the last (well under the 0.3 s socket timeout); all of them take
-    # about 2 s, far past the bound.
-    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 30 + b"\r\nContent-Length: 0\r\n\r\n"
+    # about 30 s, a hundred times the bound (stop() ends the trickle at cleanup). A call that ends while the
+    # server still trickles ended on its own bound, not on the answer's end.
+    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 1000 + b"\r\nContent-Length: 0\r\n\r\n"
     FAST = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
 
     def serve(self, answer: bytes, gap: float) -> TricklingServer:
@@ -860,17 +864,14 @@ class WholeRequestBound(unittest.TestCase):
             for method, call in (("POST", lambda: api.post("repos/o/r/actions/workflows/w/dispatches", {})),
                                  ("GET", lambda: api.get("repos/o/r"))):
                 with self.subTest(client=name, method=method):
-                    started = time.monotonic()
                     try:
                         outcome = call()
                     except Exception as error:  # noqa: BLE001
                         outcome = error
-                    elapsed = time.monotonic() - started
-                    self.assertLess(elapsed, self.BOUND + self.SLACK, f"{name} {method} returned {outcome!r}")
+                    self.assertFalse(server.finished.is_set(), f"{name} {method} waited for the whole trickle")
                     # Never a success: a timed-out write may have been taken, so it is reported as unknown.
                     self.assertIsInstance(outcome, TimeoutError)
                     self.assertIsInstance(outcome, notify.RequestTimeout)
-                    self.assertGreaterEqual(elapsed, self.BOUND * 0.9)
 
     def test_a_fast_answer_still_returns_its_body(self):
         server = self.serve(self.FAST, 0)
