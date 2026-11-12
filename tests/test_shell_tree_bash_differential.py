@@ -324,7 +324,15 @@ def require_oracle() -> None:
 
 
 def bash_runs(text: str) -> list[str] | str:
-    """The stub names bash runs for TEXT, sorted and unique; a string saying why when bash gave no answer."""
+    """The stub names bash runs for TEXT, sorted and unique; a string saying why when bash gave no answer: any error
+    of the run is this line's answer, never a crash of every line (#41862 review, F1's sweep)."""
+    try:
+        return _bash_runs(text)
+    except Exception as error:
+        return f"the oracle raised {type(error).__name__}: {error}"
+
+
+def _bash_runs(text: str) -> list[str] | str:
     bash = shutil.which("bash")
     if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True).returncode:
         return "bash -n refuses it: a corpus bug"

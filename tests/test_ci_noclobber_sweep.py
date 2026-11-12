@@ -164,7 +164,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
+SHELL_TREE_SHA256 = "418b9e14806dc6aad4d681e4f5c04ca78ea9eec5389f74dc0fc02f0a2077c1c3"
 
 
 def without_templates(line: str) -> str:
@@ -477,7 +477,7 @@ class NoclobberSweep(unittest.TestCase):
         read the scratch folder as bash's answer, False, while bash ran on. A reaper that fails, whatever the reason,
         is OracleUnavailable, never True or False, and what it left running is stopped."""
         roots = self.own_runs()
-        crash = shell_tree.REAPER.replace("\nwhile reap(False):", "\nraise RuntimeError('injected')\nwhile reap(False):")
+        crash = shell_tree.REAPER.replace("\n\n\ndef reap(block):", "\nraise RuntimeError('injected')\n\n\ndef reap(block):")
         self.assertNotEqual(crash, shell_tree.REAPER)
         with mock.patch.object(shell_tree, "REAPER", crash):
             for text in ("SECONDS=0; while ((SECONDS < 20)); do :; done", ": > /tmp/out.$$; SECONDS=0; "
