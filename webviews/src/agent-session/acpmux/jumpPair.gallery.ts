@@ -3,8 +3,9 @@
 // and `JumpUp`). Leo, 2026-11-12, on the fisheye disc over the transcript: "I feel like this jump to
 // top button is a little bit strange-looking, no? Like, did we redesign that [stuff] yet?"
 // Each variant parks the reader mid-chat below an unread "New" line, so Jump up and Jump to latest
-// both show over real prose; `needs-you` shows Jump up over the Needs you pill, and `image` over a
-// wallpaper. View Compare arms for every look side by side, in light and dark (?colorScheme=).
+// both show over real prose; `frosted-image` over a wallpaper. `pair` pins no arm, so View Compare
+// arms draws it once per look side by side; the other variants pin one look each. Light and dark:
+// ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
@@ -87,6 +88,11 @@ export default agentPaneEntry({
   },
   experiment: { definition: jumpPairLook, script: [{ name: "Park mid-chat under the New line", run: park }] },
   variants: {
+    pair: {
+      note: "The pair in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
+      snapshot,
+      play: park,
+    },
     frosted: {
       note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",
       snapshot,
