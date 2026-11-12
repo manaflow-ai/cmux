@@ -451,15 +451,44 @@ extern "C" fn front_tap(
         )
     };
     let owner = |pid| may_own_menu(pid, target, &before, guard.as_deref(), frame);
-    match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
-        Notice::Pass => event,
-        Notice::ReleaseAndDrop(thief) => {
+    let own = std::process::id() as i32;
+    match classify(event_type, subtype, thief, front, own, armed, owner) {
+        Notice::Pass => {
+            // Any other lost-key notice while the call is live (the person's
+            // app lost the keyboard to something that is not the call's
+            // menu): the newest theft may not be the call's.
+            if event_type == FOCUS_NOTICE
+                && subtype == LOST_KEY_FOCUS
+                && thief > 0
+                && thief != i64::from(own)
             {
                 let mut st = state();
-                set_note(&mut st, generation, "the theft was seen; the release had not run yet");
-                if st.generation == generation && st.theft.is_none() {
-                    st.theft = Some(Theft { thief, front, generation, is_target: thief == target });
+                if st.live && st.generation == generation {
+                    st.stolen_since = generation;
                 }
+            }
+            event
+        }
+        Notice::ReleaseAndDrop(thief) => {
+            // The notice is dropped only when the call records this theft
+            // (one per call): otherwise it passes and nothing is released.
+            let recorded = {
+                let mut st = state();
+                let fresh = st.generation == generation && st.live && st.theft.is_none();
+                if fresh {
+                    st.theft = Some(Theft { thief, front, generation, is_target: thief == target });
+                    set_note(
+                        &mut st,
+                        generation,
+                        "the theft was seen; the release had not run yet",
+                    );
+                } else if st.generation == generation {
+                    st.stolen_since = generation;
+                }
+                fresh
+            };
+            if !recorded {
+                return event;
             }
             // The release waits for the menu window: released earlier, the
             // window server orders the menu's window group (and the target's
@@ -563,12 +592,14 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
         (st.menus_before.clone(), st.target_frame)
     };
     let seen = || state().menu_seen == generation;
-    let menu_shows = || {
-        seen()
-            || super::cgwindows::on_screen().iter().any(|w| {
-                counts_as_call_menu((w.pid, w.layer, w.id, w.frame), thief, &before, target_frame)
-            })
+    // The call's menu window on screen now (the call's own sighting only
+    // ends the wait early; the release needs the window still there).
+    let window_now = || {
+        super::cgwindows::on_screen().iter().any(|w| {
+            counts_as_call_menu((w.pid, w.layer, w.id, w.frame), thief, &before, target_frame)
+        })
     };
+    let menu_shows = || seen() || window_now();
     let current = || {
         let st = state();
         call_state(st.generation, st.live, generation)
@@ -582,12 +613,13 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
         return;
     }
     let person_front = super::frontmost_pid() == Some(front);
-    match release_plan(menu_shows(), thief_is_target, person_front) {
+    match release_plan(window_now(), thief_is_target, person_front) {
         ReleasePlan::Now => {
-            // Commit: take the theft, so disarm never releases it again.
+            // Commit under the release lock: take the theft (so disarm never
+            // releases it again) and check liveness, then release.
+            let _release = release_lock();
             let taken = take_theft(&mut state().theft, thief, generation);
             if taken.is_some() {
-                let _release = release_lock();
                 give_back_locked(thief, generation, false);
             }
         }
@@ -769,6 +801,9 @@ pub(super) fn arm(
             stop_tap(old);
         }
     }
+    // The tap on the target goes in before anything can steal: a theft (or
+    // another app taking the keyboard from it) is heard from the start.
+    place_menu_tap(target_pid);
     let before: Vec<u32> = super::cgwindows::on_screen()
         .into_iter()
         .filter(|w| w.layer == MENU_LAYER)
