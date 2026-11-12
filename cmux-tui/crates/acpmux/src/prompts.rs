@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::home_fs;
 use crate::rpc::{RpcError, method};
 
 /// The store's file name in acpmux's home.
@@ -277,22 +278,20 @@ fn write(path: &Path, prompts: &[Saved]) -> io::Result<()> {
     static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
-    fs::create_dir_all(dir)?;
+    home_fs::create_dir_all(dir, 0o700)?;
     let file = StoreFile { version: VERSION, prompts: prompts.to_vec() };
     let bytes = serde_json::to_vec_pretty(&file).map_err(io::Error::other)?;
     let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&tmp).and_then(|mut out| {
+    let options =
+        home_fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp);
+    let written = options.and_then(|mut out| {
         out.write_all(&bytes)?;
         out.sync_all()?;
-        fs::rename(&tmp, path)
+        home_fs::rename(&tmp, path)
     });
     if written.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = home_fs::remove_file(&tmp);
     }
     written
 }

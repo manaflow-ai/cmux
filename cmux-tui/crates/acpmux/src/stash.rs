@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::home_fs;
 use crate::rpc::{RpcError, method};
 
 /// The stash folder in acpmux's home.
@@ -211,7 +212,7 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
     if drafts.is_empty() {
         // A home that was replaced keeps its files, as a write would refuse it.
         crate::config::refuse_lost_home(&path).map_err(io::Error::other).map_err(not_saved)?;
-        match fs::remove_file(&path) {
+        match home_fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(not_saved(e)),
@@ -227,7 +228,7 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
 /// then `from`'s file removed; when it cannot be, `to` is put back and the move fails whole. A
 /// draft `to` already holds (only a put-back that failed too leaves one) is not added again.
 pub fn move_stack(dir: &Path, from: &str, to: &str) -> Result<Moved, RpcError> {
-    move_stack_with(dir, from, to, |path| fs::remove_file(path))
+    move_stack_with(dir, from, to, |path| home_fs::remove_file(path))
 }
 
 /// [`move_stack`], with the source's removal given (a test makes it fail).
@@ -269,7 +270,7 @@ fn move_stack_with(
         });
     if let Err(e) = removed {
         let put_back =
-            if own.is_empty() { fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
+            if own.is_empty() { home_fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
         return Err(match put_back {
             Ok(()) => not_saved(e),
             // Both stacks hold the moved drafts, `to` all of its own as well: a retry adds none twice.
@@ -311,7 +312,7 @@ fn trim_chats(dir: &Path, keep: &Path) {
         if crate::config::refuse_lost_home(&path).is_err() {
             return;
         }
-        let _ = fs::remove_file(path);
+        let _ = home_fs::remove_file(path);
     }
 }
 
@@ -371,22 +372,20 @@ fn write(path: &Path, chat: &str, drafts: &[Draft]) -> io::Result<()> {
     static SAVES: AtomicU64 = AtomicU64::new(0);
     crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
-    fs::create_dir_all(dir)?;
+    home_fs::create_dir_all(dir, 0o700)?;
     let file = ChatFile { version: VERSION, chat: chat.to_owned(), drafts: drafts.to_vec() };
     let bytes = serde_json::to_vec(&file).map_err(io::Error::other)?;
     let n = SAVES.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&tmp).and_then(|mut out| {
+    let options =
+        home_fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp);
+    let written = options.and_then(|mut out| {
         out.write_all(&bytes)?;
         out.sync_all()?;
-        fs::rename(&tmp, path)
+        home_fs::rename(&tmp, path)
     });
     if written.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = home_fs::remove_file(&tmp);
     }
     written
 }
