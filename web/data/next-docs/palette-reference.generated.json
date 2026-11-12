@@ -3196,6 +3196,12 @@
           "command": "cmux tab duplicate"
         },
         {
+          "id": "tab.duplicateToNewSplit",
+          "title": "Duplicate Tab to New Split",
+          "shortcut": null,
+          "command": "cmux tab duplicate-to-new-split"
+        },
+        {
           "id": "tabGroup.expand",
           "title": "Expand Tab Group",
           "shortcut": null,
@@ -3344,6 +3350,12 @@
           "title": "Move Tab to Space…",
           "shortcut": null,
           "command": "cmux tab move-to-space"
+        },
+        {
+          "id": "tab.moveToWindow",
+          "title": "Move Tab to Window…",
+          "shortcut": null,
+          "command": "cmux tab move-to-window"
         },
         {
           "id": "tab.moveToWorkspace",
@@ -7490,18 +7502,6 @@
           "title": "Remove Remote Group",
           "shortcut": null,
           "command": "cmux remote remove-group"
-        },
-        {
-          "id": "machine.joined.revoke",
-          "title": "Revoke Joined Machine…",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "machine.joined.rotate",
-          "title": "Rotate Joined Machine's Credential",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "macScreen.deviceAccess",

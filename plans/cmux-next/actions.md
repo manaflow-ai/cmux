@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 193
 - `pane`: 137
 - `screen`: 65
-- `tab`: 112
+- `tab`: 114
 - `terminal`: 38
 - `browser`: 254
 - `sidebar`: 90
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 31
 - `settings`: 158
 
-## Counts (1453 actions)
+## Counts (1455 actions)
 
-Palette 1397, CLI verbs 862, right-click 640, MCP tools 778.
+Palette 1397, CLI verbs 864, right-click 640, MCP tools 780.
 
 ## Menus
 
@@ -99,7 +99,7 @@ Palette 1397, CLI verbs 862, right-click 640, MCP tools 778.
 
 **liveInput** (17): `home.sendSelectionToChief`, `home.sendSelectionTo`, `omnibar.openInBackgroundTab`, `omnibar.openInForegroundTab`, `browser.link.saveAs`, `browser.link.copy`, `browser.link.copyText`, `browser.image.saveAs`, `browser.image.copy`, `browser.image.copyAddress`, `browser.selection.copy`, `browser.selection.lookUp`, `feed.openItem`, `feed.githubAction`, `sidebar.chat.togglePin`, `list.next`, `list.previous`
 
-**guiOnly** (1): `machine.joined.check`
+**guiOnly** (3): `machine.joined.check`, `machine.joined.rotate`, `machine.joined.revoke`
 
 **noObject** (5): `agent.openSessionWorkspace`, `agent.openSessionTab`, `import.list`, `import.card`, `import.suggest`
 
@@ -159,7 +159,7 @@ Palette 1397, CLI verbs 862, right-click 640, MCP tools 778.
 
 **minimalMenu** (4): `space.newWindow`, `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
-**pointerMenuTrim** (51): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `browserProfile.move`, `browserProfile.setProxy`, `browserProfile.clearProxy`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
+**pointerMenuTrim** (53): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `browserProfile.move`, `browserProfile.setProxy`, `browserProfile.clearProxy`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `tab.moveToWindow`, `tab.duplicateToNewSplit`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
 
 ## Exemptions: mcp
 

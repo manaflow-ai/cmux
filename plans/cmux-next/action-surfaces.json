@@ -41596,6 +41596,83 @@
     },
     {
       "args" : [
+        {
+          "kind" : "target",
+          "name" : "window",
+          "required" : true,
+          "target_kind" : "window"
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "tab move-to-window",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.moveToWindow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Tab to Window…",
+      "title_key" : "action.tab.moveToWindow",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "enum",
+          "name" : "direction",
+          "required" : false,
+          "values" : [
+            "right",
+            "down",
+            "left",
+            "up"
+          ]
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "tab duplicate-to-new-split",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.duplicateToNewSplit",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Duplicate Tab to New Split",
+      "title_key" : "action.tab.duplicateToNewSplit",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "offered",
@@ -47691,12 +47768,7 @@
     },
     {
       "args" : [
-        {
-          "kind" : "target",
-          "name" : "machine",
-          "required" : true,
-          "target_kind" : "machine"
-        }
+
       ],
       "cli" : "guiOnly",
       "cli_name" : "action machine-joined-rotate",
@@ -47712,7 +47784,7 @@
       "id" : "machine.joined.rotate",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "offered",
+      "palette" : "guiOnly",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -47727,12 +47799,7 @@
     },
     {
       "args" : [
-        {
-          "kind" : "target",
-          "name" : "machine",
-          "required" : true,
-          "target_kind" : "machine"
-        }
+
       ],
       "cli" : "guiOnly",
       "cli_name" : "action machine-joined-revoke",
@@ -47748,7 +47815,7 @@
       "id" : "machine.joined.revoke",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "offered",
+      "palette" : "guiOnly",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,

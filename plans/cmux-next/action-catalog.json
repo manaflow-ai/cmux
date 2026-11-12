@@ -59389,6 +59389,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -59396,14 +59397,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "SOCKS5",
                 "value" : "socks5"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "HTTP",
                 "value" : "http"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "HTTPS",
                 "value" : "https"
               }
@@ -59414,6 +59421,7 @@
           "title" : "Proxy Type"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -59424,6 +59432,7 @@
           "title" : "Proxy Host"
         },
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -59585,6 +59594,7 @@
     {
       "arguments" : [
         {
+          "isAskedInPalette" : false,
           "isRequired" : true,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -108348,18 +108358,7 @@
     },
     {
       "arguments" : [
-        {
-          "isRequired" : true,
-          "isSuppliedByTarget" : true,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : {
-            "target" : "machine"
-          },
-          "name" : "machine",
-          "suggestions" : null,
-          "title" : "Joined Machine"
-        }
+
       ],
       "category" : "remote",
       "cliName" : "action machine-joined-rotate",
@@ -108369,7 +108368,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -108420,10 +108419,11 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "guiOnly"
+        }
       },
       "surfaces" : [
-        "palette",
         "contextMenu"
       ],
       "symbol" : "key",
@@ -108437,18 +108437,7 @@
     },
     {
       "arguments" : [
-        {
-          "isRequired" : true,
-          "isSuppliedByTarget" : true,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
-          "kind" : {
-            "target" : "machine"
-          },
-          "name" : "machine",
-          "suggestions" : null,
-          "title" : "Joined Machine"
-        }
+
       ],
       "category" : "remote",
       "cliName" : "action machine-joined-revoke",
@@ -108458,7 +108447,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : true,
+        "is_palette_visible" : false,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -108509,10 +108498,11 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : "offered"
+        "palette" : {
+          "exempt" : "guiOnly"
+        }
       },
       "surfaces" : [
-        "palette",
         "contextMenu"
       ],
       "symbol" : "xmark.circle",
