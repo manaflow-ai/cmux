@@ -410,6 +410,21 @@ class SingleHostFallbacks(unittest.TestCase):
         self.assertEqual(wj.resolve(matrix["jobs"]["a"], "a", "x.yml").runs_on_cells, ["m1-${{ 'matrix.os' }}",
                                                                                       "m2-${{ 'matrix.os' }}"])
 
+    def test_review_f1_a_matrix_key_is_one_key_in_any_case(self) -> None:
+        """Codex on #41044: `${{ matrix.os }}-${{ matrix.OS }}` was expanded as two keys, so the cells were every
+        pairing of them (four with two axis values, two of them impossible). A context key is one key in any case:
+        each cell gives both reads the same value, as on base."""
+        wj = checker.load_workflow_jobs()
+        text = "${{ matrix.os }}-${{ matrix.OS }}"
+        for axis in ("os", "OS"):
+            with self.subTest(axis=axis):
+                job = wj.document(f"jobs:\n  a:\n    strategy:\n      matrix:\n        {axis}: [ubuntu, windows]\n"
+                                  f"    runs-on: {text}\n")["jobs"]["a"]
+                self.assertEqual(wj.expand_matrix(job, text), ["ubuntu-ubuntu", "windows-windows"])
+                self.assertEqual(wj.resolve(job, "a", "x.yml").runs_on_cells, ["ubuntu-ubuntu", "windows-windows"])
+                bracket = "${{ matrix['os'] }}-${{ MATRIX.Os }}"
+                self.assertEqual(wj.expand_matrix(job, bracket), ["ubuntu-ubuntu", "windows-windows"])
+
     def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
         """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
         resolving a field: the file, the job and the key path it sits at, and the field that consumed it."""
