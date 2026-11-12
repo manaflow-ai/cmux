@@ -28,6 +28,7 @@ compile) is unresolved: owners() is None and a caller must not pass it (fail clo
 
 Vendored from teamleaderleo/leo-workspace tools/scope_resolver.py at 07b4c9bf9
 (LW #4755, #4769, #4775); keep the compiler scope and binding rules together.
+Local follow-up: record defaults in the shared argument walker, including lambda parameters.
 Source of truth: leo-workspace tools/scope_resolver.py. Standard library only; runs on Python 3.9 (macOS's
 /usr/bin/python3) and later.
 """
@@ -96,7 +97,7 @@ class Resolver:
         self.star = star  # star(module, name) -> the paths `from module import *` may bind NAME to
         self.scope = {}  # id(node) -> Scope it is evaluated in
         self.written = []  # (name, site, Scope written in, how): how is "walrus", "plain" or "param"
-        self.defaults = {}  # id(arg) -> its default node, for a def's parameter
+        self.defaults = {}  # id(arg) -> its default node, for a def's or lambda's parameter
         self.annotation_only = set()  # id() of the target of `x: T` with no value
         self.unplaced = set()  # names with a write symtable could not place
         self._walrus = set()  # id() of a walrus target
@@ -144,6 +145,11 @@ class Resolver:
         """A def's or lambda's parameters, after walking their defaults in OUTER, where Python evaluates them."""
         for d in a.defaults + [d for d in a.kw_defaults if d is not None]:
             self._put(d, outer)
+        positional = a.posonlyargs + a.args
+        pairs = list(zip(positional[len(positional) - len(a.defaults):], a.defaults))
+        pairs += [(x, d) for x, d in zip(a.kwonlyargs, a.kw_defaults) if d is not None]
+        for x, d in pairs:
+            self.defaults[id(x)] = d
         return [x for x in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg] if x is not None]
 
     def _walk(self, node, scope, own=False):
@@ -163,11 +169,6 @@ class Resolver:
                 if child.returns is not None:
                     self._put(child.returns, inner)
                 body = Scope("function", child, inner, child.name, child.lineno)
-                positional = a.posonlyargs + a.args
-                pairs = list(zip(positional[len(positional) - len(a.defaults):], a.defaults))
-                pairs += [(x, d) for x, d in zip(a.kwonlyargs, a.kw_defaults) if d is not None]
-                for x, d in pairs:
-                    self.defaults[id(x)] = d
                 for x in params:
                     self.scope[id(x)] = body
                     self._write(x.arg, x, body, "param")
