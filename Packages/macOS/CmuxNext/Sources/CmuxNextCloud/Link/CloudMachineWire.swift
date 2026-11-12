@@ -91,6 +91,8 @@ public final class CloudMachineWire {
                     try await task.send(.string(#"{"t":"subscribe"}"#))
                 case "snapshot":
                     onSubscribed()
+                    // The spares the platform says still need the login (at subscribe and after each recheck): the same copy as the event, coalesced per spare.
+                    for machine in Self.sparesNeedingLogin(data, team: selectedTeam) { onSpareReady(machine) }
                 case "ephemeral":
                     if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
                     else if let change = CloudPortChange.parseWireFrame(data) { sink(change) }
@@ -119,6 +121,15 @@ public final class CloudMachineWire {
             throw CloudAPIError.decoding("Cloud wire ticket response")
         }
         return ticket
+    }
+
+    /// The spares a `snapshot` of this socket's own team (`cloud:<team>`) names in `spares_needing_login`: the person's
+    /// ready spares with no login reported yet (ids only). Empty for any other frame or team.
+    nonisolated static func sparesNeedingLogin(_ frame: Data, team: String?) -> [String] {
+        guard let team, let object = (try? JSONSerialization.jsonObject(with: frame)) as? [String: Any],
+              object["t"] as? String == "snapshot", object["stream"] as? String == "cloud:\(team)",
+              let ids = object["spares_needing_login"] as? [Any] else { return [] }
+        return ids.compactMap { ($0 as? String).flatMap { $0.hasPrefix("vm_") ? $0 : nil } }
     }
 
     /// The machine of a `cloud.spare.ready` frame for `team`, the team this socket was opened in; nil for any other frame.

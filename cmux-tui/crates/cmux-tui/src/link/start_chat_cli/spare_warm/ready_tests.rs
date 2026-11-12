@@ -53,6 +53,21 @@ fn one_ready_event_is_one_copy_and_a_repeat_is_none() {
     assert!(call(dir.path(), &ready_of(OTHER), 1_000_300).get("copy").is_some());
 }
 
+/// The platform's snapshot lists a spare that still needs the login (`spares_needing_login`, at subscribe and after
+/// each install recheck), and the App asks the same `ready` for it as for the event: a listing gives one copy, the
+/// event for the same spare (before or after) gives none, and a listing repeated at every recheck gives none.
+#[test]
+fn a_snapshot_listing_and_an_event_for_one_spare_are_one_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    // Listed first, then the event.
+    assert!(call(dir.path(), &ready_of(MACHINE), 1_000_000).get("copy").is_some());
+    assert!(call(dir.path(), &ready_of(MACHINE), 1_000_100).get("copy").is_none());
+    // The event first, then the listing, then the listing again at the next recheck.
+    assert!(call(dir.path(), &ready_of(OTHER), 1_000_200).get("copy").is_some());
+    assert!(call(dir.path(), &ready_of(OTHER), 1_000_300).get("copy").is_none());
+    assert!(call(dir.path(), &ready_of(OTHER), 1_060_300).get("copy").is_none());
+}
+
 #[test]
 fn a_ready_event_after_a_claim_copies_nothing_and_a_claim_after_it_waits_on_its_copy() {
     let dir = tempfile::tempdir().unwrap();
