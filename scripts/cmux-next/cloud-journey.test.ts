@@ -84,7 +84,7 @@ describe("cloud journey", () => {
     expect(programs.preflight.startsWith("set -eu\n")).toBe(true);
     expect(programs.preflight).toContain("/etc/cmux/vm-kind");
     const install = programs.install("/home/cmux/.cmux/credential-transfer/A.json");
-    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport json, os");
+    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport fcntl, hashlib, json, os");
     expect(install).toContain("env['CLAUDE_CODE_OAUTH_TOKEN'] = value");
     expect(install.endsWith("\nCMUX_CREDENTIAL_INSTALL")).toBe(true);
   });
