@@ -32,6 +32,9 @@ import workflow_jobs  # noqa: E402
 
 
 def load(name: str, file: str):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, CI / file)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module

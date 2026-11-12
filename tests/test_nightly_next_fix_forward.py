@@ -14,10 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/nightly_next_fix_forward.py"
-spec = importlib.util.spec_from_file_location("fix_forward", SCRIPT)
-ff = importlib.util.module_from_spec(spec)
-sys.modules["fix_forward"] = ff
-spec.loader.exec_module(ff)
+# One module object per file (tests/test_script_module_loads.py): the name scripts import it by, reused when
+# another test loaded it first.
+ff = sys.modules.get("nightly_next_fix_forward")
+if ff is None:
+    spec = importlib.util.spec_from_file_location("nightly_next_fix_forward", SCRIPT)
+    ff = importlib.util.module_from_spec(spec)
+    sys.modules["nightly_next_fix_forward"] = ff
+    spec.loader.exec_module(ff)
 
 REPO = "manaflow-ai/cmux"
 GOOD, BAD, NEWER = "3947349329001", "3947430561301", "3947500000001"
