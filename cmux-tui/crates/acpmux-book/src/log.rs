@@ -215,8 +215,8 @@ pub struct Log {
     max_row: u64,
     /// Whether the last segment has bytes that were not synced.
     unsynced: bool,
-    /// Set when a failed write could not be cut back: the segment's end is unknown until the
-    /// next open.
+    /// Set when a failed record write could not be cut back, or an index write failed after
+    /// its record: the files are only known to agree again after the next open.
     broken: bool,
     stats: Stats,
 }
@@ -508,7 +508,7 @@ impl Log {
 
     fn write_record(&mut self, row_id: u64, rev: u32, text: &[u8]) -> Result<u64, Error> {
         if self.broken {
-            return Err(Error::Corrupt("a write failed and was not cut back; open the book again"));
+            return Err(Error::Corrupt("a write failed; open the book again"));
         }
         let len = u32::try_from(text.len())
             .ok()
@@ -555,7 +555,13 @@ impl Log {
         });
         self.stats.bytes_written = self.stats.bytes_written.saturating_add(written);
         self.stats.writes = self.stats.writes.saturating_add(writes);
-        indexed?;
+        if let Err(error) = indexed {
+            // The record is in the segment but not in an index. No checkpoint may now say the
+            // indexes are whole up to here: the log stops, and the next open (which replays
+            // from the last checkpoint) sets the entry.
+            self.broken = true;
+            return Err(Error::Io(error));
+        }
         Ok(seq)
     }
 
@@ -588,6 +594,9 @@ impl Log {
     /// reads only what is appended after this call. The file is replaced atomically: a kill at
     /// any moment leaves the old checkpoint or the new one.
     pub fn write_checkpoint(&mut self, state: &[u8]) -> Result<(), Error> {
+        if self.broken {
+            return Err(Error::Corrupt("a write failed; open the book again"));
+        }
         let mark = Mark {
             last_seq: self.last_seq,
             min_row: self.min_row,

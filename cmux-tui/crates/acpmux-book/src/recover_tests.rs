@@ -275,7 +275,9 @@ fn kill9_writer_entry() {
 
 /// SIGKILL to a live writer, 40 times over one book, at moments spread over the append, the
 /// index write and the checkpoint: every row it reported is there after each reopen, in order,
-/// byte for byte, and the next writer carries on from it.
+/// byte for byte, and the next writer carries on from it. Where each kill lands is the
+/// scheduler's; the torn tails it happened to leave are printed, and the every-byte tests above
+/// are the ones that place a kill exactly.
 #[cfg(unix)]
 #[test]
 fn a_writer_killed_40_times_loses_no_row_it_reported() {
