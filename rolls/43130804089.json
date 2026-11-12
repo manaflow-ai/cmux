@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43130804089",
+  "recorded_at": "2026-11-12T01:00:01Z",
+  "reason": "cmux-tui 1ef4f4124cea changes the image's cmux-tui (pinned f6c4a05d742b)",
+  "dry_run": false,
+  "cmux_tui": "1ef4f4124cea8925092520b4f177635cb0d2a759",
+  "fixes": [
+    {
+      "sha": "1ef4f4124cea8925092520b4f177635cb0d2a759",
+      "mergedAt": "2026-11-11T16:38:30-08:00",
+      "subject": "cmux-server: make a Cloud connect that hangs again after 2 s (#41487)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T01:00:01Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
