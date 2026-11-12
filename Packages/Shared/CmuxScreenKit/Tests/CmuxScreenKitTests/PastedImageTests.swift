@@ -116,6 +116,9 @@ struct PastedImageTests {
                           kCGImagePropertyPNGCompressionFilter].map { $0 as String }),
             "{TIFF}": Set([kCGImagePropertyTIFFOrientation, kCGImagePropertyTIFFXResolution, kCGImagePropertyTIFFYResolution,
                            kCGImagePropertyTIFFResolutionUnit].map { $0 as String }),
+            // ImageIO's PNG and JPEG encoders write these on their own, for any image.
+            "{Exif}": Set([kCGImagePropertyExifColorSpace, kCGImagePropertyExifPixelXDimension,
+                           kCGImagePropertyExifPixelYDimension].map { $0 as String }),
         ]
     }
 
@@ -134,7 +137,9 @@ struct PastedImageTests {
             for tag in tags {
                 let prefix = CGImageMetadataTagCopyPrefix(tag) as String? ?? "?"
                 let name = CGImageMetadataTagCopyName(tag) as String? ?? "?"
-                if !(prefix == "tiff" && pixelOnly["{TIFF}"]!.contains(name)) { found.append("\(prefix):\(name)") }
+                // An XMP tag's prefix names the dictionary it mirrors.
+                let mirrors = ["tiff": "{TIFF}", "exif": "{Exif}"][prefix].flatMap { pixelOnly[$0] } ?? []
+                if !mirrors.contains(name) { found.append("\(prefix):\(name)") }
             }
         }
         return found.sorted()

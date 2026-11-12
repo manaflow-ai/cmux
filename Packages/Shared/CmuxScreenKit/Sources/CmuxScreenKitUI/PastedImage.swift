@@ -52,9 +52,14 @@ struct PastedImage: Sendable, Equatable {
     }
 
     /// What describes only the pixels, by properties dictionary (`{JFIF}` density, `{PNG}` gamma
-    /// and color, `{TIFF}` orientation and resolution). Any other dictionary or key is metadata.
+    /// and color, `{TIFF}` orientation and resolution, and the `{Exif}` color space and pixel size
+    /// that ImageIO's PNG and JPEG encoders write on their own). Any other dictionary or key is
+    /// metadata.
     private static var pixelOnly: [String: Set<String>] {
         [
+            kCGImagePropertyExifDictionary as String: [
+                kCGImagePropertyExifColorSpace, kCGImagePropertyExifPixelXDimension, kCGImagePropertyExifPixelYDimension,
+            ].reduce(into: Set<String>()) { $0.insert($1 as String) },
             kCGImagePropertyJFIFDictionary as String: [
                 kCGImagePropertyJFIFVersion, kCGImagePropertyJFIFXDensity, kCGImagePropertyJFIFYDensity,
                 kCGImagePropertyJFIFDensityUnit, kCGImagePropertyJFIFIsProgressive,
@@ -72,8 +77,9 @@ struct PastedImage: Sendable, Equatable {
     }
 
     /// Whether the first image of `source` carries anything beyond what describes its pixels: a
-    /// dictionary or key not in ``pixelOnly``, an XMP tag other than those `tiff:` ones, or an
-    /// orientation other than 1. Fails closed: what it does not know counts as metadata.
+    /// dictionary or key not in ``pixelOnly``, an XMP tag other than the `tiff:` and `exif:` mirrors
+    /// of those keys, or an orientation other than 1. Fails closed: what it does not know counts as
+    /// metadata.
     static func carriesMetadata(_ source: CGImageSource, properties: [CFString: Any]) -> Bool {
         if (properties[kCGImagePropertyOrientation] as? Int ?? 1) != 1 { return true }
         let allowed = pixelOnly
@@ -84,10 +90,16 @@ struct PastedImage: Sendable, Equatable {
         if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
            (tiff[kCGImagePropertyTIFFOrientation] as? Int ?? 1) != 1 { return true }
         guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return false }
-        let tiffNames = allowed[kCGImagePropertyTIFFDictionary as String] ?? []
+        // An XMP tag's prefix names the dictionary it mirrors.
+        let mirrored = [
+            "tiff": allowed[kCGImagePropertyTIFFDictionary as String] ?? [],
+            "exif": allowed[kCGImagePropertyExifDictionary as String] ?? [],
+        ]
         let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] ?? []
         return tags.contains { tag in
-            (CGImageMetadataTagCopyPrefix(tag) as String?) != "tiff" || !tiffNames.contains((CGImageMetadataTagCopyName(tag) as String?) ?? "")
+            let prefix = (CGImageMetadataTagCopyPrefix(tag) as String?) ?? ""
+            let name = (CGImageMetadataTagCopyName(tag) as String?) ?? ""
+            return !(mirrored[prefix]?.contains(name) ?? false)
         }
     }
 
