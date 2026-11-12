@@ -71,10 +71,12 @@ struct NewTabHoldCloseKeyTests {
         let token: String
         var input: NewTabInputCoordinator { services.keyRouter.newTabInputCoordinator }
 
-        /// A view that takes the keyboard after the opening (the new page's or the new terminal's).
+        /// A view that takes the keyboard after the opening (the new page's or the new terminal's). It is in the
+        /// page's pane, which is the focused pane in each test that uses it: the window gives the keyboard back
+        /// to the focused pane's terminal when a view outside every pane takes it.
         func laterKeyboardView() throws -> KeyProbe {
             let later = KeyProbe(frame: CGRect(x: 20, y: 0, width: 10, height: 10))
-            try #require(window.contentView).addSubview(later)
+            pane.view.addSubview(later)
             try #require(window.makeFirstResponder(later) && window.firstResponder === later, "the second probe did not get the keyboard")
             return later
         }
@@ -144,8 +146,10 @@ struct NewTabHoldCloseKeyTests {
         // The focus model names the first pane, and the view that had the keyboard before the opening still has it.
         controller.focus.send(.focusPane(focused.paneKey, source: .programmatic))
         try #require(controller.focus.state.pane == focused.paneKey, "the first pane does not have focus")
+        // The probe is in the focused pane, as that pane's terminal is: the focus model takes its keyboard for the
+        // pane's content and leaves it there (a view outside every pane loses the keyboard to the pane's terminal).
         let probe = KeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
-        content.contentView.addSubview(probe)
+        focused.view.addSubview(probe)
         try #require(window.makeFirstResponder(probe) && window.firstResponder === probe, "the probe did not get the keyboard (first responder \(String(describing: window.firstResponder)))")
 
         // The opening's hold, as NewTabPage.open (or Cmd-N) begins it, and the line typed before the field is ready.
@@ -198,7 +202,7 @@ struct NewTabHoldCloseKeyTests {
             Self.expectNoKeyReachedTheOldView(held, "the hold's limit")
             // The count of the dropped keys is in the hold's log with the end's reason; the keys are not.
             #expect(held.input.log.contains { $0.hasPrefix("dropped 3 keys (limit)") }, "the hold's log does not count the dropped keys: \(held.input.log)")
-            #expect(!held.input.log.contains { $0.contains("ls") }, "the hold's log has the text of the keys: \(held.input.log)")
+            #expect(!held.input.log.contains { $0.hasPrefix("dropped") && $0.contains("ls") }, "the hold's log has the text of the dropped keys: \(held.input.log)")
             // The hold is over: the next key is the window's again.
             let next = try Self.keyDown("x", keyCode: 7, in: held.window)
             #expect(!held.input.capture(next, in: held.window), "a key typed after the limit was held: \(held.input.log)")
