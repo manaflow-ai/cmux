@@ -38,6 +38,106 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// Indices 0-7 are the normal colors and 8-15 are the bright variants, in
     /// the standard order: black, red, green, yellow, blue, magenta, cyan, white.
     public var palette: [String]
+    /// Ghostty settings outside the color slots that still change how those
+    /// colors render, read from the machine that runs the terminal session.
+    /// `nil` when the host predates this field; the phone then renders with
+    /// Ghostty's defaults rather than any phone-local setting.
+    public var rendering: Rendering?
+
+    /// Ghostty settings that change how theme colors render on screen.
+    ///
+    /// Each field mirrors one Ghostty config key. A `nil` field means the host
+    /// did not report it, and the phone uses Ghostty's default for that key.
+    public struct Rendering: Codable, Equatable, Sendable {
+        /// `minimum-contrast`, 1 to 21.
+        public var minimumContrast: Double?
+        /// `faint-opacity`, 0 to 1.
+        public var faintOpacity: Double?
+        /// `cursor-opacity`, 0 to 1.
+        public var cursorOpacity: Double?
+        /// `palette-generate`.
+        public var paletteGenerate: Bool?
+        /// `palette-harmonious`.
+        public var paletteHarmonious: Bool?
+        /// `alpha-blending`: `native`, `linear` or `linear-corrected`.
+        public var alphaBlending: String?
+        /// `window-colorspace`: `srgb` or `display-p3`.
+        public var windowColorspace: String?
+
+        /// Values Ghostty accepts for `alpha-blending`.
+        public static let alphaBlendingValues: Set<String> = ["native", "linear", "linear-corrected"]
+        /// Values Ghostty accepts for `window-colorspace`.
+        public static let windowColorspaceValues: Set<String> = ["srgb", "display-p3"]
+
+        public init(
+            minimumContrast: Double? = nil,
+            faintOpacity: Double? = nil,
+            cursorOpacity: Double? = nil,
+            paletteGenerate: Bool? = nil,
+            paletteHarmonious: Bool? = nil,
+            alphaBlending: String? = nil,
+            windowColorspace: String? = nil
+        ) {
+            self.minimumContrast = minimumContrast
+            self.faintOpacity = faintOpacity
+            self.cursorOpacity = cursorOpacity
+            self.paletteGenerate = paletteGenerate
+            self.paletteHarmonious = paletteHarmonious
+            self.alphaBlending = alphaBlending
+            self.windowColorspace = windowColorspace
+        }
+
+        /// The Ghostty directives for every field that holds a value Ghostty
+        /// accepts. Out-of-range or unknown values are dropped, so the key
+        /// keeps Ghostty's default.
+        public var ghosttyDirectives: [String] {
+            var lines: [String] = []
+            if let value = minimumContrast, value.isFinite, (1...21).contains(value) {
+                lines.append("minimum-contrast = \(value)")
+            }
+            if let value = faintOpacity, value.isFinite, (0...1).contains(value) {
+                lines.append("faint-opacity = \(value)")
+            }
+            if let value = cursorOpacity, value.isFinite, (0...1).contains(value) {
+                lines.append("cursor-opacity = \(value)")
+            }
+            if let paletteGenerate {
+                lines.append("palette-generate = \(paletteGenerate)")
+            }
+            if let paletteHarmonious {
+                lines.append("palette-harmonious = \(paletteHarmonious)")
+            }
+            if let value = alphaBlending, Self.alphaBlendingValues.contains(value) {
+                lines.append("alpha-blending = \(value)")
+            }
+            if let value = windowColorspace, Self.windowColorspaceValues.contains(value) {
+                lines.append("window-colorspace = \(value)")
+            }
+            return lines
+        }
+    }
+
+    /// Ghostty directives that return every key a theme can set to Ghostty's
+    /// default. Load these before ``ghosttyColorDirectives`` so a value the
+    /// host did not send falls back to Ghostty's default, never to a setting
+    /// left in the phone's own config (a stale `theme =`, palette entries past
+    /// the ones the host sent, or a rendering key).
+    public static let ghosttyResetDirectives: String = [
+        "theme =",
+        "palette =",
+        "bold-color =",
+        "cursor-color =",
+        "cursor-text =",
+        "selection-background =",
+        "selection-foreground =",
+        "minimum-contrast =",
+        "faint-opacity =",
+        "cursor-opacity =",
+        "palette-generate =",
+        "palette-harmonious =",
+        "alpha-blending =",
+        "window-colorspace =",
+    ].joined(separator: "\n")
 
     /// The number of palette entries a valid theme must carry.
     public static let paletteCount = 16
@@ -56,7 +156,8 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
         selectionBackgroundSemantic: CellRelativeColor? = nil,
         selectionForeground: String,
         selectionForegroundSemantic: CellRelativeColor? = nil,
-        palette: [String]
+        palette: [String],
+        rendering: Rendering? = nil
     ) {
         self.background = background
         self.foreground = foreground
@@ -70,6 +171,7 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
         self.selectionForeground = selectionForeground
         self.selectionForegroundSemantic = selectionForegroundSemantic
         self.palette = palette
+        self.rendering = rendering
     }
 
     /// Whether every color string parses and the palette has exactly 16 entries.
@@ -145,6 +247,9 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
             if let hex = Self.canonicalHex(color) {
                 lines.append("palette = \(index)=\(hex)")
             }
+        }
+        if let rendering {
+            lines.append(contentsOf: rendering.ghosttyDirectives)
         }
         return lines.joined(separator: "\n")
     }
