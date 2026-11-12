@@ -20,8 +20,12 @@
 // from an unhovered copy of the same row.
 //
 // Real Chromium and WebKit (WebKit draws the pane in cmux NEXT); CI fails the file when one cannot launch.
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the rows the pointer
+// crosses are finished calls of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 
@@ -266,7 +270,7 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
           ready: ".cv-worked.is-below",
         });
         panes.push(pane);
-        const page = await pane.open({ width: 1100, height: 900 });
+        const page = await pane.open({ width: 1100, height: 900 }, pinLiveTurnRuns);
         // Motion on, as the app runs it: the fades under test are the app's own.
         await page.evaluate(() => (document.documentElement.dataset.cmuxMotion = "on"));
         let tick = 0;

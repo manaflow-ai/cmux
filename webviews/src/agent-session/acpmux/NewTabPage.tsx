@@ -32,6 +32,7 @@ import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 import {
   TAB_KINDS,
@@ -238,7 +239,10 @@ export function NewTabPage({
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
     if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
-    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts). Here, the one place every
+    // way of starting a chat passes: Enter on the field, Enter on the Ask row, a click on that row.
+    const sent = next === "agent" ? (customizeMessage(value.trim()) ?? value) : value;
+    const result = onSubmit(next, sent, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch((error: unknown) => {

@@ -306,6 +306,17 @@
   justify-content: center;
   line-height: 1;
 }
+/* The drawn checkmark (MenuCheckGlyph): AppKit's menu check, a 12 box on the 14 icon grid, its
+   stroke at the menu text's weight. */
+:where(.ui-menu-check-glyph) {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 :where(.ui-submenu-chevron) {
   margin-inline-start: auto;
   width: 6px;

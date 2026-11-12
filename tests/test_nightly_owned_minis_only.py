@@ -201,7 +201,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
         for name in HOSTED_PREFLIGHT_JOBS:
             with self.subTest(job=name):
                 self.assertNotIn("secrets.", json.dumps(JOBS[name]), "the preflight holds no secret")
-                self.assertEqual(JOBS[name].get("permissions"), {})
+                # issues: write only, for the nightly-next-failure notice (the job's GITHUB_TOKEN; no secret).
+                self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
                 self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
