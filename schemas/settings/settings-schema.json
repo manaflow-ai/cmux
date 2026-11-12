@@ -90522,14 +90522,14 @@
         {
           "title" : {
             "key" : "settings.choice.subagentSidebarAlways",
-            "text" : "Always"
+            "text" : "Sidebar"
           },
           "value" : "always"
         },
         {
           "title" : {
             "key" : "settings.choice.subagentSidebarNever",
-            "text" : "Never"
+            "text" : "Chief's Workspaces"
           },
           "value" : "never"
         }
@@ -90545,7 +90545,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebar.help",
-        "text" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+        "text" : "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebar",
@@ -90557,7 +90557,8 @@
         "show",
         "hide",
         "hidden",
-        "visible"
+        "visible",
+        "group"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -90658,7 +90659,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebar",
-        "text" : "Subagents in the Sidebar"
+        "text" : "Subagent Workspaces"
       },
       "validation" : "portable"
     },
@@ -90687,7 +90688,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarShowWords.help",
-        "text" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+        "text" : "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarShowWords",
@@ -90701,7 +90702,8 @@
         "hidden",
         "visible",
         "words",
-        "rules"
+        "rules",
+        "group"
       ],
       "kind" : "string_list",
       "page_hidden" : false,
@@ -90812,7 +90814,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarShowWords",
-        "text" : "Show Tasks That Mention"
+        "text" : "Sidebar for Tasks That Mention"
       },
       "validation" : "portable"
     },
@@ -90841,7 +90843,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarHideWords.help",
-        "text" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+        "text" : "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarHideWords",
@@ -90855,7 +90857,8 @@
         "hidden",
         "visible",
         "words",
-        "rules"
+        "rules",
+        "group"
       ],
       "kind" : "string_list",
       "page_hidden" : false,
@@ -90966,7 +90969,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarHideWords",
-        "text" : "Hide Tasks That Mention"
+        "text" : "Chief's Workspaces for Tasks That Mention"
       },
       "validation" : "portable"
     },
@@ -90989,7 +90992,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarMinWords.help",
-        "text" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+        "text" : "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarMinWords",
@@ -91003,7 +91006,8 @@
         "hidden",
         "visible",
         "length",
-        "words"
+        "words",
+        "group"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -91111,7 +91115,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarMinWords",
-        "text" : "Show Tasks Longer Than"
+        "text" : "Sidebar for Tasks Longer Than"
       },
       "validation" : "portable"
     },

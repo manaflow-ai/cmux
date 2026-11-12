@@ -147,8 +147,14 @@ nonisolated enum AcpmuxVersionHandoff {
             try await handOffShutdown(environment, pid: pid)
             AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
-            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            daemons.mark(home: environment.home, restarting: false)
+            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public); the next lookup tries again")
+            // A request that never reached the daemon used nothing up: the socket's one handoff
+            // stays for the next lookup. Kept used, it left the replaced daemon running for the
+            // whole launch, and every chat's person proof with it ("Unverified sender", 2026-11-10).
+            handedOff.withLock { keys in
+                keys.remove(key)
+                daemons.mark(home: environment.home, restarting: false)
+            }
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.

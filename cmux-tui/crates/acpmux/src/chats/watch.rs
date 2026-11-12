@@ -57,8 +57,8 @@ impl Drop for RootWatcher {
 
 enum Message {
     Event(notify::Result<notify::Event>),
-    /// A root watched by its folders: its entries or one of its own store files changed. Sent
-    /// only by the macOS root watch (`DirWatch`), so elsewhere nothing constructs it.
+    /// A root watched by its folders: its entries or one of its own store files changed.
+    /// Sent only by the macOS directory watch; elsewhere the folder watch covers it.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     RootEntries(usize),
     Stop,
