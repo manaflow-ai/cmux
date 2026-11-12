@@ -8,8 +8,8 @@
 //!
 //! A refusal names the turn it was stopping (`turnId`: the chat's running turn here, or the turn
 //! the peer's row showed when the Stop went on), so the pane acts only on the answer to the Stop
-//! it is still waiting on, never on a late one for a turn that ended. And it is never dropped as a
-//! lossy notification is when the client reads slowly: it waits for room ([`Waiting`]).
+//! it is still waiting on, never on a late one for a turn that ended. The newest refusal per turn
+//! is kept ([`Waiting`]) and queued in order with every other line (`outbound.rs`).
 
 use super::*;
 
@@ -50,11 +50,9 @@ fn notice(session_id: Value, e: &RpcError, peer: Option<&str>, turn: Option<&str
 const WAITING_KEYS: usize = 16;
 
 /// The refusals that wait for room in a connection's outbound queue, by the chat and turn each
-/// answers ([`wait_key`]), sent in turn by one task. A notification is dropped when the client
-/// reads too slowly (`enqueue_outbound`); a refusal is not, or the pane would show Stopping for
-/// good. The newest refusal for a chat's turn replaces the one waiting, and at most
-/// [`WAITING_KEYS`] wait, so a client that sends Stops and never reads holds at most that many
-/// lines here.
+/// answers ([`wait_key`]), sent in turn by one task into the connection's byte-bounded queue
+/// (`outbound.rs`), which drops nothing; a reader too slow for it is disconnected. The newest
+/// refusal for a chat's turn replaces the one waiting, and at most [`WAITING_KEYS`] wait.
 #[derive(Default)]
 pub(in crate::server) struct Waiting {
     inner: StdMutex<WaitingInner>,
@@ -116,8 +114,8 @@ fn send(conn: &Conn, params: Value) {
                 };
                 line
             };
-            // Waits for room; ends with the connection (its reader gone).
-            if out.send(line).await.is_err() {
+            // Ends with the connection (its reader gone, or past its byte bound).
+            if !out.push(line) {
                 return;
             }
         }

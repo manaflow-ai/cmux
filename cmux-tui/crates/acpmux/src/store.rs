@@ -1311,6 +1311,8 @@ mod sync_model;
 
 mod memory;
 pub use memory::MemoryStore;
+#[cfg(test)]
+pub(crate) use memory::REFUSE_APPENDS;
 
 // ----------------------------------------------------------------- local
 

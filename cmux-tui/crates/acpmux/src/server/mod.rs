@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -174,7 +174,8 @@ pub struct Conn {
     /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
     /// it only observes marks it, so it keeps nothing once the owner app exited.
     presence: crate::daemon::unused_exit::Presence,
-    out: mpsc::Sender<String>,
+    /// Its outbound queue, bounded in bytes (`outbound.rs`): every line goes there, in order.
+    out: Arc<outbound::Outbound>,
     /// Holds its lines until what they may show is durable (`durable_gate.rs`); None without the
     /// event journal.
     gate: Option<Arc<durable_gate::Gate>>,
@@ -182,14 +183,6 @@ pub struct Conn {
     ended: tokio::sync::watch::Sender<bool>,
     /// Per-session preparation cancellation; no capability or owner token is retained.
     preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
-    /// Serializes the capacity check and enqueue across request and watch tasks.
-    outbound_lock: Arc<StdMutex<()>>,
-    /// Number of notifications rejected because the reader fell behind.
-    outbound_dropped: Arc<AtomicU64>,
-    /// A gap marker is already queued (or waiting for one queue slot).
-    outbound_gap_pending: Arc<AtomicBool>,
-    /// Responses waiting for a queue slot; notifications cannot consume these slots.
-    outbound_pending_controls: Arc<AtomicUsize>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
@@ -572,23 +565,13 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
-        enqueue_outbound(
-            &self.out,
-            line.to_owned(),
-            false,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-        );
+        self.out.push(line.to_owned());
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
         self.raise_gate();
-        // A request to the client waits on its answer, so it is never dropped as lossy.
-        let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
             self.notices.fetch_add(1, Ordering::SeqCst);
         }
@@ -614,15 +597,7 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
-                enqueue_outbound(
-                    &self.out,
-                    line,
-                    control,
-                    &self.outbound_dropped,
-                    &self.outbound_gap_pending,
-                    &self.outbound_lock,
-                    &self.outbound_pending_controls,
-                );
+                self.out.push(line);
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
@@ -633,25 +608,19 @@ impl Conn {
     /// reads again from its last record.
     fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
         tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
-        enqueue_outbound(
-            &self.out,
+        self.out.push(
             Message::notification(
                 "_acpmux/lagged",
                 json!({"dropped": 1, "reason": "message_too_large"}),
             )
             .to_line(),
-            false,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
     /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
     /// if a notice was queued since, it is not sent (false) unless `anyway`. A reply that
-    /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
-    /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
+    /// goes out after such a notice (`anyway`) is followed by `_acpmux/lagged {watch: true}`, so
+    /// the client reads the list again.
     /// One larger than a frame goes as its error, as in [`Self::send`].
     /// None if it was not sent; else whether it went whole into an open queue (not as its
     /// too-large error, nor into a queue whose reader is gone).
@@ -688,7 +657,7 @@ impl Conn {
             Message::notification("_acpmux/lagged", lag).to_line()
         };
         self.raise_gate();
-        let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = self.out.lock();
         let stale = self.notices.load(Ordering::SeqCst) != seen;
         if stale && !anyway {
             return None;
@@ -705,64 +674,32 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        match self.out.try_send(line) {
-            Ok(()) if stale => self.enqueue_control_locked(lag()),
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
-            // No room: it waits for some, and a notice may go first; then the lag follows it.
-            Err(mpsc::error::TrySendError::Full(line)) => {
-                let (out, notices) = (self.out.clone(), self.notices.clone());
-                let pending = self.outbound_pending_controls.clone();
-                pending.fetch_add(1, Ordering::AcqRel);
-                self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
-                        let _ = out.send(lag()).await;
-                    }
-                    pending.fetch_sub(1, Ordering::AcqRel);
-                });
-            }
+        // One queue, in order: a notice queued after this reply goes after it.
+        if !queue.push(line) {
+            return Some(false);
+        }
+        if stale {
+            queue.push(lag());
         }
         Some(whole)
     }
 
     /// [`Self::send`] for a request to the client that must go out after every response and
-    /// request queued before it ([`enqueue_after_controls`]): a GitHub action after the watch
-    /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
-    /// while one of those still waits for room, or when it is larger than a frame.
+    /// request queued before it: a GitHub action after the watch answer that opened the Mac's
+    /// side (`hub/github_owner.rs`). The queue keeps its lines in order (`outbound.rs`), so it
+    /// goes after them; refused, with nothing sent, when the connection ended or the request is
+    /// larger than a frame.
     fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
         self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
-        if self.out.is_closed() {
+        if self.out.is_closed() || !self.out.push(line) {
             return Err(RpcError::internal("the connection that would answer ended"));
-        }
-        let queued = enqueue_after_controls(
-            &self.out,
-            line,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-        );
-        if !queued {
-            return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
-                .with_data(json!({"reason": "client.busy", "retryable": true})));
         }
         Ok(())
     }
 
-    fn enqueue_control_locked(&self, line: String) {
-        enqueue_outbound_locked(
-            &self.out,
-            line,
-            true,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-        );
-    }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -1651,7 +1588,7 @@ async fn serve_connection_from(
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
     let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
-    let (out, gate) = durable_gate::install(hub.store.durability(), out);
+    let (out, gate) = outbound::start(&hub.scope, hub.store.durability(), out);
     // The listener's own peer link: the only transport with a writer that compresses (`wire`)
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
@@ -1676,10 +1613,6 @@ async fn serve_connection_from(
         presence: client.presence(),
         out,
         gate,
-        outbound_lock: Arc::new(StdMutex::new(())),
-        outbound_dropped: Arc::new(AtomicU64::new(0)),
-        outbound_gap_pending: Arc::new(AtomicBool::new(false)),
-        outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -1744,7 +1677,15 @@ async fn serve_connection_from(
     let cancel_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
     let mut cancel_waits: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let dropped_notifications = Arc::new(AtomicU64::new(0));
-    while let Some(line) = inbound.recv().await {
+    loop {
+        // A reader past its byte bound is disconnected (`outbound.rs`): it reads again from its
+        // cursor on a new connection, so nothing this one would still ask is answered.
+        let line = tokio::select! {
+            biased;
+            () = conn.out.overrun() => None,
+            line = inbound.recv() => line,
+        };
+        let Some(line) = line else { break };
         if line.trim().is_empty() {
             continue;
         }
@@ -2337,22 +2278,18 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) mod outbox;
+mod pairing;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
 mod review_queue;
 mod run_elsewhere;
-use outbound::{
-    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
-    report_outbound_loss_locked,
-};
-mod machine_tunnel;
-pub(crate) mod outbox;
-mod pairing;
 pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;

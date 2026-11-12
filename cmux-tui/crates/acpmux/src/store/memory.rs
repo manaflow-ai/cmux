@@ -2,6 +2,12 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: every append on this thread is refused, as a journal whose backlog is full refuses.
+    pub(crate) static REFUSE_APPENDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Default)]
 pub struct MemoryStore {
     inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
@@ -22,6 +28,10 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        #[cfg(test)]
+        if REFUSE_APPENDS.with(std::cell::Cell::get) {
+            anyhow::bail!("refused (test)");
+        }
         let mut g = self.inner.lock_or_recover();
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
