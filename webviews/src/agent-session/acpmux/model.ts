@@ -236,8 +236,12 @@ export type AcpmuxBackgroundReaction = {
 export type AcpmuxBackgroundRun = {
   finished: number;
   stopped: number;
+  /// Failed shells: the line names how many.
+  failed: number;
   scheduled: number;
   other: number;
+  /// How many members are background shells' ends: a run of only those reads "N background commands".
+  commands: number;
   rows: string[];
 };
 

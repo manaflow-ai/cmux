@@ -2895,6 +2895,12 @@ pre.cv-math-source {
   white-space: nowrap;
   line-height: inherit;
 }
+/* A folded run keeps the existing activity-row grammar, but a failure remains in the error tone
+   even when its individual shell row is closed inside the line. */
+.cv-background-turn--failed .cv-agent-activity__icon,
+.cv-background-turn--failed .cv-agent-activity__sentence {
+  color: var(--agent-status-failure);
+}
 .cv-row-shimmer {
   display: none;
 }
