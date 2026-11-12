@@ -4,15 +4,20 @@ import QuartzCore
 /// A pane's content area, under its tab strip: the one rounded container its terminal, page or chat shows in. It clips
 /// to its bounds.
 ///
-/// While ``hold`` is set (FRAME OWNER REFACTOR S1, a keyboard resize), the area's frame follows the pane in every frame
-/// and its subviews do not: they keep the frames they had when the hold began, and the bounds origin shows them on the
-/// hold's edges (as NSClipView scrolls its document), cut by the area where it is smaller and over its background where
-/// it is larger. Nothing in them lays out or resizes during the hold. When it ends they take the area's size once,
-/// before anything hears that the motion ended.
+/// Every view shown in it has the area's size in every frame, at rest and in every motion of its pane (Lawrence
+/// 2026-11-11: "check all pane types, all must have smooth transition"). While ``hold`` is set (a keyboard resize), the
+/// area's frame follows the pane in every frame and so does what it shows: a view resizes as its autoresizing says, as
+/// in a divider drag, and lays out in that frame's layout pass. Nothing shown keeps the size it had when the hold began.
 ///
-/// A container in it (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome; FRAME OWNER S3) takes the
-/// area's bounds in every frame instead and hears the hold once, so its own ground covers the pane; only its producer
-/// keeps its size (a terminal's surface follows too, cmux-ad m6 and m18).
+/// A container whose producer draws on another thread or in another process (``PaneMotionHoldFollowing``: a terminal's
+/// host, a browser's chrome; FRAME OWNER S3) also hears the hold, once: the area gives it its bounds in every frame, and
+/// its producer reads the hold's edges for a frame that is late (a terminal's surface, cmux-ad m6 and m18).
+///
+/// A view that fills the area and is hidden (a parked page) does no work in the hold: it takes the area's size once,
+/// when the hold ends or when it shows.
+///
+/// One exception, which a kind states (``PaneKeyResizeHeld``; today the Home): its view keeps the size it had when the
+/// hold began, on the hold's edges, and takes the area's size once, when the hold ends.
 public final class PaneContentAreaView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -25,12 +30,13 @@ public final class PaneContentAreaView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    /// The edges the held subviews ride; nil at rest. Setting nil lets them go at once (``release(from:)``).
+    /// The edges of the pane that stay in a keyboard resize, for the producers that hear the hold; nil at rest. Setting
+    /// nil ends it at once (``release()``).
     public var hold: PaneMotionHold? {
         didSet {
             guard hold != oldValue else { return }
             if hold != nil, heldSize == nil { heldSize = bounds.size }
-            if hold == nil, let held = heldSize { release(from: held) } else { showHeld(handing: true) }
+            if hold == nil, heldSize != nil { release() } else { follow(handing: true) }
         }
     }
 
@@ -47,24 +53,34 @@ public final class PaneContentAreaView: NSView {
         if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
     }
 
-    /// The area's size when the hold began: the size its subviews keep; nil at rest.
+    /// The area's size when the hold began: what a producer that hears the hold measures its pane's size change from;
+    /// nil at rest.
     private var heldSize: CGSize?
 
-    /// Whether the subviews are held now.
+    /// Whether a hold is on now (a keyboard resize moves the pane).
     public var isHolding: Bool { heldSize != nil }
 
-    /// The rect a view that fills the area takes: its bounds at rest; while it holds, the held content's rect, so a view
-    /// that joins mid-hold (a tab switch) is held with the rest and its pane's rest-size change applies to it too.
-    public var contentBounds: CGRect { heldSize.map { CGRect(origin: .zero, size: $0) } ?? bounds }
+    /// The rect `view` takes when it fills the area: the area's bounds. A container that hears the hold
+    /// (``PaneMotionHoldFollowing``) and joins it now (a tab switch) comes in at the rect the area had when the hold
+    /// began, so what it measures on its way in (a terminal's rest size) is from that size; the area gives it its bounds
+    /// in the same turn (``didAddSubview(_:)``) or when it shows (``followerDidShow()``).
+    public func contentBounds(for view: NSView) -> CGRect {
+        guard let heldSize, view is any PaneMotionHoldFollowing, !handed.contains(ObjectIdentifier(view)) else { return bounds }
+        return CGRect(origin: .zero, size: heldSize)
+    }
 
-    /// The rect `view` takes when it fills the area: ``contentBounds``, or the area's bounds for a container that already
-    /// follows the pane through this hold (switched away and back). A container that joins comes in at the held rect, so
-    /// what it measures on its way in (a terminal's rest size) is from the held size.
-    public func contentBounds(for view: NSView) -> CGRect { handed.contains(ObjectIdentifier(view)) ? bounds : contentBounds }
+    /// Whether the area gives `view` its frame in every frame of this hold (a container handed the hold, or one shown
+    /// now that the area hands in this layout pass, ``followerDidShow()``): its owner leaves that frame alone until the
+    /// hold ends, so the container hears the hold before its first layout at the pane's size.
+    public func placesInHold(_ view: NSView) -> Bool {
+        if handed.contains(ObjectIdentifier(view)) || keepsSizeInHold(view) { return true }
+        guard heldSize != nil, let follower = view as? any PaneMotionHoldFollowing else { return false }
+        return follows(follower)
+    }
 
-    /// The containers handed this hold (``PaneMotionHoldFollowing``), which follow the area until it ends: one shown or added
-    /// during the hold hears it in its first frame; one whose producer stops holding (a page whose DevTools docked) keeps
-    /// following and lays its producer out live.
+    /// The containers handed this hold (``PaneMotionHoldFollowing``), which the area places until it ends: one shown or
+    /// added during the hold hears it in its first frame; one whose producer stops holding (a page whose DevTools docked)
+    /// keeps following and lays its producer out live.
     private var handed: Set<ObjectIdentifier> = []
 
     /// A hold ended since the last call: the owner runs, once, the work it left alone during the hold.
@@ -77,13 +93,44 @@ public final class PaneContentAreaView: NSView {
 
     public override func setFrameSize(_ newSize: NSSize) { // perf-hot: 4ms motion-frame
         super.setFrameSize(newSize)
-        showHeld(handing: false)
+        follow(handing: false)
     }
 
-    /// Held subviews keep their frames: no autoresizing while the area holds.
-    public override func resizeSubviews(withOldSize oldSize: NSSize) {
-        guard heldSize == nil else { return }
-        super.resizeSubviews(withOldSize: oldSize)
+    /// In a hold every shown view resizes as at rest and lays out in this frame's pass. Not the containers handed the
+    /// hold (``follow(handing:)`` gives them the area's bounds), and not a hidden view that fills the area (a parked page:
+    /// one size when the hold ends or when it shows, ``release()``).
+    public override func resizeSubviews(withOldSize oldSize: NSSize) { // perf-hot: 4ms motion-frame
+        guard heldSize != nil else { return super.resizeSubviews(withOldSize: oldSize) }
+        for view in subviews where !handed.contains(ObjectIdentifier(view)) && !(view.isHidden && fillsArea(view)) && !keepsSizeInHold(view) {
+            let size = view.frame.size
+            view.resize(withOldSuperviewSize: oldSize)
+            if view.frame.size != size { view.needsLayout = true }
+        }
+    }
+
+    /// A view that takes the area's whole size as the area changes (the selected tab's content, a parked page).
+    private func fillsArea(_ view: NSView) -> Bool { view.autoresizingMask.isSuperset(of: [.width, .height]) }
+
+    /// Whether `view` keeps its size through this hold: the exception a kind states (``PaneKeyResizeHeld``; the Home). The
+    /// area puts it on the hold's edges in each frame (``follow(handing:)``, an origin write, no layout) and gives it its
+    /// bounds once, when the hold ends (``release()``); its owner leaves its frame alone until then.
+    public func keepsSizeInHold(_ view: NSView) -> Bool { fillsArea(view) && keepsOutOfTabRowInHold(view) }
+
+    /// Whether `view` states the exception (``PaneKeyResizeHeld``; the Home) while this hold is on: its pane gives it no
+    /// tab row until the hold ends. Also before the view fills the area (a parked Home shown by a tab change inside the
+    /// hold comes in at the frame it was parked at, ``keepsSizeInHold(_:)`` false in its first layout): it takes the
+    /// area's size under the strip once, then keeps it. With the row it took the pane's whole size in that layout and
+    /// kept it while the area went back under the strip, its tools in a band under the strip until the landing.
+    public func keepsOutOfTabRowInHold(_ view: NSView) -> Bool {
+        heldSize != nil && (view as? any PaneKeyResizeHeld)?.holdsInKeyResize == true
+    }
+
+    /// The area that a key hold of the pane that shows `content` uses: this one. Nil (the pane's host holds the whole
+    /// pane, its tab strip too, as every pane did before 2026-11-11) for content that states the exception
+    /// (``PaneKeyResizeHeld``; the Home) while it draws its tools in the pane's tab row: the row cannot follow the pane
+    /// beside tools that keep their place.
+    public func holdArea(for content: NSView?, drawsInTabRow: @autoclosure () -> Bool) -> PaneContentAreaView? {
+        (content as? any PaneKeyResizeHeld)?.holdsInKeyResize == true && drawsInTabRow() ? nil : self
     }
 
     /// Rounds the area's corners (0: square), with no implicit animation.
@@ -95,12 +142,14 @@ public final class PaneContentAreaView: NSView {
         CATransaction.commit()
     }
 
-    /// The held subviews on the hold's edges of the area's size now: one bounds write, no subview frame changes; each
-    /// following container takes the area's bounds (one frame write). `handing`: the hold changed, the followers hear it.
-    private func showHeld(handing: Bool) { // perf-hot: 4ms motion-frame
+    /// Each container that hears the hold takes the area's bounds (one frame write). `handing`: the hold changed, they
+    /// hear it.
+    private func follow(handing: Bool) { // perf-hot: 4ms motion-frame
         guard let heldSize, let hold else { return }
-        let origin = hold.boundsOrigin(holding: heldSize, in: bounds.size)
-        if bounds.origin != origin { setBoundsOrigin(origin) }
+        for view in subviews where !view.isHidden && keepsSizeInHold(view) {
+            let origin = hold.producerFrame(view.frame.size, in: bounds).origin
+            if view.frame.origin != origin { view.setFrameOrigin(origin) }
+        }
         for case let follower as any PaneMotionHoldFollowing in subviews {
             let id = ObjectIdentifier(follower)
             if !handed.contains(id) {
@@ -159,22 +208,22 @@ public final class PaneContentAreaView: NSView {
         for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowWillShow() }
     }
 
-    /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
+    /// A container in it was shown again during a hold (a parked tab): it joins in this frame's layout pass.
     public func followerDidShow() {
         if hold != nil { needsLayout = true }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame
         super.layout()
-        showHeld(handing: false)
+        follow(handing: false)
     }
 
-    /// A shown container that follows now (a hidden one, a parked tab, stays held and lays out at the release).
+    /// A shown container that hears the hold now (a hidden one, a parked tab, hears it when it shows).
     private func follows(_ follower: any PaneMotionHoldFollowing) -> Bool { !follower.isHidden && follower.followsPaneMotion }
 
-    /// A container that joins during a following hold (a tab switch) follows from now on. It came in at the held rect
-    /// (``contentBounds``), so what it measured on its way in (a terminal's rest size) is from the held size, as for the
-    /// containers that were there when the hold began.
+    /// A container that joins during a hold (a tab switch) hears it from now on. It came in at the rect the area had when
+    /// the hold began (``contentBounds(for:)``), so what it measured on its way in (a terminal's rest size) is from that
+    /// size, as for the containers that were there when the hold began.
     public override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         guard let heldSize, let hold, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
@@ -186,27 +235,22 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
-    /// A container that leaves during a following hold (a tab moved to another pane) stops following.
+    /// A container that leaves during a hold (a tab moved to another pane) hears no more of it.
     public override func willRemoveSubview(_ subview: NSView) {
         super.willRemoveSubview(subview)
         guard handed.remove(ObjectIdentifier(subview)) != nil, let follower = subview as? any PaneMotionHoldFollowing else { return }
         follower.followPaneMotion(nil, heldSize: nil)
     }
 
-    /// The hold ended: each subview takes the area's size as autoresizing from `held` places it; one that fills the area
-    /// (one that joined during the hold too, at the size it joined at) fills it now. A container that followed hears the
-    /// end first, so it lays its producer out at this size.
-    private func release(from held: CGSize) {
+    /// The hold ended: a container that heard it hears the end, so it lays its producer out at this size; a view that
+    /// fills the area and did not resize in the hold (a hidden one, a parked page) fills it now. Every other view is at
+    /// its size already: it resized in each frame.
+    private func release() {
         let followed = handed
         (heldSize, handed) = (nil, [])
-        if bounds.origin != .zero { setBoundsOrigin(.zero) }
         for view in subviews {
             if followed.contains(ObjectIdentifier(view)) { (view as? any PaneMotionHoldFollowing)?.followPaneMotion(nil, heldSize: nil) }
-            if view.autoresizingMask.isSuperset(of: [.width, .height]) {
-                if view.frame != bounds { view.frame = bounds }
-            } else {
-                view.resize(withOldSuperviewSize: held)
-            }
+            if fillsArea(view), view.frame != bounds { view.frame = bounds }
         }
         endedHold = true
         superview?.needsLayout = true
@@ -246,10 +290,18 @@ public extension NSView {
         return layer?.backgroundColor
     }
 
-    /// How far from this pane content's leading edge its ground (``paneGroundColor``) starts: the width of what it shows
-    /// beside its content area (a vertical tab list); 0 with nothing there. It does not change with the content's size.
-    var paneGroundLeadingInset: CGFloat {
-        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return 0 }
-        return max(0, area.frame.minX - bounds.minX)
+    /// How far from this pane content's top and leading edges its ground (``paneGroundColor``) starts: where its content
+    /// area is laid out now (below a tab strip at its top edge, after a vertical tab list), and below the rows of a tab
+    /// row that a view in the area shares with the pane's tabs (``tabRowCoverHeight``: the area then starts at the top,
+    /// under the row, and no ground goes behind or beside the tabs). Zeros for a chat with no strip: it paints from its
+    /// top edge, whatever header its pane reports for its ring. Nil: it has no content area of its own (it is one, or it
+    /// shows none). A row's tools that enter or leave the row move the area and the cover in one layout, by the same
+    /// height, so the top is the same before and after that layout.
+    /// Read in each frame of a spring that holds the content: O(the area's views), no layout.
+    var paneGroundInsets: (top: CGFloat, leading: CGFloat)? {
+        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return nil }
+        let top = isFlipped ? area.frame.minY - bounds.minY : bounds.maxY - area.frame.maxY
+        let row = area.subviews.reduce(0) { $1.isHidden ? $0 : max($0, $1.tabRowCoverHeight) }
+        return (top: max(0, top) + row, leading: max(0, area.frame.minX - bounds.minX))
     }
 }

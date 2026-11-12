@@ -23,9 +23,12 @@ spec.loader.exec_module(download)
 spec = importlib.util.spec_from_file_location("unsigned_resume", ROOT / "scripts/ci/resume-unsigned-nightly.py")
 resume = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resume)
-spec = importlib.util.spec_from_file_location("nightly_decide_tests", ROOT / "tests/test_ci_nightly_push_throttle.py")
-decisions = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(decisions)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tests"))
+import test_ci_nightly_push_throttle as decisions  # noqa: E402
 
 
 class ArtifactDigestTests(unittest.TestCase):

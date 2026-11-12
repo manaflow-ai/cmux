@@ -860,7 +860,7 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
-async fn web_starts_asking(
+pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
     vm_boundary: bool,
@@ -898,8 +898,12 @@ async fn web_starts_asking(
     }
     // A fork onto another harness (`hub/fork.rs` `Retarget`) starts that harness as a new
     // chat would: the same remote start rule, so a family with no reviewed asking mode is refused.
+    // Of a chat this machine runs; a peer's chat is the peer's to judge (forwarded `via: web`).
+    let peer_chat = super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some());
     if m == method::SESSION_FORK
         && web
+        && !peer_chat
         && let Some(harness) = params.pointer("/_meta/acpmux/harness").and_then(Value::as_str)
     {
         let model = params.pointer("/_meta/acpmux/model").and_then(Value::as_str);
@@ -916,7 +920,14 @@ async fn web_starts_asking(
         if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
             let mut would_be = s.meta();
             would_be.harness = harness.to_owned();
-            would_be.family = None;
+            // The family the fork would carry (`hub/fork.rs` `Target`): a Claude adapter that is not
+            // Claude Code itself (family `claude`) is Claude here too. No such profile: the name, and
+            // `local_claude_refusal` refuses a profile it cannot read.
+            would_be.family =
+                Some(hub.config.read().await.profile(harness).map_or_else(
+                    || harness.to_owned(),
+                    |p| crate::config::derive_family(harness, p),
+                ));
             if let Some(e) = hub.local_claude_refusal(&would_be) {
                 return Err(e);
             }
@@ -1036,6 +1047,13 @@ async fn web_starts_asking(
             // to be a peer's.
             Err(e) => Err(e),
         };
+    }
+    // A fork of a configured peer's chat (a live fork, a model switch onto another harness:
+    // `fork_through.rs`) is that peer's `session/fork`: forwarded with `via: web`
+    // (`mark_forwarded`), so the peer applies the Web's rules, D13 among them, on its own state,
+    // as a control above is. A local not-found or ambiguous key is still refused below.
+    if m == method::SESSION_FORK && peer_chat {
+        return Ok(());
     }
     // The handler's own resolution; a source it cannot resolve (unknown, or
     // an ambiguous prefix) is refused for the Web, never passed unchecked.

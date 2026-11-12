@@ -107,9 +107,10 @@ pub fn display_for(dir: &Path, workspace: &str) -> Result<u32> {
 
 #[cfg(unix)]
 fn private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets it.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
+    crate::home_fs::set_mode(dir, 0o700)?;
     Ok(())
 }
 #[cfg(windows)]
@@ -121,8 +122,7 @@ fn private_dir(dir: &Path) -> Result<()> {
 
 #[cfg(unix)]
 fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
+    crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -132,5 +132,10 @@ fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
 }
 #[cfg(windows)]
 fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)
+    crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
 }

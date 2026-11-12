@@ -1,0 +1,542 @@
+name: iOS App Review gate
+run-name: >-
+  App Review gate · ${{ inputs.ref || github.ref_name }} · ${{ inputs.lane || 'appstore' }}
+
+# "Would Apple accept this build right now?" for the NEXT iOS app
+# (cmux-next-ios, CmuxMobileApp). One run, one ranked list of everything a
+# machine can find that App Review would reject: the reviewer's path walked on
+# iPhone, iPad (the iPhone app in compatibility mode) and iPhone Duo, the
+# dead-control walk, the guideline lint on the source, metadata, URLs and the
+# exact binary, the rejection-history check, `asc validate --strict`, and an
+# agent reviewer pass that follows reviewer-setup.md on the simulator.
+#
+# The production pipeline calls it (workflow_call) on the exact feat-cmux-next
+# SHA it builds, before upload, and refuses to submit unless it is green on
+# that SHA (outputs `blocking` and `sha`). It also runs on every feat-cmux-next
+# push that touches the app, and on pull requests that change the gate itself
+# (an app pull request does not pay for a macOS walk; its push to
+# feat-cmux-next does). A scheduled run would fire only from the default
+# branch's copy of this file, so there is none here.
+# docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**"
+      - "Packages/iOS/CmuxConversation/**"
+      - "Packages/Shared/**"
+      - "scripts/cmux-next/check-app-store-rules.py"
+      - "tests/test_ios_app_review_gate.py"
+      - ".github/workflows/ios-review-gate.yml"
+  pull_request:
+    paths:
+      - "cmux-next-ios/UITests/AppReviewGateUITests.swift"
+      - "cmux-next-ios/AppStoreReview/rejection-history.json"
+      - "cmux-next-ios/scripts/app_review_*.py"
+      - "tests/test_ios_app_review_gate.py"
+      - ".github/workflows/ios-review-gate.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: App source to judge (branch, tag or SHA); empty is this ref
+        required: false
+        default: ""
+      lane:
+        description: appstore (the AppStore configuration, com.cmux.app) or internal (cmux INTERNAL)
+        required: false
+        default: appstore
+        type: choice
+        options: [appstore, internal]
+      ipa_artifact_run:
+        description: Optional run id whose `app-store-ipa` artifact is the exact binary to lint
+        required: false
+        default: ""
+      agent_pass:
+        description: Run the agent reviewer pass (Claude on the simulator)
+        required: false
+        default: true
+        type: boolean
+  workflow_call:
+    inputs:
+      ref:
+        description: The app source to judge; the production pipeline passes the full feat-cmux-next SHA it builds
+        type: string
+        required: false
+        default: ""
+      lane:
+        type: string
+        required: false
+        default: appstore
+      ipa_artifact_name:
+        description: Artifact of the calling run that holds the exported .ipa
+        type: string
+        required: false
+        default: ""
+      agent_pass:
+        type: boolean
+        required: false
+        default: true
+      gate_ref:
+        description: Where the gate's own scripts come from when called from another branch (resolved to one SHA)
+        type: string
+        required: false
+        default: feat-cmux-next
+    outputs:
+      blocking:
+        description: Number of blocking findings
+        value: ${{ jobs.report.outputs.blocking }}
+      sha:
+        description: The full SHA the gate judged
+        value: ${{ jobs.plan.outputs.sha }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}
+  # Latest wins for pull requests and feat-cmux-next pushes; a dispatched or
+  # called run (a submission) always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+jobs:
+  plan:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      lane: ${{ steps.plan.outputs.lane }}
+      gate_sha: ${{ steps.plan.outputs.gate_sha }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_INPUT: ${{ inputs.ref }}
+          LANE_INPUT: ${{ inputs.lane }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATE_REF_INPUT: ${{ inputs.gate_ref }}
+          # A called workflow reports its caller's workflow_ref and sha.
+          CALLED: ${{ !contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') }}
+        run: |
+          set -euo pipefail
+          # One full SHA for every job, so the lint, the walk and the caller's
+          # upload all judge the same commit even when a branch moves mid-run.
+          ref="${REF_INPUT:-$HEAD_SHA}"
+          if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            sha="$ref"
+          else
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq .sha)"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve $ref: $sha" >&2; exit 1; }
+          lane="${LANE_INPUT:-appstore}"
+          case "$lane" in appstore|internal) ;; *) echo "::error::unknown lane $lane" >&2; exit 1 ;; esac
+          # The gate's own scripts, history and UI tests. Run directly, that is
+          # this run's commit. Called from another branch (main's production
+          # pipeline), github.sha is the caller's commit, which has no gate, so
+          # the gate is read from `gate_ref` (feat-cmux-next by default),
+          # resolved once to a full SHA here.
+          if [ "$CALLED" = true ]; then
+            gate_ref="${GATE_REF_INPUT:-feat-cmux-next}"
+            gate_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$gate_ref" --jq .sha)"
+          else
+            gate_sha="$GITHUB_SHA"
+          fi
+          [[ "$gate_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the gate's commit: $gate_sha" >&2; exit 1; }
+          {
+            echo "sha=$sha"
+            echo "gate_sha=$gate_sha"
+            echo "lane=$lane"
+          } >> "$GITHUB_OUTPUT"
+          echo "App Review gate judges $sha ($lane)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  lint:
+    needs: plan
+    name: Guideline lint (${{ needs.plan.outputs.lane }})
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read  # ipa_artifact_run: another run's artifact
+    env:
+      LANE: ${{ needs.plan.outputs.lane }}
+    steps:
+      - name: Checkout the gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The gate's own commit (plan's gate_sha): a caller on another
+          # branch (main's production pipeline) still runs the gate's scripts.
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
+            cmux-next-ios/UITests
+      - name: Checkout the app source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          path: app
+          persist-credentials: false
+      - name: Overlay the gate's history and tests
+        run: |
+          set -euo pipefail
+          # The gate's own history and UI tests judge any source (an older
+          # SHA being submitted). A source with no cmux-next-ios gets none,
+          # and the lint says it is not the NEXT app.
+          if [ -d app/cmux-next-ios ]; then
+            mkdir -p app/cmux-next-ios/AppStoreReview
+            cp gate/cmux-next-ios/AppStoreReview/rejection-history.json app/cmux-next-ios/AppStoreReview/
+            cp gate/cmux-next-ios/UITests/AppReviewGateUITests.swift app/cmux-next-ios/UITests/
+          fi
+      - name: Download the exact binary
+        if: inputs.ipa_artifact_name != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.ipa_artifact_name }}
+          path: ipa
+      - name: Download the dispatched run's binary
+        if: inputs.ipa_artifact_run != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: app-store-ipa
+          run-id: ${{ inputs.ipa_artifact_run }}
+          github-token: ${{ github.token }}
+          path: ipa
+      - name: Lint
+        env:
+          WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
+          JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
+          ipa="$(find ipa -name '*.ipa' 2>/dev/null | head -n 1 || true)"
+          if [ -n "$ipa" ]; then
+            # The binary must be built from the judged commit.
+            args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
+          elif [ "$WANT_IPA" = true ]; then
+            # Asked to judge an exact binary and none arrived: never lint
+            # the source alone and call that the binary's verdict.
+            echo "::error::an .ipa was requested but none was downloaded" >&2
+            exit 1
+          fi
+          # The report decides; a blocking lint still uploads its result.
+          python3 -I gate/cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: true
+        with:
+          name: review-gate-lint-${{ env.LANE }}
+          path: lint-${{ env.LANE }}.json
+          retention-days: 3
+
+  reviewer-path:
+    needs: plan
+    name: Reviewer path (${{ needs.plan.outputs.lane }})
+    # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
+    # secret (the agent pass's Claude token), so it takes no owned Mac
+    # (.github/runners.json picker_followup). A fork pull request takes the
+    # same label directly, since it reads no repository variables.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 120
+    # The agent pass reads CLAUDE_CODE_OAUTH_TOKEN; a credentialed job runs in
+    # an environment (tests/test_supplychain_security.py). NEXT's development
+    # environment, with no deployment record.
+    environment:
+      name: cmux-next-development
+      deployment: false
+    env:
+      LANE: ${{ needs.plan.outputs.lane }}
+    steps:
+      - name: Result paths
+        run: |
+          # Under RUNNER_TEMP: upload-artifact refuses a path with '..'
+          # (run 42799920852 lost every result that way).
+          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "RESULTS=$RUNNER_TEMP/results" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/results"
+      # The app source at the workspace root, so its local actions resolve;
+      # the gate beside it in .review-gate (outside cmux-next-ios, which is
+      # all xcodegen reads).
+      - name: Checkout the app source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: Checkout the gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: .review-gate
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview
+            cmux-next-ios/UITests
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: The source is the NEXT app
+        run: |
+          set -euo pipefail
+          if [ ! -f cmux-next-ios/project.yml ]; then
+            # The gate judges the NEXT app only.
+            echo "::error::${{ needs.plan.outputs.sha }} has no cmux-next-ios/project.yml: it is not the NEXT iOS app, so there is no reviewer path to walk" >&2
+            exit 1
+          fi
+          # UITests is a whole-directory source in project.yml, so the copy
+          # is compiled with no project edit.
+          cp .review-gate/cmux-next-ios/UITests/AppReviewGateUITests.swift cmux-next-ios/UITests/
+          mkdir -p cmux-next-ios/AppStoreReview
+          cp .review-gate/cmux-next-ios/AppStoreReview/rejection-history.json cmux-next-ios/AppStoreReview/
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui.
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: ios-review-gate
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "6"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      - name: Install xcodegen and axe
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+          brew install cameroncooke/axe/axe || true
+      - name: Build the app and the gate for testing
+        working-directory: cmux-next-ios
+        run: |
+          set -euo pipefail
+          xcodegen generate -q
+          dest="$(python3 -I ../.review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family iphone --print-destination)"
+          # Debug: the mock account the walk signs in with is DEBUG only.
+          # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the
+          # App Store configurations do (Debug hides it).
+          xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
+            -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CMUX_MOBILE_APPLE_SIGN_IN=YES \
+            build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
+          # xcodebuild's own status: `|| true` on the pipeline would replace it.
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Walk the reviewer path on each device
+        run: |
+          # Never -e (Actions runs `bash -e`): a failing suite must still
+          # write its status and result for the report, and the next device
+          # must still run (run 42947653685 stopped at the first exit 65).
+          set +e
+          set -uo pipefail
+          xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
+          for family in iphone ipad duo; do
+            udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$family" --print-udid)" || {
+              echo "::notice::no $family simulator on this image; its size classes are covered by the Pro Max and iPad rotation tests"
+              echo "{\"family\":\"$family\",\"skipped\":true}" > "$RESULTS/$family.skipped.json"
+              continue
+            }
+            xcrun simctl boot "$udid" 2>/dev/null || true
+            xcrun simctl bootstatus "$udid" -b
+            # iPad runs in dark mode, iPhone and Duo in light, so both
+            # appearances are walked every run.
+            if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
+            xcodebuild test-without-building -xctestrun "$xctestrun" \
+              -destination "id=$udid,arch=arm64" -resultBundlePath "$RESULTS/$family.xcresult" \
+              -only-testing:CmuxMobileAppUITests/AppReviewGateUITests \
+              > "$RESULTS/$family.log" 2>&1
+            code=$?
+            grep -E ' error: |^Test Case .* failed|Executed [0-9]+ tests|^GATE-NOTE ' "$RESULTS/$family.log" || true
+            # The report reads this: a suite that failed with no failed test
+            # in its result (a crash, a build-for-testing mismatch) blocks.
+            echo "{\"family\":\"$family\",\"exit\":$code}" > "$RESULTS/$family.status.json"
+            xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
+            mkdir -p "$RESULTS/screens/$family"
+            xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
+            echo "SIM_$family=$udid" >> "$GITHUB_ENV"
+          done
+          # The report job decides; this step only records.
+          exit 0
+      - name: Agent reviewer pass
+        # Push and pull_request carry no inputs, and an absent input compares
+        # equal to false; only an explicit false skips.
+        if: github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "::notice::no agent token for this event (fork PR); skipping the agent pass"
+            exit 0
+          fi
+          npm install -g @anthropic-ai/claude-code >/dev/null 2>&1
+          app_path="$(find "$DERIVED/Build/Products" -maxdepth 2 -path '*iphonesimulator/CmuxMobileApp.app' | head -n 1)"
+          udid="${SIM_ipad:-${SIM_iphone:-}}"
+          python3 -I .review-gate/cmux-next-ios/scripts/app_review_agent_pass.py \
+            --udid "$udid" --app "$app_path" \
+            --setup cmux-next-ios/AppStoreReview/reviewer-setup.md \
+            --out "$RESULTS/agent-pass" --findings "$RESULTS/agent-findings.json"
+      - name: Upload results
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-gate-path-${{ env.LANE }}
+          path: |
+            ${{ env.RESULTS }}/*.json
+            ${{ env.RESULTS }}/*.log
+            ${{ env.RESULTS }}/screens
+            ${{ env.RESULTS }}/agent-pass
+          if-no-files-found: error
+          retention-days: 3
+      # The xcresult bundles (about 1 GB) are not uploaded: their test results,
+      # logs and screenshots are exported above, which is all the report reads.
+
+  asc-validate:
+    # Apple's own readiness check, read-only: the version, the attached
+    # build, metadata and screenshots, --strict. The NEXT app sells nothing,
+    # so there is no subscription or in-app purchase check. Needs the release
+    # environment, which serves only main.
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request'
+      && needs.plan.outputs.lane == 'appstore'
+      && github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 20
+    env:
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+    steps:
+      # Nothing from the judged source runs here: this job holds the App
+      # Store Connect key. The gate's own scripts come from gate_sha, the
+      # judged source is only read as data, and the version is read before
+      # any secret is in the environment.
+      - name: Checkout the gate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            scripts/select-ci-xcode.sh
+            scripts/ci/xcode-pins.txt
+            .xcode-version
+          sparse-checkout-cone-mode: false
+      - name: Checkout the app source (data only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          path: app
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/project.yml
+            cmux-next-ios/AppStoreReview
+          sparse-checkout-cone-mode: false
+      - name: Select Xcode
+        run: ./gate/scripts/select-ci-xcode.sh
+      - name: Install asc
+        run: brew list asc >/dev/null 2>&1 || brew install asc
+      - name: The version to validate
+        id: version
+        run: |
+          set -euo pipefail
+          # The AppStore configuration's MARKETING_VERSION (project.yml), read
+          # by the gate's own script before any secret is exposed.
+          version="$(python3 -I gate/cmux-next-ios/scripts/app_review_gate.py version --source-root app --lane appstore || true)"
+          [[ -z "$version" || "$version" =~ ^[0-9][0-9.]*$ ]] || version=""
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: asc validate --strict (read-only)
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -uo pipefail
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key"
+          version="$ASC_VERSION"
+          if [ -z "$version" ]; then
+            echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
+          else
+            asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
+          fi
+          if [ -d app/cmux-next-ios/AppStoreReview/metadata ]; then
+            asc metadata validate --dir app/cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
+          fi
+          rm -f "$key"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: true
+        with:
+          name: review-gate-asc
+          path: asc-*.json
+          retention-days: 3
+
+  report:
+    needs: [plan, lint, reviewer-path, asc-validate]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    outputs:
+      blocking: ${{ steps.report.outputs.blocking }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          persist-credentials: false
+          sparse-checkout: cmux-next-ios/scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          pattern: review-gate-*
+          path: in
+      - name: One ranked list
+        id: report
+        env:
+          ASC_RESULT: ${{ needs.asc-validate.result }}
+          JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+          # A direct push or pull_request run reports the app's readiness for
+          # the record; a submission (dispatch, or a call from the production
+          # pipeline) is the one that refuses on a blocker.
+          ADVISORY: ${{ contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && (github.event_name == 'push' || github.event_name == 'pull_request') }}
+        run: |
+          set -uo pipefail
+          echo "Judged: \`$JUDGED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          args=(report --out review-gate.md)
+          # Fail closed: a missing lint or device result blocks.
+          # download-artifact puts a lone artifact straight into in/, not
+          # in/<name>/, so find the files by name wherever they landed.
+          args+=(--expect-lint --expect-device iphone --expect-device ipad)
+          while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
+          for fam in iphone ipad duo; do
+            while IFS= read -r f; do args+=(--xcresult-json "$f"); done < <(find in -name "$fam.json" -type f | sort)
+          done
+          while IFS= read -r f; do args+=(--extra "$f"); done < <(find in -name 'agent-findings.json' -type f | sort)
+          while IFS= read -r f; do args+=(--suite-status "$f"); done < <(find in -name '*.status.json' -type f | sort)
+          for fam in iphone ipad duo; do
+            while IFS= read -r f; do args+=(--suite-log "$f"); done < <(find in -name "$fam.log" -type f | sort)
+          done
+          while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
+          if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
+          # Actions runs `bash -e`: take the verdict's status without exiting.
+          code=0
+          python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}" || code=$?
+          echo "blocking=$(grep -oE '[0-9]+ blocking' review-gate.md | head -n1 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          if [ "$code" -ne 0 ] && [ "$ADVISORY" = true ]; then
+            # The verdict judges the whole app at this commit, not the change
+            # that started the run, so it never turns a push or a pull request
+            # red; the summary above and the `blocking` output carry it.
+            echo "::warning::App Review gate: this commit would not pass App Review yet (see the run summary); a submission run refuses it"
+            exit 0
+          fi
+          exit $code
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: review-gate-report
+          path: review-gate.md
+          retention-days: 3

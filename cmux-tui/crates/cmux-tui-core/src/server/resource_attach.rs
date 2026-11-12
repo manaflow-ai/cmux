@@ -981,5 +981,5 @@ pub(super) fn send_resource_response(
             ResourceResponseEnvelope::failure(id, error)
         }
     };
-    serde_json::to_value(envelope).is_ok_and(|value| writer.send_control(&value).is_ok())
+    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
 }

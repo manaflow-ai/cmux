@@ -118,6 +118,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
@@ -179,6 +180,7 @@ import {
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
 import { markOneRowChange } from "./rowChanges";
+import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -1876,6 +1878,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
   /// `markOneRowChange`), so the pane reads that row alone, not every row.
   private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The first slot of `ordered` any change since `snapshot` was made could have touched (MANY_SLOTS
+  /// when the order was rebuilt or moved): the next snapshot says its rows before it are the last
+  /// one's (prefixFlatMap.ts `noteKeptPrefix`), so every per-snapshot pass that reads only the rows
+  /// after the kept prefix (markRows, sessionEdits, startedNames, prefixFlatMap) starts there with no
+  /// walk over the chat. A tool call's start is a new slot at the end, its end a write in place.
+  private firstChanged: number | typeof MANY_SLOTS | undefined;
   /// The last snapshot handed out, which the next one's change is from.
   private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
@@ -1923,6 +1931,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.changedFrom(this.ordered && at !== undefined ? at : MANY_SLOTS);
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1981,6 +1990,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) {
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
     }
   }
 
@@ -2029,6 +2039,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
       this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
+      this.changedFrom(index);
       return;
     }
     this.changedSlot = MANY_SLOTS;
@@ -2037,6 +2048,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
     if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
       this.orderedIndex.set(id, ordered.length);
+      this.changedFrom(ordered.length);
       ordered.push(row);
       return;
     }
@@ -2044,6 +2056,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
+  }
+
+  /// Notes a change at slot `index` of the kept order (MANY_SLOTS: anywhere).
+  private changedFrom(index: number | typeof MANY_SLOTS): void {
+    const first = this.firstChanged;
+    this.firstChanged =
+      index === MANY_SLOTS || first === MANY_SLOTS ? MANY_SLOTS : first === undefined ? index : Math.min(first, index);
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -2098,6 +2117,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     super.set(row.id, row);
     this.snapshot = undefined;
     this.changedSlot = MANY_SLOTS;
+    this.firstChanged = MANY_SLOTS;
   }
 
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
@@ -2178,6 +2198,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
@@ -2188,8 +2209,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.snapshot = this.ordered.slice();
       if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
         markOneRowChange(this.snapshot, from, this.changedSlot);
+      if (from && this.firstChanged !== MANY_SLOTS)
+        noteKeptPrefix(this.snapshot, from, Math.min(this.firstChanged ?? Infinity, from.length, this.snapshot.length));
       this.published = this.snapshot;
       this.changedSlot = undefined;
+      this.firstChanged = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -4341,7 +4365,14 @@ export class AcpmuxDirectClient {
       // tell failures apart.
       if (message.error) {
         const data = message.error.data as
-          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | {
+              code?: unknown;
+              details?: unknown;
+              reason?: unknown;
+              detail?: unknown;
+              errorKind?: unknown;
+              recovery?: unknown;
+            }
           | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
@@ -4351,6 +4382,9 @@ export class AcpmuxDirectClient {
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
+            // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.
+            ...(typeof data?.errorKind === "string" ? { errorKind: data.errorKind } : {}),
+            ...(typeof data?.recovery === "string" ? { recovery: data.recovery } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
@@ -4388,19 +4422,26 @@ export class AcpmuxDirectClient {
       if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
       if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
+      // `cmux app chat perf` (chatPerfCapture.ts): one boolean when no capture runs.
+      const arrived = chatPerfCapture.active && params.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply(notification.params as EventRecord);
+      if (arrived >= 0) chatPerfCapture.arrived(params.kind, arrived);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       if (notification.params?.sessionId === this.selectedSessionId)
         acpmuxPerf.markEvent(notification.params?._meta?.acpmux?.at);
+      const kind = String(notification.params?.update?.sessionUpdate ?? "");
+      const arrived =
+        chatPerfCapture.active && notification.params?.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
         at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
         dir: "in",
-        kind: String(notification.params?.update?.sessionUpdate ?? ""),
+        kind,
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
+      if (arrived >= 0) chatPerfCapture.arrived(kind, arrived);
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) {
       this.asks.pending(notification.params);

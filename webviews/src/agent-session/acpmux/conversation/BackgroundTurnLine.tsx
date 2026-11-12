@@ -20,7 +20,9 @@ import { useContext, type KeyboardEvent, type MouseEvent } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxBackgroundSource, AcpmuxRow } from "../model";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
+import { experimentArm } from "../../../experiments/experiment";
 import { backgroundRunLabel } from "./backgroundRuns";
+import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { RowShimmer } from "./ShimmerText";
@@ -68,7 +70,9 @@ export function BackgroundTurnLine({
   const cited = [label, source?.ownerTitle, source?.command].filter(Boolean).join(" · ");
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
   // A failure that said something heads its rows, which already show (headsBackground).
-  const opens = turn.hasRows === true && foldsBackground(row);
+  // Inline its rows already draw where they ran (backgroundTurnLook.experiment.ts): the line names its task, opens nothing.
+  const opens =
+    turn.hasRows === true && foldsBackground(row) && !backgroundTurnsInline(experimentArm(backgroundTurnLook));
   return (
     <TranscriptActivityRow
       icon={turn.running ? <Spinner /> : <Clock />}

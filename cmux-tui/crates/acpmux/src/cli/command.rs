@@ -207,7 +207,9 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 1)]
         count: usize,
     },
-    /// List pending permission requests across sessions, and how to answer them.
+    /// List pending permission requests across sessions, and how to answer them, and the other
+    /// sessions' messages a chat's Claude Code holds (`heldMessages` in --json). acpmux keeps the
+    /// held messages in memory only: after a daemon restart they no longer show.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
@@ -275,6 +277,12 @@ pub enum Command {
         /// named without it; elsewhere `ACPMUX_FROM` names it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Prove a named sender (--from, ACPMUX_FROM, a notice's sender) is one this machine's
+        /// owner set up: read this host's sender token from PATH (`~/.acpmux/sender-token`) and
+        /// send it to the daemon, which then shows the sender as verified. ACPMUX_SENDER_TOKEN
+        /// gives the token itself. Never on the command line; a wrong one sends unverified.
+        #[arg(long, value_name = "PATH")]
+        sender_token_file: Option<PathBuf>,
         /// Replace your prompt still queued under KEY: a correction is never read after the
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
@@ -477,6 +485,10 @@ pub enum Command {
     /// remote MCP servers): an MCP stdio server agent_tools.rs registers (not for people).
     #[command(hide = true)]
     HostedMcp,
+    /// GitHub's own MCP server through the team's cmux GitHub connection, on a cmux Cloud
+    /// machine: an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    GithubMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]

@@ -192,11 +192,12 @@ async fn a_web_switch_of_a_mac_chat_onto_claude_is_refused() {
         "_meta": {"acpmux": {"harness": "fakeclaude"}}});
     let r = web.call("session/fork", p).await;
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
-    // A Claude adapter with no reviewed asking mode is refused before that, as `session/new` is.
+    // A Claude adapter (family claude, not Claude Code itself) is Claude too.
     let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
         "_meta": {"acpmux": {"harness": "fclaude"}}});
     let r = web.call("session/fork", p).await;
     assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     assert_eq!(hub.sessions().len(), before, "a refused switch made no chat");
     let _ = std::fs::remove_dir_all(&d);
 }

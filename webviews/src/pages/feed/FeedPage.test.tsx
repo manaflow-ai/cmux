@@ -282,7 +282,7 @@ test("the Reports tab: the basket and a reply", async () => {
 });
 
 test("Needs you: rows with one-click answers, cards, and the one-line bar", async () => {
-  const { provider } = await mount("#/needs-you");
+  await mount("#/needs-you");
   expect(host.querySelector(".feed-needs-title")!.textContent).toBe("Needs you");
   expect(host.querySelector(".feed-needs-count")!.textContent).toBe("11");
   expect(host.querySelector(".feed-needs-more")!.textContent).toBe("8 more");
@@ -290,8 +290,8 @@ test("Needs you: rows with one-click answers, cards, and the one-line bar", asyn
   // A question or a choice needs typing or picking: its row opens instead of answering in place.
   const choice = all(".feed-needs-row").find((row) => row.dataset.item === "fi_claude_choice")!;
   expect(choice.querySelector(".feed-needs-answers")).toBeNull();
-  await click(host.querySelector<HTMLElement>(".feed-needs-more")!);
-  expect(provider.calls.at(-1)!.params).toEqual({ action: "feed.openItem", args: {} });
+  // The count past the limit is text, not a control: the Inbox it opened is gone.
+  expect(host.querySelector(".feed-needs-more")!.tagName).toBe("SPAN");
   act(() => root?.unmount());
 
   await mount("#/needs-you?style=cards");

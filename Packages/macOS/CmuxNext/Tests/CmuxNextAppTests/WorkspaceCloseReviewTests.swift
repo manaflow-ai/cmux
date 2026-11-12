@@ -177,11 +177,12 @@ struct WorkspaceCloseReviewTests {
         #expect(state.workspaceID == "b", "after a cancelled close, closing the workspace selected \(state.workspaceID ?? "nil")")
     }
 
-    /// Second review of #40649, S4. A close of several rows keeps its own rule (the next row, else the previous
-    /// one), with no opener rank: a b c d n*, n made from b, Close Below on row c closes d and n (the batch of
-    /// `WorkspaceSelectionClose`, `InstantClose.begin` with 2 ids). The window shows c, as before the rule; the
-    /// opener rank gave b.
-    @Test func aCloseOfSeveralRowsSelectsByPositionNotTheOpener() async throws {
+    /// A close of several rows in one gesture asks the same pick as a close of one row (coordinator, FLAG 2;
+    /// Chrome 156 closes the tabs of such a gesture one by one with its opener rank): the opener rank over the
+    /// rows that survive. a b c d n*, n made from b, Close Below on row c closes d and n (the batch of
+    /// `WorkspaceSelectionClose`, `InstantClose.begin` with 2 ids). The window shows b, the opener, which
+    /// survives. Before the rule's state moved to Rust this close was by position and showed c.
+    @Test func aCloseOfSeveralRowsSelectsTheOpenerThatSurvives() async throws {
         let (services, controller) = try await Self.launch()
         defer {
             ClosingWorkspaces.shared.end("d", refused: false, in: nil)
@@ -192,6 +193,6 @@ struct WorkspaceCloseReviewTests {
         let windows = services.windows, state = controller.state
         try await Self.personMakesN(in: controller, services, listed: ["a", "b", "c", "d", "n"])
         try #require(Set(InstantClose.begin(["d", "n"], in: state.id, windows: windows)) == ["d", "n"])
-        #expect(state.workspaceID == "c", "Close Below selected \(state.workspaceID ?? "nil")")
+        #expect(state.workspaceID == "b", "Close Below selected \(state.workspaceID ?? "nil")")
     }
 }
