@@ -121,6 +121,30 @@ ALLOWED: dict[str, str] = {
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
+    # Found when the scan moved onto tests/shell_invocations.py (sweep of cmux#40784 F1). The old word scan missed
+    # each: a call inside a function called from a substitution, a script run through a path held in a variable
+    # (now unreadable, so it counts as an API call: fail closed), `gh "${args[@]}"`, or a `--script PATH` operand.
+    'cmux-next-tip-test-compile.yml: Compile the planned test targets on a fleet Mac':
+        "while the fleet step is queued: one workflow-runs read (gh_api, curl to api.github.com) every TIP_POLL_SECONDS "
+        "(30 s) to see whether a newer push supersedes this one; a candidate for a concurrency group",
+    "cmux-next.yml: Wait for this commit's cmux-tui tree":
+        "the DEV compile's wait for its cmux-tui tree: one pin-cmux-tui.sh probe every 60 s, up to 55 min; the probe "
+        "runs through a path in a variable ($probe), which the reader cannot follow",
+    "gateway-e2e.yml: Install this commit's published cmux-tui client":
+        "pin-cmux-tui.sh resolve-exact waits up to 30 min for this commit's tree; its GitHub reads retry only after a "
+        "rate-limit answer (rate_limit_wait)",
+    'nightly.yml: Bundle the cmux-tui client':
+        "await-tree-client.sh: files.cmux.com every 20 s for up to 45 min, and a GitHub run check (pin-cmux-tui.sh "
+        "runs-state, through a path in a variable) every 300 s",
+    'nightly-next-canary.yml: Write the verdict to R2':
+        "retry only: one workflow dispatch, retried only after a 403/429 or rate-limit answer, at most 3 tries, 15 and "
+        "30 s apart",
+    'cmux-next-perf-bench.yml: xbench on a fleet mini':
+        "xbench.py runs on a fleet mini (cmux-ci run --script); its sleeping loops wait on the app's local DevTools "
+        "port and control socket, which the scan counts as API calls (urlopen)",
+    'ci-macos.yml: Select package tests':
+        "the scan reads every loop of a script the step runs; `select` runs no test loop, and the loops it reads run "
+        "pin-cmux-tui.sh through a path in a variable and source helpers, which the reader cannot follow",
 }
 
 
