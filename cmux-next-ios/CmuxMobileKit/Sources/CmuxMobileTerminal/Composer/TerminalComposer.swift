@@ -9,10 +9,11 @@ import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
-/// glass circles, then the growing field in a rounded glass container with the send
-/// circle inside it, riding the last line. Send delivers the draft as one
+/// The composer row: one rounded glass box the whole width, holding a
+/// paperclip menu (Photo Library, Choose Files, Paste, Camera) at its leading
+/// edge, the growing field, then voice mode and the send circle, each riding
+/// the last line (Leo, 2026-11-12: "thise buttons (clip and voice) will be
+/// going inside the box"). Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
 /// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
@@ -28,7 +29,7 @@ struct TerminalComposer: View {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, Self.textLeading)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
             if let line = model.connectionLine {
@@ -44,7 +45,7 @@ struct TerminalComposer: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .padding(.leading, TerminalDockMetrics.control + 8)
+                .padding(.leading, Self.textLeading)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("terminal.connectionLine")
             }
@@ -52,7 +53,7 @@ struct TerminalComposer: View {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, Self.textLeading)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
             if !model.attachments.isEmpty {
@@ -60,11 +61,7 @@ struct TerminalComposer: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             GlassEffectContainer(spacing: 0) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
-                    fieldContainer
-                }
+                fieldContainer
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
@@ -124,7 +121,7 @@ struct TerminalComposer: View {
                 }
             }
         } label: {
-            ComposerCircleLabel(systemImage: "paperclip")
+            ComposerInlineIcon(systemImage: "paperclip")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add Attachment")
@@ -139,9 +136,9 @@ struct TerminalComposer: View {
         return Button {
             voice.toggle(source)
         } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
+            ComposerInlineIcon(systemImage: "waveform",
+                               foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                               tint: active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
         .buttonStyle(.plain)
@@ -149,10 +146,16 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.voice")
     }
 
-    /// The field and its send circle share one rounded glass container; the
-    /// circle rides the last line as the field grows (classic, iMessage).
+    /// The text's leading inset in the box with no paperclip before it; the
+    /// notices above the box line up with it.
+    private static let textLeading: CGFloat = 14
+
+    /// The paperclip, the field, voice mode and send share one rounded glass
+    /// container; the controls ride the last line as the field grows (iMessage).
     private var fieldContainer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        let attaches = model.attachmentsAvailable
+        return HStack(alignment: .bottom, spacing: 8) {
+            if attaches { attachMenu }
             ComposerTextView(
                 text: $model.composerText,
                 placeholder: model.composerPlaceholder,
@@ -169,9 +172,10 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
+            if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
             sendButton
         }
-        .padding(.leading, 14)
+        .padding(.leading, attaches ? TerminalDockMetrics.fieldPadding : Self.textLeading)
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
         .padding(.vertical, TerminalDockMetrics.fieldPadding)
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
@@ -318,19 +322,22 @@ struct TerminalComposer: View {
     }
 }
 
-/// A 40 pt glass circle with an icon: the composer's paperclip and mic (classic).
-struct ComposerCircleLabel: View {
+/// An icon inside the composer's box, as large as the send circle: the
+/// paperclip and voice mode. Plain on the box's glass; tinted glass like the
+/// send circle while on (voice mode running).
+struct ComposerInlineIcon: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
-    /// On (voice mode running): glass tinted like the send circle.
     var tint: Color?
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
-            .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
+            .background {
+                if let tint { Color.clear.glassEffect(.regular.tint(tint).interactive(), in: .circle) }
+            }
             .contentShape(.circle)
     }
 }

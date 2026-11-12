@@ -45,8 +45,8 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // With the field container's 6 pt padding, one line is 40 pt: as tall
-        // as the paperclip and mic circles beside it (classic).
+        // With the field container's 6 pt padding, one line is 40 pt, around
+        // the 28 pt paperclip, voice and send controls inside it.
         let inset = TerminalDockMetrics.textInset
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
