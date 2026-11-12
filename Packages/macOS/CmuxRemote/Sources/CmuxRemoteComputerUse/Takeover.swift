@@ -137,6 +137,9 @@ final class TakeoverGate: Sendable {
         /// The tap listens to key events too (Input Monitoring granted when it
         /// was created); without it only the pointer is seen.
         var seesKeys = false
+        /// Secure Event Input is on (a password field, Secure Keyboard Entry):
+        /// the tap gets no key events, whatever it listens to.
+        var secureInput = false
         var lastPerson: UInt64?
         var pointer: PointerSample?
         var stats = TakeoverStats()
@@ -185,9 +188,21 @@ final class TakeoverGate: Sendable {
     }
 
     /// Whether personEventCount() counts the person's keys as well as the
-    /// pointer (the tap is watching and listens to key events).
+    /// pointer (the tap is watching, listens to key events, and Secure Event
+    /// Input is off).
     func personEventsCoverKeys() -> Bool {
-        state.withLock { $0.healthy && $0.seesKeys }
+        state.withLock { $0.healthy && $0.seesKeys && !$0.secureInput }
+    }
+
+    /// The tap's reading of Secure Event Input, on each wake. While it is on
+    /// the person's keys go unseen, so every reading with it on counts as the
+    /// person's input (a count taken before it never equals one after), and
+    /// the count does not cover keys.
+    func noteSecureInput(_ on: Bool) {
+        state.withLock { state in
+            if on { state.stats.personEvents &+= 1 }
+            state.secureInput = on
+        }
     }
 
     /// Record one classified event seen at `at` (uptime nanoseconds).

@@ -141,6 +141,25 @@ private final class FakeClock: Sendable {
         #expect(gate.personEventCount() != before, "what the person did while the tap was blind was not counted")
     }
 
+    /// Secure Event Input (a password field): while on, the person's keys are unseen, so the
+    /// count does not cover them and every reading with it on moves the count.
+    @Test func secureEventInputIsABlindPeriodForKeys() {
+        let clock = FakeClock()
+        let gate = clock.gate()
+        gate.setHealthy(true, seesKeys: true)
+        gate.noteSecureInput(false)
+        #expect(gate.personEventsCoverKeys())
+        let before = gate.personEventCount()
+        gate.noteSecureInput(true)
+        #expect(gate.personEventsCoverKeys() == false)
+        #expect(gate.personEventCount() != before)
+        let during = gate.personEventCount()
+        gate.noteSecureInput(true)
+        #expect(gate.personEventCount() != during, "every reading with it on counts")
+        gate.noteSecureInput(false)
+        #expect(gate.personEventsCoverKeys())
+    }
+
     @Test func ourOwnInputNeverTakesOver() {
         let clock = FakeClock()
         let gate = clock.gate()
