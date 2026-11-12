@@ -15,6 +15,7 @@ workspace = true
 cmux-remote = { path = "../../../../cmux-tui/crates/cmux-remote", default-features = false }
 cmux-remote-protocol = { path = "../../../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-link = { path = "../../../../cmux-tui/crates/cmux-link" }
+async-trait = "0.1"
 getrandom.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

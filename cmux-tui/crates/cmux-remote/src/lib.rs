@@ -51,9 +51,9 @@ mod ssh_payload_proxy;
 #[cfg(unix)]
 pub mod unix_socket;
 pub mod update_need;
-#[cfg(feature = "wireguard-transport")]
+#[cfg(all(feature = "wireguard-transport", feature = "host"))]
 pub mod wireguard_hub;
-#[cfg(all(feature = "wireguard-transport", unix))]
+#[cfg(all(feature = "wireguard-transport", feature = "host", unix))]
 pub mod wireguard_hub_control;
 #[cfg(feature = "host")]
 pub mod workspace;

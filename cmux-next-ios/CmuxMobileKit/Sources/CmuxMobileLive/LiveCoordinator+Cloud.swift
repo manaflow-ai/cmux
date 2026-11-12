@@ -141,6 +141,7 @@ extension LiveCoordinator {
         // Account-default scope, as the machine list reads it (no `x-cmux-team`): the phone's
         // active team is a Mac team (`personal-…` or a Stack id), not a Cloud `team_…` id.
         return CloudCarrierDialer.ffi(apiBase: config.baseURL, teamID: nil, deviceName: deviceName,
+                                      accessToken: { try await api.accessToken($0) },
                                       noiseKey: { try CloudCarrierKey.load(userID: userID, store: secrets, newKey: CloudCarrierDialer.newNoiseKey) })
     }
 }

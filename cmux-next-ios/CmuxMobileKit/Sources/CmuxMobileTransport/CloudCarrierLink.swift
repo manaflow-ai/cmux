@@ -8,8 +8,6 @@ public protocol CloudCarrierSession: AnyObject, Sendable {
     func connect(deadlineMs: UInt32) async throws
     /// One more daemon line stream; `LinkError` `closed` when no session is up (connect again).
     func openStream() async throws -> any CloudCarrierByteStream
-    /// The token the next resume or dial asks the platform with.
-    func setAccessToken(_ accessToken: String)
     func isConnected() async -> Bool
     /// Resolves once the live session ends or the carrier closes (at once without a session).
     func waitClosed() async
@@ -107,11 +105,6 @@ public final class CloudCarrierLink: MacLink, @unchecked Sendable { // crash-all
         try await ping()
     }
 
-    /// A new token for the session's next resume.
-    public func setAccessToken(_ token: String) {
-        session.setAccessToken(token)
-    }
-
     public func close() async {
         let first = lock.withLock { () -> Bool in
             defer { closed = true }
@@ -207,13 +200,17 @@ import CmuxMobileLinkFFI
 
 extension CloudCarrierDialer {
     /// The Rust carrier: `apiBase` the Cloud API, `teamID` the team the Cloud Machines page
-    /// reads (`x-cmux-team`; nil: the account's default), the phone's Noise key from the Keychain.
+    /// reads (`x-cmux-team`; nil: the account's default), the phone's Noise key from the Keychain,
+    /// and the app's sign-in, which the carrier asks at every platform ask (a grant for a dial, a
+    /// ticket for a resume), so a session that outlives one token resumes with the next.
     public static func ffi(apiBase: URL, teamID: String?, deviceName: String,
+                           accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                            noiseKey: @escaping @Sendable () throws -> Data) -> CloudCarrierDialer {
-        CloudCarrierDialer(makeSession: { machineID, token in
+        let tokens = AppCloudTokens(accessToken: accessToken)
+        return CloudCarrierDialer(makeSession: { machineID, _ in
             do {
                 let carrier = try CloudCarrier(apiBase: apiBase.absoluteString, teamId: teamID, machineId: machineID,
-                                               accessToken: token, noisePrivateKey: try noiseKey(), deviceName: deviceName)
+                                               tokens: tokens, noisePrivateKey: try noiseKey(), deviceName: deviceName)
                 return FFICloudCarrierSession(carrier: carrier)
             } catch let error as CmuxMobileError {
                 throw error.linkError
@@ -224,6 +221,24 @@ extension CloudCarrierDialer {
     /// A new 32-byte Noise private key for this phone's carriers.
     public static func newNoiseKey() throws -> Data {
         do { return try cloudCarrierNewKey() } catch let error as CmuxMobileError { throw error.linkError }
+    }
+}
+
+/// The app's sign-in as the carrier's token source. A refused or missing sign-in is
+/// `unauthorized`, so the carrier stops asking and the link reports it.
+final class AppCloudTokens: CloudTokenSource, @unchecked Sendable { // crash-allow: immutable after init
+    private let accessToken: @Sendable (Bool) async throws -> String
+
+    init(accessToken: @escaping @Sendable (Bool) async throws -> String) { self.accessToken = accessToken }
+
+    func accessToken(forceRefresh: Bool) async throws -> String {
+        do {
+            return try await accessToken(forceRefresh)
+        } catch let error as LinkError where error.code == LinkError.unauthorized {
+            throw CmuxMobileError.Refused(code: LinkError.unauthorized, message: error.message)
+        } catch {
+            throw CmuxMobileError.Transport(message: String(describing: error))
+        }
     }
 }
 
@@ -242,7 +257,6 @@ final class FFICloudCarrierSession: CloudCarrierSession, @unchecked Sendable { /
         }
     }
 
-    func setAccessToken(_ accessToken: String) { carrier.setAccessToken(accessToken: accessToken) }
     func isConnected() async -> Bool { await carrier.isConnected() }
     func waitClosed() async { await carrier.waitClosed() }
     func close() async { await carrier.close() }

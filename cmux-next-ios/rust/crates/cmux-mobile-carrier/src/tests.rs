@@ -55,7 +55,7 @@ fn a_refusal_keeps_its_code_and_whether_it_may_pass_later() {
     let unreachable = json!({"ok": false, "error": {"code": "owner.unreachable"}});
     assert!(read_answer(503, &unreachable).unwrap_err().retryable());
     let malformed = json!({"ok": true, "value": {"relay": "wss://x"}});
-    assert!(matches!(read_answer(200, &malformed), Err(CarrierError::Invalid(_))));
+    assert!(matches!(read_answer(200, &malformed), Err(CarrierError::Answer(_))));
 }
 
 #[test]
@@ -122,14 +122,15 @@ fn answer() -> Value {
 #[tokio::test]
 async fn an_ask_names_the_phone_key_its_token_and_its_team() {
     let (base, server) = serve_once(200, json!({"ok": true, "value": answer()})).await;
-    let platform = Platform::new(&base, Some("team_abc".into()), MACHINE, "access-1".into()).unwrap();
-    platform.set_token("access-2".into());
+    let platform =
+        Platform::with_tokens(&base, Some("team_abc".into()), MACHINE, Arc::new(Rotating::default()))
+            .unwrap();
     let parsed = platform.fetch(Some(&[5; 32])).await.unwrap();
     assert_eq!(parsed.daemon_key, Some([9; 32]));
     let request = server.await.unwrap();
     let lower = request.to_ascii_lowercase();
     assert!(request.starts_with(&format!("POST /v1/cloud/machines/{MACHINE}/carrier ")), "{request}");
-    assert!(lower.contains("authorization: bearer access-2"), "the refreshed token: {request}");
+    assert!(lower.contains("authorization: bearer access-1"), "the source's current token: {request}");
     assert!(lower.contains("x-cmux-team: team_abc"), "{request}");
     assert!(request.ends_with(&json!({"noise_key": carrier_answer::key_text(&[5; 32])}).to_string()));
 }
@@ -142,15 +143,6 @@ async fn a_ticket_only_ask_sends_an_empty_body_and_no_team_when_none() {
     let request = server.await.unwrap();
     assert!(request.ends_with("\n{}"), "{request}");
     assert!(!request.to_ascii_lowercase().contains("x-cmux-team"), "{request}");
-}
-
-#[tokio::test]
-async fn a_refused_token_is_unauthorized() {
-    let (base, server) =
-        serve_once(401, json!({"ok": false, "error": {"code": "auth.unauthenticated"}})).await;
-    let platform = Platform::new(&base, None, MACHINE, "stale".into()).unwrap();
-    assert_eq!(platform.fetch(None).await.unwrap_err(), CarrierError::Unauthorized);
-    server.await.unwrap();
 }
 
 #[tokio::test]
@@ -220,4 +212,91 @@ async fn no_daemon_key_is_asked_again_then_refused_with_its_code() {
     }
     assert!(asks.load(std::sync::atomic::Ordering::SeqCst) >= 2, "asked again inside the dial");
     server.abort();
+}
+
+/// A token source whose token changes at each forced refresh.
+#[derive(Default)]
+struct Rotating {
+    refreshes: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl TokenSource for Rotating {
+    async fn access_token(&self, force_refresh: bool) -> Result<Zeroizing<String>, CarrierError> {
+        if force_refresh {
+            self.refreshes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        let n = self.refreshes.load(std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(Zeroizing::new(format!("access-{n}")))
+    }
+}
+
+/// Answers each of `replies` in turn (status, body), one per connection,
+/// and hands back each request's head.
+async fn serve_each(replies: Vec<(u16, Value)>) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        let mut heads = Vec::new();
+        for (status, body) in replies {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read);
+            let mut head = String::new();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+                head.push_str(&line);
+            }
+            let mut request = vec![0; length];
+            reader.read_exact(&mut request).await.unwrap();
+            let reply = body.to_string();
+            let answer = format!(
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+            write.write_all(answer.as_bytes()).await.unwrap();
+            heads.push(head);
+        }
+        heads
+    });
+    (base, task)
+}
+
+#[tokio::test]
+async fn a_refused_token_is_refreshed_once_and_the_ask_made_again() {
+    let refused = json!({"ok": false, "error": {"code": "auth.unauthenticated"}});
+    let (base, server) =
+        serve_each(vec![(401, refused), (200, json!({"ok": true, "value": answer()}))]).await;
+    let tokens = Arc::new(Rotating::default());
+    let platform = Platform::with_tokens(&base, None, MACHINE, tokens.clone()).unwrap();
+    platform.fetch(None).await.expect("the second ask passes");
+    let heads = server.await.unwrap();
+    assert!(heads[0].to_ascii_lowercase().contains("bearer access-1"), "{}", heads[0]);
+    assert!(heads[1].to_ascii_lowercase().contains("bearer access-2"), "the refreshed token: {}", heads[1]);
+    assert_eq!(tokens.refreshes.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_token_refused_twice_is_unauthorized() {
+    let refused = json!({"ok": false, "error": {"code": "auth.unauthenticated"}});
+    let (base, server) = serve_each(vec![(401, refused.clone()), (401, refused)]).await;
+    let platform = Platform::with_tokens(&base, None, MACHINE, Arc::new(Rotating::default())).unwrap();
+    assert_eq!(platform.fetch(None).await.unwrap_err(), CarrierError::Unauthorized);
+    assert_eq!(server.await.unwrap().len(), 2);
+}
+
+#[test]
+fn an_unusable_answer_is_retryable() {
+    let malformed = json!({"ok": true, "value": {"relay": "wss://x"}});
+    let error = read_answer(200, &malformed).unwrap_err();
+    assert!(matches!(error, CarrierError::Answer(_)), "{error:?}");
+    assert!(error.retryable());
 }

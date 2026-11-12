@@ -502,6 +502,7 @@ dependencies = [
 name = "cmux-mobile-carrier"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cmux-link",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -586,6 +587,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cmux-mobile-carrier",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -603,6 +605,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

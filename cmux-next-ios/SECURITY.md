@@ -186,7 +186,9 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   naming this phone's Noise static key. Nothing on the phone widens that.
 - **Which daemon.** The answer names the daemon's Noise key; the phone pins it
   and never handshakes unpinned. A daemon that is not the pinned one, or that
-  refuses the grant, ends the dial (`carrier.handshake`), with no retry.
+  refuses the grant or the grant's mux stream, ends the dial
+  (`carrier.handshake`), with no retry. A session the daemon lost, or whose
+  resume gave up, ends; the phone dials a new one with a new grant.
 - **Which role.** The grant carries the platform's `vmk` claim; the machine's
   session host stamps it on every stream (`carrier-role`) before the phone's
   bytes, so the daemon sees the person's own role, never one the phone names.
@@ -197,8 +199,11 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   for the person's Mac on the same machine: it is the person's machine, reached
   with the person's credentials.
 - **Keys and secrets.** The Noise private key is generated on the phone, kept in
-  its Keychain and removed at sign-out. Tickets, grants and tokens live in
-  zeroized memory, never in a log, `Debug`, error text or the snapshot.
+  its Keychain and removed at sign-out. The carrier holds tickets and grants
+  in zeroized memory, and asks the app's sign-in for the access token at each
+  platform ask rather than keeping one (the token also passes through Swift
+  strings and the HTTP request, which are not zeroized). None of them is ever
+  in a log, `Debug`, error text or the snapshot.
 - **What it does not change.** `cloud-acpmux` (chat through a Mac, at the asking
   floor) keeps its rules; this path does not relay through a Mac and does not
   touch the Mac's carrier sockets. A teammate's machine is the platform's call

@@ -8,7 +8,6 @@ final class FakeCarrierSession: CloudCarrierSession, @unchecked Sendable {
     private let lock = NSLock()
     private var live = false
     private(set) var connects = 0
-    private(set) var tokens: [String] = []
     private(set) var streams = 0
     /// Refusals the next connects throw, in order.
     var connectErrors: [LinkError] = []
@@ -29,7 +28,6 @@ final class FakeCarrierSession: CloudCarrierSession, @unchecked Sendable {
         return EchoLineStream()
     }
 
-    func setAccessToken(_ accessToken: String) { lock.withLock { tokens.append(accessToken) } }
     func isConnected() async -> Bool { lock.withLock { live } }
 
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -148,7 +146,6 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
             #expect(error.code == "closed")
         }
         #expect(session.connects == 1, "no dial inside the link")
-        #expect(session.tokens.isEmpty)
     }
 
     /// The dialer: `vm_…` ids only; the first dial's refusals come back as the carrier said.

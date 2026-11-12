@@ -5,13 +5,75 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use cmux_mobile_carrier::{CarrierError, CarrierSession, CarrierStream, NoiseIdentity, Platform};
+use cmux_mobile_carrier::{
+    CarrierError, CarrierSession, CarrierStream, NoiseIdentity, Platform, TokenSource,
+};
+use zeroize::Zeroizing;
 
 use crate::{CmuxMobileError, UNAUTHORIZED, on_runtime};
 
 /// The code of [`CmuxMobileError::Refused`] when the machine's daemon is not
-/// the pinned one or refused this phone's grant.
+/// the pinned one or refused this phone's grant (or its mux stream).
 pub const CARRIER_HANDSHAKE: &str = "carrier.handshake";
+
+/// The code of [`CmuxMobileError::Refused`] when the platform's carrier answer
+/// was not usable (malformed, or no grant). Retryable: a later ask may pass.
+pub const CARRIER_ANSWER: &str = "carrier.answer";
+
+/// Where a carrier gets the person's access token: the app's own sign-in,
+/// asked at every platform ask (a grant for a dial, a ticket for a resume),
+/// so a session that outlives one token resumes with the next.
+/// `force_refresh` comes once after the platform refused a token; answer with
+/// [`CmuxMobileError::Refused`] code `unauthorized` when signed out.
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait CloudTokenSource: Send + Sync {
+    async fn access_token(&self, force_refresh: bool) -> Result<String, CmuxMobileError>;
+}
+
+/// The app's [`CloudTokenSource`] as the carrier's [`TokenSource`].
+struct AppTokens(Arc<dyn CloudTokenSource>);
+
+#[async_trait::async_trait]
+impl TokenSource for AppTokens {
+    async fn access_token(&self, force_refresh: bool) -> Result<Zeroizing<String>, CarrierError> {
+        match self.0.access_token(force_refresh).await {
+            Ok(token) => Ok(Zeroizing::new(token)),
+            Err(CmuxMobileError::Refused { code, .. }) if code == UNAUTHORIZED => {
+                Err(CarrierError::Unauthorized)
+            }
+            Err(error) => Err(CarrierError::Transport {
+                step: "token",
+                detail: format!("the app has no access token: {error}"),
+                retryable: true,
+            }),
+        }
+    }
+}
+
+/// [`on_runtime`] whose spawned work stops when the caller stops waiting (a
+/// Swift task cancelled, a link no longer wanted): a dial never runs on to its
+/// deadline minting grants for nobody. What the dial built is closed by its
+/// own drop guard.
+async fn on_runtime_until_dropped<F, T>(future: F) -> Result<T, CmuxMobileError>
+where
+    F: std::future::Future<Output = Result<T, CmuxMobileError>> + Send + 'static,
+    T: Send + 'static,
+{
+    struct AbortOnDrop(tokio::task::AbortHandle);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let task = crate::runtime().spawn(future);
+    let _abort = AbortOnDrop(task.abort_handle());
+    match task.await {
+        Ok(value) => value,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => Err(CarrierError::Closed.into()),
+    }
+}
 
 impl From<CarrierError> for CmuxMobileError {
     fn from(error: CarrierError) -> Self {
@@ -23,8 +85,17 @@ impl From<CarrierError> for CmuxMobileError {
             CarrierError::Handshake(message) => Self::Refused { code: CARRIER_HANDSHAKE.into(), message },
             CarrierError::Transport { .. } => Self::Transport { message: error.to_string() },
             CarrierError::Invalid(message) => Self::InvalidArgument { message },
+            CarrierError::Answer(message) => Self::Refused { code: CARRIER_ANSWER.into(), message },
             CarrierError::Closed => Self::Closed { message: error.to_string() },
         }
+    }
+}
+
+/// A foreign callback that failed in a way the bindings could not map (a
+/// Swift error that is not a `CmuxMobileError`).
+impl From<uniffi::UnexpectedUniFFICallbackError> for CmuxMobileError {
+    fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Transport { message: format!("the app's callback failed: {}", error.reason) }
     }
 }
 
@@ -115,21 +186,22 @@ impl CloudCarrier {
 #[uniffi::export]
 impl CloudCarrier {
     /// `api_base` is the Cloud API (`https://cloud-api.cmux.dev`), `team_id`
-    /// the active team (sent as `x-cmux-team`), `machine_id` a `vm_…` id,
+    /// the team to send as `x-cmux-team` (nil: the account's default scope),
+    /// `machine_id` a `vm_…` id, `tokens` the app's sign-in,
     /// `noise_private_key` this phone's 32-byte key ([`cloud_carrier_new_key`]).
     #[uniffi::constructor]
     pub fn new(
         api_base: String,
         team_id: Option<String>,
         machine_id: String,
-        access_token: String,
+        tokens: Arc<dyn CloudTokenSource>,
         noise_private_key: Vec<u8>,
         device_name: String,
     ) -> Result<Arc<Self>, CmuxMobileError> {
         let private: [u8; 32] = noise_private_key.try_into().map_err(|_| {
             CmuxMobileError::InvalidArgument { message: "the Noise key is not 32 bytes".into() }
         })?;
-        let platform = Platform::new(&api_base, team_id, &machine_id, access_token)?;
+        let platform = Platform::with_tokens(&api_base, team_id, &machine_id, Arc::new(AppTokens(tokens)))?;
         Ok(Arc::new(Self {
             platform: Arc::new(platform),
             identity: NoiseIdentity::from_private(private),
@@ -140,16 +212,11 @@ impl CloudCarrier {
         }))
     }
 
-    /// Replace the access token the carrier asks the platform with (tickets
-    /// for a resume, grants for a fresh dial).
-    pub fn set_access_token(&self, access_token: String) {
-        self.platform.set_token(access_token);
-    }
-
     /// Dial the machine unless a live session is up, within `deadline_ms`.
-    /// `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
+    /// `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut
+    /// short). A caller that stops waiting stops the dial.
     pub async fn connect(self: Arc<Self>, deadline_ms: u32) -> Result<(), CmuxMobileError> {
-        on_runtime(async move { self.dial(deadline_ms).await }).await
+        on_runtime_until_dropped(async move { self.dial(deadline_ms).await }).await
     }
 
     /// One more daemon line stream on the live session (`Closed` when there is
@@ -241,8 +308,17 @@ mod tests {
 
     const MACHINE: &str = "vm_0123456789abcdefghij";
 
+    struct Tokens;
+
+    #[async_trait::async_trait]
+    impl CloudTokenSource for Tokens {
+        async fn access_token(&self, _force_refresh: bool) -> Result<String, CmuxMobileError> {
+            Ok("token".into())
+        }
+    }
+
     fn carrier(base: &str) -> Arc<CloudCarrier> {
-        CloudCarrier::new(base.into(), None, MACHINE.into(), "token".into(), vec![7; 32], "iPhone".into())
+        CloudCarrier::new(base.into(), None, MACHINE.into(), Arc::new(Tokens), vec![7; 32], "iPhone".into())
             .unwrap()
     }
 
@@ -288,6 +364,42 @@ mod tests {
             .expect("no session to wait on");
         carrier.clone().close().await;
         tokio::time::timeout(Duration::from_secs(2), carrier.wait_closed()).await.expect("closed");
+    }
+
+    #[tokio::test]
+    async fn a_dial_its_caller_drops_stops_asking_the_platform() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let asks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = asks.clone();
+        // Accepts each ask and closes it at once: a transport failure the dial retries.
+        let server = tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+        let carrier = carrier(&base);
+        let dial = carrier.clone().connect(30_000);
+        assert!(tokio::time::timeout(Duration::from_millis(800), dial).await.is_err(), "still dialing");
+        // The caller gave up (the timeout dropped its future): the dial stops.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let after_drop = asks.load(std::sync::atomic::Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(2_500)).await;
+        assert_eq!(
+            asks.load(std::sync::atomic::Ordering::SeqCst),
+            after_drop,
+            "no ask after the caller left"
+        );
+        assert!(after_drop >= 1);
+        server.abort();
+    }
+
+    #[test]
+    fn an_unusable_answer_is_retryable_and_keeps_its_code() {
+        assert!(CarrierError::Answer("no grant".into()).retryable());
+        let error: CmuxMobileError = CarrierError::Answer("no grant".into()).into();
+        assert!(matches!(error, CmuxMobileError::Refused { ref code, .. } if code == CARRIER_ANSWER));
     }
 
     #[tokio::test]

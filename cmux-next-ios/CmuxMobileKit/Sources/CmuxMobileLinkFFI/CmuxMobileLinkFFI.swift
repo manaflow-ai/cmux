@@ -1347,7 +1347,8 @@ public protocol CloudCarrierProtocol: AnyObject, Sendable {
     
     /**
      * Dial the machine unless a live session is up, within `deadline_ms`.
-     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
+     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut
+     * short). A caller that stops waiting stops the dial.
      */
     func connect(deadlineMs: UInt32) async throws 
     
@@ -1361,12 +1362,6 @@ public protocol CloudCarrierProtocol: AnyObject, Sendable {
      * none: the app dials a new carrier).
      */
     func openStream() async throws  -> CloudCarrierStream
-    
-    /**
-     * Replace the access token the carrier asks the platform with (tickets
-     * for a resume, grants for a fresh dial).
-     */
-    func setAccessToken(accessToken: String) 
     
     /**
      * Resolves once the live session ends or the carrier is closed (at once
@@ -1426,17 +1421,18 @@ open class CloudCarrier: CloudCarrierProtocol, @unchecked Sendable {
     }
     /**
      * `api_base` is the Cloud API (`https://cloud-api.cmux.dev`), `team_id`
-     * the active team (sent as `x-cmux-team`), `machine_id` a `vm_…` id,
+     * the team to send as `x-cmux-team` (nil: the account's default scope),
+     * `machine_id` a `vm_…` id, `tokens` the app's sign-in,
      * `noise_private_key` this phone's 32-byte key ([`cloud_carrier_new_key`]).
      */
-public convenience init(apiBase: String, teamId: String?, machineId: String, accessToken: String, noisePrivateKey: Data, deviceName: String)throws  {
+public convenience init(apiBase: String, teamId: String?, machineId: String, tokens: CloudTokenSource, noisePrivateKey: Data, deviceName: String)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
     uniffi_cmux_mobile_link_ffi_fn_constructor_cloudcarrier_new(
         FfiConverterString.lower(apiBase),
         FfiConverterOptionString.lower(teamId),
         FfiConverterString.lower(machineId),
-        FfiConverterString.lower(accessToken),
+        FfiConverterTypeCloudTokenSource_lower(tokens),
         FfiConverterData.lower(noisePrivateKey),
         FfiConverterString.lower(deviceName),$0
     )
@@ -1479,7 +1475,8 @@ open func close()async   {
     
     /**
      * Dial the machine unless a live session is up, within `deadline_ms`.
-     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
+     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut
+     * short). A caller that stops waiting stops the dial.
      */
 open func connect(deadlineMs: UInt32)async throws   {
     return
@@ -1538,18 +1535,6 @@ open func openStream()async throws  -> CloudCarrierStream  {
             liftFunc: FfiConverterTypeCloudCarrierStream_lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
-}
-    
-    /**
-     * Replace the access token the carrier asks the platform with (tickets
-     * for a resume, grants for a fresh dial).
-     */
-open func setAccessToken(accessToken: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_set_access_token(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(accessToken),$0
-    )
-}
 }
     
     /**
@@ -1794,6 +1779,241 @@ public func FfiConverterTypeCloudCarrierStream_lift(_ handle: UInt64) throws -> 
 #endif
 public func FfiConverterTypeCloudCarrierStream_lower(_ value: CloudCarrierStream) -> UInt64 {
     return FfiConverterTypeCloudCarrierStream.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Where a carrier gets the person's access token: the app's own sign-in,
+ * asked at every platform ask (a grant for a dial, a ticket for a resume),
+ * so a session that outlives one token resumes with the next.
+ * `force_refresh` comes once after the platform refused a token; answer with
+ * [`CmuxMobileError::Refused`] code `unauthorized` when signed out.
+ */
+public protocol CloudTokenSource: AnyObject, Sendable {
+    
+    func accessToken(forceRefresh: Bool) async throws  -> String
+    
+}
+/**
+ * Where a carrier gets the person's access token: the app's own sign-in,
+ * asked at every platform ask (a grant for a dial, a ticket for a resume),
+ * so a session that outlives one token resumes with the next.
+ * `force_refresh` comes once after the platform refused a token; answer with
+ * [`CmuxMobileError::Refused`] code `unauthorized` when signed out.
+ */
+open class CloudTokenSourceImpl: CloudTokenSource, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_cloudtokensource(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_cloudtokensource(handle, $0) }
+    }
+
+    
+
+    
+open func accessToken(forceRefresh: Bool)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudtokensource_access_token(
+                    self.uniffiCloneHandle(),
+                    FfiConverterBool.lower(forceRefresh)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceCloudTokenSource {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceCloudTokenSource = UniffiVTableCallbackInterfaceCloudTokenSource(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeCloudTokenSource.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface CloudTokenSource: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeCloudTokenSource.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface CloudTokenSource: handle missing in uniffiClone")
+            }
+        },
+        accessToken: { (
+            uniffiHandle: UInt64,
+            forceRefresh: Int8,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutDroppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+        ) in
+            let makeCall = {
+                () async throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeCloudTokenSource.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.accessToken(
+                     forceRefresh: try FfiConverterBool.lift(forceRefresh)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: String) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: FfiConverterString.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeCmuxMobileError_lower,
+                droppedCallback: uniffiOutDroppedCallback
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceCloudTokenSource> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceCloudTokenSource>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitCloudTokenSource() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_cloudtokensource(UniffiCallbackInterfaceCloudTokenSource.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudTokenSource: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<CloudTokenSource>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = CloudTokenSource
+
+    public static func lift(_ handle: UInt64) throws -> CloudTokenSource {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return CloudTokenSourceImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: CloudTokenSource) -> UInt64 {
+         if let rustImpl = value as? CloudTokenSourceImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudTokenSource {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CloudTokenSource, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudTokenSource_lift(_ handle: UInt64) throws -> CloudTokenSource {
+    return try FfiConverterTypeCloudTokenSource.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudTokenSource_lower(_ value: CloudTokenSource) -> UInt64 {
+    return FfiConverterTypeCloudTokenSource.lower(value)
 }
 
 
@@ -4574,6 +4794,96 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
+private func uniffiTraitInterfaceCallAsync<T>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // Note: it's important we call either `handleSuccess` or `handleError` exactly once.  Each
+        // call consumes an Arc reference, which means there should be no possibility of a double
+        // call.  The following code is structured so that will will never call both `handleSuccess`
+        // and `handleError`, even in the face of weird errors.
+        //
+        // On platforms that need extra machinery to make C-ABI calls, like JNA or ctypes, it's
+        // possible that we fail to make either call.  However, it doesn't seem like this is
+        // possible on Swift since swift can just make the C call directly.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    lowerError: @escaping (E) -> RustBuffer,
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // See the note in uniffiTraitInterfaceCallAsync for details on `handleSuccess` and
+        // `handleError`.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch let error as E {
+            handleError(CALL_ERROR, lowerError(error))
+            return
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+// Borrow the callback handle map implementation to store foreign future handles
+// TODO: consolidate the handle-map code (https://github.com/mozilla/uniffi-rs/pull/1823)
+fileprivate let UNIFFI_FOREIGN_FUTURE_HANDLE_MAP = UniffiHandleMap<UniffiForeignFutureTask>()
+
+// Protocol for tasks that handle foreign futures.
+//
+// Defining a protocol allows all tasks to be stored in the same handle map.  This can't be done
+// with the task object itself, since has generic parameters.
+fileprivate protocol UniffiForeignFutureTask {
+    func cancel()
+}
+
+extension Task: UniffiForeignFutureTask {}
+
+private func uniffiForeignFutureDroppedCallback(handle: UInt64) {
+    do {
+        let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
+        // Set the cancellation flag on the task.  If it's still running, the code can check the
+        // cancellation flag or call `Task.checkCancellation()`.  If the task has completed, this is
+        // a no-op.
+        task.cancel()
+    } catch {
+        print("uniffiForeignFutureDroppedCallback: handle missing from handlemap")
+    }
+}
+
+// For testing
+public func uniffiForeignFutureHandleCountCmuxMobileLinkFfi() -> Int {
+    UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
 /**
  * The library version.
  */
@@ -4903,16 +5213,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_close() != 2119) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_connect() != 62017) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_connect() != 684) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_is_connected() != 53782) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_open_stream() != 27538) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_set_access_token() != 7176) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_wait_closed() != 17069) {
@@ -4925,6 +5232,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrierstream_send() != 21440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudtokensource_access_token() != 42724) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
@@ -4966,7 +5276,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_cloudcarrier_new() != 29876) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_cloudcarrier_new() != 6645) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
@@ -4974,6 +5284,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitBrowserObserver()
+    uniffiCallbackInitCloudTokenSource()
     uniffiCallbackInitLinkObserver()
     return InitializationResult.ok
 }()
@@ -4991,4 +5302,5 @@ public func uniffiEnsureCmuxMobileLinkFfiInitialized() {
     }
 }
 
-// swiftlint:enable all===END===
+// swiftlint:enable allrbx-remote: build 22.4s exit 0 (lane ios-cloud-ws, slot 1/4, jobs 24, test threads 32)
+rbx: sync 11.2s, build 23.0s, exit 0 (lane ios-cloud-ws, cd6fb1bfa176)

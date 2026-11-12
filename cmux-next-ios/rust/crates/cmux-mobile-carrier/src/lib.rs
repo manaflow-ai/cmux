@@ -89,9 +89,13 @@ pub enum CarrierError {
     /// The relay, the network or a step's own deadline.
     #[error("{step}: {detail}")]
     Transport { step: &'static str, detail: String, retryable: bool },
-    /// An argument or answer that is not valid.
+    /// An argument that is not valid (the app's own input: permanent).
     #[error("invalid: {0}")]
     Invalid(String),
+    /// The platform's answer was not usable (malformed, or no grant): a
+    /// later ask may pass.
+    #[error("the carrier answer: {0}")]
+    Answer(String),
     /// The session or stream is closed.
     #[error("closed")]
     Closed,
@@ -102,6 +106,7 @@ impl CarrierError {
     pub fn retryable(&self) -> bool {
         match self {
             Self::Refused { retryable, .. } | Self::Transport { retryable, .. } => *retryable,
+            Self::Answer(_) => true,
             Self::Unauthorized | Self::Handshake(_) | Self::Invalid(_) | Self::Closed => false,
         }
     }
@@ -128,22 +133,58 @@ fn valid_team(team: &str) -> bool {
         && team[5..].bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// Where the person's access token comes from: asked for each platform ask
+/// (a grant for a dial, a ticket for a resume), so a session that outlives
+/// one token resumes with the next. `force_refresh` comes once after the
+/// platform refused a token (401).
+#[async_trait::async_trait]
+pub trait TokenSource: Send + Sync {
+    async fn access_token(&self, force_refresh: bool) -> Result<Zeroizing<String>, CarrierError>;
+}
+
+/// One fixed token (tests and the probe).
+pub struct FixedToken(Zeroizing<String>);
+
+impl FixedToken {
+    pub fn source(token: String) -> Arc<dyn TokenSource> {
+        Arc::new(Self(Zeroizing::new(token)))
+    }
+}
+
+#[async_trait::async_trait]
+impl TokenSource for FixedToken {
+    async fn access_token(&self, _force_refresh: bool) -> Result<Zeroizing<String>, CarrierError> {
+        Ok(self.0.clone())
+    }
+}
+
 /// Where carrier answers come from: the platform, asked with the person's
-/// access token, which the app replaces as it refreshes ([`Platform::set_token`]).
+/// current access token ([`TokenSource`]).
 pub struct Platform {
     api_base: Url,
     team: Option<String>,
     machine: String,
-    token: Mutex<Zeroizing<String>>,
+    tokens: Arc<dyn TokenSource>,
     http: reqwest::Client,
 }
 
 impl Platform {
+    /// A platform asked with one fixed token.
     pub fn new(
         api_base: &str,
         team: Option<String>,
         machine: &str,
         token: String,
+    ) -> Result<Self, CarrierError> {
+        Self::with_tokens(api_base, team, machine, FixedToken::source(token))
+    }
+
+    /// A platform asked with the token `tokens` gives at each ask.
+    pub fn with_tokens(
+        api_base: &str,
+        team: Option<String>,
+        machine: &str,
+        tokens: Arc<dyn TokenSource>,
     ) -> Result<Self, CarrierError> {
         let api_base = Url::parse(api_base).map_err(|_| CarrierError::Invalid("api base".into()))?;
         if api_base.scheme() != "https" && !local(&api_base) {
@@ -160,22 +201,7 @@ impl Platform {
             .timeout(FETCH_TIMEOUT)
             .build()
             .map_err(|error| CarrierError::Invalid(error.to_string()))?;
-        Ok(Self {
-            api_base,
-            team,
-            machine: machine.to_owned(),
-            token: Mutex::new(Zeroizing::new(token)),
-            http,
-        })
-    }
-
-    /// Replace the access token (the app refreshes it before it expires).
-    pub fn set_token(&self, token: String) {
-        *self.token.lock().unwrap_or_else(PoisonError::into_inner) = Zeroizing::new(token);
-    }
-
-    fn token(&self) -> Zeroizing<String> {
-        self.token.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        Ok(Self { api_base, team, machine: machine.to_owned(), tokens, http })
     }
 
     fn url(&self) -> Result<Url, CarrierError> {
@@ -185,18 +211,28 @@ impl Platform {
     }
 
     /// A Connect ticket, and a grant naming `noise_key` when given (a grant is
-    /// single-use, so each attempt asks again).
+    /// single-use, so each attempt asks again). A refused token is asked for
+    /// once more with a forced refresh; refused again, it is `Unauthorized`.
     pub async fn fetch(&self, noise_key: Option<&[u8; 32]>) -> Result<RelayAnswer, CarrierError> {
         let body = match noise_key {
             Some(key) => json!({ "noise_key": carrier_answer::key_text(key) }),
             None => json!({}),
         };
+        let body = body.to_string();
+        match self.ask(&body, false).await {
+            Err(CarrierError::Unauthorized) => self.ask(&body, true).await,
+            other => other,
+        }
+    }
+
+    async fn ask(&self, body: &str, force_refresh: bool) -> Result<RelayAnswer, CarrierError> {
+        let token = self.tokens.access_token(force_refresh).await?;
         let mut request = self
             .http
             .post(self.url()?)
-            .bearer_auth(self.token().as_str())
+            .bearer_auth(token.as_str())
             .header("content-type", "application/json")
-            .body(body.to_string());
+            .body(body.to_owned());
         if let Some(team) = &self.team {
             request = request.header(TEAM_HEADER, team);
         }
@@ -220,8 +256,7 @@ impl Platform {
 /// One platform reply: the relay answer, else the refusal.
 pub fn read_answer(status: u16, body: &Value) -> Result<RelayAnswer, CarrierError> {
     match carrier_answer::reply_value(status, body) {
-        Ok(value) => carrier_answer::parse_relay(value)
-            .map_err(|why| CarrierError::Invalid(format!("the carrier answer: {why}"))),
+        Ok(value) => carrier_answer::parse_relay(value).map_err(CarrierError::Answer),
         Err(refusal) => Err(CarrierError::Refused {
             code: refusal.code,
             message: refusal.message,
@@ -324,6 +359,84 @@ pub struct CarrierSession {
     first: Mutex<Option<OpenedMuxControl>>,
     /// [`CarrierSession::close`] ran (a second one, or the drop, does nothing).
     closed: AtomicBool,
+    /// True once the session ended for any reason; its watcher sets it.
+    ended: tokio::sync::watch::Sender<bool>,
+}
+
+/// Whether a session can still carry streams: not closed, the daemon still
+/// has it, its multiplexer's reader has not failed, and its resume did not
+/// give up. The Mac's carrier retires a session on the same signals
+/// (cmux-tui `carrier/held.rs` `alive`). `Disconnected` is what the
+/// connection publishes when the daemon no longer has the session and when
+/// a recovery runs out of `RESUME_DEADLINE`; the phone then dials anew.
+fn session_alive(connection: &ClientConnection, multiplexer: &ServiceMultiplexer) -> bool {
+    use cmux_remote::observability::ConnectionState;
+    !connection.session_unavailable()
+        && !multiplexer.session_unavailable()
+        && multiplexer.subscribe_fatal().borrow().is_none()
+        && !matches!(
+            *connection.subscribe_state().borrow(),
+            ConnectionState::Disconnected | ConnectionState::Closed
+        )
+}
+
+/// Ends `connection` once it dies (any [`session_alive`] signal), so
+/// [`CarrierSession::closed`] resolves at once and every stream on it ends.
+fn watch_session(
+    connection: Arc<ClientConnection>,
+    multiplexer: Arc<ServiceMultiplexer>,
+    ended: tokio::sync::watch::Sender<bool>,
+) {
+    tokio::spawn(async move {
+        let mut state = connection.subscribe_state();
+        let mut fatal = multiplexer.subscribe_fatal();
+        while session_alive(&connection, &multiplexer) {
+            tokio::select! {
+                changed = state.changed() => if changed.is_err() { break },
+                changed = fatal.changed() => if changed.is_err() { break },
+            }
+        }
+        ended.send_replace(true);
+        multiplexer.shutdown().await;
+        let _ = connection.close().await;
+    });
+}
+
+/// Closes what a dial attempt built when the attempt does not finish
+/// (cancelled by [`CarrierSession::dial`]'s caller, or failed past it), so
+/// no relay link, Noise session or mux stream is left open.
+#[derive(Default)]
+struct Unfinished {
+    group: Option<Arc<dyn cmux_remote::provider::LinkGroup>>,
+    session: Option<(Arc<ClientConnection>, Arc<ServiceMultiplexer>)>,
+}
+
+impl Unfinished {
+    /// The attempt finished: nothing to close.
+    fn done(mut self) {
+        self.group = None;
+        self.session = None;
+    }
+}
+
+impl Drop for Unfinished {
+    fn drop(&mut self) {
+        let group = self.group.take();
+        let session = self.session.take();
+        if group.is_none() && session.is_none() {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        runtime.spawn(async move {
+            if let Some((connection, multiplexer)) = session {
+                multiplexer.shutdown().await;
+                let _ = connection.close().await;
+            }
+            if let Some(group) = group {
+                let _ = group.close().await;
+            }
+        });
+    }
 }
 
 impl CarrierSession {
@@ -355,12 +468,20 @@ impl CarrierSession {
 
     /// One more `cmux.protocol/2` line stream on the session.
     pub async fn open_stream(&self) -> Result<CarrierStream, CarrierError> {
+        if self.is_closed() {
+            return Err(CarrierError::Closed);
+        }
         let first = self.first.lock().unwrap_or_else(PoisonError::into_inner).take();
         let mux = match first {
             Some(mux) => mux,
-            None => OpenedMuxControl::open(&self.multiplexer)
-                .await
-                .map_err(|error| CarrierError::transport("stream", error.to_string()))?,
+            // A session that died under the open is `Closed`, so the app dials anew.
+            None => OpenedMuxControl::open(&self.multiplexer).await.map_err(|error| {
+                if self.is_closed() {
+                    CarrierError::Closed
+                } else {
+                    CarrierError::transport("stream", error.to_string())
+                }
+            })?,
         };
         let (ours, theirs) = tokio::io::duplex(STREAM_BUFFER);
         let (their_read, their_write) = tokio::io::split(theirs);
@@ -377,22 +498,19 @@ impl CarrierSession {
         })
     }
 
-    /// The session ended (its resume gave up, or it was closed).
+    /// The session ended: closed, the daemon dropped it, its reader failed
+    /// or its resume gave up ([`session_alive`]).
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
-            || matches!(
-                *self.connection.subscribe_state().borrow(),
-                cmux_remote::observability::ConnectionState::Closed
-            )
+            || *self.ended.borrow()
+            || !session_alive(&self.connection, &self.multiplexer)
     }
 
-    /// Resolves once the session ends (its resume gave up, or it was closed),
-    /// so the app learns of a dropped session at once, not at its next probe.
+    /// Resolves once the session ends for any of [`CarrierSession::is_closed`]'s
+    /// reasons, so the app learns of it at once, not at its next probe.
     pub async fn closed(&self) {
-        let mut state = self.connection.subscribe_state();
-        let _ = state
-            .wait_for(|state| matches!(state, cmux_remote::observability::ConnectionState::Closed))
-            .await;
+        let mut ended = self.ended.subscribe();
+        let _ = ended.wait_for(|ended| *ended).await;
     }
 
     /// Ends the session and its streams (once).
@@ -400,6 +518,7 @@ impl CarrierSession {
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.ended.send_replace(true);
         self.multiplexer.shutdown().await;
         let _ = self.connection.close().await;
     }
@@ -415,7 +534,7 @@ async fn attempt(
     let grant = answer
         .grant
         .clone()
-        .ok_or_else(|| CarrierError::Invalid("cmux-platform sent no carrier grant".into()))?;
+        .ok_or_else(|| CarrierError::Answer("cmux-platform sent no carrier grant".into()))?;
     // A machine that has not bound yet has no stored key; it binds within
     // seconds of its start, so the next attempt has it. Never unpinned.
     let daemon = answer.daemon_key.ok_or_else(|| CarrierError::Refused {
@@ -450,7 +569,7 @@ async fn attempt(
         })
         .await
         .map_err(|error| provider_error(&error))?;
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    let mut unfinished = Unfinished { group: Some(group.clone()), session: None };
     let config = ClientConnectionConfig {
         identity: identity.clone(),
         expected_daemon: Some(daemon),
@@ -459,34 +578,59 @@ async fn attempt(
         session,
         lane_policy: LanePolicy::Auto,
         limits: SessionLimits::default(),
+        // Every resume of the session gets the whole handshake budget; only this
+        // first connect is held to the dial's deadline (below).
         reconnect: ReconnectPolicy {
-            attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
+            attempt_timeout: HANDSHAKE_TIMEOUT,
             maximum_duration: Some(RESUME_DEADLINE),
             ..ReconnectPolicy::default()
         },
     };
-    let connection = match ClientConnection::connect(group.clone(), config).await {
-        Ok(connection) => connection,
-        Err(error) => {
-            let _ = group.close().await;
-            return Err(connection_error(&error));
-        }
+    let connection = match tokio::time::timeout_at(deadline, ClientConnection::connect(group, config)).await {
+        Ok(Ok(connection)) => connection,
+        Ok(Err(error)) => return Err(connection_error(&error)),
+        Err(_) => return Err(CarrierError::transport("handshake", "the dial's deadline passed")),
     };
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
+    unfinished.session = Some((connection.clone(), multiplexer.clone()));
     // A grant that does not admit mux control is refused here, before the
     // dial reports success.
-    match OpenedMuxControl::open(&multiplexer).await {
-        Ok(mux) => Ok(CarrierSession {
-            connection,
-            multiplexer,
-            first: Mutex::new(Some(mux)),
-            closed: AtomicBool::new(false),
-        }),
-        Err(error) => {
-            multiplexer.shutdown().await;
-            let _ = connection.close().await;
-            Err(CarrierError::Handshake(format!("the daemon did not open its mux control stream: {error}")))
+    let opened = tokio::time::timeout_at(deadline, OpenedMuxControl::open(&multiplexer)).await;
+    let mux = match opened {
+        Ok(Ok(mux)) => mux,
+        Ok(Err(error)) => return Err(mux_open_error(&connection, &multiplexer, &error)),
+        Err(_) => return Err(CarrierError::transport("stream", "the dial's deadline passed")),
+    };
+    unfinished.done();
+    let ended = tokio::sync::watch::channel(false).0;
+    watch_session(connection.clone(), multiplexer.clone(), ended.clone());
+    Ok(CarrierSession {
+        connection,
+        multiplexer,
+        first: Mutex::new(Some(mux)),
+        closed: AtomicBool::new(false),
+        ended,
+    })
+}
+
+/// Why the daemon did not open the dial's mux stream. A session the daemon
+/// no longer has (its session host restarted between the handshake and the
+/// open) is retried with a fresh session, as the Mac's carrier does; the
+/// daemon's own refusal of the stream (a grant that does not admit it) is
+/// `Handshake`; anything else is a retryable transport failure.
+fn mux_open_error(
+    connection: &ClientConnection,
+    multiplexer: &ServiceMultiplexer,
+    error: &cmux_remote::bridge::BridgeError,
+) -> CarrierError {
+    if connection.session_unavailable() || multiplexer.session_unavailable() {
+        return CarrierError::transport("stream", "the machine's daemon lost the new session");
+    }
+    match error {
+        cmux_remote::bridge::BridgeError::Rejected(why) => {
+            CarrierError::Handshake(format!("the daemon refused its mux control stream: {why}"))
         }
+        other => CarrierError::transport("stream", other.to_string()),
     }
 }
 
