@@ -22,6 +22,14 @@ struct RemoteTmuxFailureClassifierTests {
         "error connecting to \(longDirectory)/\(longName) (File name too long)",
         "Error connecting to \(longDirectory)/\(longName) (FILE NAME TOO LONG)",
         "tmux: error connecting to \(longDirectory)/\(longName) (File name too long)\n",
+        "Warning: Permanently added 'host' to known hosts.\nerror connecting to \(longDirectory)/\(longName) (File name too long)  \r\n",
+    ]
+
+    /// Failures whose socket path contains the words of the overlong-path reason, but whose
+    /// actual reason, at the end of the line, is something else.
+    static let reasonTextInsideThePath: [String] = [
+        "error connecting to /tmp/file name too long/tmux-501/alpha (Permission denied)",
+        "error connecting to /tmp/(file name too long)/tmux-501/alpha (Connection refused)",
     ]
 
     static let unrelated: [String] = [
@@ -46,6 +54,13 @@ struct RemoteTmuxFailureClassifierTests {
         let classifier = RemoteTmuxFailureClassifier(stderr: stderr)
         #expect(classifier.indicatesSocketPathTooLong)
         #expect(!classifier.indicatesNoServer)
+    }
+
+    /// The reason is read from the end of the line: these are not overlong-path failures, and
+    /// they keep whatever the idle-server reading already made of them.
+    @Test(arguments: reasonTextInsideThePath)
+    func aReasonSpelledInsideTheSocketPathIsNotAnOverlongPath(_ stderr: String) {
+        #expect(!RemoteTmuxFailureClassifier(stderr: stderr).indicatesSocketPathTooLong)
     }
 
     /// Other stderr, including text that matches only half of a pattern, matches neither reading.
