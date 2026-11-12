@@ -58,7 +58,7 @@ import {
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
+import { hostIsReconnecting } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -1088,13 +1088,15 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
 /// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
 /// and the page cannot see whether the journal kept the prompt). Tests shorten them.
-/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting before it
-/// fails with Retry (sendWhenReady.ts), the pane's one deadline for a recovery.
+/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting
+/// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
+/// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
+/// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
-  hostWaitMs: HOST_ERROR_DEADLINE_MS,
+  hostWaitMs: Number.POSITIVE_INFINITY,
 };
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -10799,6 +10801,9 @@ export class AcpmuxDirectClient {
     /// Ends this prompt's count in the composer's "Sending when ready" (sendWhenReady.ts): set while
     /// the prompt waits for acpmux, released once acpmux took it or the send ended.
     let unhold: (() => void) | undefined;
+    /// The prompt is between tries, waiting for acpmux to answer (sendWhenReady.ts): no request of it
+    /// is out, so its no-answer deadline below does not run down meanwhile.
+    let heldForHost = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -10857,10 +10862,17 @@ export class AcpmuxDirectClient {
         else if (state === "delivered" && this.optimisticPromptRows.has(promptId)) this.checkStall(sessionId);
       }, deliveryTiming.slowMs),
     );
-    timers.push(
-      setTimeout(
-        () => {
+    const failUnanswered = () => {
           if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
+          // A prompt held for an acpmux that is away (a restart, its machine rebooting) has no
+          // request out to go unanswered: it waits on, and goes once acpmux answers (Leo,
+          // 2026-11-12: "it should just automatically do stuff"). Its deadline starts again then.
+          if (heldForHost) {
+            this.deliveries.get(promptId)?.timers.push(
+              setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs),
+            );
+            return;
+          }
           // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
           // copy as a failed row.
           if (accepted !== undefined && !released) return;
@@ -10893,10 +10905,8 @@ export class AcpmuxDirectClient {
           });
           this.noteUnsentFailure(promptId);
           this.emit();
-        },
-        this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
-      ),
-    );
+    };
+    timers.push(setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs));
     this.emit();
     // A send with nothing to upload goes to its own chat however late its ticket comes: its row is
     // already drawn there, the prompt names `sessionId`, and a bound ticket redeems only for that
@@ -10908,8 +10918,9 @@ export class AcpmuxDirectClient {
     // row keeps its clock and says "Sending when ready"; only past the deadline does it fail below.
     try {
       const answer = await untilHostAnswers(
-        () =>
-          this.request("session/prompt", {
+        () => {
+          heldForHost = false;
+          return this.request("session/prompt", {
             sessionId,
             // A recording goes only to a harness that takes voice input; one moved to another
             // harness (a switch, a held prompt put back) goes as its transcript.
@@ -10925,11 +10936,13 @@ export class AcpmuxDirectClient {
               },
               ...(gesture ? { cmuxGesture: gesture } : {}),
             },
-          }),
+          });
+        },
         {
           deadlineMs: deliveryTiming.hostWaitMs,
           stop: () => taken || this.closed || this.deliveries.get(promptId)?.delivery.state !== "sending",
           waiting: () => {
+            heldForHost = true;
             unhold ??= sendsHeldForHost.hold();
             if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
           },
