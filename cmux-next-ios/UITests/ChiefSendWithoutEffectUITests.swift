@@ -46,24 +46,25 @@ final class ChiefSendWithoutEffectUITests: XCTestCase {
         let picker = app.descendants(matching: .any)["conversation.effects.cancel"].firstMatch
         XCTAssertFalse(picker.waitForExistence(timeout: 1.5), "no Send with effect picker\n\(app.debugDescription)")
         XCTAssertFalse(app.descendants(matching: .any)["conversation.effects.mode"].exists, "no Bubble/Screen tabs")
-        XCTAssertTrue(sentBubble(app, "Ship it").waitForExistence(timeout: 5),
-                      "the held Send sent the draft\n\(app.debugDescription)")
+        XCTAssertTrue(sent("Ship it", from: field), "the held Send sent the draft\n\(app.debugDescription)")
         attach(app, "2-long-press-sent-\(look)")
 
         // A plain tap still sends.
         field.typeText("Status?")
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         send.tap()
-        XCTAssertTrue(sentBubble(app, "Status?").waitForExistence(timeout: 5),
-                      "a tap on Send sends\n\(app.debugDescription)")
+        XCTAssertTrue(sent("Status?", from: field), "a tap on Send sends\n\(app.debugDescription)")
         XCTAssertFalse(picker.exists, "no picker after a tap either")
         attach(app, "3-tap-sent-\(look)")
     }
 
+    /// The draft left the composer: sent. (Its bubble can be above the screen at once: at
+    /// Accessibility XXXL on a small iPhone the mock Chief's reply fills the transcript, and
+    /// rows off screen are not in the tree.) Before, the picker held the draft in the field.
     @MainActor
-    private func sentBubble(_ app: XCUIApplication, _ text: String) -> XCUIElement {
-        app.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'conversation.message.'"))
-            .containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    private func sent(_ text: String, from field: XCUIElement) -> Bool {
+        let gone = NSPredicate(format: "NOT (value CONTAINS %@)", text)
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: field)], timeout: 5) == .completed
     }
 
     @MainActor
