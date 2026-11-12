@@ -51,6 +51,10 @@ struct ComposerTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.isScrollEnabled = false
+        // A line the field has not been measured for yet never draws past
+        // its rounded box, over the keyboard or under the key row (Leo,
+        // 2026-11-12: text spilled under the field while he typed).
+        view.clipsToBounds = true
         view.keyboardAppearance = .dark
         view.autocorrectionType = .no
         view.autocapitalizationType = .none

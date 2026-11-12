@@ -51,6 +51,11 @@ struct TerminalComposer: View {
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Grows up from the keyboard: until the hosting view takes a taller
+        // card's height (the pass after it is measured), the card hangs from
+        // the bottom edge, never centered half below it over the keyboard
+        // (Leo, 2026-11-12: "whoa it go down").
+        .frame(maxHeight: .infinity, alignment: .bottom)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
