@@ -5,10 +5,14 @@ public import Foundation
 public nonisolated struct HistoryRead: Sendable {
     public var entries: [HistoryEntry]
     public var unavailable: Bool
+    /// The kinds whose entries are not complete yet (``DaemonHistoryList/pendingKinds``): the list is
+    /// short for now, and the reader shows that and reads again.
+    public var pending: Set<HistoryEntry.Kind>
 
-    public init(entries: [HistoryEntry], unavailable: Bool = false) {
+    public init(entries: [HistoryEntry], unavailable: Bool = false, pending: Set<HistoryEntry.Kind> = []) {
         self.entries = entries
         self.unavailable = unavailable
+        self.pending = pending
     }
 
     /// What a list says under its rows, so an empty query never reads "No Results" and a failed read is never hidden.

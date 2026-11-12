@@ -38,6 +38,8 @@ export interface HistorySnapshot {
   selection?: string;
   /** True until the first reply for the current query arrives. */
   loading: boolean;
+  /** The last reply was not the whole list (`pending_kinds`): the page says so and asks again by itself. */
+  pending: boolean;
   connection: Connection;
   /** The last failed intent's message, cleared by the next success. */
   error?: string;
@@ -77,6 +79,7 @@ export class HistoryStore {
       entries: [],
       groups: [],
       loading: client !== null,
+      pending: false,
       connection: client ? "connecting" : "disconnected",
       cookieBackups: { open: false, loading: false, backups: [] },
     };

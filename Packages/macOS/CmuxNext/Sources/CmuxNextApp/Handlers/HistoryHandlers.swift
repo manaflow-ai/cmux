@@ -66,9 +66,13 @@ enum HistoryHandlers {
             guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
             let newTab = invocation["newTab"]?.boolValue ?? false
             services.registry.track(Task { @MainActor in
-                guard let entry = await services.history.entry(id: id), entry.isAvailable else { return ActionWorkFailure(HistoryAppStrings.entryGone) }
-                HistoryRestorer(services: services).open(entry, newTab: newTab)
-                return nil
+                switch await services.history.lookup(id: id).opening {
+                case .success(let entry):
+                    HistoryRestorer(services: services).open(entry, newTab: newTab)
+                    return nil
+                case .failure(let refusal):
+                    return refusal
+                }
             })
         })
         registry.bind("history.clear", run: { invocation in
@@ -106,5 +110,15 @@ enum HistoryHandlers {
                 }
             })
         })
+    }
+}
+
+extension HistoryLookup {
+    /// The entry `history.open` opens, or why it opens none.
+    @MainActor var opening: Result<HistoryEntry, ActionWorkFailure> {
+        switch self {
+        case .found(let entry) where entry.isAvailable: .success(entry)
+        case .found, .stillLoading, .gone: .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
+        }
     }
 }

@@ -90,6 +90,37 @@ public final class AsyncPaletteProvider: PaletteProvider {
                              streaming: updates)
     }
 
+    /// A provider whose source can say that more is to come (a list its owner has not finished building): it
+    /// shows each read's list and reads again by itself after `wait` returns, until a read is complete or the
+    /// page that reads it goes away. `items()` is one read, so a headless caller never waits for the rest.
+    ///
+    /// - Parameters:
+    ///   - read: One read: its rows, and whether more is to come. Nil ends the reads (the source is gone).
+    ///   - wait: Suspends before the read that follows `reads` reads (a clock sleep that backs off); it throws when cancelled.
+    public static func rereading(id: String, showsItemsForEmptyQuery: Bool = true,
+                                 read: @escaping @MainActor () async -> (items: [PaletteItem], moreToCome: Bool)?,
+                                 wait: @escaping @MainActor (_ reads: Int) async throws -> Void) -> AsyncPaletteProvider {
+        AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, once: { await read()?.items ?? [] }, updates: {
+            let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+            // task-owner: one open's read of the list; ends with the read or with the stream's consumer
+            let task = Task { @MainActor in
+                if let list = await read() { continuation.yield(list.items) }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+            return stream
+        })
+    }
+
+    private init(id: String, showsItemsForEmptyQuery: Bool, once load: @escaping @MainActor () async -> [PaletteItem],
+                 updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) {
+        self.id = id
+        self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
+        immediateItems = nil
+        self.load = load
+        self.updates = updates
+    }
+
     private init(id: String, showsItemsForEmptyQuery: Bool, immediateItems: [PaletteItem]?,
                  streaming updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) {
         self.id = id

@@ -88,7 +88,13 @@ final class HistoryService {
 
     /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
-        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
+        if case .found(let entry) = await lookup(id: id) { return entry }
+        return nil
+    }
+
+    /// Same, and whether an entry that was not found is only not listed yet (its kind's entries are not complete).
+    func lookup(id: String) async -> HistoryLookup {
+        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return .found(shown) }
         return await daemonEntry(id: id, daemonHistory)
     }
 

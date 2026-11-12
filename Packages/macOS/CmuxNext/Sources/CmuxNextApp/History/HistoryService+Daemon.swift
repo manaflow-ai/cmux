@@ -43,7 +43,7 @@ extension HistoryService {
         if !kinds.isEmpty {
             // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
             var rows: [DaemonHistoryEntry]?
-            if let daemon { rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) } }
+            if let daemon { rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) }?.entries }
             all += (rows ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
             unavailable = rows == nil
         }
@@ -57,15 +57,17 @@ extension HistoryService {
     }
 
     /// One entry by id: commands from every connected machine's rows, everything else from the local daemon's newest entries of the
-    /// id's kind (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone; nil while it is away).
-    func daemonEntry(id: String, _ daemon: DaemonHistoryClient?) async -> HistoryEntry? {
+    /// id's kind (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone; gone while it is away).
+    /// An id that is not in a list that is not complete yet is `stillLoading`: one read, no wait for the rest.
+    func daemonEntry(id: String, _ daemon: DaemonHistoryClient?) async -> HistoryLookup {
         if id.hasPrefix("command:") {
             await commands.refresh()
-            return commands.entries().first { $0.id == id }
+            return commands.entries().first { $0.id == id }.map { HistoryLookup.found($0) } ?? .gone
         }
-        guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
-        let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) } ?? []
-        return rows.first(where: { $0.id == id }).flatMap { daemonRow($0) }.map { reachable($0) }
+        guard let daemon, let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return .gone }
+        guard let list = await DaemonHistoryClient.retrying({ try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) }) else { return .gone }
+        if let entry = list.entries.first(where: { $0.id == id }).flatMap({ daemonRow($0) }).map({ reachable($0) }) { return .found(entry) }
+        return list.isStillLoading(id: id) ? .stillLoading : .gone
     }
 
     /// The app's entry for a daemon row, with the app's localized titles of an untitled terminal and chat.

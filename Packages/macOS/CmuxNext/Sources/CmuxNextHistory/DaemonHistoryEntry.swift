@@ -112,8 +112,34 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     }
 }
 
+/// The answer of `history.entries.list`: the entries, and the asked kinds whose entries are not
+/// complete yet (`pending_kinds`: the daemon's fold of the session journal is still behind, and the
+/// list did not wait for it). A reader that gets a pending kind asks again until it gets none.
 public nonisolated struct DaemonHistoryList: Decodable, Sendable {
     public var entries: [DaemonHistoryEntry]
+    public var pendingKinds: Set<HistoryEntry.Kind>
+
+    enum CodingKeys: String, CodingKey {
+        case entries
+        case pendingKinds = "pending_kinds"
+    }
+
+    public init(entries: [DaemonHistoryEntry], pendingKinds: Set<HistoryEntry.Kind> = []) {
+        self.entries = entries
+        self.pendingKinds = pendingKinds
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try c.decode([DaemonHistoryEntry].self, forKey: .entries)
+        pendingKinds = []
+    }
+
+    /// Whether `id` is not among the entries only because its kind's entries are not complete yet:
+    /// the entry is then not known, which is not "gone".
+    public func isStillLoading(id: String) -> Bool {
+        false
+    }
 }
 
 /// `history.visit.summaries` row: the omnibox seed of a browser profile.
