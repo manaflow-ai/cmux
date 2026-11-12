@@ -155,6 +155,11 @@ def cargo_env(args) -> dict:
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
     if args.target_dir:
         env["CARGO_TARGET_DIR"] = args.target_dir
+    # The store refuses a state folder under a writable, non-sticky shared folder: a private TMPDIR.
+    tmp = Path(args.out) / "tmp"
+    tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tmp.chmod(0o700)
+    env["TMPDIR"] = str(tmp)
     return env
 
 
@@ -201,7 +206,8 @@ def part_chat(args, scale: float, load: str, out: Path) -> dict:
 
 def part_webview(args, scale: float, load: str, out: Path) -> dict:
     report = out / "webview.json"
-    cmd = ["bun", "bench/degenerate-chat-frames.bench.ts", "--tps", args.tps, "--out", str(report)]
+    bun = shutil.which("bun") or str(Path.home() / ".bun/bin/bun")
+    cmd = [bun, "bench/degenerate-chat-frames.bench.ts", "--tps", args.tps, "--out", str(report)]
     if args.profile:
         cmd += ["--trace", str(out / "traces")]
     code, _ = run_logged(cmd, dict(os.environ), WEBVIEWS, out / "webview.log", args.timeout)
@@ -295,7 +301,7 @@ def dig(d, path):
 def summary_md(results: list[dict], rows: list[dict]) -> str:
     lines = ["# Degenerate lab", "", "| row | small p95 | god p95 | god/small |", "|---|---:|---:|---:|"]
     for r in rows:
-        ratio = r["god_p95"] / r["small_p95"] if r["small_p95"] else float("inf")
+        ratio = r["god_p95"] / r["small_p95"] if r["small_p95"] else (1.0 if not r["god_p95"] else float("inf"))
         flag = " **over 1.2x**" if ratio > 1.2 else ""
         lines.append(f"| {r['name']} | {r['small_p95']:,} | {r['god_p95']:,} | {ratio:.2f}{flag} |")
     lines += ["", "| part | scale | load | exit |", "|---|---:|---|---:|"]
@@ -347,6 +353,8 @@ def main() -> int:
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
     args = ap.parse_args()
+    # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
+    os.umask(0o022)
     preset = PRESETS[args.preset]
     scales = args.scale or preset["scales"]
     loads = args.load or preset["loads"]
