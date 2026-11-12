@@ -384,3 +384,9 @@ tests/git_history.py	git-write-without-fixture	fetches missing commits into the 
 # ran on base (cmux-next CI guard group, 07:36Z 2026-11-12, after #41805).
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HoverLoadsTabTests.swift	sleep-then-assert	absence check: a pointer that only crosses a tab makes no page; needs an injected dwell clock
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/WebKitSetupGateRecheckTests.swift	sleep-then-assert	absence check: a wedged probe starts no second thread; needs a thread-start hook
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StartingPaneInputCancelTests.swift	sleep-then-assert	the pause follows the awaited cancel or close; the assert is that no second or late cancel arrives, an absence that has no signal to wait on (as StartingPaneCloseTests)
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StartingPaneOtherClosesTests.swift	assert-on-duration	a validity guard, not a latency claim: held keys leave by themselves after 3 s, so a run slower than 2.8 s proves nothing and must say so (as StartingPaneWorkspaceCloseTests)
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileAgentChatTests/ChatKeepsRowsWhileAwayTests.swift	sleep-then-assert	the assert is that a blip shorter than the store's 150 ms threshold never shows a line, an absence with no signal; debt: drive the threshold from an injected clock
+tests/test_generated_files_guard.py	assert-on-duration	the test's claim is the guard's own deadline: two slow generators end inside DEADLINE_SECONDS, with 1.5 s of margin over the 2.5 s mock deadline
+tests/test_guard_logs_survive_closed_pipe.py	sleep-then-assert	the assert after the pause is the probe's self-check that a live pid reads as alive; it holds before bash installs its traps too
+webviews/test/history-page-pending.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() lets the pushed history-changed render; no wall-clock wait

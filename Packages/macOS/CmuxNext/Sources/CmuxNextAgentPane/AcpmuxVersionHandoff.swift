@@ -169,6 +169,7 @@ nonisolated enum AcpmuxVersionHandoff {
     /// Without it the old build's daemon ran on until it answered (over a minute at Leo's 08:05Z
     /// restart) while the new app waited for it. Throws the ask's failure when nothing was sent.
     @concurrent static func handOffShutdown(
+        // timeout: a local socket shutdown ask during an update relaunch; a daemon that does not answer gets SIGTERM instead
         _ environment: AcpmuxEnvironment, pid: Int32, deadline: Duration = .seconds(2),
         shutdown: @Sendable (AcpmuxEnvironment, Duration) async throws -> Void = AcpmuxVersionHandoff.askShutdown,
         finish: @Sendable (AcpmuxEnvironment, Int32) async -> Bool = AcpmuxVersionHandoff.finishBySignal
