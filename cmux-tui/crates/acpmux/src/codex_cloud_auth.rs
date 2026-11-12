@@ -344,6 +344,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_host_that_refuses_the_connection_is_unreachable() {
+        // agent-auth.sh counts curl's exit 7 (nothing accepts the connection) as unreachable, as it
+        // does exit 6 (no such name): no request through CodeRouter can succeed either way.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let open = listener.local_addr().unwrap();
+        assert!(host_resolves(open.to_string()).await, "a port that accepts is reachable");
+        let closed = {
+            let gone = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            gone.local_addr().unwrap()
+        };
+        assert!(!host_resolves(closed.to_string()).await, "a port that refuses is unreachable");
+        drop(listener);
+    }
+
+    #[tokio::test]
     async fn only_an_owner_cloud_image() {
         // A team machine: shared-machine mode is the image's, never an own sign-in.
         let team = machine(Some("team"), true);
