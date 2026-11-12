@@ -59371,14 +59371,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "SOCKS5",
                 "value" : "socks5"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "HTTP",
                 "value" : "http"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "HTTPS",
                 "value" : "https"
               }
