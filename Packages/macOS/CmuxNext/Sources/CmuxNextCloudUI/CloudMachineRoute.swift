@@ -49,14 +49,18 @@ public struct CloudMachineRoute: Sendable {
     /// A Cloud start's machine before its first chat: it runs this app's machine software (`update`, a no-op
     /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
     /// start's failure, its reason as the start card shows it, with a retry on the same machine.
+    ///
+    /// A machine whose software predates the report (``Verdict/unsupported``) is not refused: the app's update
+    /// never moves a machine back, so a machine on a newer build than this app's that still lacks the report
+    /// (an image ahead of a DEV build's branch), or an app with no machine build to install, could never pass
+    /// and every start on a new machine ended here. Its chat starts on the software the image came with; a
+    /// machine that does report and is not routed is still refused.
     public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
             try await afterUpdate(update)
         } catch let refused as Refused {
-            // A machine whose image software has no model-route report (it prints nothing) and that the app's
-            // update does not change is not a refusal: the start goes on with the image's software.
             if refused.verdict == .unsupported {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update; starting on its image's software")
                 return
