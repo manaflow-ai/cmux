@@ -103,7 +103,10 @@ async fn a_web_device_cannot_control_a_claude_session_the_mac_started_but_can_re
     let r = web.prompt(&s, "hi").await;
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let text = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(text.contains("Start a new chat from this device"), "{text}");
+    // The refusal says what to do from each side (#41629): start a new chat on the other device,
+    // or reopen the chat on this Mac.
+    assert!(text.contains("From another device, start a new chat there"), "{text}");
+    assert!(text.contains("close and reopen the chat"), "{text}");
     for (m, p) in [
         ("session/set_mode", json!({"sessionId": s, "modeId": "plan"})),
         (

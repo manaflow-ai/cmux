@@ -16,6 +16,9 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.pinnedPlan`: The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).
     nonisolated static let pinnedPlanPath = ["agentPane", "display", "pinnedPlan"]
     nonisolated static let pinnedPlanDefault = false
+    /// `agentPane.display.finishSound`: A soft sound when a long turn ends, the chat's checks pass or its pull request merges (webviews finish/finishMoments.ts; the host's pane.finishSound plays it only while macOS plays user interface sound effects). Off by default (leo-workspace research/2026-10-26-delight.md rule 7).
+    nonisolated static let finishSoundPath = ["agentPane", "display", "finishSound"]
+    nonisolated static let finishSoundDefault = false
     /// `agentPane.display.trayTucked`: The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to collapse that one line?"). The hat's own chevron and the tab write it too.
     nonisolated static let trayTuckedPath = ["agentPane", "display", "trayTucked"]
     nonisolated static let trayTuckedDefault = false

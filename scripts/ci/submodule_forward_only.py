@@ -8,9 +8,15 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+# Run as a script, this directory is already first on sys.path; under `python3 -I` or imported, it is not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_process_tree import run_bounded  # noqa: E402
+import git_fetch_retry  # noqa: E402
 
 MARKER_PREFIX = "submodule-forward-only: allow "
 FETCH_TIMEOUT_SECONDS = 15
@@ -22,10 +28,10 @@ MAX_DEEPEN_ROUNDS = 8
 
 
 def run(*args: str, cwd: str | None = None, timeout: float = FETCH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
+    """ARGS' result; exit 124 past TIMEOUT, once the command and everything it started (a clone under
+    `git submodule update`, its transport) are stopped and reaped (cmux#41752 review F1)."""
     try:
-        return subprocess.run(
-            args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
-        )
+        return run_bounded(list(args), cwd=cwd, text=True, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         def text(value: str | bytes | None, fallback: str) -> str:
             if isinstance(value, bytes):
@@ -90,7 +96,10 @@ def initialize_changed_submodule(path: str) -> bool:
     slower; it fails only on what the change touched).
     """
     limits = (INIT_TIMEOUT_SECONDS, RETRY_INIT_TIMEOUT_SECONDS)
+    repo = Path(".")
     for limit in limits:
+        started = time.time()
+        modules_before = git_fetch_retry.module_dirs(repo)
         result = run(
             "git", "submodule", "update", "--init", "--depth", "1", "--recursive", "--", path,
             timeout=limit,
@@ -100,6 +109,12 @@ def initialize_changed_submodule(path: str) -> bool:
         if result.returncode != 124:
             break
         print(f"submodule-forward-only: {path}: git submodule update timed out after {limit:g} s", file=sys.stderr)
+        # What the stopped clone half made would fail the retry at once ("Unable to find current revision in
+        # submodule path"): its new git dir and checkout, partial packs and locks go first.
+        log = lambda line: print(line, file=sys.stderr)  # noqa: E731
+        git_fetch_retry.clean_partial(repo, started - 1, log)
+        git_fetch_retry.clean_new_modules(repo, modules_before, log)
+        git_fetch_retry.drop_dangling_submodules(repo, log, only=[path])
     if result.returncode == 124:
         print(f"FAIL {path}: could not initialize changed submodule: git submodule update timed out after "
               f"{limits[0]:g} s and again after {limits[1]:g} s. This change moves the gitlink, so the guard "

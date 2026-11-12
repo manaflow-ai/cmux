@@ -144,11 +144,10 @@ export class FoldRide {
     const worn = parseFloat(last.node.style.translate.split(" ")[1] ?? "") || 0;
     const placedBottom = last.node.getBoundingClientRect().bottom - worn;
     const reach = Math.min(placedBottom, placedBottom + shiftOf(last.index));
-    // No wider than that: the ride once stood aside while the transcript's last row was within a
-    // screen of the view's end. A close that brought it there mid-fold then placed every row on each
-    // later frame (a 50-row chat's "Show more": 45 row renders for 21 mounted rows), for an end the
-    // reader never saw.
     if (reach < view.bottom) return this.release();
+    // A transcript end that stays below the view's end shows none of the end's room or bottom pin,
+    // however near it is. Keep riding until the frame the last row would enter the view; the guard
+    // above then gives placement back to the transcript exactly when the end becomes visible.
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
     // the one the ride would write: the transcript places the rows while it plays. So does a row that
     // wears a translate the ride did not write (the live line, held where it is drawn while the reader

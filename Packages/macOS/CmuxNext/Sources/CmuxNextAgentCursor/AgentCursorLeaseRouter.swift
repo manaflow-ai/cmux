@@ -19,6 +19,11 @@ public struct AgentCursorLeaseRouter: Sendable {
 
     public init() {}
 
+    /// The session that holds `target`'s lease, or nil.
+    public func holder(of target: String) -> String? {
+        byTarget[target]?.session
+    }
+
     /// Maps the wire state (`driving`, `paused`, `user_driving`); an unknown
     /// or missing state is drawn as driving, never invented as a pause.
     public static func state(wire: String?) -> AgentCursorLeaseState {

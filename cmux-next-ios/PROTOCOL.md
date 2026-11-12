@@ -1016,10 +1016,31 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it. Coming back claims at once:
+  The app entering the background (or the lock screen) keeps the claim
+  (2026-11-12, Leo: "surely this calculation of sort is doable on the phone
+  itself? it projection of text"): an app switch, a lock and unlock or a
+  link blip never moves the Mac's PTY, so the phone never redraws twice.
+  The phone releases only after 5 min in the background; a suspended app
+  cannot, so the Mac's size lease (45 s after the last refresh) is what
+  gives the Mac's pane its own size back. When the claim lapsed while the
+  app was away, the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. Coming back claims at once:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+- **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
+  for another tab, the grid or a sheet, or a background claim that lapsed)
+  makes the Mac replay its own grid to the hidden page, and the claim makes it
+  replay the phone's again. The page draws neither round trip: while it is released, a
+  grid other than its claimed one, and every byte after it, is held. When the
+  claim brings the phone's grid back, the held events are dropped (the replay
+  after a grid change is whole) and the screen gets a reset and the replay's
+  alternate screen state. When the Mac is already at the phone's grid, the
+  stream ends, more than 8 MB is held, or the claim is not answered with the
+  phone's grid within 1.5 s of being attached (the Mac's policy keeps its own
+  grid), the held events show in order. The page keeps its last frame at its
+  own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
+  resize back... then i go to it again and it resize again").
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
@@ -1059,9 +1080,9 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| App to the background, screen locked | claim kept; a suspended phone stops refreshing, the lease ends | 45 s (back sooner: no change at all) |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | already released on entering it | one round trip |
+| Killed by iOS in the background | no release; lease ends | 45 s |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
 | Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
