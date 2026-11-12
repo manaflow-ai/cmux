@@ -211,6 +211,48 @@ test("an answer that paused long before the line mounted reads Thinking at once"
   expect(drawn(line, reply.at + 60_000)).toStartWith("Thinking");
 });
 
+// Leo, 2026-11-12: "the thinking timer is overstaying its welome after you just replied!" The reply
+// is in and the turn has not ended yet (its end comes after the harness's own wrap-up): the line no
+// longer ticks the turn's time under the reply, as if the agent still worked.
+test("once the reply has stopped, the line's clock and token count stop with it", () => {
+  const user = row("u", "user");
+  const reply = row("a", "assistant", { text: "Done: the PR merged." });
+  const line = codex([user, reply]).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, liveState: "writing" });
+  // While it streams the line says Writing, with the turn's time.
+  expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
+  // Past the pause it says only Thinking: no clock, however long the turn stays open.
+  const tokens = {
+    agents: 0,
+    commands: 0,
+    sessions: 0,
+    openAgents() {},
+    openCommands() {},
+    openSessions() {},
+    tokens: 4_200,
+  };
+  const counted = (now: number) =>
+    words(
+      renderToStaticMarkup(
+        <WorkingCountsContext.Provider value={tokens}>
+          <Thinking
+            since={line.at}
+            now={() => now}
+            liveState={line.liveState}
+            turnTotal={line.turnTotal}
+            quietKey={line.quietKey}
+            quietAt={line.quietAt}
+          />
+        </WorkingCountsContext.Provider>,
+      ),
+    );
+  expect(counted(reply.at + 6_000)).toBe("Thinking");
+  expect(counted(reply.at + 600_000)).toBe("Thinking");
+  // A step after the reply brings the turn's clock back.
+  const after = codex([user, reply, row("run", "activity", { items: [call("git status", "pending")] })]).at(-1)!;
+  expect(drawn(after, after.at + 20_000)).toMatch(/\d+s$/);
+});
+
 test("before the turn's first output it still reads Thinking with the turn's time", () => {
   const user = row("u", "user");
   const line = codex([user]).at(-1)!;

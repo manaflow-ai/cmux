@@ -19,6 +19,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -2047,6 +2050,8 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
+    run = step["run"]
+    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
     # The published binaries still build with the release profile as written.
     build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
@@ -2288,7 +2293,7 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
         python = re.sub(r"format\('([^']*)',", r"_format('\1',", python)
         return str(eval(python, {"_format": lambda text, *args: text.format(*args)}))  # noqa: S307 - test-only, fixed input
 
-    return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
+    return gh_expressions.EXPRESSION.sub(evaluate, template)
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:

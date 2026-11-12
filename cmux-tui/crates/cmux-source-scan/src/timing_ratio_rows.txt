@@ -1,0 +1,516 @@
+The rows of the timing-ratio check (src/timing_ratio.rs), read by timing_ratio_tests.rs.
+
+Kept out of the .rs sources so no checker reads a row's `#[test]` as a test of this crate. Each row
+builds a cmux-shaped checkout: crate `demo` under cmux-tui/crates, its integration test binary
+`timing` (tests/timing.rs), and, when the row has one, cmux-tui/.config/nextest.toml. It then scans
+the checkout as `cmux-source-scan timing-ratio CHECKOUT` does.
+
+A row starts with `=== VERDICT :: WHAT :: KIND :: TITLE`:
+  flagged  a finding's line holds WHAT (the comparison) and, unless KIND is `-`, KIND;
+  clean    no finding at all (and none names WHAT);
+  tests    the tests with a finding are exactly WHAT (comma-separated names, `-` for none).
+`--- rust` (the default) starts tests/timing.rs, which gets PRELUDE in front: `use std::time::{Duration,
+Instant};` and `fn helper() -> Duration`, which reads the clock. `--- bare` starts tests/timing.rs
+without PRELUDE, `--- nextest` the nextest.toml.
+
+Sources: the rows of cmuxterm-hq's tools/agent-guards/test_rust_timing_ratio.py (hq#9512, its review
+findings F1-F4 and the self-test of tools/rust-timing-ratio/check.py), the review of hq#9478 (F1
+percentile spellings, F2 braces in strings, F3 #[ignore] before #[test]), the tokio rows, and the review of #41523 (F3 `start_paused = false`).
+
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: double quotes, exact
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "test(=alone_case)"
+test-group = "timing-alone"
+threads-required = "num-test-threads"
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: single quotes, contains
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(alone_case)'
+test-group = 'timing-alone'
+threads-required = 'num-test-threads'
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: triple double quotes, binary_id and test
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = """
+(binary_id(demo::timing) & test(=alone_case))
+| test(=some_other_test)
+"""
+test-group = "timing-alone"
+threads-required = "num-test-threads"
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: group before filter, regex
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+test-group = 'timing-alone'
+threads-required = 'num-test-threads'
+filter = 'binary_id(demo::timing) and test(/^alone_/)'
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: glob, ci profile
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.ci.overrides]]
+filter = 'test(#alone_*)'
+test-group = 'timing-alone'
+threads-required = 'num-test-threads'
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: left out of the default run
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[profile.default]
+default-filter = "not test(=alone_case)"
+=== clean :: busy < idle * 4 :: - :: an inline module is part of the test's nextest name
+mod inner {
+    #[test]
+    fn alone_case() {
+        let (busy, idle) = (helper(), helper());
+        assert!(busy < idle * 4);
+    }
+}
+--- nextest
+[[profile.default.overrides]]
+filter = 'test(=inner::alone_case)'
+threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: hq#9512 F1: an override for another test does not hide it
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[[profile.default.overrides]]
+filter = '''test(=alone_case_two)'''
+threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: hq#9512 F1: an override for another binary does not hide it
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[[profile.default.overrides]]
+filter = 'binary_id(demo::other) & test(=alone_case)'
+threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: hq#9512 F1: an override for one platform does not hide it
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[[profile.default.overrides]]
+platform = 'cfg(not(target_os = "macos"))'
+filter = 'test(=alone_case)'
+threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: an override in the timing-alone group without num-test-threads does not hide it
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(=alone_case)'
+test-group = 'timing-alone'
+=== clean :: p99 <= max :: - :: hq#9512 F2: p99 at most the max of the same sample passes
+#[test]
+fn order_in_one_sample() {
+    let mut samples = Vec::new();
+    for _ in 0..100 {
+        let t = Instant::now();
+        demo::work();
+        samples.push(t.elapsed());
+    }
+    samples.sort();
+    let p99 = samples[98];
+    let max = samples[99];
+    assert!(p99 <= max);
+}
+=== clean :: p99 >= Duration::from_micros(1) :: - :: hq#9512 F2: a lower bound on a percentile passes
+#[test]
+fn floor() {
+    let p99 = helper();
+    assert!(p99 >= Duration::from_micros(1));
+}
+=== flagged :: busy / idle < 4 :: ratio of two timings :: hq#9512 F3: a quotient of two timings against a constant
+#[test]
+fn quotient() {
+    let busy = helper().as_nanos();
+    let idle = helper().as_nanos();
+    assert!(busy / idle < 4);
+}
+=== flagged :: busy < idle * MAX_RATIO :: ratio of two timings :: hq#9512 F3: a timing scaled by a named constant
+const MAX_RATIO: u32 = 4;
+
+#[test]
+fn named_scale() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * MAX_RATIO);
+}
+=== flagged :: ratio < 4.0 :: ratio of two timings :: hq#9512 F3: a ratio held in a name
+#[test]
+fn named_ratio() {
+    let busy = helper();
+    let idle = helper();
+    let ratio = busy.as_secs_f64() / idle.as_secs_f64();
+    assert!(ratio < 4.0, "ratio {ratio}");
+}
+=== tests :: percentile_against_a_budget_field,percentile_in_default_run,ratio_in_default_run :: - :: the self-test of tools/rust-timing-ratio/check.py (hq#9512)
+--- bare
+use std::time::{Duration, Instant};
+
+fn helper() -> Duration { let t = Instant::now(); t.elapsed() }
+
+#[test]
+fn ratio_in_default_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4, "busy {busy:?}");
+}
+
+#[test]
+fn percentile_in_default_run() {
+    let p95 = helper();
+    assert!(p95 < BUDGET_MS, "p95");
+}
+
+#[test]
+fn percentile_against_a_budget_field() {
+    let metrics = measure(vec![helper()]);
+    assert!(metrics.p95 < budget.p95, "p95");
+}
+
+#[test]
+#[ignore = "own run"]
+fn ratio_in_own_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+
+#[test]
+fn alone_test() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+
+#[test]
+fn floor_and_order_and_deadline() {
+    let started = Instant::now();
+    let mut sorted: Vec<u128> = (0..100).map(|_| helper().as_micros()).collect();
+    sorted.sort();
+    let (p99_us, max_us) = (sorted[98], sorted[99]);
+    assert!(p99_us >= 10_000 && p99_us <= max_us);
+    assert!(started.elapsed() < TIMEOUT * 3);
+    let wait_p95 = helper();
+    // not wall-clock: turns on the model's clock
+    assert!(wait_p95 < P95_BUDGET_MS);
+}
+--- nextest
+[[profile.default.overrides]]
+filter = 'test(=alone_test)'
+threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: hq#9512 self-test: a ratio in the default run
+#[test]
+fn ratio_in_default_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4, "busy {busy:?}");
+}
+=== flagged :: p95 < BUDGET_MS :: percentile bound :: hq#9512 self-test: a percentile in the default run
+#[test]
+fn percentile_in_default_run() {
+    let p95 = helper();
+    assert!(p95 < BUDGET_MS, "p95");
+}
+=== flagged :: metrics.p95 < budget.p95 :: percentile bound :: hq#9512 self-test: a percentile against a budget's field
+#[test]
+fn percentile_against_a_budget_field() {
+    let metrics = measure(vec![helper()]);
+    assert!(metrics.p95 < budget.p95, "p95");
+}
+=== clean :: busy < idle * 4 :: - :: hq#9512 self-test: an #[ignore]d ratio has its own run
+#[test]
+#[ignore = "own run"]
+fn ratio_in_own_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+=== clean :: started.elapsed() < TIMEOUT * 3 :: - :: hq#9512 self-test: a deadline is not a ratio
+#[test]
+fn a_deadline() {
+    let started = Instant::now();
+    assert!(started.elapsed() < TIMEOUT * 3);
+}
+=== clean :: wait_p95 < P95_BUDGET_MS :: - :: hq#9512 self-test: a `// not wall-clock:` line above the assert
+#[test]
+fn on_the_models_clock() {
+    let wait_p95 = helper();
+    // not wall-clock: turns on the model's clock
+    assert!(wait_p95 < P95_BUDGET_MS);
+}
+=== clean :: p95 < P95_BUDGET :: - :: hq#9512 self-test: tokio's paused clock
+#[tokio::test(start_paused = true)]
+async fn on_a_paused_clock() {
+    let p95 = helper();
+    assert!(p95 < P95_BUDGET);
+}
+=== flagged :: p95 < P95_BUDGET :: - :: review of #41523 F3: `start_paused = false` runs on the wall clock
+#[tokio::test(start_paused = false)]
+async fn on_a_running_clock() {
+    let p95 = helper();
+    assert!(p95 < P95_BUDGET);
+}
+=== clean :: p95 < P95_BUDGET :: - :: review of #41523 F3: `start_paused = true` beside other arguments is paused
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn on_a_paused_current_thread_clock() {
+    let p95 = helper();
+    assert!(p95 < P95_BUDGET);
+}
+=== flagged :: whole.p95 < bound :: percentile bound :: hq#9512 feat-cmux-next shape: a bound from a table
+#[test]
+fn bench_bound_from_a_table() {
+    let sizes = [(1024, 50, Duration::from_micros(200)), (65536, 20, Duration::from_millis(2))];
+    for (bytes, runs, bound) in sizes {
+        let mut whole = Vec::with_capacity(runs);
+        for _ in 0..runs {
+            let start = Instant::now();
+            demo::work();
+            whole.push(start.elapsed());
+        }
+        let whole = stats(whole);
+        assert!(whole.p95 < bound, "check of a {bytes} B frame: p95 {:?}", whole.p95);
+    }
+}
+=== flagged :: p95 < P95_ORDINARY_BUDGET_MS :: percentile bound :: hq#9512 feat-cmux-next shape: a writer's latency percentile
+#[test]
+fn writer_latency() {
+    let mut latencies = Vec::new();
+    while latencies.len() < 10 {
+        match finished.recv_timeout(remaining) {
+            Ok(latency) => latencies.push(latency),
+            Err(_) => break,
+        }
+    }
+    let mut sorted = latencies;
+    sorted.sort_by(f64::total_cmp);
+    let (p50, p95, max) = (percentile(&sorted, 0.5), percentile(&sorted, 0.95), sorted[9]);
+    assert!(p95 < P95_ORDINARY_BUDGET_MS, "an ordinary writer waited too long");
+}
+=== flagged :: median(&echoes) < Duration::from_millis(2) :: percentile bound :: hq#9512 feat-cmux-next shape: a helper's median
+#[test]
+fn a_helpers_median() {
+    let mut echoes = Vec::new();
+    for _ in 0..20 {
+        let sent = Instant::now();
+        demo::work();
+        echoes.push(sent.elapsed());
+    }
+    assert!(median(&echoes) < Duration::from_millis(2));
+}
+=== flagged :: 4 * idle > busy :: ratio of two timings :: hq#9512 feat-cmux-next shape: the scale on the left
+#[test]
+fn scale_on_the_left() {
+    let idle = helper();
+    let busy = helper();
+    assert!(4 * idle > busy);
+}
+=== flagged :: handle_us <= json_us :: ratio of two timings :: hq#9512 feat-cmux-next shape: two timings taken apart
+#[test]
+fn two_timings_taken_apart() {
+    let started = Instant::now();
+    demo::work();
+    let json_us = started.elapsed().as_secs_f64() * 1e6 / 10 as f64;
+    let started = Instant::now();
+    demo::work();
+    let handle_us = started.elapsed().as_secs_f64() * 1e6 / 10 as f64;
+    assert!(handle_us <= json_us);
+}
+=== clean :: reads[1] < log_bytes / 4 :: - :: hq#9512: counts from a helper that reads the clock are not timings
+fn cold_opens(turns: usize) -> (u64, Vec<u64>) {
+    let started = Instant::now();
+    let _ = started.elapsed();
+    (turns as u64, vec![1, 2])
+}
+
+#[test]
+fn bytes_read() {
+    let (log_bytes, reads) = cold_opens(6);
+    assert!(reads[1] < log_bytes / 4);
+}
+=== clean :: busy < idle * 4 :: - :: hq#9512: asserts in strings and comments are not read
+#[test]
+fn text_only() {
+    let (busy, idle) = (helper(), helper());
+    // assert!(busy < idle * 4);
+    /* assert!(busy < idle * 4); */
+    let s = "assert!(busy < idle * 4)";
+    let r = r#"assert!(busy < idle * 4)"#;
+    assert!(busy > Duration::ZERO && s.len() > 0 && r.len() > 0);
+}
+=== clean :: frames.len() < 4 * 8 :: - :: hq#9512: a count beside a timing is not a ratio
+#[test]
+fn frames_counted() {
+    let started = Instant::now();
+    let frames: Vec<u8> = Vec::new();
+    assert!(frames.len() < 4 * 8);
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+=== flagged :: p95_us < 5_000 :: percentile bound :: hq#9478 F1: p95_us is a percentile
+#[test]
+fn p95_us_bound() {
+    let p95_us = helper().as_micros();
+    assert!(p95_us < 5_000);
+}
+=== flagged :: p99_ms <= 20 :: percentile bound :: hq#9478 F1: p99_ms is a percentile
+#[test]
+fn p99_ms_bound() {
+    let p99_ms = helper().as_millis();
+    assert!(p99_ms <= 20, "p99 {p99_ms} ms");
+}
+=== flagged :: median_ms < 3 :: percentile bound :: hq#9478 F1: median_ms is a percentile
+#[test]
+fn median_ms_bound() {
+    let median_ms = helper().as_millis();
+    assert!(median_ms < 3);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: hq#9478 F2: a `}` in a string literal does not end the test
+#[test]
+fn ratio_after_a_brace_string() {
+    let close = "}";
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4, "{close}");
+}
+=== clean :: busy < idle * 4 :: - :: hq#9478 F2: a `{` in a string literal does not run a test into the next one
+#[test]
+fn order_only() {
+    let open = "{";
+    assert!(!open.is_empty());
+}
+
+#[test]
+#[ignore = "its own run"]
+fn ratio_in_its_own_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+=== clean :: busy < idle * 4 :: - :: hq#9478 F3: an #[ignore] written before #[test] still takes the test out of the default run
+#[ignore = "its own run"]
+#[test]
+fn ratio_in_its_own_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: cmux#41346's own shape: a closure returning a percentile field, called for each side (missed by hq#9512)
+struct Round { p99: Duration }
+
+fn notices_round(busy: bool, round: usize) -> Round {
+    let started = Instant::now();
+    let _ = (busy, round);
+    Round { p99: started.elapsed() }
+}
+
+#[test]
+fn a_reader_walking_every_row_never_holds_up_a_peer_notice() {
+    let p99 = |busy: bool, round: usize| {
+        notices_round(busy, round).p99.min(notices_round(busy, round + 1).p99)
+    };
+    let busy = p99(true, 1);
+    let idle = p99(false, 3);
+    assert!(busy < idle * 4, "a busy reader held notices up: p99 {busy:?} against {idle:?} idle");
+}
+=== clean :: at("first") < at("second") :: - :: two calls of one closure compare in one sample set's order (agent_digest.rs)
+#[test]
+fn order_of_echoes() {
+    let started = Instant::now();
+    let echoes = vec![String::from("first then second")];
+    let digest = &echoes[0];
+    let at = |s: &str| digest.find(s).unwrap_or_else(|| panic!("{s:?} missing from {digest}"));
+    assert!(at("first") < at("second"));
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+=== flagged :: among < alone * 4 :: ratio of two timings :: a closure over a clock helper, scaled (peer_notice_cost_tests.rs:103, missed by hq#9512)
+fn notices_cost(rows: usize) -> Duration {
+    let started = Instant::now();
+    let _ = rows;
+    started.elapsed()
+}
+
+#[test]
+fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
+    let measure = |rows: usize| notices_cost(rows).min(notices_cost(rows));
+    let alone = measure(400);
+    let among = measure(20_000);
+    assert!(among < alone * 4, "among 50 peers {among:?}, alone {alone:?}");
+}
+=== clean :: a < b * 4 :: - :: a closure over counts is not a timing
+#[test]
+fn counts_from_a_closure() {
+    let started = Instant::now();
+    let count = |n: usize| vec![0u8; n].len();
+    let (a, b) = (count(3), count(1));
+    assert!(a < b * 4);
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: a multi-thread tokio test is in the default run (debug_assert)
+#[tokio::test(flavor = "multi_thread")]
+async fn tokio_ratio() {
+    let (busy, idle) = (helper(), helper());
+    debug_assert!(busy < idle * 4);
+}
+=== flagged :: busy <= 2 * idle :: ratio of two timings :: the scale on the right of a `<=`
+#[test]
+fn scaled_on_the_right() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy <= 2 * idle);
+}
+=== clean :: busy < idle * 4 :: - :: a file that reads no clock has nothing to report
+--- bare
+#[test]
+fn ratio_on_counts() {
+    let (busy, idle) = (count(), count());
+    assert!(busy < idle * 4);
+}
