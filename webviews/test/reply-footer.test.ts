@@ -243,39 +243,13 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         }
       });
     }
-    // A stopped turn's Continue is a labelled button: the footer's 32 squares are its icon buttons
-    // only, so its word is never clipped to one (#31690's review).
-    test(`a stopped turn's Continue keeps its label's width (${theme.name})`, async () => {
+    test(`a stopped turn resumes from the composer, with no footer Continue (${theme.name})`, async () => {
       const page = await open("turn-stopped", theme.name, "agent-pane.transcript");
       try {
-        const button = page.locator(".cv-turn-continue").first();
+        const button = page.locator('.acpmux-composer button[aria-label="Resume"]');
         await button.waitFor({ timeout: 10_000 });
-        const fit = await button.evaluate((el) => ({
-          width: el.getBoundingClientRect().width,
-          height: el.getBoundingClientRect().height,
-          scroll: el.scrollWidth,
-          client: el.clientWidth,
-          glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
-          fontSize: getComputedStyle(el).fontSize,
-          captionSize: (() => {
-            const probe = document.createElement("span");
-            probe.style.fontSize = "var(--text-caption)";
-            document.body.append(probe);
-            const size = getComputedStyle(probe).fontSize;
-            probe.remove();
-            return size;
-          })(),
-          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
-          title: el.getAttribute("title"),
-        }));
-        console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
-        expect(fit.width).toBeGreaterThan(40);
-        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
-        expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
-        expect(fit.glyph).toBeLessThan(20);
-        expect(fit.fontSize).toBe(fit.captionSize);
-        expect(fit.paddingInline).toBe("2px 2px");
-        expect(fit.title).toBeNull();
+        expect(await page.locator(".cv-turn-continue").count()).toBe(0);
+        expect(await button.locator('[data-icon="media.play"]').count()).toBe(1);
         await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
@@ -286,7 +260,8 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
         const page = await open(variant, theme.name, "agent-pane.stopped-turn");
         try {
-          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await page.locator('.acpmux-composer button[aria-label="Resume"]').waitFor({ timeout: 10_000 });
+          expect(await page.locator(".cv-turn-continue").count()).toBe(0);
           await still(page, `${theme.file}-${variant}`);
         } finally {
           await page.close();

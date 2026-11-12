@@ -779,8 +779,8 @@ export type AcpmuxRow = {
   /// `P~resume-n`): its card says it failed again, so a Retry that failed as fast as the first
   /// (a gateway outage) is not read as a click that did nothing (cmux#34369).
   failedAgain?: true;
-  /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
-  /// Continue (conversation/turns.ts, TurnRows.tsx TurnFooter).
+  /// The latest stopped turn with no successor: the empty composer can offer Resume.
+  /// Kept as eligibility metadata; it adds no footer control or height.
   resumable?: boolean;
   /// The last turn's footer when that turn failed after doing work, or with no prompt to send again
   /// (a turn a notice started): its error card leads with Continue, which resumes the turn with its
@@ -2160,7 +2160,6 @@ const isBlankFooter = (row: AcpmuxRow) =>
   row.status !== "failed" &&
   row.status !== "error" &&
   !row.text &&
-  !row.resumable &&
   !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||

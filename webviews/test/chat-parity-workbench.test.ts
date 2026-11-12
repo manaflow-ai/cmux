@@ -8,7 +8,7 @@ import fullConversation from "../src/gallery/parity/fullConversation.gallery";
 import { turnFiles } from "../src/agent-session/acpmux/diff";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 
-test("every curated scenario resolves to a real seeded agent pane fixture", async () => {
+test("every curated scenario resolves to a real seeded chat fixture", async () => {
   const entries = new Map<string, GalleryEntry>();
   for (const scenario of SCENARIOS) {
     let entry = entries.get(scenario.source);
@@ -18,7 +18,10 @@ test("every curated scenario resolves to a real seeded agent pane fixture", asyn
       entries.set(scenario.source, entry);
     }
     expect(entry.id).toBe(scenario.entry);
-    expect(entry.host).toBe("agent-pane");
+    if (scenario.entry === "agent-pane.question-prompt-reference") {
+      expect(entry.host).toBe("component");
+      expect("pane" in entry && entry.pane).toBe(true);
+    } else expect(entry.host).toBe("agent-pane");
     expect(entry.variants[scenario.variant]).toBeDefined();
   }
   expect(new Set(SCENARIOS.map((scenario) => scenario.id)).size).toBe(SCENARIOS.length);

@@ -104,7 +104,6 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
-      !row.resumable &&
       ((row.text?.length ?? 0) > 0 || (row.retryable === true && (row.turnCopy?.length ?? 0) > 0))
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;

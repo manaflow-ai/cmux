@@ -7,7 +7,7 @@ import { chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
-import { consentChoice, itemAnswerText, type AgentQuestion } from "../question/model";
+import { consentChoice, hasPreviews, itemAnswerText, type AgentQuestion } from "../question/model";
 import { gridLength } from "../transcriptGrid";
 import {
   alwaysAllowScope,
@@ -95,7 +95,7 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
   // The font's stack and its name: two fonts that share a stack track differently.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}`;
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().fontSize}/${chatDisplay().lineHeight}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -189,6 +189,34 @@ function questionHeight(question: AgentQuestion, width: number): number {
   }
   const item = question.items[0];
   if (!item) return 24;
+  const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
+  if (promptCard) {
+    const contentSize = chatDisplay().fontSize;
+    const line = contentSize * chatDisplay().lineHeight;
+    const inner = Math.max(1, width - 32);
+    let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
+    if (question.items.length > 1) {
+      const tabs = question.items.map((each, index) => textWidth(String(each.header ?? index + 1), caption.size) + 16);
+      const rows = wrappedRows(tabs, inner, 4);
+      height += 8 + rows * (caption.lineHeight + 4) + (rows - 1) * 4;
+    }
+    height +=
+      8 +
+      item.options.reduce(
+        (sum, option) =>
+          sum +
+          Math.max(
+            36,
+            16 +
+              text(option.label, inner - 36, line, contentSize) +
+              (option.detail ? 2 + text(option.detail, inner - 36, detail.lineHeight, detail.size) : 0),
+          ),
+        0,
+      );
+    // Custom input and the grouped actions share one footer; narrow cards wrap them.
+    height += 8 + (item.allowsOther ? Math.max(36, 16 + line) : 32) + (item.allowsOther && inner < 320 ? 40 : 0);
+    return height;
+  }
   const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size, 600) + 16) + 8 : 0;
   const promptRoom = Math.max(1, room - chip);
   // Needs-input pill + gap, fieldset edges, then the 12px-padded header and its divider.

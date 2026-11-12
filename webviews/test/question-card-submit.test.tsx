@@ -167,7 +167,7 @@ test("Other with typed text answers a question: the button says Next and Enter g
   expect(replies).toEqual([]);
 
   // On the last open question the button says Submit and names what it waits for.
-  expect(buttonLabel(container)).toBe("Submit");
+  expect(buttonLabel(container)).toBe("Send");
   expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe("Answer References to submit");
 
   // Enter on the highlighted row answers References, then sends both answers.
@@ -197,7 +197,7 @@ test("Enter in the Other field of the last open question submits the card", asyn
   expect(dom!.window.document.activeElement?.closest(".acpmux-question-rows")).not.toBeNull();
 
   const field = await answerOther(container, "idk");
-  expect(buttonLabel(container)).toBe("Submit");
+  expect(buttonLabel(container)).toBe("Send");
   expect(submitButton(container).disabled).toBe(false);
   expect(container.querySelector(".acpmux-question-hint")).toBeNull();
 
@@ -219,7 +219,7 @@ test("Next moves tab by tab before anything is answered, and the button is never
   await click(submitButton(container));
   expect(activeTab(container)).toBe("References");
   // Nothing answered yet: Submit waits, and says for which question.
-  expect(buttonLabel(container)).toBe("Submit");
+  expect(buttonLabel(container)).toBe("Send");
   expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe(
     "Answer New tab pick and References to submit",
   );
@@ -234,18 +234,51 @@ test("the button's label is drawn in a color the theme always sets", () => {
   expect(rule).not.toContain("--agent-page-bg");
 });
 
-// Leo 2026-11-05, of the pill, the option rows and the custom answer: "kind of ugly". The pill is one
-// capsule holding the Needs you dot, the words and the fold chevron (as JumpPill), and Submit draws ⌘ and ↩ as
-// one keycap each, as the permission card does.
-test("the pill is one capsule with the Needs you dot, and Submit shows ⌘ and ↩ as two keycaps", async () => {
-  const { container } = await renderCard();
-  const pill = container.querySelector(".acpmux-question-status")!;
-  const capsule = pill.querySelector(".acpmux-question-status-pill")!;
-  expect(capsule.firstElementChild?.className).toBe("acpmux-needs-you-dot");
-  expect(capsule.textContent).toBe("Needs your input");
-  expect(pill.querySelector(".acpmux-question-status-pill .acpmux-question-status-chevron")).not.toBeNull();
+test("closing a normal question preserves the pending choices without declining it", async () => {
+  const { container, replies } = await renderCard();
+  await click(container.querySelector('.acpmux-question-row[data-row="1"]'));
+  await click(container.querySelector('.acpmux-question-bar button[aria-label="Dismiss"]'));
+  expect(container.querySelector<HTMLFieldSetElement>(".acpmux-question")?.hidden).toBe(true);
+  expect(replies).toEqual([]);
+  await click(container.querySelector(".acpmux-question-status"));
+  expect(container.querySelector('.acpmux-question-row[data-row="1"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(container.querySelector<HTMLFieldSetElement>(".acpmux-question")?.hidden).toBe(false);
+  expect(dom!.window.document.activeElement?.getAttribute("data-row")).toBe("1");
+  expect(buttonLabel(container)).toBe("Next");
   await click(submitButton(container));
-  const keys = [...submitButton(container).querySelectorAll(".acpmux-keycap")].map((key) => key.textContent);
-  expect(keys).toEqual(["⌘", "↩"]);
+  expect(buttonLabel(container)).toBe("Send");
   expect(submitButton(container).getAttribute("aria-keyshortcuts")).toBe("Meta+Enter");
+  expect(replies).toEqual([]);
+});
+
+test("an unanswered question leaves an existing composer draft and independent updates usable", async () => {
+  const container = installDom();
+  const composer = dom!.window.document.createElement("div");
+  composer.className = "acpmux-composer-prompt";
+  const editor = dom!.window.document.createElement("div");
+  editor.className = "acpmux-md-root";
+  editor.contentEditable = "true";
+  editor.tabIndex = 0;
+  editor.textContent = "Continue the independent check";
+  composer.append(editor);
+  dom!.window.document.body.append(composer);
+  editor.focus();
+  const replies: QuestionReply[] = [];
+  root = createRoot(container);
+  const render = (progress: string) =>
+    root!.render(
+      <>
+        <output>{progress}</output>
+        <QuestionCard question={question} onReply={(answer) => void replies.push(answer)} />
+      </>,
+    );
+  await act(async () => render("Checking files"));
+  expect(dom!.window.document.activeElement === editor).toBe(true);
+  expect(editor.contentEditable).toBe("true");
+  await act(async () => render("Files checked; question still waiting"));
+  expect(container.querySelector("output")?.textContent).toBe("Files checked; question still waiting");
+  expect(container.querySelector('.acpmux-question-row[aria-checked="true"]')).toBeNull();
+  expect(editor.textContent).toBe("Continue the independent check");
+  expect(editor.closest("[inert], [aria-disabled=true]")).toBeNull();
+  expect(replies).toEqual([]);
 });

@@ -92,7 +92,22 @@ export default agentPaneEntry({
       },
     },
     stopped: {
-      note: "Short interrupted turn: the stopped work header and Continue remain in view.",
+      note: "Short interrupted turn: the subdued stopped-work label remains visible; the empty composer offers Resume.",
+      native: { "chat.resumeInterrupted": true },
+      afterCall: {
+        "chat.resumeInterrupted": chat(
+          [
+            ...work,
+            summary(0.75, { id: "parity-turn-stopped", status: "cancelled", durationMs: 15_000, toolCount: 1 }),
+            assistant("Continuing the retry check.", 0.5, {
+              id: "parity-resumed-commentary",
+              streaming: true,
+              assistantPhase: "commentary",
+            }),
+          ],
+          { harness: "codex", model: "gpt-5-codex", isWorking: true },
+        ),
+      },
       snapshot: chat(
         [
           ...work,
@@ -107,9 +122,8 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await visibleHeader(ctx, /You stopped after 15s/);
-        await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Continue"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Resume"]'));
+        if (ctx.document.querySelector(".cv-turn-continue")) throw new Error("Stopped turns resume from the composer");
       },
     },
   },

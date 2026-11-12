@@ -32,6 +32,8 @@ import {
   type LinkItem,
 } from "./attachments";
 import type { SendGesture } from "./heldPrompt";
+import { canResumeFromComposer } from "./composer/resumeControl";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
 import { useTurnHandover } from "./composer/turnHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
@@ -316,6 +318,8 @@ type Props = {
   /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
   transcriptFollowing?(): boolean;
   onStop(): void;
+  /// Present only for the latest stopped/interrupted turn; the owner rechecks before resuming.
+  onResume?(): Promise<void | boolean>;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
   /// Pulls a queued prompt back into the composer, retaining its text and attachments.
@@ -530,6 +534,7 @@ function ComposerFrame({
   onBindSideGesture,
   transcriptFollowing,
   onStop,
+  onResume,
   onQueueRemove,
   onQueueCancelEdit,
   onQueueChange,
@@ -753,6 +758,9 @@ function ComposerFrame({
   );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
+  const resumeInFlight = useRef<{ sessionId?: string } | undefined>(undefined);
+  const [resumePending, setResumePending] = useState<{ sessionId?: string } | undefined>(undefined);
+  const readOnly = useTranscriptReadOnly();
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture, route?: "side") => boolean>(
     () => false,
@@ -1508,6 +1516,7 @@ function ComposerFrame({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
+    if (canResume) return runResume();
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers || steersUnseen);
   };
@@ -2551,6 +2560,42 @@ function ComposerFrame({
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
   // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
   const listening = !shell && dictation !== undefined && isActive(dictation.state);
+  const canResume = canResumeFromComposer(snapshot, {
+    offered: onResume !== undefined,
+    text,
+    attachments: attachments.length,
+    pending: pending.length,
+    shell,
+    running,
+    readOnly,
+    blocked: Boolean(
+      authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend || switching || sending.current,
+    ),
+    dictating: dictating || listening,
+  });
+  const resuming = resumePending !== undefined && resumePending.sessionId === sessionId;
+  const runResume = (): boolean => {
+    if (!canResume || !onResume || (resumeInFlight.current && resumeInFlight.current.sessionId === sessionId))
+      return false;
+    const attempt = { sessionId };
+    sentAt.current = Date.now();
+    resumeInFlight.current = attempt;
+    setResumePending(attempt);
+    const stillHere = () => resumeInFlight.current === attempt && swapState.current.sessionId === attempt.sessionId;
+    void (async () => {
+      try {
+        if ((await onResume()) === false && stillHere()) setAttachError(t("notice.resumeFailed"));
+      } catch {
+        if (stillHere()) setAttachError(t("notice.resumeFailed"));
+      } finally {
+        if (resumeInFlight.current === attempt) {
+          resumeInFlight.current = undefined;
+          setResumePending(undefined);
+        }
+      }
+    })();
+    return true;
+  };
   // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
   // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
   const sendChoices = shell
@@ -2569,6 +2614,20 @@ function ComposerFrame({
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
+    ) : canResume ? (
+      <button
+        key="resume"
+        ref={sendButton}
+        type="button"
+        className="acpmux-send acpmux-send-ready"
+        aria-label={t("composer.queueResume")}
+        title={t("composer.queueResume")}
+        aria-busy={resuming || undefined}
+        disabled={resuming}
+        onClick={runResume}
+      >
+        <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
+      </button>
     ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it

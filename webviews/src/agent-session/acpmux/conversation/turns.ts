@@ -148,7 +148,9 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.durationMs === undefined) return toolCalls(t, row.toolCount) + workedMessagesText(t, row);
   const time = formatDuration(row.durationMs);
   return (
-    (row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time })) +
+    (row.status === "cancelled" || row.status === "interrupted"
+      ? t("turn.stopped", { time })
+      : t("turn.worked", { time })) +
     workedCallsText(t, row) +
     workedMessagesText(t, row)
   );
@@ -196,8 +198,8 @@ const footerSays = (row: AcpmuxRow) =>
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
-/// copy or read aloud, the turn did not fail, and it offers no Continue (a stopped last turn whose
-/// work folds draws its line for Continue alone). Its "Worked for" label is the time's tooltip now,
+/// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
+/// Its "Worked for" label is the time's tooltip now,
 /// never a word in the row (TurnRows.tsx TurnFooter), so it no longer keeps the line. It takes no line in the transcript
 /// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
 /// show over the turn gap below, so nothing moves.
@@ -209,12 +211,7 @@ const footerSays = (row: AcpmuxRow) =>
 /// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
 /// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" &&
-  row.status !== "failed" &&
-  row.status !== "error" &&
-  !row.text &&
-  !row.resumable &&
-  !endsChatOnWork(row);
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsChatOnWork(row);
 
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice

@@ -1,5 +1,7 @@
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { DismissButton } from "../../../ui/DismissButton";
+import { Icon } from "../icons/Icon";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
@@ -67,12 +69,9 @@ function inputForKey(key: string): CardInput | undefined {
 
 const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 
-/// An agent's question (Claude Code AskUserQuestion, Codex user input, an interactive ACP
-/// permission, the Chief) as a card, like the Claude app's (Leo 2026-10-19): a "Needs your input"
-/// pill that folds it, the question as its header, radio or checkbox options with their
-/// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit. An
-/// ask of several questions says Next while another question is still open, and a Submit that
-/// cannot send yet names the questions it waits for ("Answer References to submit").
+/// Ordinary questions use a numbered prompt card with a custom answer and Skip / Send. Close
+/// folds it without answering. Consent and preview questions keep their own layouts. An ask of
+/// several questions says Next while another item is open, and names any answers it still needs.
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
 /// nothing else has it or the composer is empty. A click chooses an option and never sends it (Leo,
 /// 2026-10-24: "just clicking it directly just automatically sends the input. So it makes the skip
@@ -103,30 +102,52 @@ export const QuestionCard = memo(function QuestionCard({
 /// Hands the host a reply. A promise that rejects means the reply was refused and the ask stays.
 type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
 
-/// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
-/// picks and Other text survive; the ask stays pending until answered or skipped. It draws as a quiet
-/// "Needs your input" tag (Leo 2026-11-05, of the old amber block: "kind of ugly"): the one
-/// Needs you dot (needsYou.css), the words and the fold chevron on one small-radius rect tinted with the mark, as JumpPill's.
+/// Folding keeps the pending card mounted, so choices and custom text survive. Ordinary questions
+/// close from their header and reopen from Needs your input; consent and preview cards keep their pill.
 function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   const t = useT();
   const cardId = useId();
   const [open, setOpen] = useState(true);
+  const ask = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(true);
+  const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
+  useLayoutEffect(() => {
+    const reopened = open && !wasOpen.current;
+    wasOpen.current = open;
+    if (!reopened || !promptCard) return;
+    ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]")?.focus();
+  }, [open, promptCard]);
   return (
-    <div className="acpmux-question-ask">
-      <button
-        type="button"
-        className="acpmux-question-status"
-        aria-expanded={open}
-        aria-controls={cardId}
-        onClick={() => setOpen((shown) => !shown)}
-      >
-        <span className="acpmux-question-status-pill">
-          <span className="acpmux-needs-you-dot" aria-hidden="true" />
-          {t("question.needsInput")}
-          <ChevronDown size={12} className="acpmux-question-status-chevron" />
-        </span>
-      </button>
-      <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} />
+    <div
+      ref={ask}
+      className="acpmux-question-ask"
+      data-prompt-card={promptCard || undefined}
+      data-folded={!open || undefined}
+    >
+      {promptCard && open ? (
+        <div className="acpmux-question-bar">
+          <span>
+            <Icon name="agent.question" size={16} />
+            {t("waiting.kind.question")}
+          </span>
+          <DismissButton label={t("message.dismiss")} onDismiss={() => setOpen(false)} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="acpmux-question-status"
+          aria-expanded={open}
+          aria-controls={cardId}
+          onClick={() => setOpen((shown) => !shown)}
+        >
+          <span className="acpmux-question-status-pill">
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {t("question.needsInput")}
+            <ChevronDown size={12} className="acpmux-question-status-chevron" />
+          </span>
+        </button>
+      )}
+      <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} promptCard={promptCard} />
     </div>
   );
 }
@@ -174,9 +195,11 @@ function PendingQuestion({
   hidden,
   question,
   onReply,
+  promptCard,
 }: {
   id: string;
   hidden: boolean;
+  promptCard: boolean;
   question: AgentQuestion;
   onReply: ReplyHandler;
 }) {
@@ -321,7 +344,8 @@ function PendingQuestion({
     const card = group.current;
     const focused = card?.ownerDocument.activeElement;
     // Whether the keyboard is in the list or the Other field (it may unmount during the update).
-    const inList = focused instanceof HTMLElement && focused.closest(".acpmux-question-rows") !== null;
+    const inList =
+      focused instanceof HTMLElement && focused.closest(".acpmux-question-rows, .acpmux-question-other") !== null;
     flushSync(() => setStored(step.state));
     apply(step.effect, step.state, input, inList || focused === card);
   };
@@ -495,12 +519,29 @@ function PendingQuestion({
       : [];
   const agent = question.source.agentName ?? t("question.agent");
   const answer = state.question.items.length > 1 ? cardAnswer(state) : undefined;
+  const other = item.allowsOther && (
+    <OtherRow
+      promptCard={promptCard}
+      t={t}
+      row={item.options.length}
+      editing={state.editingOther}
+      draft={draft}
+      multi={multi}
+      highlighted={isOtherRow(highlighted, item)}
+      chosen={draft.trim() !== ""}
+      disabled={sent}
+      onChoose={() => dispatch({ type: "click", row: item.options.length })}
+      onHover={() => setHovered({ item: item.id, row: item.options.length })}
+      onText={(text) => dispatch({ type: "otherText", text })}
+    />
+  );
   return (
     <fieldset
       ref={group}
       id={id}
       hidden={hidden}
       className="acpmux-question"
+      role={promptCard ? (multi ? "group" : "radiogroup") : undefined}
       aria-labelledby={legendId}
       aria-busy={sent || keyPendingFor === question.id || undefined}
       data-cmux-question-session={question.source.session}
@@ -534,7 +575,7 @@ function PendingQuestion({
       <div className="acpmux-question-body">
         <div
           className="acpmux-question-rows"
-          role={multi ? "group" : "radiogroup"}
+          role={promptCard ? undefined : multi ? "group" : "radiogroup"}
           aria-labelledby={legendId}
           onMouseLeave={() => setHovered(undefined)}
         >
@@ -559,7 +600,13 @@ function PendingQuestion({
                   onDoubleClick={() => dispatch({ type: "doubleClick", row })}
                   onMouseEnter={() => setHovered({ item: item.id, row })}
                 >
-                  <ChoiceMark multi={multi} chosen={chosen} />
+                  {promptCard ? (
+                    <span className="acpmux-question-number" data-chosen={chosen || undefined} aria-hidden="true">
+                      {multi && chosen ? <Check size={12} /> : row + 1}
+                    </span>
+                  ) : (
+                    <ChoiceMark multi={multi} chosen={chosen} />
+                  )}
                   <span className="acpmux-question-text">
                     <span className="acpmux-question-label">{inlineText(option.label)}</span>
                     {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
@@ -569,21 +616,7 @@ function PendingQuestion({
               </React.Fragment>
             );
           })}
-          {item.allowsOther && (
-            <OtherRow
-              t={t}
-              row={item.options.length}
-              editing={state.editingOther}
-              draft={draft}
-              multi={multi}
-              highlighted={isOtherRow(highlighted, item)}
-              chosen={draft.trim() !== ""}
-              disabled={sent}
-              onChoose={() => dispatch({ type: "click", row: item.options.length })}
-              onHover={() => setHovered({ item: item.id, row: item.options.length })}
-              onText={(text) => dispatch({ type: "otherText", text })}
-            />
-          )}
+          {!promptCard && other}
         </div>
         {layout !== "inline" && preview}
       </div>
@@ -594,48 +627,51 @@ function PendingQuestion({
           {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
         </p>
       )}
-      <div className="acpmux-question-actions">
-        {waitingFor.length > 0 && (
-          <span id={hintId} className="acpmux-question-hint">
-            {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
-          </span>
-        )}
-        <button
-          type="button"
-          className="acpmux-question-skip"
-          aria-keyshortcuts="Escape"
-          disabled={sent}
-          onClick={skip}
-        >
-          {t("question.skip")}
-          <Keycap>esc</Keycap>
-        </button>
-        {action === "next" ? (
-          <button
-            type="button"
-            className="acpmux-question-submit"
-            data-action="next"
-            disabled={sent}
-            onClick={() => dispatch({ type: "next" })}
-          >
-            {t("question.next")}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="acpmux-question-submit"
-            aria-keyshortcuts="Meta+Enter"
-            aria-describedby={waitingFor.length > 0 ? hintId : undefined}
-            disabled={!ready}
-            onClick={() => dispatch({ type: "submit" })}
-          >
-            {t("question.submit")}
-            <span className="acpmux-question-keys">
-              <Keycap>⌘</Keycap>
-              <Keycap>↩</Keycap>
+      <div className={promptCard ? "acpmux-question-footer" : undefined}>
+        {promptCard && other}
+        <div className="acpmux-question-actions">
+          {waitingFor.length > 0 && (
+            <span id={hintId} className="acpmux-question-hint">
+              {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
             </span>
+          )}
+          <button
+            type="button"
+            className="acpmux-question-skip"
+            aria-keyshortcuts="Escape"
+            disabled={sent}
+            onClick={skip}
+          >
+            {t("question.skip")}
+            <Keycap>esc</Keycap>
           </button>
-        )}
+          {action === "next" ? (
+            <button
+              type="button"
+              className="acpmux-question-submit"
+              data-action="next"
+              disabled={sent}
+              onClick={() => dispatch({ type: "next" })}
+            >
+              {t("question.next")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="acpmux-question-submit"
+              aria-keyshortcuts="Meta+Enter"
+              aria-describedby={waitingFor.length > 0 ? hintId : undefined}
+              disabled={!ready}
+              onClick={() => dispatch({ type: "submit" })}
+            >
+              {t(promptCard ? "composer.send" : "question.submit")}
+              <span className="acpmux-question-keys">
+                <Keycap>⌘</Keycap>
+                <Keycap>↩</Keycap>
+              </span>
+            </button>
+          )}
+        </div>
       </div>
     </fieldset>
   );
@@ -665,6 +701,7 @@ function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; op
 
 /// The "Other" row: a row like the options until chosen, then an inline text field.
 function OtherRow({
+  promptCard,
   t,
   row,
   editing,
@@ -677,6 +714,7 @@ function OtherRow({
   onHover,
   onText,
 }: {
+  promptCard: boolean;
   t: Translate;
   row: number;
   editing: boolean;
@@ -722,7 +760,11 @@ function OtherRow({
         data-highlighted
         onMouseEnter={onHover}
       >
-        <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
+        {promptCard ? (
+          <Icon name="action.edit" size={16} />
+        ) : (
+          <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
+        )}
         <textarea
           ref={field}
           rows={1}
@@ -750,9 +792,9 @@ function OtherRow({
       onClick={onChoose}
       onMouseEnter={onHover}
     >
-      <ChoiceMark multi={multi} chosen={chosen} />
+      {promptCard ? <Icon name="action.edit" size={16} /> : <ChoiceMark multi={multi} chosen={chosen} />}
       <span className="acpmux-question-text">
-        <span className="acpmux-question-label">{t("question.other")}</span>
+        <span className="acpmux-question-label">{t(promptCard ? "question.otherPlaceholder" : "question.other")}</span>
         {chosen && <span className="acpmux-question-detail">{draft.trim()}</span>}
       </span>
     </button>

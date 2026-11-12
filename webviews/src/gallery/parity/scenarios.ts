@@ -63,11 +63,11 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     id: "stopped-header",
     group: "Work headers",
-    title: "Stopped work / Continue",
+    title: "Stopped work / composer Resume",
     entry: "agent-pane.parity-turn-states",
     source: "src/gallery/parity/turnStates.gallery.ts",
     variant: "stopped",
-    inspect: "Inspect You stopped after 15s and Continue, both in view.",
+    inspect: "Inspect You stopped after 15s and the composer’s play-shaped Resume control.",
   },
   transcript(
     "conversation",
@@ -100,9 +100,9 @@ export const SCENARIOS: readonly Scenario[] = [
   transcript(
     "stopped",
     "Turns",
-    "Stopped turn and Continue",
+    "Stopped turn / composer Resume",
     "turn-stopped",
-    "Inspect the stopped duration and press Continue against the mock transport.",
+    "Inspect the stopped duration and the play-shaped Resume control in the empty composer.",
   ),
   transcript(
     "continued",
@@ -170,8 +170,8 @@ export const SCENARIOS: readonly Scenario[] = [
     "diff",
     "Commands and files",
     "Open edit diff",
-    "edit-preview-open",
-    "Inspect the real edit preview, selectable diff, and expansion controls.",
+    "edit-long-line-code",
+    "Inspect the real edit preview, selectable diff, wrapping, and scrolling.",
   ),
   transcript(
     "output",
@@ -288,6 +288,25 @@ export const SCENARIOS: readonly Scenario[] = [
     "fork-any-turn-codex",
     "The fixture invokes Fork against its mock host. Inspect the per-turn fork controls.",
   ),
+  {
+    id: "question-reference",
+    group: "Permissions and history",
+    title: "Question prompt / numbered choices",
+    entry: "agent-pane.question-prompt-reference",
+    source: "src/agent-session/acpmux/question/QuestionPromptReference.gallery.tsx",
+    variant: "choices",
+    inspect:
+      "Choose an option, write a custom answer, fold without answering, or Skip. Independent work and the composer remain usable.",
+  },
+  {
+    id: "question-freeform",
+    group: "Permissions and history",
+    title: "Question prompt / custom response",
+    entry: "agent-pane.question-prompt-reference",
+    source: "src/agent-session/acpmux/question/QuestionPromptReference.gallery.tsx",
+    variant: "freeform",
+    inspect: "Write and send a custom answer without a predefined choice. Closing preserves the unanswered prompt.",
+  },
   transcript(
     "permission",
     "Permissions and history",

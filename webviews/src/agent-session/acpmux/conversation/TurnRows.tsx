@@ -40,7 +40,7 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
+import { AlertCircle, ChevronRight, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
@@ -77,7 +77,7 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
-    const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+    const key = row.status === "cancelled" || row.status === "interrupted" ? "turn.stopped" : "turn.worked";
     // A line that names its runs' work leaves their count to it.
     const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
@@ -337,12 +337,12 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 
 /// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
 /// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
-/// aloud, More), then Continue for a stopped last turn, then the answer's exact time, shown on hover.
+/// aloud, More), then the answer's exact time, shown on hover.
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
 /// row. Successful replies offer Send prompt again and model choices through More. Failed replies
-/// retain their inline Retry and recovery controls; stopped replies keep Retry and Continue.
+/// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const messages = useContext(PresentationContext) === "messages";
@@ -395,13 +395,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       {t("turn.stoppedMark")}
     </span>
   );
-  // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
-  // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
-  const resumable = row.resumable === true && resume !== undefined;
-  // One click sends one prompt: the button stays disabled while the send is in flight (its pending
-  // prompt row takes the button away first). A chat without the action (View Only, disconnected)
-  // draws no Continue, so its footer is empty or not as it would be without one.
-  const [resuming, setResuming] = useState(false);
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
@@ -541,11 +534,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
-            : resumable
-              ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
-                ? "cv-turn-actions cv-turn-actions--empty"
-                : "cv-turn-actions"
+            : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
@@ -601,20 +592,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
           </span>
           {stoppedLook === "word" && stoppedWord}
-          {resumable && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-turn-continue"
-              disabled={resuming}
-              onClick={() => {
-                setResuming(true);
-                void resume().finally(() => setResuming(false));
-              }}
-            >
-              {t("turn.continue")}
-              <ArrowRight size={ROW_ICON} aria-hidden="true" />
-            </button>
-          )}
           {stoppedLook === "trailing" && stoppedWord}
         </MessageFooterRow>
       </div>
