@@ -165,6 +165,12 @@ pub trait MenuGuard: Send + Sync {
     fn app_blocked(&self, id: &str, name: &str) -> bool;
     /// Any app at all is denied (an item whose app cannot be told is then refused).
     fn denies_any(&self) -> bool;
+    /// The exact bundle ids the guard blocks (the deny list's exact entries
+    /// and the protected apps), for naming them before the full app-name
+    /// index is built. Globs are left out; `name:` entries are names already.
+    fn blocked_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

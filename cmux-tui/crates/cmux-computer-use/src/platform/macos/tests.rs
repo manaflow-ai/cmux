@@ -432,6 +432,7 @@ fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
         enabled,
         blocked,
         checked: true,
+        unknown: false,
     };
     assert_eq!(roles::pick_shortcut(&[]), P::None);
     assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
@@ -606,9 +607,10 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
         launch: None,
     };
     assert!(roles::menu_item_blocked(&guard, &ctx, &pending));
+    // With nothing denied too: the protected apps always apply.
     let open =
         PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
-    assert!(!roles::menu_item_blocked(&open, &ctx, &pending));
+    assert!(roles::menu_item_blocked(&open, &ctx, &pending));
 }
 
 #[test]
@@ -693,6 +695,7 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
         enabled,
         blocked,
         checked: true,
+        unknown: false,
     };
     fn base(matches: &[M]) -> ChordFacts<'_> {
         ChordFacts {
@@ -988,7 +991,8 @@ fn an_unchecked_match_is_never_pressed() {
     use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
     // Its title could not be read, so it was not held to the protected apps;
     // with nothing denied (where it is not marked blocked) the key is posted.
-    let unchecked = [M { title: String::new(), enabled: true, blocked: false, checked: false }];
+    let unchecked =
+        [M { title: String::new(), enabled: true, blocked: false, checked: false, unknown: false }];
     for background in [false, true] {
         let f = ChordFacts {
             matches: &unchecked,
@@ -1106,7 +1110,7 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
         })
         .count();
     assert_eq!(hidden, 0);
-    // An unreadable title fails closed while something is denied.
+    // An unreadable title fails closed, whatever the deny list.
     assert!(d.opened_item_known(&ax::OpenedItem {
         title: "",
         title_failed: true,
@@ -1193,4 +1197,189 @@ fn a_submenu_counts_as_open_once_a_window_shows_or_its_items_change() {
     assert!(!menus::submenu_opened(&[1], &[1], &s(&["Xcode"]), &s(&["Xcode"])));
     // Still empty, even with a window.
     assert!(!menus::submenu_opened(&[1], &[1, 2], &s(&[]), &s(&["", ""])));
+}
+
+#[test]
+fn a_release_thread_acts_only_for_its_own_live_call() {
+    use key_focus::{CallState, call_state};
+    assert_eq!(call_state(7, true, 7), CallState::Live);
+    // Its call ended (the menu was listed and closed, or never showed):
+    // nothing is released by id any more.
+    assert_eq!(call_state(7, false, 7), CallState::Ended);
+    // A later call armed: an earlier call's thread or theft is ignored.
+    assert_eq!(call_state(8, true, 7), CallState::Stale);
+    assert_eq!(call_state(8, false, 7), CallState::Stale);
+}
+
+#[test]
+fn a_target_theft_whose_menu_was_never_seen_goes_back_when_the_call_ends() {
+    use key_focus::gives_back_at_disarm;
+    // The call never saw its menu (it showed late, or a panel off the menu
+    // layer took key focus) and the person's app is still in front.
+    assert!(gives_back_at_disarm(false, true, true));
+    // A menu that was seen and closed ended its theft itself.
+    assert!(!gives_back_at_disarm(true, true, true));
+    // Not a helper's, and not once the person moved on.
+    assert!(!gives_back_at_disarm(false, false, true));
+    assert!(!gives_back_at_disarm(false, true, false));
+}
+
+#[test]
+fn a_theft_has_one_taker() {
+    use key_focus::{Theft, take_theft};
+    let t = Theft { thief: 42, front: 7, generation: 3, is_target: true };
+    let mut slot = Some(t);
+    // Another thief's, or another call's: not taken.
+    assert_eq!(take_theft(&mut slot, 43, 3), None);
+    assert_eq!(take_theft(&mut slot, 42, 2), None);
+    // The release thread takes it; disarm then finds nothing to release.
+    assert_eq!(take_theft(&mut slot, 42, 3), Some(t));
+    assert_eq!(take_theft(&mut slot, 42, 3), None);
+    assert_eq!(slot, None);
+}
+
+#[test]
+fn a_new_menu_window_counts_only_over_the_target() {
+    use key_focus::counts_as_call_menu;
+    let target = Rect { x: 100.0, y: 100.0, width: 400.0, height: 300.0 };
+    let over = Rect { x: 300.0, y: 200.0, width: 200.0, height: 300.0 };
+    let menubar = Rect { x: 1200.0, y: 0.0, width: 300.0, height: 400.0 };
+    // The thief's own menu window counts wherever it is.
+    assert!(counts_as_call_menu((42, 101, 9, menubar), 42, &[], Some(target)));
+    // A new window of another owner: only over the target's window.
+    assert!(counts_as_call_menu((77, 101, 9, over), 42, &[], Some(target)));
+    // The person's Control Center or Wi-Fi menu elsewhere never counts.
+    assert!(!counts_as_call_menu((77, 101, 9, menubar), 42, &[], Some(target)));
+    // One that was there when the call armed, or off the menu layer: no.
+    assert!(!counts_as_call_menu((77, 101, 9, over), 42, &[9], Some(target)));
+    assert!(!counts_as_call_menu((42, 0, 9, over), 42, &[], Some(target)));
+}
+
+#[test]
+fn a_release_by_id_is_skipped_once_another_app_took_the_keyboard() {
+    use key_focus::release_blocked;
+    assert_eq!(release_blocked(false, true), None);
+    assert!(release_blocked(true, true).is_some_and(|w| w.contains("another app")));
+    assert!(release_blocked(false, false).is_some_and(|w| w.contains("tap")));
+}
+
+#[test]
+fn the_keyboard_handoff_is_off_unless_its_variable_is_1() {
+    assert!(!key_focus::handoff_enabled_by(None));
+    assert!(!key_focus::handoff_enabled_by(Some("")));
+    assert!(!key_focus::handoff_enabled_by(Some("0")));
+    assert!(!key_focus::handoff_enabled_by(Some("true")));
+    assert!(key_focus::handoff_enabled_by(Some("1")));
+    // This test process does not set it: arm is a no-op (no tap, no thread).
+    if std::env::var(key_focus::HANDOFF_ENV).ok().as_deref() != Some("1") {
+        let frame = Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 };
+        assert!(!key_focus::arm(1, 2, frame, None));
+        assert_eq!(key_focus::counts(), (0, 0));
+    }
+}
+
+#[test]
+fn a_menu_holding_the_keyboard_is_left_open_only_when_nothing_can_hide_under_it() {
+    use menus::{HeldMenu, held_menu_decision as d};
+    // (held, kept, any_hidden, any_submenu, names_ready)
+    // Not holding the keyboard (the handoff gave it back): left open.
+    assert_eq!(d(false, false, true, true, false), HeldMenu::LeaveOpen);
+    // Holding it, nothing hidden, no submenu, names ready: left open.
+    assert_eq!(d(true, false, false, false, true), HeldMenu::LeaveOpen);
+    // Any submenu, or a hidden (denied or protected) item: listed.
+    assert_eq!(d(true, false, false, true, true), HeldMenu::List);
+    assert_eq!(d(true, false, true, false, true), HeldMenu::List);
+    // A handoff that did not give the keyboard back: always listed.
+    assert_eq!(d(true, true, false, false, true), HeldMenu::List);
+    // Names still loading: closed, and the call says so, whatever the deny
+    // list (the protected apps always apply).
+    assert_eq!(d(true, false, false, false, false), HeldMenu::Loading);
+    assert_eq!(d(true, true, false, false, false), HeldMenu::Loading);
+    // A listed menu's report says so.
+    assert_eq!(crate::menus::MenuReport::listed(vec![], 0).state, "listed");
+}
+
+#[test]
+fn an_unreadable_title_is_hidden_and_counted_never_a_separator() {
+    use menus::{Row, listed_row};
+    assert_eq!(listed_row("", true, false), Row::Hidden);
+    assert_eq!(listed_row("", true, true), Row::Hidden);
+    assert_eq!(listed_row("Copy", false, true), Row::Hidden);
+    assert_eq!(listed_row("  ", false, false), Row::Separator);
+    assert_eq!(listed_row("Copy", false, false), Row::Visible);
+}
+
+#[test]
+fn picks_wait_and_say_so_while_the_app_names_load() {
+    let loading = crate::menus::APP_NAMES_LOADING;
+    // pick_in and the closed pop-up pick share this gate.
+    assert_eq!(menus::pick_gate(false), Err(loading));
+    assert_eq!(menus::pick_gate(true), Ok(()));
+    // The gate comes before the pick: even a visible exact match is not
+    // chosen while the names load.
+    let titles = vec!["Copy".to_string(), "Open in cmux Remote".to_string()];
+    let hidden = [false, false];
+    assert_eq!(menus::gated_pick(false, &titles, &hidden, "Copy"), Err(loading));
+    assert_eq!(menus::gated_pick(true, &titles, &hidden, "Copy"), Ok(crate::menus::Pick::Item(0)));
+    // A menu left open while they load says so.
+    assert_eq!(menus::loading_note(false), Some(loading));
+    assert_eq!(menus::loading_note(true), None);
+}
+
+#[test]
+fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
+    let loading = crate::menus::APP_NAMES_LOADING;
+    // The blocking item's name could not be resolved yet: "loading".
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, true), Some(loading));
+    // A real block keeps the deny-list refusal, loading or not.
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, false), None);
+    // Any other refusal is unchanged.
+    assert_eq!(roles::loading_instead(roles::REFUSE_LAYOUT, true), None);
+}
+
+#[test]
+fn a_menu_item_check_tells_a_real_block_from_a_name_not_resolved_yet() {
+    use roles::{ItemCheck, MenuItemContext, menu_item_check};
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let ctx =
+        |t| MenuItemContext { title: t, top_index: None, depth: 1, siblings: &[], launch: None };
+    let loading = |_: &str| -> Option<Vec<String>> { None };
+    assert_eq!(menu_item_check(&guard, &ctx("Copy"), &loading), ItemCheck::Unknown);
+    let known = |n: &str| -> Option<Vec<String>> {
+        Some(if n == "Terminal" { vec!["com.apple.Terminal".into()] } else { vec![] })
+    };
+    assert_eq!(menu_item_check(&guard, &ctx("Copy"), &known), ItemCheck::Allowed);
+    assert_eq!(menu_item_check(&guard, &ctx("Terminal"), &known), ItemCheck::Blocked);
+}
+
+#[test]
+fn before_the_index_is_built_a_blocked_app_is_known_by_its_localized_name() {
+    // LaunchServices matches file names only: the German display name of
+    // System Settings would be "not an app" there.
+    let mut blocked = workspace::NameMap::new();
+    blocked.insert("systemeinstellungen".into(), vec!["com.apple.systempreferences".into()]);
+    let file_names_only = || None;
+    assert_eq!(
+        workspace::cold_resolve("systemeinstellungen", Some(&blocked), file_names_only),
+        Some(vec!["com.apple.systempreferences".to_string()])
+    );
+    // Other names go to LaunchServices.
+    assert_eq!(
+        workspace::cold_resolve("textedit", Some(&blocked), || Some("com.apple.TextEdit".into())),
+        Some(vec!["com.apple.TextEdit".to_string()])
+    );
+    // No blocked names (no guard, LaunchServices unavailable): unresolved.
+    assert_eq!(workspace::cold_resolve("textedit", None, || None), None);
+    // And the Apple menu item is held to the deny list with that resolver.
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let ctx = roles::MenuItemContext {
+        title: "Systemeinstellungen\u{2026}",
+        top_index: Some(0),
+        depth: 1,
+        siblings: &[],
+        launch: None,
+    };
+    let resolve =
+        |n: &str| workspace::cold_resolve(&n.trim().to_lowercase(), Some(&blocked), || None);
+    assert!(roles::menu_item_blocked(&guard, &ctx, &resolve));
 }

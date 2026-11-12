@@ -275,3 +275,23 @@ fn a_path_pick_opens_each_submenu_and_holds_every_level_to_the_deny_list() {
     // The parent alone opens a submenu: a path is needed.
     assert!(click("p3", "Open With").is_error);
 }
+
+#[test]
+fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
+    // An empty deny list still protects the security UI: a menu item that
+    // names a protected app never sits open under the person's keys.
+    let (d, e) = rig(MenuMode::Open);
+    e.set_config(PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "p3".into(),
+        items: ["Keep", "Open in cmux Remote"].map(String::from).to_vec(),
+        value: "Keep".into(),
+        ..Default::default()
+    }];
+    *d.installed.lock().unwrap() = vec![("cmux Remote".into(), "com.cmuxterm.remote".into())];
+    let out = e.call(&ctx("x1"), "click", &json!({"window_id": "1", "element_id": "p3"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["hidden"], 1);
+    assert!(!out.body["menu"].to_string().contains("cmux Remote"));
+}

@@ -124,6 +124,17 @@ impl crate::desktop::MenuGuard for PolicyMenuGuard {
     fn denies_any(&self) -> bool {
         !self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner).denied_apps.is_empty()
     }
+    fn blocked_ids(&self) -> Vec<String> {
+        let config = self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        config
+            .denied_apps
+            .iter()
+            .map(|e| e.trim())
+            .filter(|e| !e.is_empty() && !e.contains('*') && !e.starts_with("name:"))
+            .map(str::to_string)
+            .chain(policy::protected_ids().iter().map(|s| (*s).to_string()))
+            .collect()
+    }
 }
 
 /// The cursor's caption for an acting call that was refused, or None for an

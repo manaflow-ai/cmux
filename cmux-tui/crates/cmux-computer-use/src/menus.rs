@@ -83,8 +83,8 @@ const NAME_WORDS: usize = 4;
 /// (denied or protected): "New Terminal at Folder" and "Open in Terminal"
 /// name Terminal, "Terminals Guide" does not. `resolve` gives the bundle ids
 /// of the installed apps with a display name (none for an unknown name);
-/// while it cannot answer yet (None) and anything is denied, the item counts
-/// as blocked.
+/// while it cannot answer yet (None), the item counts as blocked, whatever
+/// the deny list (the protected apps always apply).
 pub fn title_names_blocked_app(
     guard: &dyn MenuGuard,
     title: &str,
@@ -102,7 +102,8 @@ pub fn title_names_blocked_app(
                 return true;
             }
             match resolve(&run) {
-                None if guard.denies_any() => return true,
+                // Names still loading: fail closed (protected apps always apply).
+                None => return true,
                 Some(ids) if ids.iter().any(|id| guard.app_blocked(id, &run)) => return true,
                 _ => {}
             }
@@ -263,10 +264,6 @@ pub fn denied_item_refusal(wanted: Option<&str>) -> String {
 /// (menu items are checked against them and stay hidden until then).
 pub const APP_NAMES_LOADING: &str = "the menu's items are still being checked against the installed apps (app names are loading); retry in a moment";
 
-/// Why a menu that opened was closed again: the person's keyboard could
-/// not be given back while it showed.
-pub const KEYBOARD_KEPT_REFUSAL: &str = "the menu opened, but the person's keyboard could not be given back to their app while it showed, so it was closed again; use set_value with the item's title (it picks and closes the menu in one call), or delivery foreground";
-
 /// Why a menu that opened was closed again: it could not be read.
 pub const MENU_UNREAD: &str = "the app showed a menu that could not be read, so it was closed again; try perform_action on an element's own actions, or delivery foreground";
 
@@ -297,6 +294,10 @@ pub fn menu_path(value: &str) -> Vec<String> {
         .collect();
     if parts.is_empty() { vec![value.to_string()] } else { parts }
 }
+
+/// Why a click on a menu is refused where no readable menu item is under
+/// the point (a separator, the menu's padding, an unreadable element).
+pub const NO_MENU_ITEM_AT_POINT: &str = "this point of the open menu reaches no readable menu item; press the item you want by element, or press_key Escape to close the menu";
 
 /// How a wanted title picks among a menu's items, the visible ones first.
 #[derive(Clone, Debug, PartialEq, Eq)]

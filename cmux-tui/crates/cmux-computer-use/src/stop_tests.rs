@@ -164,7 +164,7 @@ fn a_stopped_call_keeps_the_focus_report() {
         top_pid: Some(99),
         pointer: None,
     };
-    *d.focus.lock().unwrap() = Some(person.clone());
+    *d.focus.lock().unwrap() = Some(person);
     *d.steal_on_input.lock().unwrap() = Some(FocusSnapshot {
         pid: 10,
         app_id: "com.apple.Safari".into(),

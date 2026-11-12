@@ -154,45 +154,67 @@ Prevention, in the desktop (macOS):
   next call presses an item, and `press_key Escape` closes it. A menu's
   window may belong to another process (a System Settings pane's extension):
   the engine follows the new menu window, not the target's pid.
-- An open menu takes key focus: the window server routes the keyboard to it
-  without activating its app (measured: a key typed into the frontmost
-  TextEdit while a background System Settings pop-up was open never arrived).
-  While a call opens a menu of an app other than the person's, a per-process
-  event tap on the person's app drops the "lost key focus" notice and, once
-  the menu shows, the theft is released with SkyLight's private
-  `SLPSStealKeyFocusReturningID` / `SLPSReleaseKeyFocusWithID`
-  (`platform/macos/key_focus.rs`, cua-driver's technique). The menu stays open
-  and operable through accessibility; the person's typing stays in their app
-  (10 of 10 in a guest; Codex Computer Use keeps it there too). The result
-  says which: `menu.keyboard` is `person` or `menu`. A menu in the person's own
-  app holds their keyboard inside that app while it is open.
-  - The handoff arms only on the macOS majors its private calls were checked
-    on (12 through 26). Elsewhere (macOS 27) the menu holds the keyboard while
-    it shows, as Codex Computer Use's does; such a menu is never left open
-    when it hides items while anything is denied (the person's typing could
-    reach one): `click` with `menu_item`, or `set_value`, picks in one call.
-  - While anything is denied, a menu that holds the keyboard (the person's
-    own arrows and Return reach every level) is left open only when it hides
-    nothing and has no submenu at all: AX gives no sign of a submenu the app
-    fills when it opens. Otherwise it is closed again and its titles listed
-    (`menu.state` `listed`, submenu parents marked), and `click` with
-    `menu_item` picks in one call, with a path for a submenu's item ("Sort
-    By > Name"). On macOS 27 that is most context menus.
-  - A one-call pick holds the keyboard while it picks (about 0.5 to 1.5 s),
-    as Codex Computer Use's does.
-  - A helper process's key-focus theft (a System Settings pane's pop-up)
-    is released only once its menu window shows over the target, and the
-    notice is read before the window is up, so on macOS 12 to 26 such a
-    menu usually falls to KEYBOARD_KEPT_REFUSAL; `set_value` still picks it.
+- Menus behave like Codex Computer Use's. An open menu takes key focus: the
+  window server routes the keyboard to it without activating its app
+  (measured: a key typed into the frontmost TextEdit while a background
+  System Settings pop-up was open never arrived), so an open menu holds the
+  person's keyboard while it shows, and the result says so (`menu.keyboard`
+  `menu`). A menu in the person's own app holds their keyboard inside that
+  app.
+  - Such a menu is left open only when it hides nothing (no item the deny
+    list or the protected apps cover), has no submenu at all, and the app
+    names its items are checked against are ready: the person's own arrows,
+    Return and typing reach every level, and AX gives no sign of a submenu
+    an app fills when it opens. Otherwise, whether or not anything is
+    denied (a protected app's item could sit under a submenu), it is closed
+    again and its titles listed (`menu.state` `listed`, submenu parents
+    marked). While the app-name index is still loading (the protected apps
+    always apply, whatever the deny list), a menu holding the keyboard is
+    closed, no menu item is picked, an open menu's items stay hidden, and the
+    call says so (retry). The menu bar and key shortcuts are not held back
+    meanwhile: a name is answered from the blocked apps' own names (their
+    localized display, bundle and file names, read once by bundle id) and
+    else LaunchServices, until the index is ready; a refusal says the names
+    are loading only when a name really could not be resolved. A menu item
+    whose title cannot be read is hidden and refused (a key shortcut on one
+    is posted when nothing is denied, as Codex does).
+  - A click on a point of an open menu that reaches no readable menu item
+    (a separator, the menu's padding) is refused with a plain reason, so
+    the item under it is never guessed.
+  - Picks run in one call: `click` with `menu_item` (a right click or
+    control-click, a pop-up or menu button), with a path for a submenu's
+    item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a
+    pop-up. A pick holds the keyboard while it picks (about 0.5 to 1.5 s),
+    as Codex's does.
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use
     shows them too; the items stay refused.
-  - Known limit: if the release misses and the menu also ignores both
-    `AXCancel` and Escape, the person's window can look active while their
-    keys go to the menu until it closes. The menu stays recorded, so the
-    agent's keys, typing and drags into that app are refused meanwhile, and
-    the next call tries to close it again.
+  - Known limit: a menu that ignores both `AXCancel` and Escape stays open
+    and keeps the person's keys until it closes; the call says so
+    (MENU_DID_NOT_CLOSE, `keyboard: menu`). With the handoff off, the
+    person's window shows inactive meanwhile; with it on, after a missed
+    release, their window can look active while their keys go to the menu.
+    Either way the menu stays recorded, so the agent's keys, typing and
+    drags into that app are refused, and the next call tries to close it
+    again.
+- Keyboard handoff (experimental, off): with `CMUX_CU_KEY_HANDOFF=1` in the
+  Computer Use worker's environment, on macOS 12 through 26 only, a call
+  that opens a menu of an app other than the person's places an event tap on
+  the person's app, drops its "lost key focus" notice and, once the menu
+  shows, releases the theft with SkyLight's private
+  `SLPSStealKeyFocusReturningID` / `SLPSReleaseKeyFocusWithID`
+  (`platform/macos/key_focus.rs`, cua-driver's technique), so the person's
+  typing stays in their app (`menu.keyboard` `person`). Off, no tap, thread
+  or SkyLight call runs. With it on:
+  - when the keyboard was not given back, the menu is listed and closed as
+    above, with the reason in the result's note (`keyboard handoff: ...`);
+  - a release takes the keyboard back only from the call's own theft, once
+    (the release thread when the call's menu shows over the target, else
+    the call's end when the call never saw its menu), and is skipped, as a
+    miss, when another app took the keyboard from the menu's owner since or
+    the tap on it could not be placed; each call is numbered, so a release
+    of an earlier or ended call gives nothing back.
 - Menu bar menus (`AXMenuBarItem`, menu extras) never open in the background:
   the menu bar is the frontmost app's.
 - The deny list holds inside menus through one rule, the same as the menu

@@ -99,7 +99,17 @@ impl MacDesktop {
         if let Some(why) = roles::submenu_refusal(&role, has_submenu) {
             return Err(DesktopError::Unsupported(why.into()));
         }
-        if self.menu_item_blocked(el) {
+        let check = match el.attr("AXTitle") {
+            Ok(v) => {
+                self.menu_item_check_titled(el, &v.and_then(|v| v.as_string()).unwrap_or_default())
+            }
+            // Unreadable: blocked, whatever the deny list.
+            Err(_) => roles::ItemCheck::Blocked,
+        };
+        if check == roles::ItemCheck::Unknown {
+            return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
+        }
+        if check == roles::ItemCheck::Blocked {
             return Err(DesktopError::Unsupported(
                 "this menu item would open or hand data to an app on the Computer Use deny list"
                     .into(),
@@ -262,7 +272,7 @@ impl MacDesktop {
         // A point on the recorded menu's window is hit-tested in that
         // window's owner (a System Settings pane draws its menus in a
         // helper process); there, a point that reaches no readable menu
-        // item is refused while something is denied.
+        // item is refused, whatever the deny list.
         // A submenu opened later shows in a window of the same owner at the
         // menu layer: it counts as the menu's too.
         let on_menu = self.recorded_menu().and_then(|(_, windows)| {
@@ -284,8 +294,8 @@ impl MacDesktop {
             self.refuse_submenu_open(&current)?;
             el = current.element("AXParent");
         }
-        if on_menu.is_some() && !found_item && self.denies_any() {
-            return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
+        if on_menu.is_some() && !found_item {
+            return Err(DesktopError::Unsupported(menus::NO_MENU_ITEM_AT_POINT.into()));
         }
         Ok(())
     }
@@ -732,6 +742,12 @@ pub(super) fn press_keys(
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
             roles::ChordAction::Refuse(why) => {
+                // A block that only stands because names are still loading
+                // says so, not "the deny list".
+                let blocked_unknown = matches.iter().find(|m| m.blocked).is_some_and(|m| m.unknown);
+                if let Some(loading) = roles::loading_instead(why, blocked_unknown) {
+                    return Err(DesktopError::Unsupported(loading.into()));
+                }
                 // Name the menu item only when it is the reason.
                 let item = (why == roles::REFUSE_BLOCKED)
                     .then(|| matches.iter().find(|m| m.blocked))
@@ -924,7 +940,11 @@ fn pick_closed(
     let titles: Vec<String> = items.iter().map(|i| i.info.title.clone()).collect();
     let hidden: Vec<bool> = items.iter().map(|i| i.denied).collect();
     let mut items = items;
-    let item = match menus::pick(&titles, &hidden, value) {
+    // Items are checked against the app names: none is chosen while they
+    // load (the protected apps always apply).
+    let picked = super::menus::gated_pick(workspace::app_names_ready(), &titles, &hidden, value)
+        .map_err(|why| DesktopError::Unsupported(why.into()))?;
+    let item = match picked {
         menus::Pick::Item(i) => {
             items[i].detail();
             &items[i]
@@ -933,9 +953,6 @@ fn pick_closed(
             return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
         }
         menus::Pick::Missing(found) => {
-            if d.denies_any() && !workspace::app_names_ready() {
-                return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
-            }
             let shown: Vec<String> =
                 items.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
             return Err(DesktopError::Unsupported(format!(
@@ -1153,23 +1170,25 @@ fn shortcut_matches(
                         true
                     }
                 };
-                let (title, blocked, checked) = match text(&node, "AXTitle") {
+                let (title, blocked, checked, unknown) = match text(&node, "AXTitle") {
                     Ok(t) => {
                         let t = t.unwrap_or_default();
-                        let blocked = d.menu_item_blocked_titled(&node, &t);
-                        (t, blocked, true)
+                        let check = d.menu_item_check_titled(&node, &t);
+                        let unknown = check == roles::ItemCheck::Unknown;
+                        (t, check != roles::ItemCheck::Allowed, true, unknown)
                     }
                     // A title that cannot be read cannot be checked: blocked
-                    // while something is denied (as menu_item_blocked does),
-                    // and never pressed.
+                    // while something is denied, and never pressed; with
+                    // nothing denied the key is posted, as Codex does (a
+                    // posted chord leaves no menu under the person's keys).
                     Err(()) => {
                         complete = false;
-                        (String::new(), d.denies_any(), false)
+                        (String::new(), d.denies_any(), false, false)
                     }
                 };
                 found.push((
                     node.clone(),
-                    roles::ShortcutMatch { title, enabled, blocked, checked },
+                    roles::ShortcutMatch { title, enabled, blocked, checked, unknown },
                 ));
                 if stop_at_enabled && enabled {
                     return (found, complete);

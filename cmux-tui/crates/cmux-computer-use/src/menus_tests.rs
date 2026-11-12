@@ -80,10 +80,11 @@ fn a_title_naming_a_blocked_app_in_whole_words_is_blocked() {
     assert!(!blocked("Always"));
     // A name the index cannot answer yet fails closed while anything is denied.
     assert!(blocked("Open Settings"));
-    // Nothing denied: nothing blocked, and an unknown name is fine.
+    // Nothing denied: nothing blocked by the deny list; a name the index
+    // cannot answer yet still fails closed (the protected apps apply).
     let g = Guard { denies: false };
     assert!(!title_names_blocked_app(&g, "New Terminal at Folder", &resolve));
-    assert!(!title_names_blocked_app(&g, "Open Settings", &resolve));
+    assert!(title_names_blocked_app(&g, "Open Settings", &resolve));
 }
 
 #[test]

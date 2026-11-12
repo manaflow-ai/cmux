@@ -55,21 +55,18 @@ impl MacDesktop {
     }
 
     /// Whether the deny list hides and refuses this menu item (Recent Items,
-    /// Open With and Services entries that reach a denied or protected app).
-    fn menu_item_blocked(&self, item: &Ax) -> bool {
-        // A title that cannot be read cannot be checked: while something is
-        // denied, that is blocked.
-        match item.attr("AXTitle") {
-            Ok(v) => self
-                .menu_item_blocked_titled(item, &v.and_then(|v| v.as_string()).unwrap_or_default()),
-            Err(_) => self.denies_any(),
-        }
+    /// Open With and Services entries that reach a denied or protected app),
+    /// with its title already read (one read, so the name checked is the one
+    /// the caller has). A title that cannot be read is blocked by the
+    /// caller, whatever the deny list.
+    fn menu_item_blocked_titled(&self, item: &Ax, title: &str) -> bool {
+        self.menu_item_check_titled(item, title) != roles::ItemCheck::Allowed
     }
 
-    /// menu_item_blocked with the title already read (one read, so the name
-    /// checked is the one the caller has).
-    fn menu_item_blocked_titled(&self, item: &Ax, title: &str) -> bool {
-        let Some(guard) = self.guard() else { return false };
+    /// [`Self::menu_item_blocked_titled`], telling a real block from a name
+    /// not resolved yet (for an honest refusal).
+    fn menu_item_check_titled(&self, item: &Ax, title: &str) -> roles::ItemCheck {
+        let Some(guard) = self.guard() else { return roles::ItemCheck::Allowed };
         // Without its place in the menus the item is still checked by name
         // (protected apps count with nothing denied); while something is
         // denied, an item that cannot be placed is blocked.
@@ -81,12 +78,15 @@ impl MacDesktop {
                 siblings: &[],
                 launch: None,
             };
-            return guard.denies_any()
-                || roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named);
+            let check = roles::menu_item_check(&*guard, &ctx, &workspace::apps_named);
+            if check == roles::ItemCheck::Allowed && guard.denies_any() {
+                return roles::ItemCheck::Blocked;
+            }
+            return check;
         };
         let ctx =
             roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch: None };
-        roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
+        roles::menu_item_check(&*guard, &ctx, &workspace::apps_named)
     }
 
     fn denies_any(&self) -> bool {
@@ -100,7 +100,8 @@ impl MacDesktop {
         let Some(guard) = self.guard() else { return false };
         let title = match item.attr("AXTitle") {
             Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
-            Err(_) => return guard.denies_any(),
+            // Unreadable: blocked, whatever the deny list.
+            Err(_) => return true,
         };
         if self.menu_item_blocked_titled(item, &title) {
             return true;
@@ -115,8 +116,9 @@ impl MacDesktop {
     /// index only.
     fn opened_item_known(&self, it: &ax::OpenedItem) -> bool {
         let Some(guard) = self.guard() else { return false };
+        // Unreadable: blocked, whatever the deny list.
         if it.title_failed {
-            return guard.denies_any();
+            return true;
         }
         let ctx = roles::MenuItemContext {
             title: it.title,
@@ -454,6 +456,8 @@ impl Desktop for MacDesktop {
     }
 
     fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {
+        let ids = guard.clone();
+        workspace::set_blocked_ids_source(Box::new(move || ids.blocked_ids()));
         *self.menu_guard.write().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         workspace::warm_app_names();
         workspace::warm_service_shortcuts();

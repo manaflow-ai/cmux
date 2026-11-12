@@ -113,10 +113,10 @@ pub(super) struct Opened {
     /// It holds the person's keyboard (the handoff did not arm, or it could
     /// not be closed).
     pub keyboard_held: bool,
-    /// Some level of it (a submenu too) hides an item, or could not be read.
-    /// With `keyboard_held` while anything is denied, bare arrows and
-    /// opening a submenu are refused: a hidden item could get the highlight
-    /// and the person's Return would run it.
+    /// Some level of it (a submenu too) may hide an item (denied or
+    /// protected), or could not be read. With `keyboard_held`, whatever the
+    /// deny list, bare arrows and opening a submenu are refused: a hidden
+    /// item could get the highlight and the person's Return would run it.
     pub nested_hidden: bool,
 }
 
@@ -328,12 +328,11 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
                 path: path.as_deref(),
                 launch,
             };
-            let denied = d.opened_item_known(&it);
-            // An untitled item is a separator, unless its title could not be
-            // read: then it is listed only to be counted as hidden.
-            if title.trim().is_empty() && !(title_failed && denied) {
+            let row = listed_row(&title, title_failed, d.opened_item_known(&it));
+            if row == Row::Separator {
                 return None;
             }
+            let denied = row == Row::Hidden;
             Some(Item {
                 el,
                 info: MenuItemInfo { title, submenu, ..MenuItemInfo::default() },
@@ -341,6 +340,53 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
             })
         })
         .collect()
+}
+
+/// How a menu listing takes one item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Row {
+    /// An untitled item: a separator, left out.
+    Separator,
+    /// Hidden and counted in `hidden` (denied, protected, or a title that
+    /// could not be read: an unreadable title is never a separator).
+    Hidden,
+    Visible,
+}
+
+/// Pure, for tests.
+pub(super) fn listed_row(title: &str, title_failed: bool, denied: bool) -> Row {
+    if title_failed || denied {
+        Row::Hidden
+    } else if title.trim().is_empty() {
+        Row::Separator
+    } else {
+        Row::Visible
+    }
+}
+
+/// The note a menu left open carries while the app names load: its items
+/// are hidden until they can be checked. Pure, for tests.
+pub(super) fn loading_note(names_ready: bool) -> Option<&'static str> {
+    (!names_ready).then_some(menus::APP_NAMES_LOADING)
+}
+
+/// Whether a pick may choose an item now: not while the app names its
+/// items are checked against load. Pure, for tests.
+pub(super) fn pick_gate(names_ready: bool) -> Result<(), &'static str> {
+    if names_ready { Ok(()) } else { Err(menus::APP_NAMES_LOADING) }
+}
+
+/// A pick of `wanted` among a menu's items, behind [`pick_gate`]: no item,
+/// not even a visible exact match, is chosen while the names load (an item
+/// counted visible then was not checked). Pure, for tests.
+pub(super) fn gated_pick(
+    names_ready: bool,
+    titles: &[String],
+    hidden: &[bool],
+    wanted: &str,
+) -> Result<menus::Pick, &'static str> {
+    pick_gate(names_ready)?;
+    Ok(menus::pick(titles, hidden, wanted))
 }
 
 impl Item {
@@ -463,6 +509,47 @@ pub(super) fn item_path_checked(el: &Ax) -> Option<Vec<String>> {
     Some(path)
 }
 
+/// What becomes of a menu that just opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HeldMenu {
+    /// Left open with its items for the next call.
+    LeaveOpen,
+    /// Closed again and its titles listed (`menu.state` `listed`), for a
+    /// one-call pick with a path.
+    List,
+    /// Closed again: the app names its items are checked against are still
+    /// loading (APP_NAMES_LOADING).
+    Loading,
+}
+
+/// The rule for a menu that holds the person's keyboard (the handoff did
+/// not arm, or did not give the keyboard back): their own arrows, Return
+/// and typing reach every level of it, and AX gives no sign of a submenu an
+/// app fills when it opens. So it is left open only when it hides nothing
+/// (no item the deny list or the protected apps cover) and has no submenu
+/// at all; else it is listed and closed, whether or not anything is denied
+/// (a protected app's item could sit under a submenu). While the app names
+/// its items are checked against are still loading it is closed and the
+/// call says so (the protected apps always apply). A handoff that did not
+/// give the keyboard back (`kept`) leaves the person's window looking
+/// active, so that menu is never left open. A menu that does not hold the
+/// keyboard is left open. Pure, for tests.
+pub(super) fn held_menu_decision(
+    held: bool,
+    kept: bool,
+    any_hidden: bool,
+    any_submenu: bool,
+    names_ready: bool,
+) -> HeldMenu {
+    if !held {
+        return HeldMenu::LeaveOpen;
+    }
+    if !names_ready {
+        return HeldMenu::Loading;
+    }
+    if kept || any_hidden || any_submenu { HeldMenu::List } else { HeldMenu::LeaveOpen }
+}
+
 impl MacDesktop {
     /// Refuses leaving a menu open in the app the person is using (it would
     /// track their pointer and keyboard until the next call).
@@ -517,6 +604,7 @@ impl MacDesktop {
         &self,
         t: &Target,
         before: &[u32],
+        armed: bool,
         mut press_failed: impl FnMut() -> Option<DesktopError>,
         mut find: impl FnMut() -> Option<Ax>,
     ) -> DResult<(Ax, Vec<u32>)> {
@@ -560,6 +648,11 @@ impl MacDesktop {
             return Err(e);
         }
         if let Some(found) = found {
+            // The menu is up: when this call armed the handoff, its target
+            // theft still waiting goes back now.
+            if armed {
+                key_focus::menu_opened();
+            }
             return Ok(found);
         }
         // A menu window of the app showed, but no menu element in time: it
@@ -608,6 +701,7 @@ impl MacDesktop {
         let opened = self.await_menu(
             t,
             &before,
+            guard.armed(),
             || match rx.try_recv() {
                 Ok(Err(e)) if e != AX_CANNOT_COMPLETE => Some(ax_error(e, "opening the menu")),
                 _ => None,
@@ -706,9 +800,11 @@ impl MacDesktop {
     }
 
     /// Whether a menu left open (any app) holds the person's keyboard and
-    /// hides an item at some level while something is denied: arrows and
-    /// opening submenus are refused then. (A menu left open on the fallback
-    /// hides nothing at any level, so it is fully reachable, as Codex's.)
+    /// may hide an item at some level (one recorded because it would not
+    /// close): arrows and opening submenus are refused then, whether or not
+    /// anything is denied (a protected app's item counts). A menu left open
+    /// by list_opened has no hidden item and no submenu, so it is fully
+    /// reachable, as Codex's.
     pub(super) fn held_menu_guards_keys(&self) -> bool {
         let held = {
             let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
@@ -716,13 +812,14 @@ impl MacDesktop {
                 .as_ref()
                 .is_some_and(|o| o.keyboard_held && o.nested_hidden && showing(&o.windows))
         };
-        held && self.denies_any()
+        // Whether or not anything is denied: a protected app's item counts.
+        held
     }
 
     /// Refuses pressing or clicking a menu item that opens a submenu while a
-    /// menu holding the person's keyboard is open and something is denied:
-    /// the submenu's hidden items could get the highlight, and the person's
-    /// Return would run one. Items are pressed by element; `click` with
+    /// menu holding the person's keyboard is open and may hide an item
+    /// (denied or protected): the submenu's hidden items could get the
+    /// highlight, and the person's Return would run one. Items are pressed by element; `click` with
     /// `menu_item` picks in one call.
     pub(super) fn refuse_submenu_open(&self, el: &Ax) -> DResult<()> {
         if !self.held_menu_guards_keys() {
@@ -816,6 +913,9 @@ impl MacDesktop {
             })
             .collect();
         let mut out = ActionOutcome::delivered(route);
+        if let Some(note) = loading_note(workspace::app_names_ready()) {
+            out.note = note.into();
+        }
         let mut report = MenuReport::open(shown, hidden);
         report.more = more;
         out.menu = Some(report);
@@ -827,40 +927,44 @@ impl MacDesktop {
     /// - the guard armed and the keyboard was not given back (the person's
     ///   window would look active while their typing went to the menu);
     /// - the guard could not arm (the menu holds the person's keyboard, as
-    ///   with Codex Computer Use) and the menu hides items while something
-    ///   is denied: their typing could type-select a hidden item and their
-    ///   Return run it. A one-call pick (`click` with `menu_item`,
-    ///   `set_value`) never leaves the menu open.
+    ///   with Codex Computer Use) and the menu hides an item (denied or
+    ///   protected), has a submenu, or the app names are still loading
+    ///   ([`held_menu_decision`]): their typing could type-select a hidden
+    ///   item and their Return run it. A one-call pick (`click` with
+    ///   `menu_item`, `set_value`) never leaves the menu open.
     fn list_opened(&self, t: &Target, opened: OpenedMenu, route: &str) -> DResult<ActionOutcome> {
         let (menu, windows, _, guard) = opened;
         let keyboard = guard.report();
-        if guard.armed() && keyboard == "menu" {
-            let refused = DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into());
-            return Err(self.close_and_fail(t, &menu, &windows, refused));
-        }
+        // The guard armed but the keyboard was not given back: the menu holds
+        // it (the person's window would even look active), so it is never
+        // left open; it is listed and closed, as on the fallback.
+        let kept = guard.armed() && keyboard == "menu";
         let all = items(self, &menu);
-        let held = !guard.armed();
-        // A menu that holds the person's keyboard reaches every level by
-        // their own keys, and AX gives no sign of a submenu the app fills
-        // when it opens (an "Item" placeholder or a stale list that becomes
-        // "Terminal"). So while anything is denied it is left open only
-        // when it hides nothing and has no submenu at all; else it is
-        // closed and its titles listed, for a one-call pick with a path.
-        let nested_hidden =
-            held && self.denies_any() && all.iter().any(|i| i.denied || i.info.submenu);
+        let held = !guard.armed() || kept;
+        let decision = held_menu_decision(
+            held,
+            kept,
+            all.iter().any(|i| i.denied),
+            all.iter().any(|i| i.info.submenu),
+            workspace::app_names_ready(),
+        );
+        let nested_hidden = decision != HeldMenu::LeaveOpen;
         if nested_hidden {
-            if self.denies_any() && !workspace::app_names_ready() {
+            if decision == HeldMenu::Loading {
                 let refused = DesktopError::Unsupported(menus::APP_NAMES_LOADING.into());
                 return Err(self.close_and_fail(t, &menu, &windows, refused));
             }
             let hidden = all.iter().filter(|i| i.denied).count();
             let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
             let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
+            // A menu that kept the keyboard closes first: no detail reads.
             let shown: Vec<MenuItemInfo> = visible
                 .into_iter()
                 .take(menus::LISTED_ITEMS_MAX)
                 .map(|mut i| {
-                    i.detail();
+                    if !kept {
+                        i.detail();
+                    }
                     i.info
                 })
                 .collect();
@@ -868,6 +972,9 @@ impl MacDesktop {
                 return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
             }
             let mut out = ActionOutcome::delivered(route);
+            if kept {
+                out.note = format!("keyboard handoff: {}", key_focus::note());
+            }
             let mut report = MenuReport::listed(shown, hidden);
             report.more = more;
             report.keyboard = keyboard;
@@ -939,13 +1046,16 @@ impl MacDesktop {
             let mut all = items(self, &level);
             let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
             let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
-            let mut item = match menus::pick(&titles, &hidden, part) {
+            // Items are checked against the app names: none is chosen while
+            // they load (the protected apps always apply).
+            let picked = match gated_pick(workspace::app_names_ready(), &titles, &hidden, part) {
+                Ok(p) => p,
+                Err(why) => return refuse(why.into()),
+            };
+            let mut item = match picked {
                 menus::Pick::Item(i) => all.swap_remove(i),
                 menus::Pick::Hidden => return refuse(menus::denied_item_refusal(Some(part))),
                 menus::Pick::Missing(found) => {
-                    if self.denies_any() && !workspace::app_names_ready() {
-                        return refuse(menus::APP_NAMES_LOADING.into());
-                    }
                     let shown: Vec<String> =
                         all.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
                     return refuse(menus::not_found(part, &found, &shown));
@@ -1053,7 +1163,7 @@ impl MacDesktop {
                 .filter(is_menu)
                 .or_else(|| app.elements("AXChildren").into_iter().find(is_menu))
         };
-        match self.await_menu(t, &before, || None, find) {
+        match self.await_menu(t, &before, guard.armed(), || None, find) {
             Ok((menu, windows)) => Ok(Some((menu, windows, start, guard))),
             // The click was delivered and showed no menu (nothing there has one).
             Err(DesktopError::Failed(m)) if m == MENU_DID_NOT_OPEN => Ok(None),
