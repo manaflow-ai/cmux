@@ -1072,8 +1072,13 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-palette-none {
-  margin: var(--ds-space-4) var(--ds-space-2);
+  /* The Combobox's live Empty, inside the root: it keeps its old place at the bottom, above the
+     hint, and takes no room while it is empty (it stays mounted so the announcement lands). */
+  margin: auto var(--ds-space-2) var(--ds-space-4);
   color: var(--page-text-3);
+}
+.lg-palette-none:empty {
+  margin: 0;
 }
 .lg-palette-hint {
   flex: none;
