@@ -103,7 +103,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     var macName: String {
         // The listed copy: read in bodies, it must not observe every Mac publish.
         guard let macID = workspaceSnapshot?.macID else { return "Mac" }
-        return store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
+        return store.teams.flatMap(\.macs).first { $0.id == macID }?.name
+            ?? store.cloudMachines.first { $0.id == macID }?.name ?? "Mac"
     }
 
     /// The tab as last listed (`refreshTabs`): a body that reads it
@@ -321,7 +322,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         // Launch Claude Teams and Launch Codex Teams (the Mac's palette rows): a terminal that
         // runs the team, while this Mac opens terminals for the phone.
-        if kinds.contains(where: { if case .terminal = $0 { true } else { false } }), chatsBackend != nil {
+        // A Cloud machine's workspace: its terminals only (no Mac agents, Screen Sharing or pages).
+        let cloud = store.isCloudMachine(workspace.macID)
+        if !cloud, kinds.contains(where: { if case .terminal = $0 { true } else { false } }), chatsBackend != nil {
             options += AgentTeamsLaunch.allCases.map(Self.teamsOption)
         }
         for (kind, _) in creator.backend.unavailableTabKinds(on: workspace.macID)
@@ -330,7 +333,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             option.id = Self.unavailablePrefix + option.id
             options.append(option)
         }
-        if offersScreenSharing { options.append(Self.screenSharingOption) }
+        if offersScreenSharing, !cloud { options.append(Self.screenSharingOption) }
         return options
     }
 

@@ -137,7 +137,8 @@ extension WorkspaceTabsSource {
     public func paletteTabs(matching query: String, otherWorkspacesOnly: Bool = false, limit: Int = 200) -> [PaletteCommand] {
         let workspaces = store.activeWorkspaces.filter { !store.isPending($0.id) && !(otherWorkspacesOnly && $0.id == workspaceID) }
         let ordered = workspaces.filter { $0.id == workspaceID } + workspaces.filter { $0.id != workspaceID }
-        let macs = Dictionary(store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let macs = Dictionary((store.teams.flatMap(\.macs) + store.cloudMachines).map { ($0.id, $0.name) },
+                              uniquingKeysWith: { first, _ in first })
         var out: [PaletteCommand] = []
         for workspace in ordered {
             for tab in workspace.tabs {

@@ -766,6 +766,7 @@ private struct LinkSettingsObserver: ViewModifier {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
                     shell.live?.foreground()
+                    shell.cloudWorkspaces?.refreshSoon()
                     // The content extension's replies, and those waiting for the app.
                     PushReplies.shared.drainOutbox()
                 }
@@ -890,7 +891,11 @@ struct ShellTabs: View {
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
-                        machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
+                        machines: {
+                            AnyView(CloudMachinesScreen(model: shell.cloudWorkspaces?.model ?? .live(),
+                                                        openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) },
+                                                        workspaces: shell.cloudMachineWorkspaces()))
+                        },
                         automations: { AnyView(CloudAutomationsScreen()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }
                     ),

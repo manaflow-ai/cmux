@@ -372,7 +372,7 @@ struct WorkspaceGridHeader: View {
 
     private var macLine: String {
         guard let workspace = source.workspace else { return "" }
-        let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+        let mac = source.store.machine(id: workspace.macID)?.name ?? source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
         let count = workspace.tabs.count
         return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
     }

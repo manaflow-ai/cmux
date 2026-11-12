@@ -43,7 +43,7 @@ public struct WorkspacesList: View {
     var retryLoad: (() async -> Void)?
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
-    @State private var unfolded: Set<String> = []
+    @State var unfolded: Set<String> = []
     /// A refresh has taken long enough to say so.
     @State private var showsUpdating = false
     /// The offline workspace whose tap is being explained.
@@ -69,10 +69,10 @@ public struct WorkspacesList: View {
     /// The rows' status gutter (32 pt at Large): the separators, section
     /// titles, group titles and Mac lines start after it, at the text column.
     @Environment(\.dynamicTypeSize) private var typeSize
-    private var gutter: CGFloat { CmuxMobileListColumn.plain(typeSize).text }
+    var gutter: CGFloat { CmuxMobileListColumn.plain(typeSize).text }
     /// Scrolls the UIKit list and reads its visible area (unfolding scrolls
     /// when the first new row would open below it).
-    @State private var listControl = WorkspacesListControl()
+    @State var listControl = WorkspacesListControl()
     /// Settings → Compact Workspace List.
     @AppStorage(CmuxMobilePreferences.Key.compactWorkspaceList) private var compactList = false
     /// Each row's frame in the list (read on demand, never drawn from).
@@ -108,10 +108,11 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`), then the
+    /// account's Cloud machines (never part of the team's Macs).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible + store.cloudMachines }
     /// A remembered Mac that is no longer listed reads as All Macs.
-    var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
+    var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam, cloudMachines: store.cloudMachines), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
     private var target: MacDevice? {
         scope.newWorkspaceMac(available: creator.availableMacs, fallback: creator.targetMac)
@@ -286,7 +287,8 @@ public struct WorkspacesList: View {
         }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
+        let onlyMacs = macs.filter { !$0.isCloud }
+        if onlyMacs.count > 1 { return "\(onlyMacs.filter(\.isOnline).count) of \(onlyMacs.count) Macs online" }
         return ""
     }
 
@@ -295,10 +297,16 @@ public struct WorkspacesList: View {
     }
 
     private var unavailableTitle: String {
-        unavailable.flatMap { mac($0.macID) }.map { "\(displayName($0)) is offline" } ?? "Mac is offline"
+        if let machine = unavailable.flatMap({ mac($0.macID) }), machine.isCloud {
+            return "\(machine.name) isn't running"
+        }
+        return unavailable.flatMap { mac($0.macID) }.map { "\(displayName($0)) is offline" } ?? "Mac is offline"
     }
 
     private func unavailableMessage(_ ws: Workspace) -> String {
+        if let machine = mac(ws.macID), machine.isCloud {
+            return "\u{201C}\(ws.title)\u{201D} opens once \(machine.name) is running. Start it from its line in the list."
+        }
         let seen = mac(ws.macID).map { RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: $0.lastSeenAt) } ?? "Offline"
         return "\(seen). \u{201C}\(ws.title)\u{201D} opens when the Mac is awake with cmux running."
     }
@@ -512,7 +520,8 @@ public struct WorkspacesList: View {
             let isOpen = fold.isForcedOpen || input.unfolded.contains(fold.mac.id)
             var entries: [(String, WorkspacesListItem)] = []
             // Filtered to this Mac: its rows alone; the navigation subtitle already says when it was last seen.
-            if input.scopeMacID != fold.mac.id {
+            // A Cloud machine's line carries its Start, Retry or New Workspace, so it stays.
+            if input.scopeMacID != fold.mac.id || fold.reason.isCloud {
                 entries.append(("fold.\(fold.mac.id)", .fold(WorkspaceFoldLineModel(
                     fold: fold, isOpen: isOpen, showsLine: true, typeSize: input.typeSize, canReconnect: input.canReconnect,
                     sameNames: input.sameNames))))
@@ -553,7 +562,8 @@ public struct WorkspacesList: View {
             AnyView(FolderHeaderLabel(folder: header.folder, count: header.count))
         case let .fold(line):
             // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
-            AnyView(OnMinute { now in foldLine(line.fold, now: now) })
+            line.fold.reason.isCloud ? AnyView(cloudFoldLine(line.fold, isOpen: line.isOpen))
+                : AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
             AnyView(SkeletonList(rows: 4, leadingSquare: nil)
                 .allowsHitTesting(false)
@@ -595,7 +605,9 @@ public struct WorkspacesList: View {
     /// worked out once per pass for every row.
     private func macNames() -> [String: String] {
         let sameNames = sameNames
-        return Dictionary(macs.map { ($0.id, sameNames.displayName($0)) }, uniquingKeysWith: { first, _ in first })
+        // A Cloud machine's rows say so: "Build box · Cloud".
+        return Dictionary(macs.map { ($0.id, $0.isCloud ? "\($0.name) · Cloud" : sameNames.displayName($0)) },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     /// A row's values. `rights` is its Mac's (`WorkspaceCreator.rights(onMac:)`),
@@ -605,14 +617,16 @@ public struct WorkspacesList: View {
                           pending: Set<String>, tracks: Bool) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = names[ws.macID]
+        // A Cloud workspace always names its machine (the Mac sidebar lists them among its own).
+        let isCloud = store.isCloudMachine(ws.macID)
         let canManage = status != .offline && !pending.contains(ws.id) && rights.manage
         let canArrange = canManage && rights.arrange
         let moves = canArrange ? inbox.moves(of: ws) : (up: false, down: false)
-        return WorkspaceRowModel(workspace: ws, status: status, macName: inbox.showsMacNames ? macName : nil,
+        return WorkspaceRowModel(workspace: ws, status: status, macName: inbox.showsMacNames || isCloud ? macName : nil,
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
                                  tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
                                  canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down,
-                                 compact: compactList)
+                                 compact: compactList, isCloud: isCloud)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -972,7 +986,8 @@ public struct WorkspacesList: View {
             recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
-            agentDestinations: NewAgentChatDestination.all(creator)
+            agentDestinations: NewAgentChatDestination.all(creator),
+            canNewCloud: creator.cloud?.canCreateMachine ?? false
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -1006,6 +1021,8 @@ struct WorkspaceRowModel: Equatable {
     var canMoveDown: Bool
     /// Settings → Compact Workspace List: the name line only.
     var compact = false
+    /// A Cloud machine's workspace: its machine line has the cloud glyph.
+    var isCloud = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
@@ -1024,7 +1041,7 @@ struct WorkspaceListRow: View, Equatable {
             host.openWorkspace(ws, status: model.status)
         } label: {
             WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName,
-                         compact: model.compact)
+                         compact: model.compact, isCloud: model.isCloud)
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
@@ -1083,6 +1100,8 @@ struct WorkspacesToolbar: View, Equatable {
         var canNewGroup: Bool
         /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
         var agentDestinations: [NewAgentChatDestination] = []
+        /// New Cloud Workspace can ask for a machine now.
+        var canNewCloud = false
     }
 
     let model: Model
@@ -1105,7 +1124,8 @@ struct WorkspacesToolbar: View, Equatable {
                                        sameNames: model.sameNames, recents: model.recents, options: model.options,
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
-                                       agentDestinations: model.agentDestinations,
+                                       agentDestinations: model.agentDestinations, canNewCloud: model.canNewCloud,
+                                       newCloud: { host.newCloudWorkspace() },
                                        createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
@@ -1417,6 +1437,8 @@ struct WorkspaceRow: View {
     var offlineMacName: String?
     /// The Mac's Compact Workspace List: one line (the status line goes; VoiceOver still reads it).
     var compact = false
+    /// A Cloud machine's workspace: the machine line starts with the cloud glyph.
+    var isCloud = false
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The status gutter; the title, separators and section titles start after it.
     private var gutter: CGFloat { Self.textLeading(typeSize) }
@@ -1463,7 +1485,7 @@ struct WorkspaceRow: View {
                     time
                 }
                 if showsStatusLine {
-                    StatusLine(workspace: workspace, status: status, macName: macName)
+                    StatusLine(workspace: workspace, status: status, macName: macName, isCloud: isCloud)
                         .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                         .opacity(status == .offline ? 0.6 : 1)
                 }
@@ -1550,6 +1572,7 @@ struct StatusLine: View {
     let workspace: Workspace
     let status: WorkspaceStatus
     var macName: String?
+    var isCloud = false
 
     var body: some View {
         Group {
@@ -1564,7 +1587,11 @@ struct StatusLine: View {
             case .creating:
                 Text(workspace.directory.isEmpty ? "Creating…" : Self.directoryName(workspace.directory))
             case .idle, .offline:
-                Text(Self.place(workspace, macName: macName))
+                if isCloud, macName != nil {
+                    Text("\(Image(systemName: "cloud")) \(Self.place(workspace, macName: macName))")
+                } else {
+                    Text(Self.place(workspace, macName: macName))
+                }
             }
         }
         .font(theme.type.rowSubtitle)
@@ -1830,6 +1857,9 @@ struct NewWorkspaceButton: View, Equatable {
     let newGroup: () -> Void
     /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
     var agentDestinations: [NewAgentChatDestination] = []
+    /// New Cloud Workspace (a new Cloud machine, then a workspace on it) can be asked for now.
+    var canNewCloud = false
+    var newCloud: () -> Void = {}
     /// Creates on a named Mac (New Agent Chat on…).
     var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
@@ -1838,7 +1868,7 @@ struct NewWorkspaceButton: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
             && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
-            && a.agentDestinations == b.agentDestinations
+            && a.agentDestinations == b.agentDestinations && a.canNewCloud == b.canNewCloud
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1848,14 +1878,7 @@ struct NewWorkspaceButton: View, Equatable {
     func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
     var body: some View {
-        Menu {
-            menu
-        } label: {
-            Label("New Workspace", systemImage: "square.and.pencil")
-        } primaryAction: {
-            create(.terminal, nil)
-        }
-        .disabled(target == nil)
+        button
         .alert("Open Folder", isPresented: $openingFolder) {
             TextField("~/code/project", text: $folderText)
                 .textInputAutocapitalization(.never)
@@ -1877,7 +1900,54 @@ struct NewWorkspaceButton: View, Equatable {
         .accessibilityHint(target.map { "Creates a workspace on \(displayName($0))" } ?? "")
     }
 
+    /// A tap creates on the target; with no machine to create on but Cloud available, the
+    /// tap opens the menu (New Cloud Workspace), so the button never does nothing.
+    @ViewBuilder private var button: some View {
+        if target != nil {
+            Menu {
+                menu
+            } label: {
+                Label("New Workspace", systemImage: "square.and.pencil")
+            } primaryAction: {
+                create(.terminal, nil)
+            }
+        } else {
+            Menu {
+                menu
+            } label: {
+                Label("New Workspace", systemImage: "square.and.pencil")
+            }
+            .disabled(!canNewCloud)
+        }
+    }
+
+    /// New Workspace on…: every machine the phone can create on (Macs, then Cloud machines),
+    /// and New Cloud Workspace (a new machine at the plan's default size).
+    @ViewBuilder private var newWorkspaceOn: some View {
+        if macs.count > 1 || (canNewCloud && !macs.isEmpty) {
+            Menu {
+                ForEach(macs) { machine in
+                    Button {
+                        createOn(.terminal, nil, machine.id)
+                    } label: {
+                        Label(machine.isCloud ? "\(machine.name) · Cloud" : displayName(machine),
+                              systemImage: machine.isCloud ? "cloud" : "desktopcomputer")
+                    }
+                    .accessibilityIdentifier("workspaces.newOn.\(machine.id)")
+                }
+            } label: {
+                Label("New Workspace on…", systemImage: "rectangle.stack.badge.plus")
+            }
+            .accessibilityIdentifier("workspaces.newOn")
+        }
+        if canNewCloud {
+            Button("New Cloud Workspace", systemImage: "cloud") { newCloud() }
+                .accessibilityIdentifier("workspaces.newCloud")
+        }
+    }
+
     @ViewBuilder private var menu: some View {
+        Section { newWorkspaceOn }
         if let mac = target, let options {
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }

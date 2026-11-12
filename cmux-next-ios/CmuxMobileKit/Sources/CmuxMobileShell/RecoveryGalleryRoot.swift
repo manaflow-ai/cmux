@@ -22,13 +22,17 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
-/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
+/// - `cloudworkspaces`: the Workspaces list with a Mac and Cloud machines in every state
+///   (`CloudWorkspacesGallery`), and the + menu's New Workspace on… and New Cloud Workspace;
+/// - `cloudmachineworkspaces`: the Cloud Machines page whose machine pages list their workspaces.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
     }
 
     let scene: String
+    @State private var cloudGallery = CloudWorkspacesGallery()
     /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
     let scheme: ColorScheme?
 
@@ -57,6 +61,10 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "cloudworkspaces":
+                cloudGallery.list
+            case "cloudmachineworkspaces":
+                NavigationStack { CloudMachinesScreen(model: .gallery(), workspaces: cloudGallery.machineWorkspaces) }
             default:
                 states
             }

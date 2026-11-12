@@ -29,6 +29,7 @@ extension LiveCoordinator {
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
             dialer: FFIMacLinkDialer(),
+            cloudDialer: LiveCoordinator.standardCloudDialer(userID: user.id, deviceName: UIDevice.current.name, api: api),
             keys: PhoneKeys(userID: user.id),
             push: PushKeys.current()
         )

@@ -99,6 +99,22 @@ public struct WorkspaceInbox: Hashable, Sendable {
             case notConnected
             /// Online, nothing known, and the last dial failed (live). A tap retries.
             case failed(String)
+            /// A paused Cloud machine: its line offers Start; its rows (if any) expand in place.
+            case cloudPaused
+            /// A Cloud machine starting or being set up ("Waking up…").
+            case cloudWaking
+            /// A Cloud machine that failed (its note): its line offers Retry.
+            case cloudFailed(String?)
+            /// A running Cloud machine with no workspaces: its line offers New Workspace.
+            case cloudEmpty
+
+            /// The line belongs to a Cloud machine's state (shown also when filtered to it).
+            public var isCloud: Bool {
+                switch self {
+                case .cloudPaused, .cloudWaking, .cloudFailed, .cloudEmpty: true
+                case .offline, .notConnected, .failed: false
+                }
+            }
         }
 
         public var mac: MacDevice
@@ -254,10 +270,34 @@ public struct WorkspaceInbox: Hashable, Sendable {
         }
         moveRuns = runs
         let online = scoped.filter(\.isOnline)
-        let asleep = scope == .all && !scoped.isEmpty && online.isEmpty
+        // Asleep speaks of Macs: a paused Cloud machine has its own line (with Start).
+        let scopedMacs = scoped.filter { !$0.isCloud }
+        let asleep = scope == .all && !scopedMacs.isEmpty && online.isEmpty
         allAsleep = asleep
         let searching = !query.isEmpty
         let folds = scoped.compactMap { mac -> Fold? in
+            if let cloud = mac.cloud {
+                let rows = sorted(matching.filter { $0.macID == mac.id })
+                let forced = scope.macID != nil || searching
+                switch cloud.status {
+                case .deleting:
+                    return nil
+                case .paused, .pausing:
+                    if searching && rows.isEmpty { return nil }
+                    return Fold(mac: mac, reason: .cloudPaused, workspaces: rows, isForcedOpen: forced)
+                case .starting, .provisioning:
+                    if searching && rows.isEmpty { return nil }
+                    return Fold(mac: mac, reason: .cloudWaking, workspaces: rows, isForcedOpen: forced)
+                case .failed:
+                    if searching && rows.isEmpty { return nil }
+                    return Fold(mac: mac, reason: .cloudFailed(cloud.note), workspaces: rows, isForcedOpen: forced)
+                case .running:
+                    // Filtered to it, an empty machine is the page's empty state (New Workspace).
+                    if !searching, scope.macID == nil, rows.isEmpty, context.listState(mac.id) == .live {
+                        return Fold(mac: mac, reason: .cloudEmpty, workspaces: [], isForcedOpen: false)
+                    }
+                }
+            }
             if !mac.isOnline {
                 let rows = sorted(matching.filter { $0.macID == mac.id })
                 guard !rows.isEmpty else { return nil }

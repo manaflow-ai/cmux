@@ -84,6 +84,8 @@ final class ShellModel {
     }
 
     var live: LiveCoordinator?
+    /// The account's Cloud machines on the Workspaces list (live, with a Cloud service).
+    private(set) var cloudWorkspaces: LiveCloudWorkspaces?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
@@ -167,6 +169,7 @@ final class ShellModel {
         terminalTabs.mockDataEnabled = mockMode
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
+                ?? store?.cloudMachines.first { $0.id == workspace.macID }?.name
         }
         // Voice mode on a terminal while an agent runs in it (it replaced the dictation
         // mic): the agent's Feed events are read aloud; the user's words are typed in.
@@ -292,12 +295,19 @@ final class ShellModel {
             }
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
-            terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
-            terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            // A Cloud machine's carrier serves no `file` or `upload`: no Files previews and no
+            // attachments there (hidden, not refused).
+            terminalTabs.artifactSourceProvider = { [weak live] tab, macID in
+                live?.isCloud(macID: macID) == true ? nil : live?.terminalArtifactSource(tabID: tab.id, macID: macID)
+            }
+            terminalTabs.uploaderProvider = { [weak live] tab, macID in
+                live?.isCloud(macID: macID) == true ? nil : live?.terminalUploader(tabID: tab.id, macID: macID)
+            }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
+            attachCloud(live)
             FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
                 // The Feed holds every linked Mac's terminal events: each clears its own.
                 let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
@@ -346,7 +356,55 @@ final class ShellModel {
             terminalTabs.uploaderProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
+            attachCloud(nil)
         }
+    }
+
+    /// A Cloud machine page's Workspaces section: the machine's workspaces as the Workspaces list
+    /// has them, each pushing its workspace page; New Workspace through the same instant create.
+    func cloudMachineWorkspaces() -> CloudMachineWorkspaces? {
+        guard let live else { return nil }
+        let store = store, creator = creator, terminalTabs = terminalTabs
+        return CloudMachineWorkspaces(
+            state: { [weak live] machineID in
+                let rows = store.workspaces.filter { $0.macID == machineID }
+                switch store.macDataPhase(machineID) {
+                case .live, .empty, .cached: return .loaded(rows)
+                case .failed(let reason): return .failed("Couldn't reach it: \(reason)")
+                case .loading, .idle, .offline:
+                    return rows.isEmpty || live == nil ? .loading : .loaded(rows)
+                }
+            },
+            canCreate: { machineID in creator.availableMacs.contains { $0.id == machineID } },
+            create: { creator.create(start: .terminal, macID: $0) },
+            page: { [weak self] workspace in
+                AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, terminal: terminalTabs, creator: creator,
+                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing))
+            },
+            shown: { [weak live] machineID in live?.touch(machineID) }
+        )
+    }
+
+    /// The account's Cloud machines among the Macs on the Workspaces list, while signed in to a
+    /// build with a Cloud service: their list, Start, Retry and New Cloud Workspace.
+    private func attachCloud(_ live: LiveCoordinator?) {
+        guard let live, ChiefCloudConfig.current() != nil else {
+            cloudWorkspaces?.stop()
+            cloudWorkspaces = nil
+            creator.cloud = nil
+            return
+        }
+        if let cloudWorkspaces, cloudWorkspaces.isAttached(to: live) { return }
+        cloudWorkspaces?.stop()
+        let cloud = LiveCloudWorkspaces(model: .live(), coordinator: live)
+        cloud.createWorkspace = { [weak creator] machineID in creator?.create(start: .terminal, macID: machineID) }
+        cloud.onRefusal = { [weak self] message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: message)
+            theme.haptics.error()
+        }
+        cloudWorkspaces = cloud
+        creator.cloud = cloud
+        cloud.start()
     }
 
     /// Tells the coordinator which Macs' data is on screen: one workspace's
@@ -410,7 +468,8 @@ final class ShellModel {
         if let index = workspacesPath.firstIndex(where: { $0.id == placeholder.id }) {
             workspacesPath.removeSubrange(index...)
         }
-        let mac = store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name ?? "the Mac"
+        let mac = store.machine(id: placeholder.macID)?.name ?? store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name
+            ?? "the Mac"
         toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create a workspace on \(mac)")
         theme.haptics.error()
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
