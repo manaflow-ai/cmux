@@ -1,7 +1,8 @@
 // The hat's top rim drags (SubagentTray.tsx): up makes its list of lines taller, down shorter, as a
 // sheet's grabber does (Leo, 2026-11-12: "you have this glass rim, but you can't drag up the
 // composer hat area"). Dragged up from folded, the hat opens to the height the drag reaches; dragged
-// down past its last line, it folds. A double-click on the rim goes back to the default five lines.
+// down past its last line, it folds and keeps the height it had. A press that never moves is a click on
+// what the rim lies over. A double-click on the rim goes back to the default five lines.
 //
 // The height is the person's, one for every chat: it is kept in memory while a drag runs, so every
 // hat on the page follows it, and written to localStorage when the drag ends, so it survives a reload.
@@ -14,7 +15,7 @@ const STORAGE_KEY = "cmux.agentPane.hatListHeight";
 export const HAT_MIN_HEIGHT = 28;
 /// The tallest list as a share of the window, so the transcript always keeps most of the pane.
 export const HAT_MAX_SHARE = 0.7;
-/// How far a drag on a folded hat goes up before it opens it, so a click on the rim never does.
+/// How far a press on the rim moves before it is a drag: a click on it never opens, folds or sizes.
 export const HAT_OPEN_SLOP = 8;
 
 /// The list height a drag asks for, kept between one line and `HAT_MAX_SHARE` of the window.
@@ -30,7 +31,9 @@ export function hatDrag(
   grown: number,
   viewport: number,
 ): { kind: "fold" } | { kind: "rest" } | { kind: "size"; height: number } {
-  if (start === 0 && grown < HAT_OPEN_SLOP) return { kind: "rest" };
+  // A press that wobbles a pixel or two is a click, open or folded: it sizes nothing and saves nothing.
+  if (Math.abs(grown) < HAT_OPEN_SLOP) return { kind: "rest" };
+  if (start === 0 && grown < 0) return { kind: "rest" };
   const wanted = start + grown;
   if (wanted < HAT_MIN_HEIGHT / 2) return { kind: "fold" };
   return { kind: "size", height: clampHatHeight(wanted, viewport) };

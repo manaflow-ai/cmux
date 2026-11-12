@@ -39,13 +39,9 @@ const snapshot = chat([
   }),
   activity(
     [
-      command(
-        "glaeda-gh wait run 19283746 --repo manaflow-ai/cmux --timeout 1800 --until completed",
-        "wait for CI",
-        12,
-      ),
-      command("glaeda-gh wait pr 41790 --repo manaflow-ai/cmux --timeout 3600 --until merged", "wait for merge", 10),
-      command("cmux-ci test -- bun test webviews/src/agent-session/acpmux/subagents", "run the hat tests", 9),
+      command("gh run watch 19283746 --repo acme/app --exit-status --interval 30 --compact", "wait for CI", 12),
+      command("gh pr checks 41790 --repo acme/app --watch --fail-fast --interval 30", "wait for merge", 10),
+      command("bun test webviews/src/agent-session/acpmux/subagents --timeout 30000", "run the hat tests", 9),
       command("cd ~/Projects/app && bun run dev --port 5173", "Run the dev server", 8),
     ],
     13,

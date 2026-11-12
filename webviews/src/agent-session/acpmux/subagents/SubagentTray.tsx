@@ -614,16 +614,22 @@ export const SubagentTray = memo(function SubagentTray({
     if (event.button !== 0) return;
     const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
     const start = open && list ? list.getBoundingClientRect().height : 0;
-    const startY = event.clientY;
+    const { clientX: startX, clientY: startY } = event;
     const rim = event.currentTarget;
     rim.setPointerCapture(event.pointerId);
     event.preventDefault();
     let shown = open;
-    let last = hatHeight;
+    // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
+    const before = hatHeight;
+    let last = before;
+    let dragged = false;
     const move = (moved: PointerEvent) => {
       const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
       if (step.kind === "rest") return;
+      dragged = true;
       if (step.kind === "fold") {
+        last = before;
+        setHatHeight(before, false);
         if (shown && headed) {
           shown = false;
           setOpened(false);
@@ -639,15 +645,28 @@ export const SubagentTray = memo(function SubagentTray({
       last = step.height;
       setHatHeight(step.height, false);
     };
-    const end = () => {
+    const end = (ended: PointerEvent) => {
       rim.removeEventListener("pointermove", move);
       rim.removeEventListener("pointerup", end);
       rim.removeEventListener("pointercancel", end);
-      setHatHeight(last, true);
+      rim.removeEventListener("lostpointercapture", end);
+      if (dragged) {
+        setHatHeight(last, true);
+        return;
+      }
+      // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
+      // the composer seam), so it goes there, never swallowed by the rim.
+      if (ended.type !== "pointerup") return;
+      rim.style.pointerEvents = "none";
+      const under = document.elementFromPoint(startX, startY);
+      rim.style.pointerEvents = "";
+      if (under instanceof HTMLElement && !rim.contains(under)) under.click();
     };
     rim.addEventListener("pointermove", move);
     rim.addEventListener("pointerup", end);
     rim.addEventListener("pointercancel", end);
+    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
+    rim.addEventListener("lostpointercapture", end);
   };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
