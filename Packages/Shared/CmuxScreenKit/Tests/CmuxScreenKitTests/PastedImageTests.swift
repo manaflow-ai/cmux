@@ -198,13 +198,16 @@ struct PastedImageTests {
         #expect(after.metadata == [])
     }
 
-    /// Text a file carries outside the metadata ImageIO reads (a JPEG comment, PNG text chunks)
-    /// never reaches the Mac: the sent bytes do not hold it, and the image still reads whole.
+    /// Text a file carries outside the metadata ImageIO reads (a JPEG comment and a JFXX extension
+    /// segment, PNG text chunks) never reaches the Mac: the sent bytes do not hold it, and the image
+    /// still reads whole.
     @Test(arguments: [UTType.jpeg, .png])
     func textOutsideTheMetadataIsNotSent(_ type: UTType) throws {
         let clean = try Self.photo(type, width: 320, height: 240, alpha: false)
         let secret = "SpotPlace-Golden-Gate-Park"
-        let photo = type == .jpeg ? Self.withJPEGComment(clean, secret) : try Self.withPNGText(clean, secret)
+        let photo = type == .jpeg
+            ? Self.withJPEGSegment(Self.withJPEGComment(clean, secret), marker: 0xE0, payload: Array("JFXX\0".utf8) + [0x13] + Array(secret.utf8))
+            : try Self.withPNGText(clean, secret)
         #expect(photo.range(of: Data(secret.utf8)) != nil, "the test photo holds the text")
         #expect((try Self.read(photo).width, try Self.read(photo).height) == (320, 240), "and still reads")
         let pasted = try #require(PastedImage(photo: photo))
@@ -286,12 +289,79 @@ struct PastedImageTests {
 
     /// `jpeg` with a comment segment (COM) holding `text`, right after its start marker.
     static func withJPEGComment(_ jpeg: Data, _ text: String) -> Data {
-        let payload = Array(text.utf8)
+        withJPEGSegment(jpeg, marker: 0xFE, payload: Array(text.utf8))
+    }
+
+    /// `jpeg` with a segment `marker` holding `payload`, right after its start marker.
+    static func withJPEGSegment(_ jpeg: Data, marker: UInt8, payload: [UInt8]) -> Data {
         let length = payload.count + 2
         var out = Data(jpeg.prefix(2))
-        out.append(contentsOf: [0xFF, 0xFE, UInt8(length >> 8), UInt8(length & 0xFF)] + payload)
+        out.append(contentsOf: [0xFF, marker, UInt8(length >> 8), UInt8(length & 0xFF)] + payload)
         out.append(jpeg.dropFirst(2))
         return out
+    }
+
+    /// `jpeg` with its JFIF APP0 segment replaced by one that holds a `width` x `height` RGB
+    /// thumbnail of `fill` bytes (an old picture a camera or editor left there).
+    static func withJFIFThumbnail(_ jpeg: Data, width: UInt8, height: UInt8, fill: UInt8) throws -> Data {
+        let bytes = [UInt8](jpeg)
+        try #require(bytes.count > 6 && bytes[2] == 0xFF && bytes[3] == 0xE0, "the test JPEG starts with APP0")
+        let oldEnd = 4 + (Int(bytes[4]) << 8 | Int(bytes[5]))
+        let payload = Array("JFIF\0".utf8) + [1, 1, 0, 0, 72, 0, 72, width, height]
+            + [UInt8](repeating: fill, count: 3 * Int(width) * Int(height))
+        let length = payload.count + 2
+        return Data(bytes[0..<2] + [0xFF, 0xE0, UInt8(length >> 8), UInt8(length & 0xFF)] + payload + bytes[oldEnd...])
+    }
+
+    /// An old picture in a JPEG's JFIF thumbnail, or in a JFXX extension segment (which exists only
+    /// for thumbnails), never reaches the Mac: the sent file holds no thumbnail bytes, its JFIF
+    /// segment (when kept) says 0 x 0, and the image still reads whole.
+    @Test func aJpegThumbnailIsNotSent() throws {
+        let clean = try Self.photo(.jpeg, width: 320, height: 240, alpha: false, location: .gps)
+        let marker = [UInt8](repeating: 0xA7, count: 48)
+        let thumbnailed = try Self.withJFIFThumbnail(clean, width: 16, height: 16, fill: 0xA7)
+        let extended = Self.withJPEGSegment(clean, marker: 0xE0, payload: Array("JFXX\0".utf8) + [0x13, 16, 16]
+            + [UInt8](repeating: 0xA7, count: 3 * 16 * 16))
+        for photo in [thumbnailed, extended] {
+            #expect(photo.range(of: Data(marker)) != nil, "the test photo holds a thumbnail")
+            let pasted = try #require(PastedImage(photo: photo))
+            #expect(pasted.data.range(of: Data(marker)) == nil, "no thumbnail bytes are sent")
+            #expect(pasted.data.range(of: Data("JFXX".utf8)) == nil, "no JFXX segment")
+            let segments = Self.segments(pasted.data, type: .jpeg)
+            for jfif in segments where jfif.hasPrefix("E0") {
+                #expect(jfif.hasPrefix("E0(16):JFIF"), "a JFIF segment with no thumbnail: \(segments)")
+            }
+            let read = try Self.read(pasted.data)
+            #expect((read.width, read.height) == (320, 240))
+            #expect(read.isRed(.topLeft) && !read.isRed(.bottomRight))
+        }
+    }
+
+    /// A damaged JPEG or PNG is refused, and nothing is sent: a segment longer than the file, a
+    /// scan cut off before the end of the image, a PNG chunk whose length runs past the file.
+    @Test(arguments: ["segment length past the end", "truncated scan", "PNG chunk length past the end"])
+    func aDamagedFileIsRefused(_ damage: String) throws {
+        let jpeg = [UInt8](try Self.photo(.jpeg, width: 320, height: 240, alpha: false, location: .gps))
+        let png = [UInt8](try Self.photo(.png, width: 320, height: 240, alpha: false, location: .gps))
+        let photo: [UInt8]
+        switch damage {
+        case "segment length past the end":
+            // A comment segment whose length says 65,000 bytes, in a file far shorter.
+            photo = Array(jpeg[0..<2]) + [0xFF, 0xFE, 0xFD, 0xE8] + Array("cut".utf8) + Array(jpeg[2...])
+        case "truncated scan":
+            // The file ends partway through the scan's coded data: no end-of-image marker.
+            let scan = try #require(Self.segments(Data(jpeg), type: .jpeg).firstIndex { $0.hasPrefix("DA") })
+            _ = scan
+            let start = try #require((0..<jpeg.count - 1).first { jpeg[$0] == 0xFF && jpeg[$0 + 1] == 0xDA })
+            photo = Array(jpeg[0..<(start + (jpeg.count - start) / 2)])
+        default:
+            // The IDAT chunk's length is made larger than the rest of the file.
+            let idat = try #require((8..<png.count - 4).first { Array(png[$0..<$0 + 4]) == Array("IDAT".utf8) })
+            var damaged = png
+            damaged.replaceSubrange((idat - 4)..<idat, with: [0x7F, 0xFF, 0xFF, 0xFF])
+            photo = damaged
+        }
+        #expect(PastedImage(photo: Data(photo)) == nil, "\(damage): refused")
     }
 
     /// `png` with a tEXt, an iTXt and a zTXt chunk whose keywords and text hold `text`, right after
