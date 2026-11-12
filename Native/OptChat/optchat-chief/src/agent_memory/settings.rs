@@ -112,7 +112,7 @@ pub fn document_checked(home: &Path) -> Result<Option<Value>, String> {
     let Some(text) = text else {
         return Ok(None);
     };
-    parse(&text)
+    parse(&text).map(Some)
 }
 
 /// Settings text as JSON: cmux-config's JSONC reader (comments, trailing
