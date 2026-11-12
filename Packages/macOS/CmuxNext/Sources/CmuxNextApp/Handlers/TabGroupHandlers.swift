@@ -196,7 +196,7 @@ enum TabGroupHandlers {
             guard CloseUndoToasts.isUserClose, let undo = ctx.services.closedTabs?.undoToasts else { return close() }
             // One undo toast for the group (REOPEN-CLOSED), decided before the close ends its terminals (cx-lb4al).
             let tabs = pane.tabs.filter { $0.tabGroup == group }, window = ctx.services.windows.active?.window
-            undo.decideFirst(tabs, on: ctx.services.daemon(for: pane)) { undo.expectGroup(tabs: tabs, in: pane, window: window, costly: $0); close() }
+            undo.expectGroup(tabs: tabs, in: pane, window: window, costly: undo.isCostly(tabs)); close()
         }
         bind("tabGroup.save") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }

@@ -17,6 +17,7 @@ import argparse, json, os, plistlib, socket, statistics, subprocess, sys, tempfi
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -246,12 +247,12 @@ try:
     why = real_input_works() if opts.input == "real" else None
     if why:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
-        print(f"real input fell back to synthetic: {why}", flush=True)
+        safe_print(f"real input fell back to synthetic: {why}", flush=True)
         opts.input = REPORT["input"] = "synthetic"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
-    print(f"app pid {APP_PID}, input {opts.input}, active {REPORT['active_at_start']}, window "
-          f"{(main_window() or {}).get('frame')}, cards {REPORT['defaults']}", flush=True)
+    safe_print(f"app pid {APP_PID}, input {opts.input}, active {REPORT['active_at_start']}, window "
+               f"{(main_window() or {}).get('frame')}, cards {REPORT['defaults']}", flush=True)
     for count in [int(c) for c in opts.workspaces.split(",") if c]:
         if not fill(count):
             REPORT["notes"].append(f"the app stopped making workspaces before {count}")
@@ -265,8 +266,8 @@ try:
                 "pending_p50": pct(pending, 0.5), "pending_p95": pct(pending, 0.95),
                 "median": statistics.median(shown) if shown else None, "runs": runs}
         REPORT["cells"].append(cell)
-        print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
-              f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms", flush=True)
+        safe_print(f"{count} workspaces: {len(shown)}/{len(runs)} shown, last move to shown p50 {cell['shown_p50']} "
+                   f"p95 {cell['shown_p95']} ms, to pending p50 {cell['pending_p50']} ms", flush=True)
     status = 0 if REPORT["cells"] and all(c["shown"] for c in REPORT["cells"]) else 1
 finally:
     if app is not None:
