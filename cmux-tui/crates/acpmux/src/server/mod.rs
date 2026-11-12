@@ -690,16 +690,23 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
+        let line_bytes = line.len();
         match self.out.try_send(line) {
-            Ok(()) => {}
+            Ok(()) => self.queued.queued(line_bytes, &self.out),
             Err(mpsc::error::TrySendError::Closed(_)) => return false,
             // No room: it waits for some, and notices may go first.
             Err(mpsc::error::TrySendError::Full(line)) => {
                 let out = self.out.clone();
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
+                // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
+                let waiting = self.queued.waiting(line_bytes);
+                let queued = self.queued.clone();
                 self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    let _ = out.send(line).await;
+                    if out.send(line).await.is_ok() {
+                        queued.queued(line_bytes, &out);
+                    }
+                    drop(waiting);
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
             }
