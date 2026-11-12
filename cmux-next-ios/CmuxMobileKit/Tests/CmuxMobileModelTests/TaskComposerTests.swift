@@ -99,21 +99,26 @@ import Testing
 
     @Test func aRefusedTaskGivesItsDraftBackOnceUnlessANewOneWasStarted() async throws {
         let (store, creator, backend) = make()
-        backend.result = { _ in .failure(WorkspaceCreationError("Folder not trusted")) }
+        backend.result = { _ in .failure(WorkspaceCreationError("Trust web on the Mac first.", isForPerson: true)) }
         var failures: [String] = []
         creator.onFailure = { _, message in failures.append(message) }
         let draft = TaskDraft(prompt: "Try this", picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr")])
         let made = creator.startTask(draft)
         await creator.settle()
         #expect(made.allSatisfy { store.workspace(id: $0.id) == nil })
-        #expect(failures == ["Folder not trusted", "Folder not trusted"])
+        #expect(failures == ["Trust web on the Mac first.", "Trust web on the Mac first."])
         #expect(creator.taskDraft == draft)
+        // The composer says why, and the toast that the draft is back.
+        #expect(creator.taskRefusal == "Trust web on the Mac first.")
+        #expect(made.allSatisfy { creator.wasRefusedTask($0.id) })
 
         // A draft written meanwhile is never replaced.
         creator.startTask(draft)
+        #expect(creator.taskRefusal == nil)
         creator.taskDraft.prompt = "Something else"
         await creator.settle()
         #expect(creator.taskDraft.prompt == "Something else")
+        #expect(creator.taskRefusal == nil)
     }
 
     @Test func imageTypeIsReadFromItsBytes() {

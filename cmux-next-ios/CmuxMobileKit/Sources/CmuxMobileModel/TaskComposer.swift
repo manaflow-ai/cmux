@@ -184,18 +184,25 @@ extension WorkspaceCreator {
             made.append(placeholder)
         }
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory)
+        taskRefusal = nil
         return made
     }
 
     /// A refused task workspace gives its draft back, once, when the composer is empty
     /// (the person did not start writing another task meanwhile).
-    func restoreTaskDraft(after placeholderID: String) {
+    /// `reason`: the Mac's refusal when it is written for the person, shown in New Task.
+    func restoreTaskDraft(after placeholderID: String, reason: String?) {
         guard let draft = taskOrigins.removeValue(forKey: placeholderID) else { return }
+        refusedTaskIDs.insert(placeholderID)
         // Its siblings (the same task on other agents) don't give it back again.
         for (id, other) in taskOrigins where other == draft { taskOrigins[id] = nil }
         guard taskDraft.isEmpty else { return }
         taskDraft = draft
+        taskRefusal = reason ?? "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
     }
+
+    /// Whether `placeholderID` was a New Task workspace the Mac refused (its draft is back).
+    public func wasRefusedTask(_ placeholderID: String) -> Bool { refusedTaskIDs.contains(placeholderID) }
 
     /// "Claude", "Codex", else the harness capitalized; "Agent" for the Mac's default.
     public static func agentTitle(_ harness: String) -> String {

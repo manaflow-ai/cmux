@@ -449,7 +449,8 @@ final class ShellModel {
             workspacesPath.removeSubrange(index...)
         }
         let mac = store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name ?? "the Mac"
-        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create a workspace on \(mac)")
+        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: creator.wasRefusedTask(placeholder.id)
+            ? "Couldn't start the task on \(mac). It's back in New Task." : "Couldn't create a workspace on \(mac)")
         theme.haptics.error()
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
     }

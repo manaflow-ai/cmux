@@ -45,6 +45,18 @@ struct TaskComposerSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let refusal = creator.taskRefusal {
+                    Section {
+                        Label {
+                            Text(refusal)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.colors.warning.color)
+                        }
+                        .accessibilityIdentifier("taskComposer.refusal")
+                    } header: {
+                        Text("Last start didn't go through")
+                    }
+                }
                 promptSection
                 agentsSection
                 whereSection

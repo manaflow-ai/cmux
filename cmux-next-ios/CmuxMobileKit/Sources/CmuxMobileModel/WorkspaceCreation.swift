@@ -576,6 +576,10 @@ public final class WorkspaceCreator {
     public var taskDraft = TaskDraft()
     /// The draft each New Task placeholder came from, by placeholder id, until the Mac answers.
     @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
+    /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
+    public var taskRefusal: String?
+    /// Placeholders of refused tasks (the failure toast says the draft is back).
+    @ObservationIgnored var refusedTaskIDs: Set<String> = []
     /// The last group request of each Mac: group requests go to a Mac one
     /// after another, so the Mac applies quick taps in the order they came.
     @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
@@ -783,7 +787,7 @@ public final class WorkspaceCreator {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             store.removePending(placeholder.id)
             phases[placeholder.id] = .failed(message)
-            restoreTaskDraft(after: placeholder.id)
+            restoreTaskDraft(after: placeholder.id, reason: (error as? WorkspaceCreationError)?.isForPerson == true ? message : nil)
             onFailure?(placeholder, message)
         }
     }
