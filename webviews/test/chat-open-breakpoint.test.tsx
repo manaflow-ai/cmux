@@ -168,8 +168,7 @@ test("history that lands after the open has loaded still draws in place; only wh
   try {
     const shown = [row("p1", "user", "First"), row("r1", "assistant", "First reply")];
     await render(shown);
-    // The read is done and well past its load window, then two rows from before the open land.
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    // The chat is not loading (no load window is open), then two rows from before the open land.
     await render([...shown, row("p2", "user", "Second"), row("r2", "assistant", "Second reply")]);
     expect(animatedIds(host)).toEqual([]);
   } finally {
