@@ -261,9 +261,11 @@ public struct BrowserURLResolver: Sendable {
             host.contains(":")
         guard isHostLike else { return false }
 
-        let hasPathQueryOrFragment = !components.path.isEmpty ||
-            components.query != nil ||
-            components.fragment != nil
+        // Judge the encoded components: an escape kept as written need not
+        // be UTF-8, and the decoded path, query or fragment is then empty.
+        let hasPathQueryOrFragment = !components.percentEncodedPath.isEmpty ||
+            components.percentEncodedQuery != nil ||
+            components.percentEncodedFragment != nil
         return hasPathQueryOrFragment || components.port != nil
     }
 

@@ -73,9 +73,14 @@ public struct TerminalLinkRouter: Sendable {
             return .embeddedBrowser(webURL)
         }
 
-        // Encode what the link can't carry first, so an existing `%2F` beside
-        // raw Unicode isn't encoded again to `%252F`.
-        let urlText = URLEscapePreservingEncoder().encode(trimmed)
+        // Encode what a link with a scheme can't carry first, so an existing
+        // `%2F` beside raw Unicode isn't encoded again to `%252F`. Text that
+        // Foundation parses without a scheme stays as written: encoding it
+        // changes whether it parses at all, so text that named nothing would
+        // become a link.
+        let urlText = Self.schemeColon(in: trimmed) != nil
+            ? URLEscapePreservingEncoder().encode(trimmed)
+            : trimmed
         if let parsed = URL(string: urlText),
            let scheme = parsed.scheme?.lowercased() {
             if scheme == "http" || scheme == "https" {
@@ -124,14 +129,22 @@ public struct TerminalLinkRouter: Sendable {
     /// Whether the text starts with a URL scheme (`https:`, `mailto:`). A
     /// colon before a digit is a port (`localhost:8000`), not a scheme.
     private static func hasExplicitScheme(_ text: String) -> Bool {
-        guard let colon = text.firstIndex(of: ":"), colon != text.startIndex else { return false }
+        guard let colon = schemeColon(in: text) else { return false }
+        let next = text.index(after: colon)
+        return next == text.endIndex || !text[next].isNumber
+    }
+
+    /// The colon ending an RFC 3986 scheme at the start of the text: a
+    /// letter, then letters, digits, `+`, `-` or `.`. Foundation parses any
+    /// such prefix as a scheme, `localhost:8000` and `sms:090…` included.
+    private static func schemeColon(in text: String) -> String.Index? {
+        guard let colon = text.firstIndex(of: ":"), colon != text.startIndex else { return nil }
         let scheme = text[..<colon]
         guard let first = scheme.first, first.isASCII, first.isLetter,
               scheme.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+-.".contains($0)) }) else {
-            return false
+            return nil
         }
-        let next = text.index(after: colon)
-        return next == text.endIndex || !text[next].isNumber
+        return colon
     }
 
     /// Whether a scheme-less link's host can be a web host: localhost, an IP
