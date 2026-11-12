@@ -398,7 +398,8 @@ def toolchain_identity() -> str:
 
 
 def seed_packages(packages: Path, workspace: Path) -> None:
-    """The host's package checkouts, seeded once from this slot's own (a clone, so nothing is fetched again)."""
+    """The host's package checkouts, seeded once from this slot's own (a clone, so nothing is fetched again),
+    without the slot's workspace-state.json."""
     if packages.exists():
         return
     slot = workspace / '.spm-cache'
@@ -413,6 +414,9 @@ def seed_packages(packages: Path, workspace: Path) -> None:
         try:
             if not cloned:
                 shutil.copytree(slot.resolve(), staging, symlinks=True)
+            # workspace-state.json holds the slot's absolute artifact paths; kept, every slot of the Mac read
+            # that one slot's artifacts (run 43304572615). The build's resolve writes this tree's own.
+            remove(staging / 'workspace-state.json')
             staging.replace(packages)
             return
         except OSError as error:
