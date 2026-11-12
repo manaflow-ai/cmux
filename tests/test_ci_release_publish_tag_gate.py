@@ -749,6 +749,10 @@ GH_API_WRITE_ESCAPES = {
 UNRESOLVED_ESCAPES = {
     "a heredoc into bash": "bash <<'EOF'\ngh release create v1 dist/x\nEOF",
     "a heredoc into sh -s": "sh -s <<EOF\ngh release create v1 dist/x\nEOF",
+    "python -c inline code": "python3 -c 'import subprocess; subprocess.run([\"gh\", \"release\", \"create\", \"v1\"])'",
+    "fish -c inline code": "fish -c 'gh release create v1'",
+    "python heredoc script": "python3 <<'PY'\nimport subprocess\nsubprocess.run([\"gh\", \"release\", \"create\", \"v1\"])\nPY",
+    "python stdin script": "python3 - < generated.py",
     "eval of a variable": "cmd=\"gh release create v1 dist/x\"\neval \"$cmd\"",
     "bash -c of a variable": "cmd=\"gh release create v1 dist/x\"\nbash -c \"$cmd\"",
     "source of a generated file": "printf 'gh release create v1 dist/x\\n' > publish.sh\nsource ./publish.sh",

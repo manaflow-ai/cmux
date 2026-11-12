@@ -397,7 +397,9 @@ class AgainstBash(unittest.TestCase):
                 # find -exec keeps its `;` terminator as a last word: the command is what the words start with.
                 self.assertTrue(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
         for script in ("bash <<'EOF'\ngh release create v1\nEOF", "eval \"$cmd\"", "bash -c \"$cmd\"", "source ./gen.sh",
-                       ". ./gen.sh", "sh -s < f", "bash -c 'unterminated", "eval \"$(cat gen.sh)\""):
+                       ". ./gen.sh", "sh -s < f", "python3 -c 'gh release create v1'",
+                       "fish -c 'gh release create v1'", "python3 <<'PY'\ngh release create v1\nPY",
+                       "python3 - < generated.py", "bash -c 'unterminated", "eval \"$(cat gen.sh)\""):
             with self.subTest(unreadable=script):
                 self.assertIn([], may_run_nested(script))
         for script in ("echo hi", "f() { echo hi; }\nf", "xargs rm -f \"$x\" < f", "sudo apt-get install -y gh",
