@@ -283,11 +283,12 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     HolderCommand { spawn_argv, argv: launch.command, env, cwd }
 }
 
-/// The holder child's environment: the daemon's own, then the terminal
-/// identity, then the launch's injected values, less
-/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`]. The holder gets
-/// the whole environment spelled out, so the removal happens here rather than
-/// through `PtyCommand::env_remove` as on the other two child paths.
+/// The holder child's environment: the daemon's own, then `TERM` and
+/// `COLORTERM`, then the launch's injected values, then
+/// [`cmux_pty::TERMINAL_IDENTITY`], less the keys
+/// [`crate::shell_integration::keys_to_unset_in_child`] names. The holder gets
+/// the whole environment spelled out, so this happens here rather than
+/// through `PtyCommand` as on the other child paths.
 fn holder_environment(
     launch: &crate::shell_integration::ShellLaunch,
     opts: &SurfaceOptions,
@@ -300,6 +301,9 @@ fn holder_environment(
         if !crate::login_shell::is_marker(key) {
             env.insert(key.into(), value.into());
         }
+    }
+    for (key, value) in cmux_pty::TERMINAL_IDENTITY {
+        env.insert(key.into(), value.into());
     }
     for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
         env.remove(OsStr::new(key));
