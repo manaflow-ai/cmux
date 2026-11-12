@@ -255,8 +255,12 @@ fn read_journal_tail(connection: &Connection) -> anyhow::Result<JournalDiskSnaps
     };
     let first_sequence = sequence("ASC")?;
     let head_sequence = sequence("DESC")?;
-    let live_rows =
-        if head_sequence == 0 { 0 } else { head_sequence.saturating_sub(first_sequence) + 1 };
+    // A row count for the report: saturates (a journal never has u64::MAX rows).
+    let live_rows = if head_sequence == 0 {
+        0
+    } else {
+        head_sequence.saturating_sub(first_sequence).saturating_add(1)
+    };
     let mut statement = connection.prepare(&format!(
         "SELECT kind, COUNT(*), SUM(bytes), MIN(committed_at_ms), MAX(committed_at_ms)
          FROM (SELECT kind, committed_at_ms, {JOURNAL_ROW_BYTES_SQL} AS bytes
@@ -298,12 +302,11 @@ fn read_journal_tail(connection: &Connection) -> anyhow::Result<JournalDiskSnaps
     let sample_bytes = kinds.iter().map(|kind| kind.sample_bytes).sum::<u64>();
     kinds.sort_by(|a, b| b.sample_bytes.cmp(&a.sample_bytes).then(a.kind.cmp(&b.kind)));
     kinds.truncate(LISTED_KINDS);
-    let estimated_live_bytes = if sample_rows == 0 {
-        0
-    } else {
-        u64::try_from(u128::from(sample_bytes) * u128::from(live_rows) / u128::from(sample_rows))
-            .unwrap_or(u64::MAX)
-    };
+    // A report estimate: two u64 values multiply within u128; no sampled rows is no estimate.
+    let estimated_live_bytes = u128::from(sample_bytes)
+        .saturating_mul(u128::from(live_rows))
+        .checked_div(u128::from(sample_rows))
+        .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(u64::MAX));
     Ok(JournalDiskSnapshot {
         first_sequence,
         head_sequence,
@@ -318,9 +321,12 @@ fn read_journal_tail(connection: &Connection) -> anyhow::Result<JournalDiskSnaps
 
 /// `bytes` written over `span_ms`, per day; `None` under a second.
 pub fn bytes_per_day(bytes: u64, span_ms: u64) -> Option<u64> {
-    (span_ms >= 1_000).then(|| {
-        u64::try_from(u128::from(bytes) * 86_400_000 / u128::from(span_ms)).unwrap_or(u64::MAX)
-    })
+    if span_ms < 1_000 {
+        return None;
+    }
+    // A u64 times 86,400,000 fits in u128; a rate past u64 reports as u64::MAX.
+    let per_day = u128::from(bytes).saturating_mul(86_400_000).checked_div(u128::from(span_ms))?;
+    Some(u64::try_from(per_day).unwrap_or(u64::MAX))
 }
 
 fn read_segments(
@@ -364,12 +370,13 @@ fn read_segments(
             let entry = totals.by_codec.entry(codec.clone()).or_insert_with(|| {
                 SegmentCodecSnapshot { codec, ..SegmentCodecSnapshot::default() }
             });
+            // Report counters: they saturate, never wrap.
             let segments = to_u64(row.get(1)?);
-            entry.segments += segments;
-            entry.records += to_u64(row.get(2)?);
-            entry.compressed_bytes += to_u64(row.get(3)?);
-            entry.uncompressed_bytes += to_u64(row.get(4)?);
-            totals.counted += segments;
+            entry.segments = entry.segments.saturating_add(segments);
+            entry.records = entry.records.saturating_add(to_u64(row.get(2)?));
+            entry.compressed_bytes = entry.compressed_bytes.saturating_add(to_u64(row.get(3)?));
+            entry.uncompressed_bytes = entry.uncompressed_bytes.saturating_add(to_u64(row.get(4)?));
+            totals.counted = totals.counted.saturating_add(segments);
             through = through.max(row.get::<_, i64>(5)?);
         }
     }
@@ -383,7 +390,8 @@ fn read_segments(
         )?;
         let mut rows = statement.query(params![totals.through_start, through])?;
         while let Some(row) = rows.next()? {
-            *totals.kinds.entry(row.get(0)?).or_default() += to_u64(row.get(1)?);
+            let segments = totals.kinds.entry(row.get(0)?).or_default();
+            *segments = segments.saturating_add(to_u64(row.get(1)?));
         }
     }
     snapshot.commit()?;
@@ -438,7 +446,8 @@ fn list_directory(directory: &Path, snapshot: &mut DiskUsageSnapshot) {
             snapshot.files_truncated = true;
             break;
         }
-        budget -= 1;
+        // Above 0 (checked above).
+        budget = budget.saturating_sub(1);
         let Ok(metadata) = entry.path().symlink_metadata() else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
         let (bytes, count) = if metadata.is_dir() {
@@ -467,13 +476,14 @@ fn directory_size(directory: &Path, budget: &mut u64) -> (u64, u64, bool) {
             if *budget == 0 {
                 return (bytes, files, true);
             }
-            *budget -= 1;
+            // Above 0 (checked above).
+            *budget = budget.saturating_sub(1);
             let Ok(metadata) = entry.path().symlink_metadata() else { continue };
             if metadata.is_dir() {
                 pending.push(entry.path());
             } else {
                 bytes = bytes.saturating_add(metadata.len());
-                files += 1;
+                files = files.saturating_add(1);
             }
         }
     }
