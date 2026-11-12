@@ -314,8 +314,8 @@ export function Combobox({
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
   const currentItem = isItemCurrent ? enabledSuggestions.find((item) => isItemCurrent(item)) : undefined;
   // True while the highlight below is being set, so it reports as programmatic ("none").
-  const seeding = useRef(false);
-  const seedFrame = useRef(0);
+  const seedingRef = useRef(false);
+  const seedFrameRef = useRef(0);
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -393,14 +393,19 @@ export function Combobox({
     centreInScroller(row(), listRef.current);
     // Base UI registers the rows and settles its own highlight in this commit; the next frame sets
     // ours after it. A re-render meanwhile must not cancel it (this runs once), only an unmount.
-    seedFrame.current = requestAnimationFrame(() => {
+    seedFrameRef.current = requestAnimationFrame(() => {
       const element = row();
       if (!element || deliberatelyHighlighted.current) return;
       centreInScroller(element, listRef.current);
-      highlightRow(element, seeding);
+      seedingRef.current = true;
+      try {
+        highlightRow(element);
+      } finally {
+        seedingRef.current = false;
+      }
     });
   });
-  useEffect(() => () => cancelAnimationFrame(seedFrame.current), []);
+  useEffect(() => () => cancelAnimationFrame(seedFrameRef.current), []);
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const renderOption = (
     item: string,
@@ -528,7 +533,7 @@ export function Combobox({
       autoHighlight={autoHighlight}
       virtualized={virtualized}
       onItemHighlighted={(item, rawDetails) => {
-        const details = seeding.current ? { ...rawDetails, reason: "none" as const } : rawDetails;
+        const details = seedingRef.current ? { ...rawDetails, reason: "none" as const } : rawDetails;
         // A virtualized row the arrows reach may not be mounted yet: bring it into view (a pinned
         // action is never in the scroller).
         if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingCount) {
@@ -647,20 +652,13 @@ function VirtualRows({
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.
 const noLayout = () => typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");
 
-/// Scrolls the nearest scroller between `row` and `list` (inclusive) so `row` sits in its middle, at
-/// once: `behavior: "instant"` overrides a smooth `scroll-behavior` in the page's CSS.
 /// Highlights `row` in Base UI's list navigation. Base UI 1.8's Autocomplete has no controlled
 /// highlight, and its list navigation follows the pointer onto a row (mousemove, which WebKit
-/// ignores when the pointer did not move, hence movementX); `seeding` makes the change report as
-/// programmatic.
-function highlightRow(row: HTMLElement, seeding: { current: boolean }): void {
-  seeding.current = true;
-  try {
-    // The row's own window: a test page's DOM is not the global one.
-    const View = row.ownerDocument.defaultView?.MouseEvent;
-    if (!View) return;
-    row.dispatchEvent(new View("mousemove", { bubbles: true, cancelable: true, movementX: 1 } as MouseEventInit));
-  } finally {
-    seeding.current = false;
-  }
+/// ignores when the pointer did not move, hence movementX); the caller's `seedingRef` makes the
+/// change report as programmatic.
+function highlightRow(row: HTMLElement): void {
+  // The row's own window: a test page's DOM is not the global one.
+  const View = row.ownerDocument.defaultView?.MouseEvent;
+  if (!View) return;
+  row.dispatchEvent(new View("mousemove", { bubbles: true, cancelable: true, movementX: 1 } as MouseEventInit));
 }
