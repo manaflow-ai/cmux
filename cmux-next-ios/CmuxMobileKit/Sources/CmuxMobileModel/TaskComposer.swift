@@ -239,7 +239,7 @@ extension WorkspaceCreator {
             return
         }
         refusedTaskIDs.insert(placeholderID)
-        taskRefusal = reason ?? "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
+        taskRefusal = reason?.isEmpty == false ? reason : "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
     }
 
     /// Whether the composer holds `origin`'s task (its prompt, photos, name and place).

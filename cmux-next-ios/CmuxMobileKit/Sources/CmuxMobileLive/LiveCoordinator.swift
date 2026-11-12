@@ -252,7 +252,7 @@ public final class LiveCoordinator {
             // is starting its chat, which opens under the Mac's own tab id once listed. It loads
             // meanwhile; it has not "not started".
             if self.store.pendingWorkspaceIDs.contains(where: { self.store.workspace(id: $0)?.tabs.contains { $0.id == summary.id } == true }) {
-                return PendingAgentSource(summary: scoped, cache: nil, keptKey: nil) { _ in }
+                return PendingAgentSource(summary: scoped, cache: nil, keptKey: nil, isStarting: true) { _ in }
             }
             // The Mac's tree has not come yet (a relaunch, the link still opening): the tab is not
             // known to be unbound. Its kept session opens at once (and catches up when the link
@@ -995,9 +995,12 @@ final class PendingAgentSource: AgentSessionSource {
     private let keptKey: String?
     private var onKept: (@MainActor (String) -> Void)?
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+    let isStarting: Bool
 
-    init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?, onKept: @escaping @MainActor (String) -> Void) {
+    init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?, isStarting: Bool = false,
+         onKept: @escaping @MainActor (String) -> Void) {
         self.summary = summary
+        self.isStarting = isStarting
         self.cache = cache
         self.keptKey = keptKey
         self.onKept = onKept

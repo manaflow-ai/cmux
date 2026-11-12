@@ -603,7 +603,7 @@ struct AgentChatLoadingState: View {
             CmuxSpinner()
             Text(store.summary.status == .disconnected
                  ? "Connecting to \(store.summary.macName)…"
-                 : "Loading chat…")
+                 : store.isStarting ? "Starting \(store.summary.agentName)…" : "Loading chat…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

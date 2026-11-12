@@ -269,6 +269,9 @@ public protocol AgentSessionSource: AnyObject {
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
     /// history at once (mocks, an unbound tab) return false.
     var loadsHistory: Bool { get }
+    /// The Mac is starting this chat now (a workspace this phone is creating): its loading
+    /// state says "Starting <agent>…", not "Loading chat…".
+    var isStarting: Bool { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -301,6 +304,7 @@ extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
+    public var isStarting: Bool { false }
 }
 
 extension AgentSessionSource {

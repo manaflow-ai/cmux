@@ -141,6 +141,16 @@ import Testing
         #expect(creator.wasRefusedTask(made[1].id) && !creator.wasRefusedTask(made[0].id))
     }
 
+    /// Live run 2026-11-12: an agent's start refusal not written for the person ("Authentication
+    /// required") still reaches the composer, as the Mac's words, not a generic line.
+    @Test func aRefusalNotWrittenForThePersonIsQuotedAsTheMacs() async throws {
+        let (_, creator, backend) = make()
+        backend.result = { _ in .failure(WorkspaceCreationError("Authentication required")) }
+        creator.startTask(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude")]))
+        await creator.settle()
+        #expect(creator.taskRefusal == "The Mac said: Authentication required")
+    }
+
     /// The toast promises a draft only when one came back (not over a new task being written).
     @Test func aRefusalOverANewDraftPromisesNothing() async throws {
         let (_, creator, backend) = make()

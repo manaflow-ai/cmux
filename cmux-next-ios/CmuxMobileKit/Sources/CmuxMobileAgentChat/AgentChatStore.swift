@@ -213,6 +213,8 @@ public final class AgentChatStore {
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
+    /// The Mac is starting this chat (``AgentSessionSource/isStarting``).
+    public var isStarting: Bool { source.isStarting }
     /// The chat is new: it holds no turns and none are on their way (the empty state shows).
     public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).

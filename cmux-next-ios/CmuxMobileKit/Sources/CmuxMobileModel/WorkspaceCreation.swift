@@ -804,7 +804,10 @@ public final class WorkspaceCreator {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             store.removePending(placeholder.id)
             phases[placeholder.id] = .failed(message)
-            restoreTaskDraft(after: placeholder.id, reason: (error as? WorkspaceCreationError)?.isForPerson == true ? message : nil)
+            // The Mac's own words, as the person's reason: written for them, said as is; else
+            // quoted as the Mac's ("Authentication required" from the agent's start).
+            let isForPerson = (error as? WorkspaceCreationError)?.isForPerson == true
+            restoreTaskDraft(after: placeholder.id, reason: isForPerson ? message : "The Mac said: \(message)")
             onFailure?(placeholder, message)
         }
     }
