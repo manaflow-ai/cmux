@@ -142,6 +142,17 @@ const installOpenCode: Play = async (ctx) => {
   );
 };
 
+/// Check Again on a harness cmux has no installer for (Cursor): acpmux looks again, and the row says
+/// it still cannot run it, with Check Again again.
+const checkCursorAgain: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-harness-row="cursor"] button') !== null);
+  await ctx.click({ selector: '[data-harness-row="cursor"] button' });
+  await asked(ctx, 'harness.health {"id":"cursor","refresh":true,"rescan":true}');
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[data-harness-row="cursor"][data-harness-status="failed"]') !== null,
+  );
+};
+
 const custom: Play = async (ctx) => {
   await ctx.click({ selector: "[data-harness-custom]" });
   await asked(ctx, "chat.send");
@@ -211,6 +222,19 @@ export default componentEntry<Props>({
     "nothing-installed": {
       note: "No agent CLI on this Mac: every harness offers Install…, and Custom harness… stays.",
       props: { acpmux: [], signedOut: [] },
+    },
+    "not-installed-no-installer": {
+      note: "Cursor, DeepSeek and Grok have no installer or setup page cmux knows: Check again, never a bare Not installed.",
+      props: { acpmux: [], signedOut: [] },
+    },
+    "not-installed-no-installer-narrow-list": {
+      note: "Only Claude Code is installed: the rows cmux cannot install still each offer Check again.",
+      props: { acpmux: thisMac.filter((entry) => entry.id === "claude"), signedOut: [] },
+    },
+    "not-installed-check-again": {
+      note: "Check again on Cursor: acpmux looks again and the row says it still cannot run it, with Check again.",
+      props: { acpmux: [], signedOut: [] },
+      play: checkCursorAgain,
     },
     checking: {
       note: "The first open after a launch, before acpmux lists its harnesses: Checking…, never Not installed.",
