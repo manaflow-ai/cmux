@@ -53,8 +53,7 @@ export function reducedMotion(): boolean {
 /// put it. Its events stay uncancelable (WebKit latches a gesture's first event's handling), so the
 /// pin, not preventDefault, is what keeps the view still. Passive throughout: no wheel waits on the page.
 export const MOMENTUM_GAP_MS = 80;
-/// How long after the last wheel arrived a scroll from code still counts as inside its stream: the
-/// arrival clock, which a busy page stretches, so looser than the stream's own gap.
+/// A scroll that comes this long after the hold started and the last wheel arrived is no momentum's.
 const MOMENTUM_ARRIVAL_MS = 250;
 /// The longest a fling's momentum is held, however it decays.
 const MOMENTUM_MAX_MS = 4000;
@@ -75,11 +74,13 @@ function continuesMomentum(event: WheelEvent, last: MomentumState): boolean {
   );
 }
 
-/// The hold still on: momentum keeps arriving, and not for longer than any fling's.
-function heldMomentum(state: MomentumState | undefined, now = performance.now()) {
+/// The hold still on: momentum keeps arriving, and not for longer than any fling's. A wheel event
+/// itself (`arrived`) answers by its own time instead (`continuesMomentum`): a page busy with the
+/// jump's rendering delivers the stream late, not paused.
+function heldMomentum(state: MomentumState | undefined, now = performance.now(), arrived = false) {
   const hold = state?.hold;
   if (!state || !hold) return undefined;
-  if (now - state.at > MOMENTUM_ARRIVAL_MS || now - hold.since > MOMENTUM_MAX_MS) {
+  if ((!arrived && now - Math.max(state.at, hold.since) > MOMENTUM_ARRIVAL_MS) || now - hold.since > MOMENTUM_MAX_MS) {
     state.hold = undefined;
     return undefined;
   }
@@ -95,7 +96,7 @@ export function installMomentumHold(node: HTMLElement): () => void {
   const wheel = (event: WheelEvent) => {
     if (!node.contains(event.target as Node | null)) return;
     const now = performance.now();
-    const held = heldMomentum(state, now) && continuesMomentum(event, state);
+    const held = heldMomentum(state, now, true) && continuesMomentum(event, state);
     if (!held) state.hold = undefined;
     else event.stopImmediatePropagation();
     state.at = now;
@@ -134,11 +135,12 @@ export function installMomentumHold(node: HTMLElement): () => void {
 }
 
 /// A scroll from code just moved `node` to `target()`: the momentum of a fling under way as it
-/// started is held there until it ends (`installMomentumHold`). Nothing in flight, nothing held.
+/// started is held there until it ends (`installMomentumHold`). Whether a stream is under way is
+/// the next wheel's to say, by its own time against the last one's: none, and the hold lapses.
 export function holdMomentum(node: HTMLElement, target: () => number): void {
   const state = momentum.get(node);
   const now = performance.now();
-  if (!state || now - state.at > MOMENTUM_ARRIVAL_MS || !state.deltaY) return;
+  if (!state || now - state.at > MOMENTUM_MAX_MS || !state.deltaY) return;
   state.hold = { target, since: now, echo: false };
 }
 
