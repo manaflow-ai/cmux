@@ -17,10 +17,12 @@
 //
 // Each case prints what it read (px), so a run gives the size of a move, not only pass or fail.
 //
-// Real Chromium from Playwright (the engine the app shows its chat in); CI fails the file when it
-// cannot launch (each part waits on requireBrowserLane and passes the engine, so the runner puts it
-// in its browser pool). One file for each shape: each has its own Vite server, and CI's runner ends
-// a file at 120 s.
+// Real Chromium and WebKit from Playwright: WebKit is the engine the app shows its chat in (a
+// WKWebView), Chromium the one the resize bench measures. CI fails the file when its engine cannot
+// launch (each part waits on requireBrowserLane and passes the engine, so the runner puts it in its
+// browser pool). One file for each engine and shape (transcript-drag-stays-{fits,crossing,reader}-
+// browser.test.ts in Chromium, transcript-drag-stays-webkit-* in WebKit): each has its own Vite
+// server, and CI's runner ends a file at 120 s.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
@@ -31,8 +33,9 @@ export type DragStaysPart = {
   /** The part's test file name, for the engine probe and the lines it prints. */
   file: string;
   shape: "fits" | "crossing" | "reader";
-  /** Playwright's chromium, from the part's own file. */
+  /** Playwright's engine of that name, from the part's own file. */
   engine: BrowserType;
+  engineName: "chromium" | "webkit";
   /** vite.config.ts, named in the part's own file so the runner sees a dev server file. */
   configFile: string;
 };
@@ -188,9 +191,9 @@ const settle = (run: DragRun) => ({
 });
 
 /// Call inside the part's `requireBrowserLane` callback: registers the shape's hooks and tests.
-export async function dragStays({ file, shape, engine, configFile }: DragStaysPart): Promise<void> {
+export async function dragStays({ file, shape, engine, engineName, configFile }: DragStaysPart): Promise<void> {
   setDefaultTimeout(120_000);
-  if (!(await probeEngineOrSkip(file, "chromium", engine))) return;
+  if (!(await probeEngineOrSkip(file, engineName, engine))) return;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const pagePath = "/test/browser/transcript-fling.html";
