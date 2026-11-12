@@ -619,6 +619,7 @@ def commit(repo: Path, files: dict[str, str], message: str) -> str:
 # was given), and fails when its gate name is in $FAKE_FAIL.
 FAKE = textwrap.dedent("""\
     import json, os, sys
+    import time
     from pathlib import Path
     name = {name!r}
     entry = {{"gate": name, "argv": sys.argv[1:], "cwd": os.getcwd()}}
@@ -627,6 +628,7 @@ FAKE = textwrap.dedent("""\
         entry["base_marker"] = (base / "scripts/cmux-next/marker.txt").read_text()
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps(entry) + "\\n")
+    time.sleep(float(os.environ.get("FAKE_SLEEP", "0")))
     sys.exit(1 if name in os.environ.get("FAKE_FAIL", "").split(",") else 0)
 """)
 
@@ -653,8 +655,9 @@ class ScriptBehavior(unittest.TestCase):
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
 
-    def script(self, repo: Path, *args: str, fail: str = "") -> subprocess.CompletedProcess:
+    def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0) -> subprocess.CompletedProcess:
         env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
+               "FAKE_SLEEP": str(sleep),
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
@@ -1067,6 +1070,17 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_independent_gates_run_in_parallel(self):
+        work, out = self.prepared()
+        started = time.monotonic()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", sleep=0.2)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Five 200 ms fake gates would take about a second when serial; the webviews gate is a second batch,
+        # so the two batches still finish well below that on a loaded test host.
+        self.assertLess(elapsed, 0.75, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()

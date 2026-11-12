@@ -15,8 +15,8 @@ result is fresh for the tip they merge into.
       string catalog or protocol spec change, which ci-web's routing does not check) to --output
       (GITHUB_OUTPUT).
   run --base BASE [--web true|false] [--checks true|false] [--budget-seconds N]
-                                                  every gate on BASE..HEAD (the merge); exit 1
-                                                  when any gate fails, after running all of them.
+                                                  every gate on BASE..HEAD (the merge); independent gates run
+                                                  together, and exit 1 when any gate fails after running all of them.
       With --budget-seconds, a gate still running N seconds after the run began is stopped
       and reported as stalled (2026-11-09: a web lint whose bun install hung on the registry sat
       silent until the job's limit cancelled it, and merge_hold refused the cancelled check).
@@ -319,18 +319,66 @@ def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
     try:
         return process.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
-        # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
-        # SIGTERM must not outlive its gate into the next one.
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
-                break
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                pass
+        stop_gate(process)
         return None
+
+
+def stop_gate(process: subprocess.Popen) -> None:
+    """Stop a gate and every child it started, leaving no install or checker behind."""
+    # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
+    # SIGTERM must not outlive its gate into the next one.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+            break
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: float | None,
+                   log_dir: Path) -> dict[str, tuple[int | None, float, str]]:
+    """Run independent gates together, stopping all remaining groups at the shared deadline.
+
+    Gate output is captured separately and printed in declaration order after the batch. This keeps concurrent
+    annotations readable while preserving each gate's complete log. Web lint and webviews checks are deliberately
+    placed in separate batches by ``run`` because both may install webviews dependencies in the checkout.
+    """
+    if not entries:
+        return {}
+    log_dir.mkdir(parents=True, exist_ok=True)
+    active: dict[str, tuple[subprocess.Popen, object, float, Path]] = {}
+    results: dict[str, tuple[int | None, float, str]] = {}
+    for name, argv in entries:
+        path = log_dir / f"{len(results) + len(active)}.log"
+        handle = path.open("w+", encoding="utf-8")
+        process = subprocess.Popen(argv, cwd=repo, start_new_session=True, stdout=handle, stderr=subprocess.STDOUT,
+                                   text=True)
+        active[name] = (process, handle, time.monotonic(), path)
+
+    while active:
+        now = time.monotonic()
+        for name, (process, handle, started, path) in list(active.items()):
+            code = process.poll()
+            if code is None:
+                continue
+            handle.close()
+            results[name] = (code, now - started, path.read_text(encoding="utf-8", errors="replace"))
+            del active[name]
+        if not active:
+            break
+        if deadline is not None and now >= deadline:
+            stopped = time.monotonic()
+            for name, (process, handle, started, path) in list(active.items()):
+                stop_gate(process)
+                handle.close()
+                results[name] = (None, stopped - started, path.read_text(encoding="utf-8", errors="replace"))
+                del active[name]
+            break
+        time.sleep(0.05)
+    return results
 
 
 def run(args: argparse.Namespace) -> int:
@@ -347,21 +395,33 @@ def run(args: argparse.Namespace) -> int:
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
+        active = [(name, argv) for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true")
+                  if argv is not None]
+        # Web lint and webviews checks can both run bun install in webviews/. Keep those two in separate batches;
+        # every other gate reads the merge and its exported base tree, so they share the critical path safely.
+        batches = [[entry for entry in active if entry[0] != "webviews checks"],
+                   [entry for entry in active if entry[0] == "webviews checks"]]
+        active_results: dict[str, tuple[int | None, float, str]] = {}
+        for batch in batches:
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left < 1:
+                continue
+            active_results.update(run_gate_batch(batch, repo, deadline, holder / "gate-logs"))
+
         for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true"):
             if argv is None:
                 print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))
                 continue
-            left = None if deadline is None else deadline - time.monotonic()
-            if left is not None and left < 1:
+            if name not in active_results:
                 print(f"::error title=fast gates: {name}::{name} never started: the gates' {args.budget_seconds}s "
                       "budget ran out on the gates before it", flush=True)
                 rows.append((name, "failed (no time left)", 0.0))
                 continue
             print(f"::group::{name}", flush=True)
-            started = time.monotonic()
-            code = run_gate(argv, repo, left)
-            seconds = time.monotonic() - started
+            code, seconds, output = active_results[name]
+            if output:
+                print(output, end="" if output.endswith("\n") else "\n", flush=True)
             print("::endgroup::", flush=True)
             if code is None:
                 outcome = f"failed (stalled: no result in {seconds:.0f}s)"
@@ -378,7 +438,15 @@ def run(args: argparse.Namespace) -> int:
     finally:
         shutil.rmtree(holder, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
+    timed = [(name, seconds) for name, outcome, seconds in rows if outcome != "skipped"]
+    if timed:
+        slowest, critical = max(timed, key=lambda row: row[1])
+        # The CI timing budget is attached to this workflow step. Name the gate that consumed its critical path so
+        # a future alert points at the growing check instead of leaving the aggregate step unexplained.
+        print(f"::notice title=fast gates timing attribution::{slowest} was the critical-path gate at {critical:.1f}s; "
+              "per-gate timings are in the step summary", flush=True)
     lines = ["### cmux-next fast gates", "", f"Base `{args.base}`, merge `{merge}`.", "",
+             f"Critical-path gate: **{slowest}** ({critical:.1f}s).", "",
              "| gate | result | time |", "| --- | --- | --- |"]
     lines += [f"| {name} | {outcome} | {seconds:.1f}s |" for name, outcome, seconds in rows]
     if args.summary:

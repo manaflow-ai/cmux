@@ -328,13 +328,13 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 45
-    # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
+    # Twenty-four shards, so a shard runs well under 10 minutes as the gallery grows: at eight, with three
     # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,
     # 2026-11-11). With four, a full render took ~27 minutes and its base replay ~14 more.
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
     steps:
       # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
@@ -474,7 +474,8 @@ jobs:
       # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
       # against a 10-minute budget (2026-11-11). The pull request that takes a shard past
       # MAX_CASES_PER_SHARD fails here, naming the shard count that fits, so the matrix grows with the
-      # gallery instead of the job's time. Shard 0 only: one error, not sixteen.
+      # gallery instead of the job's time. Twenty-four shards put today's full render at about 475 cases per
+      # shard; shard 0 only: one error, not one per shard.
       - name: Hold each shard within its time budget
         # Before the render and the base replay: the replay restores the base's webviews/, which would then be
         # counted. It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
@@ -513,7 +514,7 @@ jobs:
         if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
         continue-on-error: true
         # A render that stalls stops here with time left for the judge and the upload, instead of the job's
-        # 45 minutes cancelling it with no verdict. With sixteen shards a render takes about 5 minutes.
+        # 45 minutes cancelling it with no verdict. With twenty-four shards a render takes about 3.5 minutes.
         timeout-minutes: 20
         env:
           ALL: ${{ steps.entries.outputs.all }}
@@ -531,7 +532,7 @@ jobs:
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD"
+            --output-dir "$RUNNER_TEMP/health" --shard-count 24 --shard-index "$SHARD"
 
       # The base gallery the "base gallery" job built for this run. Not there yet, or failed: the judge step
       # builds the red entries itself.
