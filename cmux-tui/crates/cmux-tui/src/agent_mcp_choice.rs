@@ -1,17 +1,18 @@
 //! The person's answer to "may cmux add its tools to your coding agents?"
 //! (`agents.cmuxMcp`, the onboarding step and Settings > Agents) applied to
 //! the `claude` and `codex` shims: the MCP server they pass to an agent
-//! started in a cmux terminal (agent_computer_use.rs) goes only while the
-//! answer is not `off`. Unanswered (`ask`) keeps what cmux did before the
-//! question existed. The hooks are not MCP and are passed either way.
+//! started in a cmux terminal (agent_computer_use.rs) goes only once the
+//! answer is `on`. Unanswered (`ask`) and `off` pass none: cmux does not add
+//! its tools to the person's agents until they approve (the app asks at
+//! launch). The hooks are not MCP and are passed either way.
 
 use std::ffi::OsString;
 use std::path::Path;
 
 use cmux_tui_core::user_settings::AgentsCmuxMcp;
 
-/// Claude Code's `--mcp-config` value for this launch, or `None` when the
-/// person turned cmux's tools off for their agents.
+/// Claude Code's `--mcp-config` value for this launch, or `None` until the
+/// person said yes to cmux's tools in their agents.
 pub(crate) fn claude_mcp_config(
     choice: AgentsCmuxMcp,
     executable: &Path,
@@ -23,8 +24,8 @@ pub(crate) fn claude_mcp_config(
     crate::agent_computer_use::claude_mcp_config(executable, socket)
 }
 
-/// Codex `-c` overrides for this launch; none when the person turned cmux's
-/// tools off for their agents.
+/// Codex `-c` overrides for this launch; none until the person said yes to
+/// cmux's tools in their agents.
 pub(crate) fn codex_settings(
     choice: AgentsCmuxMcp,
     executable: &Path,
@@ -47,15 +48,14 @@ mod tests {
         AgentsCmuxMcp::from_config_text(text)
     }
 
+    /// Unanswered (no file, no key, `ask`, an unknown value or a file that does
+    /// not parse): neither agent gets the server.
     #[test]
-    fn unset_keeps_passing_the_server_to_both_agents() {
-        for text in ["", "{}", r#"{"agents": {"cmuxMcp": "ask"}}"#] {
+    fn unanswered_passes_no_server_to_either_agent() {
+        for text in ["", "{}", r#"{"agents": {"cmuxMcp": "ask"}}"#, r#"{"agents.cmuxMcp": "maybe"}"#, "{"] {
             let unset = choice(text);
-            assert!(
-                claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)).is_some(),
-                "{text}"
-            );
-            assert!(!codex_settings(unset, Path::new(EXE), Path::new(SOCKET)).is_empty(), "{text}");
+            assert_eq!(claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
+            assert!(codex_settings(unset, Path::new(EXE), Path::new(SOCKET)).is_empty(), "{text}");
         }
     }
 
