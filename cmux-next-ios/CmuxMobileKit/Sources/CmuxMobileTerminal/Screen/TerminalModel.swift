@@ -543,6 +543,8 @@ public final class TerminalModel {
     }
 
     private func holdComposerText() {
+        // A refusal is about this send only: a stale one never keeps the next send's text.
+        composerSendRefused = false
         heldComposerSend = connectionState.isAttached || composerText.isEmpty
             ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
     }
