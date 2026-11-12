@@ -4397,10 +4397,51 @@ def _py_maintenance_off(tree: object) -> bool:
                 if (isinstance(key, ast.Constant) and isinstance(value, ast.Constant)
                         and re.fullmatch(r"GIT_CONFIG_KEY_\d+", str(key.value)) and value.value == "maintenance.auto"):
                     return True
-        for value in _py_strings(node):
-            if "maintenance.auto" in value and _sh_maintenance_off(value):
-                return True
+    for value in _py_shell_strings(tree):
+        if "maintenance.auto" in value and _sh_maintenance_off(value):
+            return True
     return False
+
+
+# Calls that run their first argument as a shell command line: always, or with shell=True.
+_PY_SHELL_CALLS = frozenset({"system", "getoutput", "getstatusoutput", "popen"})
+_PY_SHELL_TRUE_CALLS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash"})
+
+
+def _py_shell_strings(tree: object) -> list[str]:
+    """The strings the module hands a shell to run: the command of os.system/subprocess.getoutput, of a subprocess
+    call with shell=True, or the script after -c in an argv that starts with a shell (each one direct or through a
+    name assigned a string). A docstring, a print or a constant nobody runs is not one."""
+    import ast
+
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, []).append(node.value)
+
+    def strings(node: object) -> list[str]:
+        if isinstance(node, ast.Name):
+            return [text for value in assigned.get(node.id, []) for text in _py_strings(value)]
+        return _py_strings(node)
+
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and node.args:
+            name = _py_call_name(node)
+            shell = any(keyword.arg == "shell" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                        for keyword in node.keywords)
+            if name in _PY_SHELL_CALLS or (name in _PY_SHELL_TRUE_CALLS and shell):
+                out.extend(strings(node.args[0]))
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+            first = _py_strings(node.elts[0])
+            if first and first[0].rsplit("/", 1)[-1] in _SHELLS:
+                values = [(_py_strings(elt) or [""])[0] for elt in node.elts]
+                if "-c" in values and values.index("-c") + 1 < len(node.elts):
+                    out.extend(strings(node.elts[values.index("-c") + 1]))
+    return out
 
 
 def _maintenance_off(text: str, path_suffix: str) -> bool:
@@ -4408,12 +4449,8 @@ def _maintenance_off(text: str, path_suffix: str) -> bool:
         return _sh_maintenance_off(text)
     if path_suffix != ".py":
         return False
-    import ast
-
-    try:
-        return _py_maintenance_off(ast.parse(text))
-    except (SyntaxError, ValueError):
-        return False
+    tree = _py_parse(text)
+    return tree is not None and _py_maintenance_off(tree)
 
 
 def detect_git_temp_repo_maintenance(
@@ -4545,9 +4582,8 @@ def _git_fixture_load_cover(text: str, path_suffix: str) -> Optional[list[_Span]
         return []
     import ast
 
-    try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError):
+    tree = _py_parse(text)
+    if tree is None:
         return []
     if _py_loads_git_fixture(tree):
         return None
@@ -4626,11 +4662,68 @@ def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
 _ENV_BUILD_START = re.compile(r"(?:^[ \t]*(?:self\.)?(\w*env\w*)[ \t]*=(?!=)[ \t]*|[(,\s]env=)(\{|dict\()", re.M | re.I)
 # A whole environment, not a few extra variables: it sets PATH or HOME, or copies os.environ.
 _ENV_WHOLE = re.compile(r"""['"](?:PATH|HOME)['"]\s*:|\b(?:PATH|HOME)\s*=|os\.environ\.items\(\)""")
-# Inherits the importing process's environment (which carries the opt-out), or another env mapping.
-_ENV_INHERITS = re.compile(
-    r"""\*\*\s*(?:os\.environ|[\w.]*env\w*|[\w.]*common\w*)\b|os\.environ\.(?:copy|items)\(\)|^dict\(\s*(?:os\.environ|[\w.]*env\w*)\b""",
-    re.I,
-)
+# The mappings an env literal spreads or copies: `**NAME`, `dict(NAME`, and os.environ's copy or items.
+_ENV_SPREAD = re.compile(r"\*\*\s*([A-Za-z_][\w.]*)|^dict\(\s*([A-Za-z_][\w.]*)")
+_ENV_COPIES_ENVIRON = re.compile(r"os\.environ\.(?:copy|items)\(\)")
+# Calls that return an environment carrying the opt-out (tests/git_fixture_env.py).
+_ENV_FIXTURE_CALLS = frozenset({"fixture_env", "write_env", "without_auto_maintenance"})
+
+
+@lru_cache(maxsize=8)
+def _py_parse(code: str):
+    """CODE's module AST, or None when it does not parse; no SyntaxWarning for a test's odd escapes."""
+    import ast
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            return ast.parse(code)
+        except (SyntaxError, ValueError, RecursionError):
+            return None
+
+
+def _env_inherits(expr: str, code: str) -> bool:
+    """True when the env literal EXPR copies os.environ or a mapping that does: a spread name is followed through
+    the module's assignments to it (`self.env = {**os.environ, ...}` for `**h.env`), never judged by its name, so
+    `**payload_env` is a few extra variables, not the parent's environment."""
+    if _ENV_COPIES_ENVIRON.search(expr):
+        return True
+    import ast
+
+    tree = _py_parse(code)
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree) if tree is not None else ():
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                ident = target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else None
+                if ident:
+                    assigned.setdefault(ident, []).append(node.value)
+
+    def name_inherits(name: str, seen: set[str]) -> bool:
+        if name in ("os.environ", "environ"):
+            return True
+        ident = name.rsplit(".", 1)[-1]
+        if ident in seen:
+            return False
+        seen.add(ident)
+        return any(value_inherits(value, seen) for value in assigned.get(ident, []))
+
+    def value_inherits(value: object, seen: set[str]) -> bool:
+        for node in ast.walk(value):
+            if isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and (
+                    node.value.id == "os"):
+                return True
+            if isinstance(node, ast.Call) and _py_call_name(node) in _ENV_FIXTURE_CALLS:
+                return True
+            if isinstance(node, (ast.Name, ast.Attribute)) and not isinstance(getattr(node, "ctx", None), ast.Store):
+                if name_inherits(ast.unparse(node), seen):
+                    return True
+        return False
+
+    return any(name_inherits(match.group(1) or match.group(2), set()) for match in _ENV_SPREAD.finditer(expr.strip()))
+
+
 _ENV_DROPS_GIT = re.compile(r"""startswith\(\s*\(?[^)]*['"]GIT_?['"]""")
 _ENV_OPTED_OUT = re.compile(r"\b(?:fixture_env|without_auto_maintenance)\(")
 
@@ -4648,9 +4741,12 @@ def _balanced_span(code: str, start: int) -> str:
     return code[start:]
 
 
-def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> list[int]:
-    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out."""
+def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out.
+    A spread is resolved through the module's own assignments (TEXT, the file as written: the comment-stripped view
+    can cut a string at its '#')."""
     code = "\n".join(code_lines)
+    source = text or code
     if not _makes_temp_git_repos(code, path_suffix):
         return []
     hits: list[int] = []
@@ -4662,13 +4758,26 @@ def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> l
         expr = _balanced_span(code, match.start(2))
         if not _ENV_WHOLE.search(expr):
             continue
-        if not _ENV_DROPS_GIT.search(expr) and _ENV_INHERITS.search(expr):
+        if not _ENV_DROPS_GIT.search(expr) and _env_inherits(expr, source):
             continue
         target = match.group(1)
         if target and re.search(r"\b(?:fixture_env|without_auto_maintenance)\(\s*(?:self\.)?" + re.escape(target) + r"\s*\)", code):
             continue
         hits.append(code.count("\n", 0, match.start(2)))
     return hits
+
+
+def _py_helper_repo_call_lines(code: str) -> Optional[set[int]]:
+    """0-based lines with a call to a helper that makes a managed repo (init_repo, clone_repo, ...), by the callee's
+    exact name; None when the code does not parse. Its name in a string or a print is no call."""
+    import ast
+
+    tree = _py_parse(code)
+    if tree is None:
+        return None
+    names = {"init_repo", "clone_repo", "git_fixture_init", "git_fixture_clone"}
+    return {line - 1 for node in ast.walk(tree) if isinstance(node, ast.Call) and _py_call_name(node) in names
+            for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)}
 
 
 _HELPER_REPO_CALL = re.compile(r"\b(?:init_repo|clone_repo|git_fixture_init|git_fixture_clone)\b")
@@ -4690,8 +4799,10 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str, text
             return sorted({line for line, verb, args in _sh_git_commands(text, script)
                            if verb in ("init", "clone") and {"--bare", "--mirror"} & set(args)})
     hits: list[int] = []
+    # A Python file that does not parse has no helper call it can show (fail closed).
+    helper_lines = (_py_helper_repo_call_lines(text or "\n".join(code_lines)) or set()) if path_suffix == ".py" else None
     for index, line in enumerate(code_lines):
-        if _HELPER_REPO_CALL.search(line):
+        if index in helper_lines if helper_lines is not None else _HELPER_REPO_CALL.search(line):
             continue
         if path_suffix == ".py":
             # An argv list may wrap after the subcommand: look at the next line too while the call is open.
@@ -5497,7 +5608,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(
             Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
         )
-    for env_line in detect_git_fixture_env_dropped(code_lines, suffix):
+    for env_line in detect_git_fixture_env_dropped(code_lines, suffix, text):
         findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
     for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix, text):
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
@@ -5982,6 +6093,54 @@ def _self_test() -> int:
             "scripts/ci/tests/temp_repo_echo_names_opt_out.test.sh",
             "echo 'maintenance.auto is on'\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
             {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F1: a call whose name merely contains "load" (download, payload) is no loader.
+        (
+            "tests/temp_repo_download_names_helper.py",
+            "import subprocess, tempfile\ndownload('git_fixture_env docs')\npayload('git_fixture_env')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F2: a string literal never turns the opt-out on, even one that reads as the git command
+        # (a docstring, a print, an echo); only a string a shell runs does.
+        (
+            "scripts/ci/temp_repo_docstring_opt_out.py",
+            "\"\"\"git -c maintenance.auto=false init\"\"\"\nimport subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_printed_opt_out.py",
+            "import subprocess, tempfile\nprint('git -c maintenance.auto=false init')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_opt_out_value.test.sh",
+            "echo maintenance.auto=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # Sweep of the same class: a spread is the parent's environment only when it resolves to os.environ (or a
+        # fixture env), not because its name holds "env"; a helper's name in a string is no helper call.
+        (
+            "scripts/ci/env_spread_named_env.py",
+            "import subprocess, tempfile\npayload_env_docs = {'X': '1'}\nd = tempfile.mkdtemp()\n"
+            "env = {'PATH': '/bin', **payload_env_docs}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A caller's keyword arguments (**env) are a few variables, not the parent's environment.
+        (
+            "scripts/ci/env_spread_kwargs.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(**env):\n"
+            "    return subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={'PATH': '/bin', **env})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        (
+            "scripts/ci/bare_repo_name_in_string.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', '--bare', d]); print('use init_repo')\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
         ),
         # A child script that loads the helper covers its own span, not the rest of its physical line.
         (
@@ -7318,6 +7477,32 @@ def _self_test() -> int:
             "scripts/ci/temp_repo_opt_out_argv.py",
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
             "subprocess.run(['git', '-c', 'maintenance.auto=false', '-C', d, 'init'])\n",
+        ),
+        # A string a shell runs is code: bash -c's script, or a command line with shell=True.
+        (
+            "scripts/ci/temp_repo_opt_out_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        # The spread is resolved in the file as written: a '#' inside a string does not cut the module short.
+        (
+            "scripts/ci/env_spread_after_hash_string.py",
+            "import os, subprocess, tempfile\nscript = '#!/bin/sh'\nd = tempfile.mkdtemp()\n"
+            "env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1'}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={**env, 'PATH': '/bin'})\n",
+        ),
+        # A spread that resolves to os.environ, directly or through an attribute set elsewhere, inherits it.
+        (
+            "scripts/ci/env_spread_from_environ.py",
+            "import os, subprocess, tempfile\nclass H:\n    def __init__(self):\n"
+            "        self.env = {**os.environ, 'PATH': '/bin'}\nh = H()\nbase = dict(os.environ)\n"
+            "d = tempfile.mkdtemp()\nenv = {'PATH': '/bin', **h.env}\nenv2 = {'HOME': d, **base}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
         ),
         (
             "scripts/ci/temp_repo_opt_out_config.py",

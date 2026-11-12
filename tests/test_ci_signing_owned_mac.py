@@ -1489,9 +1489,10 @@ class ClaimScriptTests(unittest.TestCase):
         security.write_text('#!/bin/sh\n[ "$1" = delete-keychain ] && rm -f "$KEYCHAINS/$2-db"\n'
                             'echo "$@" >> "$KEYCHAINS/calls"\n')
         security.chmod(0o755)
-        environ = {"PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "KEYCHAINS": os.fspath(tmp / "keychains"),
-                   "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
-                   "CMUX_FLEET_DIR": os.fspath(tmp / "no-fleet"), **env}
+        environ = git_fixture_env.fixture_env({
+            "PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "KEYCHAINS": os.fspath(tmp / "keychains"),
+            "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
+            "CMUX_FLEET_DIR": os.fspath(tmp / "no-fleet"), **env})
         return subprocess.run(["bash", os.fspath(ROOT / CLAIM)], env=environ, capture_output=True, text=True,
                               timeout=30, check=False)
 
@@ -1653,9 +1654,10 @@ class ClaimGateTests(unittest.TestCase):
             def gate(**env: str) -> subprocess.CompletedProcess:
                 output.write_text("")
                 return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", CLAIM_GATE],
-                                      env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
-                                           "ASKED": os.fspath(asked), "SERVED": os.fspath(served), "WANT": want,
-                                           **run_env, **env},
+                                      env=git_fixture_env.fixture_env({
+                                          "PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
+                                          "ASKED": os.fspath(asked), "SERVED": os.fspath(served), "WANT": want,
+                                          **run_env, **env}),
                                       capture_output=True, text=True, timeout=30, check=False)
 
             served.write_text(SIGNING_HOOKS_FILE.read_text())
