@@ -382,3 +382,42 @@ async fn the_mcp_server_lists_its_tools_with_no_worker() {
     assert_eq!(replies[&4]["result"]["isError"], true);
     assert_eq!(caller.label(), "codex", "the agent's name for the person's cards");
 }
+
+/// Served as the agent's only Computer Use (`--primary`), Codex is not told
+/// cmux Computer Use comes second: neither in initialize's instructions nor
+/// in the tool descriptions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_primary_server_gives_codex_the_normal_instructions() {
+    let daemon = FakeDaemon::new(vec![Err(DaemonError::Unreachable("no daemon".into()))]);
+    let caller = Arc::new(caller(daemon).with_budget(Duration::from_millis(100)));
+    let input = [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "codex"}}}),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+    ]
+    .iter()
+    .map(|m| format!("{m}\n"))
+    .collect::<String>();
+    let (out_w, out_r) = tokio::io::duplex(1 << 20);
+    let input = tokio::io::BufReader::new(std::io::Cursor::new(input.into_bytes()));
+    let reader = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut text = String::new();
+        let mut out_r = out_r;
+        let _ = out_r.read_to_string(&mut text).await;
+        text
+    });
+    super::super::mcp::serve(caller.clone(), true, input, out_w).await.unwrap();
+    let text = reader.await.unwrap();
+    let replies: HashMap<i64, Value> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|v| Some((v["id"].as_i64()?, v)))
+        .collect();
+    assert_eq!(
+        replies[&1]["result"]["instructions"],
+        crate::computer_use::tools::INSTRUCTIONS,
+        "{:?}",
+        replies[&1]
+    );
+    assert_eq!(replies[&2]["result"], super::super::mcp::tools_list(false));
+}
