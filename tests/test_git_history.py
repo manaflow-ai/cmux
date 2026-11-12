@@ -63,7 +63,12 @@ class ShallowClone(unittest.TestCase):
         self.assertEqual(_git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
         self.assertFalse(git_history.has_commit(self.clone, self.b, depth=2))
 
-    def count_fetches(self) -> list[list[str]]:
+    def count_fetches(self, stderr: str | None = None) -> list[list[str]]:
+        """The `git fetch`es made; with `stderr`, each fails with it (exit 128) instead of running git.
+
+        Appends under a lock: the parallel test fetches from several threads. One helper only; a second
+        `def count_fetches` in this class replaced this one and dropped the lock (scripts/cmux-next/check-test-redefinitions.py).
+        """
         fetches: list[list[str]] = []
         real = git_history._git
         lock = threading.Lock()
@@ -72,6 +77,8 @@ class ShallowClone(unittest.TestCase):
             if args and args[0] == "fetch":
                 with lock:
                     fetches.append(list(args))
+                if stderr is not None:
+                    return subprocess.CompletedProcess(["git", *args], 128, stdout="", stderr=stderr)
             return real(root, *args, **kwargs)
 
         git_history._git = counting
@@ -158,22 +165,6 @@ class ShallowClone(unittest.TestCase):
         patch = unittest.mock.patch.object(git_history, "GIT_LOCK_WAIT_SECONDS", seconds, create=True)
         patch.start()
         self.addCleanup(patch.stop)
-
-    def count_fetches(self, stderr: str | None = None) -> list[list[str]]:
-        """The `git fetch`es made; with `stderr`, each fails with it (exit 128) instead of running git."""
-        fetches: list[list[str]] = []
-        real = git_history._git
-
-        def counting(root, *args, **kwargs):
-            if args and args[0] == "fetch":
-                fetches.append(list(args))
-                if stderr is not None:
-                    return subprocess.CompletedProcess(["git", *args], 128, stdout="", stderr=stderr)
-            return real(root, *args, **kwargs)
-
-        git_history._git = counting
-        self.addCleanup(setattr, git_history, "_git", real)
-        return fetches
 
     def no_lock_retry_sleep(self) -> list[float]:
         """git_history's sleeps; the first fails the test, so a fast failure shows as a pause taken, not a time."""
