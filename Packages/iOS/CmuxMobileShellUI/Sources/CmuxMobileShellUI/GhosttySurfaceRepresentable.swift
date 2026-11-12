@@ -24,6 +24,9 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     let terminalWorkPopulation: TerminalWorkContext
     let fontSize: Float32
     let terminalPresentationIsActive: Bool
+    /// Whether the Mac connection serving this surface is up. A return to
+    /// live restarts a mount left without an output stream.
+    var connectionIsLive: Bool = true
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -168,6 +171,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIViewController`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
+        context.coordinator.setConnectionLive(connectionIsLive)
         context.coordinator.setHandoffTerminalSizingWhenInactive(
             handoffTerminalSizingWhenInactive
         )
@@ -327,6 +331,8 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         var terminalPresentationIsActive: Bool
         var handoffTerminalSizingWhenInactive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
+        /// The last connection state from the view, `nil` before the first.
+        var connectionIsLive: Bool?
         var outputStartViewportTimeouts = 0
         var outputStartMinimumViewportReportID: UInt64?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
@@ -1296,6 +1302,10 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 outputConsumerRecoveryAlertPending = false
                 stopMountedTasks()
             }
+        }
+
+        func setConnectionLive(_ isLive: Bool) {
+            connectionIsLive = isLive
         }
 
         func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {
