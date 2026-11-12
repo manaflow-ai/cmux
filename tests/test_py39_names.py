@@ -702,6 +702,50 @@ class UnderPython39(unittest.TestCase):
                   "    if hasattr(sys, 'version_info'):\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_parameter_defaults_keep_possible_module_bindings(self):
+        """Every callable default can supply a stdlib module, even when a caller may override it."""
+        rows = {
+            "lambda positional": "f = lambda ast=ast: ast.match_case  # bare: ast.match_case\n",
+            "lambda renamed": "f = lambda parser=ast: parser.match_case  # bare: ast.match_case\n",
+            "lambda positional-only": "f = lambda ast=ast, /: ast.match_case  # bare: ast.match_case\n",
+            "lambda keyword-only": "f = lambda *, ast=ast: ast.match_case  # bare: ast.match_case\n",
+            "lambda mixed required": "f = lambda required, *, missing, parser=ast: parser.match_case  # bare: ast.match_case\n",
+            "function positional": "def f(ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "function positional-only": "def f(ast=ast, /):\n    return ast.match_case  # bare: ast.match_case\n",
+            "function keyword-only": "def f(*, ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "async positional": "async def f(ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "async keyword-only": "async def f(*, ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+        }
+        for site, source in rows.items():
+            with self.subTest(site=site):
+                self.scan("import ast\n" + source)
+
+    def test_default_bindings_do_not_make_guards_certain(self):
+        for source in (
+            "f = lambda sys=sys: None if hasattr(sys, 'version_info') else ast.match_case  # bare: ast.match_case\n",
+            "f = lambda *, sys=sys: None if hasattr(sys, 'version_info') else ast.match_case  # bare: ast.match_case\n",
+            "def f(sys=sys):\n    if not hasattr(sys, 'version_info'):\n        return ast.match_case  # bare: ast.match_case\n",
+            "async def f(*, sys=sys):\n    if not hasattr(sys, 'version_info'):\n        return ast.match_case  # bare: ast.match_case\n",
+        ):
+            with self.subTest(source=source):
+                self.scan("import ast, sys\n" + source)
+
+    def test_definition_expressions_use_the_enclosing_binding(self):
+        rows = {
+            "function default expression": "def f(ast=ast.match_case):  # bare: ast.match_case\n    pass\n",
+            "async default expression": "async def f(*, ast=ast.match_case):  # bare: ast.match_case\n    pass\n",
+            "lambda default expression": "f = lambda ast=ast.match_case: ast  # bare: ast.match_case\n",
+            "lambda keyword default expression": "f = lambda *, ast=ast.match_case: ast  # bare: ast.match_case\n",
+            "function decorator": "@ast.match_case  # bare: ast.match_case\ndef f(ast):\n    pass\n",
+            "async decorator": "@ast.match_case  # bare: ast.match_case\nasync def f(ast):\n    pass\n",
+            "class decorator": "@ast.match_case  # bare: ast.match_case\nclass C:\n    ast = None\n",
+            "class base": "class C(ast.match_case):  # bare: ast.match_case\n    ast = None\n",
+            "class keyword": "class C(metaclass=ast.match_case):  # bare: ast.match_case\n    ast = None\n",
+        }
+        for site, source in rows.items():
+            with self.subTest(site=site):
+                self.scan("import ast\n" + source)
+
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
         self.scan("import sys, ast\n"
