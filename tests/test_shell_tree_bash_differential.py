@@ -131,6 +131,36 @@ NESTABLE = (
     "bash --rcfile /dev/null -c 'c1; c2'",
     "bash --init-file /dev/null -c c1",
     "bash --norc -c c1",
+    # A Codex review of cmux#41745 (F1): bash ends a $'...' string's value at its first NUL, however it is written
+    # (\0, \x00, \u0000, \U00000000, \400, \c@, \c followed by a space), and keeps the word's text after the string;
+    # a \U value past 0x7FFFFFFF adds nothing. An argument, a -c string, a trap's action and a command's name are each
+    # cut there, so the tree reads what bash runs, not the bytes after the NUL.
+    "eval $'\\0; c1'",
+    "eval $'c1\\0c2'",
+    "eval $'c1\\x00; c2'",
+    "eval $'c1\\u0000; c2'",
+    "eval $'c1\\U00000000; c2'",
+    "eval $'c1\\400; c2'",
+    "eval $'c1\\c@; c2'",
+    "eval $'c1\\c ; c2'",
+    "eval $'c\\UFFFFFFFF1'",
+    "eval $'c\\U800000001'",
+    "eval $'c1\\0;' c2",
+    "eval $'\\0' c1",
+    "eval $'c1\\0x'\";c2\"",
+    "bash -c $'c1\\0; c2'",
+    "trap $'c1\\0; c2' EXIT",
+    "$'c1\\0x'",
+    "$'c1'",
+    "env $'c1\\0x' a",
+    # No NUL: these decode to text that runs, and must keep parsing.
+    "eval $'\\x631'",
+    "eval $'c\\061'",
+    "eval $'c\\u0031'",
+    "eval $'c\\U00000031'",
+    "eval $'c1\\x200'",
+    "eval $'c1\\cAx; c2'",
+    "eval $'c\\U7FFFFFFF; c1'",
 )
 WHOLE = (
     "exec c1",
@@ -141,6 +171,9 @@ WHOLE = (
     "c1 <<'EOF'\n$(c2)\nEOF",
     "c1 \\\n  a; c2",
     "c1\nc2",
+    # \c takes both backslashes of a \\ after it, so the 0 that follows is text, never a \0 (cmux#41745 F1).
+    "eval $'c1\\c\\\\0; c2'",
+    "eval $'c1\\c'; c2",
 )
 
 
