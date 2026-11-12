@@ -122,6 +122,11 @@ int32_t cmux_cu_engine_session(CmuxCuEngine *engine, const uint8_t *action, size
                                const uint8_t *session, size_t session_len, const uint8_t *label,
                                size_t label_len);
 
+// Whether app_id (bundle id; app_name its display name) is protected, denied or answered Never, read
+// now: 1 blocked, 0 not, 2 bad call (treat as blocked). cmux Remote's live preview refuses such a window.
+int32_t cmux_cu_engine_app_blocked(CmuxCuEngine *engine, const uint8_t *app_id, size_t app_id_len,
+                                   const uint8_t *app_name, size_t app_name_len);
+
 // Saved approvals: {"always":[...],"never":[...]}.
 CmuxCuBuffer cmux_cu_engine_saved_approvals(CmuxCuEngine *engine);
 // action: "forget" | "always" | "never" for app_id; "revoke_sessions" ignores app_id.

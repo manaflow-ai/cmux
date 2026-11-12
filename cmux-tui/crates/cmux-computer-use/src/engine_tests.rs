@@ -777,6 +777,25 @@ fn the_menu_guard_follows_the_deny_list_as_settings_change() {
     assert!(!guard.app_blocked("com.apple.Terminal", "Terminal"));
 }
 
+/// The app's live preview asks the engine whether a window's app may be
+/// shown: protected, denied and answered-Never apps never are, read at the
+/// call so a deny-list edit applies to the next frame.
+#[test]
+fn the_live_preview_hides_protected_denied_and_never_apps() {
+    let d = Arc::new(FakeDesktop::standard());
+    let e = engine(d, PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
+    assert!(!e.app_blocked("com.apple.TextEdit", "TextEdit"));
+    assert!(e.app_blocked("com.apple.loginwindow", "loginwindow"), "protected");
+    e.set_config(PolicyConfig {
+        denied_apps: vec!["com.apple.Terminal".into()],
+        ..PolicyConfig::default()
+    });
+    assert!(e.app_blocked("com.apple.Terminal", "Terminal"), "denied");
+    assert!(!e.app_blocked("com.apple.TextEdit", "TextEdit"));
+    e.sessions().update_saved(|s| s.set_never("com.apple.TextEdit"));
+    assert!(e.app_blocked("com.apple.TextEdit", "TextEdit"), "answered Never");
+}
+
 #[test]
 fn a_name_for_several_apps_is_refused_before_anyone_is_asked() {
     // A desktop whose launch_app takes an identity (macOS: a bundle id) and

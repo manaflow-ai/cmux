@@ -17,6 +17,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     typealias SessionFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int,
                                           UnsafePointer<UInt8>?, Int) -> Int32
     typealias FreeFn = @convention(c) (CmuxCuBuffer) -> Void
+    typealias AppBlockedFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Int32
     /// `void *cmux_cu_serve(CmuxCuEngine *, const uint8_t *socket_path, size_t, const uint8_t *secret_hex, size_t,
     /// CmuxCuBuffer *error)`: serves the agent socket (`cmux_computer_use::server`,
     /// cmux-computer-use-v1) at `socket_path` on the library's own threads, admitting this user's
@@ -46,6 +47,9 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     let savedApprovals: SavedApprovalsFn
     let editApprovals: EditApprovalsFn
     let session: SessionFn
+    /// `cmux_cu_engine_app_blocked`; nil in an older library, and then every app counts as blocked
+    /// (the live preview shows nothing it cannot check).
+    let appBlocked: AppBlockedFn?
     let free: FreeFn
     let serve: ServeFn
     let serveStop: ServeStopFn
@@ -71,6 +75,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
         savedApprovals = try symbol("cmux_cu_engine_saved_approvals", SavedApprovalsFn.self)
         editApprovals = try symbol("cmux_cu_engine_edit_approvals", EditApprovalsFn.self)
         session = try symbol("cmux_cu_engine_session", SessionFn.self)
+        appBlocked = dlsym(handle, "cmux_cu_engine_app_blocked").map { unsafeBitCast($0, to: AppBlockedFn.self) }
         free = try symbol("cmux_cu_buffer_free", FreeFn.self)
         serve = try symbol("cmux_cu_serve", ServeFn.self)
         serveStop = try symbol("cmux_cu_serve_stop", ServeStopFn.self)
@@ -131,6 +136,18 @@ final class ComputerUseEngine: @unchecked Sendable { // crash-allow: the handle 
                 library.editApprovals(handle, action.baseAddress, action.count, app.baseAddress, app.count) == 0
             }
         }
+    }
+
+    /// Whether app `id` (bundle id; `name` its display name) is protected, denied or answered Never
+    /// now. True when the library cannot say (an older library, a bad call): fails closed.
+    func appBlocked(id: String, name: String) -> Bool {
+        guard let appBlocked = library.appBlocked, !id.isEmpty else { return true }
+        let status = Array(id.utf8).withUnsafeBufferPointer { app in
+            Array(name.utf8).withUnsafeBufferPointer { label in
+                appBlocked(handle, app.baseAddress, app.count, label.baseAddress, label.count)
+            }
+        }
+        return status != 0
     }
 
     /// What `cmux_cu_engine_session` did.

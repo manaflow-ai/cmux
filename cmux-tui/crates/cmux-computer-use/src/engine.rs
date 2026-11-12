@@ -555,6 +555,16 @@ impl Engine {
         self.stops.is_stopped(session)
     }
 
+    /// Whether the person may not see `app` outside Computer Use's own calls
+    /// either: protected, on the deny list, or answered Never. The app's live
+    /// preview (cmux Remote's `preview_frame`) refuses such a window, the same
+    /// apps screenshots paint out. Read at the moment of the check, so a deny
+    /// list edit applies to the next frame.
+    pub fn app_blocked(&self, app_id: &str, app_name: &str) -> bool {
+        let app = TargetApp { id: app_id.to_string(), name: app_name.to_string() };
+        self.blocked(&self.config(), &self.sessions.saved(), &app).is_some()
+    }
+
     /// The stopped sessions, sorted.
     pub fn stopped_sessions(&self) -> Vec<String> {
         self.stops.list()

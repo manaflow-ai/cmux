@@ -520,6 +520,29 @@ pub unsafe extern "C" fn cmux_cu_engine_session(
     if changed { 0 } else { 2 }
 }
 
+/// Whether the app `app_id` (bundle id; `app_name` its display name) is
+/// protected, on the deny list or answered Never, read at the call: cmux
+/// Remote's live preview never shows such a window. Returns 1 when blocked,
+/// 0 when not, 2 for a bad call (no engine or no app id): a caller treats 2
+/// as blocked.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_cu_engine_app_blocked(
+    engine: *mut CmuxCuEngine,
+    app_id: *const u8,
+    app_id_len: usize,
+    app_name: *const u8,
+    app_name_len: usize,
+) -> i32 {
+    // SAFETY: from create / header contract.
+    let Some(engine) = (unsafe { engine.as_ref() }) else { return 2 };
+    let id = unsafe { text(app_id, app_id_len) };
+    let name = unsafe { text(app_name, app_name_len) };
+    if id.is_empty() {
+        return 2;
+    }
+    i32::from(engine.engine.app_blocked(id, name))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_cu_engine_saved_approvals(engine: *mut CmuxCuEngine) -> CmuxCuBuffer {
     // SAFETY: from create.
