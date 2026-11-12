@@ -37,6 +37,11 @@ whose baseline went down since its own check: cmux_next_fast_gates.py). A
 count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
+
+With a base run the ratchet also compares hits, not only counts: a hit is its crate, lint, file and
+source line text (the line number is left out, so an edit above a hit does not make it new). A
+deny-lint hit the base run does not have is the change's and fails, whatever the counts: a change
+that fixes one hit and adds another keeps the count at its row and is still red for the new one.
 """
 import argparse
 import collections
@@ -109,11 +114,13 @@ def package_name(package_id):
 
 
 def read_clippy(path):
-    """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}})."""
+    """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}}, whether the build
+    finished, {(crate, lint): [location]}, {(crate, lint): [(file, source text, location)]})."""
     checked = set()
     finished = None
     seen = set()
     hits = collections.defaultdict(list)
+    identities = collections.defaultdict(list)
     counts = collections.defaultdict(collections.Counter)
     files = collections.defaultdict(collections.Counter)
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -161,8 +168,32 @@ def read_clippy(path):
             seen.add(key)
             counts[crate][lint] += 1
             hits[(crate, lint)].append(f"{file_name}:{span.get('line_start')}:{span.get('column_start')}")
+            identities[(crate, lint)].append((file_name, source_text(span), f"{file_name}:{span.get('line_start')}:{span.get('column_start')}"))
             files[crate][file_name.split("cmux-tui/", 1)[-1]] += 1
-    return checked, counts, files, finished, hits
+    return checked, counts, files, finished, hits, identities
+
+
+def source_text(span):
+    """A hit's source line, stripped (its identity without the line number); the line number when
+    clippy printed no text."""
+    text = span.get("text") or []
+    if text and isinstance(text[0], dict) and text[0].get("text") is not None:
+        return text[0]["text"].strip()
+    return f"line {span.get('line_start')}"
+
+
+def new_hits(head, base):
+    """{(crate, lint): [location: text]} of HEAD's identities ({(crate, lint): [(file, text, location)]})
+    beyond BASE's, counted: a (file, text) the head has more often than the base is new that many times."""
+    out = {}
+    for key, found in head.items():
+        left = collections.Counter((name, text) for name, text, _ in base.get(key, []))
+        for name, text, where in found:
+            if left[(name, text)] > 0:
+                left[(name, text)] -= 1
+            else:
+                out.setdefault(key, []).append(f"{where}: {text}")
+    return out
 
 
 def allow_without_reason(root):
@@ -288,7 +319,7 @@ def main():
         return 0
     if not args.clippy_json:
         parser.error("--clippy-json is required")
-    checked, counts, files, finished, hits = read_clippy(args.clippy_json)
+    checked, counts, files, finished, hits, head_identities = read_clippy(args.clippy_json)
     if not checked or finished is not True:
         print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
               " counts from a partial build prove nothing", file=sys.stderr)
@@ -299,7 +330,7 @@ def main():
     base_counts = None
     base_hits = None
     if args.base_clippy_json:
-        base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
+        base_checked, base_counts, _, base_finished, base_hits, base_identities = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
             print("::warning title=rust panic ratchet::the base clippy run did not finish successfully; "
                   "every count over the baseline is charged to this change", file=sys.stderr)
@@ -311,6 +342,14 @@ def main():
         return 0
 
     failures = []
+    if base_counts is not None:
+        # Hits, not counts: a deny-lint hit the base run does not have is the change's (a swapped hit
+        # keeps the count). Crates the base run did not check are judged by count below.
+        for (crate, lint), added in sorted(new_hits(head_identities, base_identities).items()):
+            if lint not in DENY_LINTS or crate not in checked or crate not in base_checked:
+                continue
+            failures.append(f"{crate}: clippy::{lint}: {len(added)} new hit(s) the base does not have")
+            failures.extend(f"    {line}" for line in added[:20])
     warnings = []
     base_reds = []
     lowered = {}

@@ -2,7 +2,8 @@
 
 A fake ratchet stands in for scripts/cmux-next/crash_ratchet.py: it prints the text in
 <repo>/ratchet.out and exits with the code in <repo>/ratchet.rc, so each case states exactly what
-the real ratchet would print for the head and for the base. Its baseline judgment
+the real ratchet would print for the head and for the base. Its --hit-lines file is <repo>/hits.json
+(default: no hits). Its baseline judgment
 (--baseline-against) prints <repo>/baseline.out and exits with <repo>/baseline.rc (default: the
 `baseline ok` line, exit 0).
 """
@@ -30,7 +31,12 @@ FAKE = textwrap.dedent("""\
     p.add_argument("--repo")
     p.add_argument("--exported-tree", action="store_true")
     p.add_argument("--baseline-against")
+    p.add_argument("--hit-lines")
     o = p.parse_args()
+    if o.hit_lines:
+        hits = os.path.join(o.repo, "hits.json")
+        with open(o.hit_lines, "w") as out:
+            out.write(open(hits).read() if os.path.exists(hits) else "[]")
     if o.baseline_against:
         if os.path.basename(o.baseline_against) != "base" or os.path.basename(o.repo) != "head":
             print("the head's baseline must be judged against the base tree"); sys.exit(9)

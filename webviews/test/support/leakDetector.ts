@@ -90,11 +90,15 @@ function isContainer(value: unknown): value is Map<unknown, unknown> | Set<unkno
 /// The key an array's length is recorded under among its entries (never an index).
 const LENGTH = Symbol("length");
 
-/// A container's entries: a Map's or Set's, or an array's own elements by index and its length, so
-/// `arr.length = 10` on an empty array (all holes, no element) still reads as a change.
+/// A container's entries: a Map's or Set's, or an array's own properties (its elements, and any named
+/// or symbol-keyed property: every own key) and its length, so `arr.length = 10` on an empty array
+/// (all holes, no element) and `arr[Symbol.for("x")] = 1` still read as a change.
 function containerEntries(value: Map<unknown, unknown> | Set<unknown> | unknown[]): Entries {
   if (!Array.isArray(value)) return entriesOf(value);
-  const entries: Entries = Object.keys(value).map((key) => [Number(key), value[Number(key)]]);
+  const record = value as unknown as Record<PropertyKey, unknown>;
+  const entries: Entries = Reflect.ownKeys(value)
+    .filter((key) => key !== "length")
+    .map((key) => [key, record[key]]);
   entries.push([LENGTH, value.length]);
   return entries;
 }
@@ -163,7 +167,10 @@ function restoreShape(value: object, shape: Shape): void {
       for (const [k] of entries) container.add(k);
     } else if (Array.isArray(container)) {
       container.length = 0;
-      for (const [k, v] of entries) if (k !== LENGTH) container[k as number] = v;
+      const record = container as unknown as Record<PropertyKey, unknown>;
+      // Emptying drops the elements only: a named or symbol-keyed property goes here.
+      for (const key of Reflect.ownKeys(container)) if (key !== "length") Reflect.deleteProperty(record, key);
+      for (const [k, v] of entries) if (k !== LENGTH) record[k as PropertyKey] = v;
       const length = entries.find(([k]) => k === LENGTH);
       if (length) container.length = length[1] as number;
     }
@@ -534,7 +541,7 @@ function wrapGlobalListeners(): void {
 
 type FileStart = {
   path: string | undefined;
-  globals: Map<string, PropertyDescriptor | undefined>;
+  globals: Map<PropertyKey, PropertyDescriptor | undefined>;
   documents: Map<object, Map<PropertyKey, PropertyDescriptor>>;
 };
 let fileStart: FileStart | undefined;
@@ -548,8 +555,9 @@ function ownDescriptors(target: object): Map<PropertyKey, PropertyDescriptor> {
   return new Map(Reflect.ownKeys(target).map((key) => [key, Object.getOwnPropertyDescriptor(target, key)!]));
 }
 
-function globalKeys(): string[] {
-  return Reflect.ownKeys(globalThis).filter((key): key is string => typeof key === "string");
+/// Every own key of globalThis, symbols too (`globalThis[Symbol.for("x")] = 1` is a global a later file reads).
+function globalKeys(): PropertyKey[] {
+  return Reflect.ownKeys(globalThis);
 }
 
 /// The documents a later file could reach: the global one, and the one under the global window.
@@ -581,12 +589,12 @@ function leakedGlobals(start: FileStart): string[] {
   const leaks: string[] = [];
   const now = new Set(globalKeys());
   for (const key of now) {
-    if (!start.globals.has(key)) leaks.push(`global: \`${key}\` was added and not removed`);
+    if (!start.globals.has(key)) leaks.push(`global: \`${String(key)}\` was added and not removed`);
     else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
-      leaks.push(`global: \`${key}\` was replaced and not restored`);
+      leaks.push(`global: \`${String(key)}\` was replaced and not restored`);
   }
   for (const key of start.globals.keys())
-    if (!now.has(key)) leaks.push(`global: \`${key}\` was deleted and not restored`);
+    if (!now.has(key)) leaks.push(`global: \`${String(key)}\` was deleted and not restored`);
   // A document the file started with and that is still reachable: what the file defined on it stays.
   for (const doc of globalDocuments()) {
     const before = start.documents.get(doc);

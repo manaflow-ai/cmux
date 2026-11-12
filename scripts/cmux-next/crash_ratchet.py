@@ -1291,6 +1291,9 @@ def main():
                         help="judge this baseline against BASE_TREE's (an exported tree); no tree check")
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
+    parser.add_argument("--hit-lines", metavar="PATH",
+                        help="also write the tree's counted hits by line to PATH (JSON: [lang, class, module, "
+                             "stripped line, hits]); crash_ratchet_compare.py compares them with the base's")
     opts = parser.parse_args()
     updating = opts.update_baseline or opts.record_waivers
     if opts.base and not updating:
@@ -1302,6 +1305,11 @@ def main():
     if opts.baseline_against:
         return baseline_against(opts.repo, opts.exported_tree, opts.baseline_against)
     scan = scan_tree(opts.repo, opts.exported_tree)
+    if opts.hit_lines:
+        with open(opts.hit_lines, "w") as out:
+            json.dump(sorted([lang, kind, module, line, hits]
+                             for (section, lang, kind, module, line), hits in scan.lines.items()
+                             if section == COUNTED), out)
     if updating:
         return update_baseline(opts.repo, scan, opts.base, opts.record_waivers)
     counts, waived = scan.counts, scan.waived

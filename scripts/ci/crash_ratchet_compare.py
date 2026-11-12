@@ -23,22 +23,34 @@ Then it compares the `crash-ratchet: <lang> <module>: <kind> N -> M` lines of th
   its output, because nothing can be compared. A baseline judgment that prints neither
   `crash-ratchet: baseline ok` (exit 0) nor raised rows (exit 1) is red the same way.
 
+Then it compares hits, not only counts: each tree's counted hits by line (`--hit-lines`: the class
+and the stripped source line). A hit line the head has more often than the base, in any module, is
+the change's and is red whatever the counts show: a change that fixes one hit and adds another keeps
+a module's count at its row. A line that moved to another file or module is the same hit. Hit lines
+that cannot be read from both trees are red too (nothing to compare).
+
 Exit 0 = green or base-red-not-worse, 1 = red. Lines go to stdout; GitHub annotations are
 `::error::` / `::warning::`.
 """
 import argparse
+import collections
+import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 
 LINE = re.compile(r"^crash-ratchet: (\S+) (.+?): (\S+) (\d+) -> (\d+)$")
 OK = re.compile(r"^crash-ratchet: ok\b")
 
 
-def run(script, repo, exported):
+def run(script, repo, exported, hit_lines=None):
     args = [sys.executable, script, "--repo", repo]
     if exported:
         args.append("--exported-tree")
+    if hit_lines:
+        args += ["--hit-lines", hit_lines]
     out = subprocess.run(args, capture_output=True, text=True)
     text = out.stdout + out.stderr
     found = {}
@@ -105,13 +117,55 @@ def main(argv=None):
     o = p.parse_args(argv)
 
     baseline_down = judge_baseline(o.script, o.head, o.base)
-    trees = compare_trees(o.script, o.head, o.base)
-    return 0 if baseline_down and trees == 0 else 1
+    with tempfile.TemporaryDirectory(prefix="crash-ratchet-hits-") as tmp:
+        head_lines, base_lines = os.path.join(tmp, "head.json"), os.path.join(tmp, "base.json")
+        trees = compare_trees(o.script, o.head, o.base, head_lines, base_lines)
+        hits = compare_hits(head_lines, base_lines)
+    return 0 if baseline_down and trees == 0 and hits == 0 else 1
 
 
-def compare_trees(script, head_dir, base_dir):
-    """The tree comparison: 0 = head green or base red and not made worse, 1 = red."""
-    head_state, head, head_text, head_rc = run(script, head_dir, exported=False)
+def read_hit_lines(path):
+    """{(lang, class, line): hits} and {(lang, class, line): [modules]} of a --hit-lines file, or None."""
+    try:
+        with open(path) as f:
+            rows = json.load(f)
+        counts, modules = collections.Counter(), {}
+        for lang, kind, module, line, hits in rows:
+            counts[(lang, kind, line)] += int(hits)
+            modules.setdefault((lang, kind, line), []).append(module)
+        return counts, modules
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def compare_hits(head_path, base_path):
+    """0 when every counted hit line of the head is on the base as often, 1 (naming each) otherwise."""
+    head, base = read_hit_lines(head_path), read_hit_lines(base_path)
+    if head is None or base is None:
+        which = " and ".join(name for name, got in (("head", head), ("base", base)) if got is None)
+        print(f"::error::the crash ratchet wrote no readable hit lines for the {which}; hits cannot be compared")
+        return 1
+    (head_counts, head_modules), (base_counts, _) = head, base
+    new = sorted(key for key, n in head_counts.items() if n > base_counts.get(key, 0))
+    for lang, kind, line in new:
+        extra = head_counts[(lang, kind, line)] - base_counts.get((lang, kind, line), 0)
+        times = f" ({extra} more)" if extra > 1 or base_counts.get((lang, kind, line)) else ""
+        for module in sorted(set(head_modules[(lang, kind, line)])):
+            print(f"::error::a crash-class hit the base does not have: {lang} {module}: {kind}: {line}{times}")
+    if new:
+        print(f"::error::{len(new)} crash-class hit line(s) are new against the base, whatever the counts: a fixed "
+              "hit does not pay for a new one. Remove the new hit, or record a reviewed `// crash-allow: <reason>` "
+              "waiver (crash_ratchet.py --record-waivers).")
+        return 1
+    print("crash-ratchet: no hit the base does not have")
+    return 0
+
+
+def compare_trees(script, head_dir, base_dir, head_lines=None, base_lines=None):
+    """The tree comparison: 0 = head green or base red and not made worse, 1 = red. Writes each
+    tree's hit lines to HEAD_LINES and BASE_LINES (the base is scanned whatever the head shows)."""
+    head_state, head, head_text, head_rc = run(script, head_dir, exported=False, hit_lines=head_lines)
+    base_state, base, base_text, base_rc = run(script, base_dir, exported=True, hit_lines=base_lines)
     if head_state == "green":
         print("crash-ratchet: ok on the head")
         return 0
@@ -120,7 +174,6 @@ def compare_trees(script, head_dir, base_dir):
         print(f"::error::the crash ratchet did not run on the head (exit {head_rc}, no ok line and no regression lines)")
         return 1
 
-    base_state, base, base_text, base_rc = run(script, base_dir, exported=True)
     if base_state == "failed":
         print(head_text)
         print(base_text)
