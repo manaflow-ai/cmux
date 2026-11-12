@@ -33,6 +33,8 @@ public final class BenchFrames {
     private var firstTick: Double?
     /// Ms from the last waiter's start to the end of the first commit after which its condition held, or nil.
     public private(set) var lastCommitted: Double?
+    /// Tests only: runs as a waiter registers, just before its deadline is scheduled (a cancel that lands there).
+    package var beforeSchedulingDeadline: (() -> Void)?
 
     private struct Waiter {
         var id: UInt64
@@ -47,7 +49,12 @@ public final class BenchFrames {
         var timer: DemandTimer
     }
 
-    public init() {}
+    /// The clock the waiters' deadline timers run on.
+    private let clock: any Clock<Duration>
+
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     /// Resumes with the ms at which `done` first held (checked each frame), once `window` ms of
     /// frames followed it, or nil at `deadline` ms. With `watchCommits` (a `done` that only reads), ``lastCommitted``
@@ -62,12 +69,14 @@ public final class BenchFrames {
         } : nil
         waiters &+= 1
         let id = waiters
-        let timer = DemandTimer(owner: "debug.new_tab.frames.deadline")
+        let timer = DemandTimer(owner: "debug.new_tab.frames.deadline", clock: clock)
         let left = max(deadline - Self.ms(.now - start), 0)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 waiter = Waiter(id: id, done: done, start: start, window: window, deadline: deadline, continuation: continuation, timer: timer)
-                timer.schedule(after: .milliseconds(Task.isCancelled ? 0 : left)) { @MainActor [weak self] in self?.expire(id) }
+                let cancelled = Task.isCancelled
+                beforeSchedulingDeadline?()
+                timer.schedule(after: .milliseconds(cancelled ? 0 : left)) { @MainActor [weak self] in self?.expire(id) }
             }
         } onCancel: {
             timer.schedule(after: .zero) { @MainActor [weak self] in self?.expire(id) }
