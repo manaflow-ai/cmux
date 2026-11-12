@@ -2880,12 +2880,15 @@
           "cwd": "/tmp/contract",
           "fromFolder": "/tmp/contract",
           "login": "/tmp/contract",
-          "name": "/tmp/contract"
+          "mode": "/tmp/contract",
+          "model": "/tmp/contract",
+          "name": "/tmp/contract",
+          "team": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --login /tmp/contract --model /tmp/contract --mode /tmp/contract --team /tmp/contract"
     },
     {
       "params": {

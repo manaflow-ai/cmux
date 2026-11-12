@@ -248,5 +248,79 @@ class StopTests(unittest.TestCase):
         self.assertNotEqual(answer[0][0], 0)
 
 
+class AccountModeTests(unittest.TestCase):
+    """Leo, 2026-11-10: "did you guys not test these" (Personal vs team, Bypass). The small repo once per account and
+    mode, started under that team with that mode; an account the signed-in one lacks is a row that says so."""
+
+    TEAMS = [{"id": "t-me", "title": "Personal", "kind": "personal", "active": True},
+             {"id": "t-cmux", "title": "cmux", "kind": "team", "active": False}]
+
+    def test_accounts_resolve_to_the_teams_and_the_active_one_runs_last(self):
+        cells = matrix.account_cells(["personal", "team"], self.TEAMS, "", environ={})
+        self.assertEqual([(c["label"], c["team"], c["skip"]) for c in cells],
+                         [("team", "t-cmux", ""), ("personal", "personal", "")])
+        named = matrix.account_cells(["team"], self.TEAMS, "", environ={matrix.TEAM_ENV: "cmux"})
+        self.assertEqual(named[0]["team"], "t-cmux")
+        self.assertEqual(matrix.account_cells(["active"], self.TEAMS, "", environ={})[0]["team"], "")
+
+    def test_an_account_the_signed_in_one_lacks_says_so(self):
+        alone = [self.TEAMS[0]]
+        team = matrix.account_cells(["team"], alone, "", environ={})[0]
+        self.assertTrue(team["skip"].startswith("skipped: the signed-in account belongs to no team"), team)
+        self.assertIn(matrix.TEAM_ENV, team["skip"])
+        missing = matrix.account_cells(["team"], alone, "", environ={matrix.TEAM_ENV: "t-other"})[0]
+        self.assertEqual(missing["skip"], "skipped: the signed-in account is in no team t-other")
+        shared_only = matrix.account_cells(["personal"], [self.TEAMS[1]], "", environ={})[0]
+        self.assertEqual(shared_only["skip"], "skipped: the signed-in account has no Personal team")
+        unread = matrix.account_cells(["personal"], [], "an old app", environ={})[0]
+        self.assertTrue(unread["skip"].startswith("skipped: no team list"), unread)
+
+    def test_modes_are_checked_and_bypass_is_a_full_access_mode(self):
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--modes", "default,yolo-ish"])
+        args = matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--accounts", "personal, team",
+                                  "--modes", "default,bypass"])
+        self.assertEqual((args.account_list, args.mode_list), (["personal", "team"], ["default", "bypass"]))
+        for agent, mode in matrix.BYPASS_MODE.items():
+            self.assertTrue(matrix.full_access(mode), agent)
+        self.assertFalse(matrix.full_access("auto"))
+        self.assertFalse(matrix.full_access(""))
+
+    def test_a_bypass_cell_whose_mode_is_not_bypass_fails(self):
+        cell = {"workspace": "small-repo/team/bypass", "agent": "claude", "start_exit": 0, "hash_match": True,
+                "reply": {"form_ok": True, "word_ok": True}, "machine_killed": True, "session_mode": "auto",
+                "mode_ok": False}
+        self.assertEqual(matrix.verdict(cell, ""), "fail: mode is auto, not Bypass")
+        cell.update(session_mode="bypassPermissions", mode_ok=True)
+        self.assertEqual(matrix.verdict(cell, ""), "pass")
+        cell["result"] = "pass"
+        self.assertIn("| bypassPermissions |", matrix.grid([cell]))
+
+    def test_the_cell_starts_under_its_team_and_mode_and_reads_the_mode_back(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cli = root / "cmux"
+            # start-chat answers a session; `cloud exec` answers the mode for `acp info`, else nothing.
+            cli.write_text(f'''#!/bin/sh
+echo "$@" >> "{root}/calls"
+case "$1 $2" in
+  "cloud start-chat") echo \'{{"machine_id":"vm_0123456789ab","session_id":"s-1","reply":"MATRIX_OK"}}\' ;;
+  "cloud exec") case "$*" in *"acp info"*) echo \'{{"stdout":"bypassPermissions"}}\' ;; *) echo \'{{"stdout":""}}\' ;; esac ;;
+esac
+exit 0
+''')
+            cli.chmod(0o755)
+            m = matrix.Matrix(matrix.parse_args(["--cli", str(cli), "--out", str(root / "out")]))
+            repo = root / "small-repo"
+            matrix.small_repo(repo)
+            cell = m.run_cell("small-repo/team/bypass", "claude", repo, "", word="w", canary="", read_only=True,
+                              start_words=("--team", "t-cmux", "--mode", "bypassPermissions"), want_mode="bypass")
+            calls = (root / "calls").read_text().splitlines()
+            start = next(line for line in calls if line.startswith("cloud start-chat"))
+            self.assertIn("--team t-cmux --mode bypassPermissions", start)
+            self.assertIn("-small-repo-team-bypass-claude", start)
+            self.assertEqual((cell["session_mode"], cell["mode_ok"]), ("bypassPermissions", True))
+            self.assertTrue(any("acp info 's-1' --fields currentModeId" in line for line in calls), calls)
+
 if __name__ == "__main__":
     unittest.main()

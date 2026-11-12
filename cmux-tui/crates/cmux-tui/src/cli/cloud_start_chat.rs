@@ -1,5 +1,5 @@
 //! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH] [--login L]
-//! [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes
+//! [--mode MODE] [--team TEAM] [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes
 //! a Cloud chat from nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
 //! efficient more exposed / cuz chief will be using this kind of flow").
@@ -9,7 +9,8 @@
 //!
 //! 1. `cloud list-machines`: refuses at once when the app is signed out of cmux.
 //!    With `--environment`, `cloud new-machine --environment E` first makes the chat's machine in it.
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L] [--mode M]
+//!    [--team T]`: with `--team`, switches to that team first (an id, a name, or `personal`); then takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the app.
 //!    With `--from-folder` (an existing folder on this Mac) the app copies that folder to the machine the
 //!    way the agent pane composer's Cloud start copies one, and the chat starts in the copy; a retry on the
@@ -79,6 +80,8 @@ const TAKES_VALUE: &[&str] = &[
     "--cwd",
     "--from-folder",
     "--login",
+    "--mode",
+    "--team",
     "--environment",
     "--name",
     "--target",
@@ -115,6 +118,12 @@ pub(super) struct Request {
     /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
     /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
     pub login: Option<String>,
+    /// `--mode MODE`: the permission mode the chat starts in (`bypassPermissions`, ...), as `cloud start-session
+    /// --mode` takes it; the machine checks it and applies it on the caller's own machine only. `None`: its own.
+    pub mode: Option<String>,
+    /// `--team ID|NAME|personal`: the team `cloud start-session` switches to before the start, so the chat runs
+    /// in that account (Leo, 2026-11-10: "did you guys not test these"). `None`: the active team.
+    pub team: Option<String>,
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
@@ -232,6 +241,8 @@ pub(super) fn send_existing(
         cwd: None,
         from_folder: None,
         login: None,
+        mode: None,
+        team: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -365,6 +376,8 @@ pub(super) fn parse(
     let mut cwd = None;
     let mut from_folder = None;
     let mut login = None;
+    let mut mode = None;
+    let mut team = None;
     let mut environment = None;
     let mut name = None;
     let mut target = None;
@@ -399,6 +412,8 @@ pub(super) fn parse(
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
+            "--mode" => mode = Some(value()?),
+            "--team" => team = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -469,6 +484,20 @@ pub(super) fn parse(
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
         environment => environment,
     };
+    let mode = match mode.map(|word| word.trim().to_owned()) {
+        Some(word) if word.is_empty() => return Err(UsageError::new("--mode is empty")),
+        mode => mode,
+    };
+    let team = match team.map(|word| word.trim().to_owned()) {
+        Some(word) if word.is_empty() => return Err(UsageError::new("--team is empty")),
+        team => team,
+    };
+    if environment.is_some() && team.is_some() {
+        // `cloud new-machine --environment` makes the machine before `start-session` switches the team.
+        return Err(UsageError::new(
+            "--environment makes the machine in the active team, before --team switches: give one",
+        ));
+    }
     if environment.is_some() && target.is_some() {
         return Err(UsageError::new(
             "--environment makes a new machine; not with --target, whose environment is set",
@@ -496,6 +525,8 @@ pub(super) fn parse(
         cwd,
         from_folder,
         login,
+        mode,
+        team,
         environment,
         machine,
         wait,
@@ -694,6 +725,12 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(login) = &request.login {
         words.push(format!("--login {login}"));
+    }
+    if let Some(mode) = &request.mode {
+        words.push(format!("--mode {}", shell_quote(mode)));
+    }
+    if let Some(team) = &request.team {
+        words.push(format!("--team {}", shell_quote(team)));
     }
     // The prompt may be private: the command names where it goes, not what it says.
     if request.prompt.is_some() {
@@ -1339,6 +1376,12 @@ fn steps(
     }
     if let Some(login) = &request.login {
         start.extend(["--login".to_owned(), login.clone()]);
+    }
+    if let Some(mode) = &request.mode {
+        start.extend(["--mode".to_owned(), mode.clone()]);
+    }
+    if let Some(team) = &request.team {
+        start.extend(["--team".to_owned(), team.clone()]);
     }
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {

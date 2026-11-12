@@ -25,6 +25,17 @@ there's this limit", "did you guys not test these"), a folder of secrets, and od
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
+Accounts and modes (`--accounts personal,team --modes default,bypass`; Leo, 2026-11-10: "did you guys not test
+these", "i already told you to test these"): the small repo again, once per account and permission mode, each its own
+cell named like `small-repo/team/bypass`. An account is `personal` (the person's own team), `team` (the team in
+CMUX_JOURNEY_TEAM, else the first shared team the signed-in account belongs to), `active` (no switch) or a team's id or
+name; the start switches to it (`start-chat --team`), as the composer's team switch does. A mode is `default` (the
+machine's own start mode) or `bypass` (`start-chat --mode`, the harness's full-access mode), and a Bypass cell passes
+only when the session's mode on the machine, read back with `cloud exec` (`acp info`), is a full-access one. An account
+the signed-in account does not have is a skipped row that says so. These cells run one at a time after the others (a
+team switch ends any start running in the team before it), the active team's last, so a run that lists the team it
+began in ends in it.
+
 The app is either launched here (`--app`, signed in from `--credentials-file`, the way
 cloud-chat-proof.py does it, for CI) or already running and signed in (`--cli`, a person's own app).
 At most `--parallel` machines (default 3) exist at once; each cell kills the machine it made, and the
@@ -58,6 +69,14 @@ REFUSED_CELLS = ("huge-plain", "huge-parent-repos")
 # The repositories inside parent-repos and huge-parent-repos, which the refusal must name.
 PARENT_REPOS = ("api", "web", "work/tools")
 WORD_FILE = "cmux-matrix-word.txt"
+# --modes: `default` sends no --mode; `bypass` sends each harness's full-access mode id (acpmux claude_stdio MODES,
+# codex's own modes), and its cell passes when the mode read back is a full-access one (FULL_ACCESS_MODES).
+MODES = ("default", "bypass")
+BYPASS_MODE = {"claude": "bypassPermissions", "codex": "full-access"}
+# The one rule for which mode ids skip every approval (acpmux hub/start_mode.rs and the app read it too).
+FULL_ACCESS_MODES = Path(__file__).resolve().parents[2] / "cmux-tui/spec/full-access-modes.json"
+# `--accounts team` names this team when set (cloud-journey.ts reads it too), else the account's first shared team.
+TEAM_ENV = "CMUX_JOURNEY_TEAM"
 # huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
 HUGE_PLAIN_BYTES = 21 * 1024 ** 3
 # How long the copy may take to refuse huge-plain, from the call to its answer.
@@ -109,6 +128,12 @@ def parse_args(argv=None):
     parser.add_argument("--timeout", type=int, default=900, help="seconds one start-chat may wait")
     parser.add_argument("--out", required=True, help="folder for matrix.json and matrix.md")
     parser.add_argument("--keep-fixtures", action="store_true")
+    parser.add_argument("--accounts", default="",
+                        help="comma list of personal, team, active or a team id/name: the small repo once per account "
+                             "(and --modes), started under it with `start-chat --team` (default: none)")
+    parser.add_argument("--modes", default="default",
+                        help=f"comma list of {','.join(MODES)} for the --accounts cells; bypass sends `start-chat --mode` "
+                             "and checks the session's mode on the machine")
     args = parser.parse_args(argv)
     if args.app and not (args.cloud_backend and args.expected_api_origin):
         parser.error("--app needs --cloud-backend and --expected-api-origin")
@@ -118,6 +143,10 @@ def parse_args(argv=None):
     # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
     # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
     args.parallel = max(1, min(args.parallel, 2))
+    args.account_list = [word.strip() for word in args.accounts.split(",") if word.strip()]
+    args.mode_list = [word.strip() for word in args.modes.split(",") if word.strip()]
+    if unknown := [mode for mode in args.mode_list if mode not in MODES]:
+        parser.error(f"--modes takes {', '.join(MODES)}, not {', '.join(unknown)}")
     return args
 
 
@@ -628,8 +657,12 @@ class Matrix:
         return {}, clean(answer.get("stderr") or "no JSON from the machine")
 
     def run_cell(self, name: str, agent: str, folder: Path | None, note: str, *, word: str, canary: str,
-                 read_only: bool) -> dict:
+                 read_only: bool, start_words: tuple[str, ...] = (), want_mode: str = "") -> dict:
+        """One cell. `start_words`: the account and mode cells' `start-chat --team/--mode`; `want_mode`: the mode cell's
+        mode, whose session mode is read back on the machine (`bypass`: it must be a full-access one)."""
         cell = {"workspace": name, "agent": agent, "result": "", "notes": []}
+        if start_words:
+            cell["start_words"] = list(start_words)
         if self.stopping.is_set():
             cell["result"] = "skipped: the run was cancelled"
             return cell
@@ -656,7 +689,7 @@ class Matrix:
         deadline = chat_started + self.args.timeout
         while True:
             code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", prompt,
-                                       "--agent", agent, *start_login(agent, self.args.login), "--name", title,
+                                       "--agent", agent, *start_login(agent, self.args.login), *start_words, "--name", title,
                                        "--wait", "--timeout", str(self.args.timeout), "--json",
                                        timeout=self.args.timeout + 60)
             if time.monotonic() > deadline:
@@ -744,9 +777,35 @@ class Matrix:
                 cell["remote_git"] = got_git or {"error": problem}
                 cell["git_match"] = bool(got_git) and got_git.get("head") == cell["local_git"]["head"] and \
                     got_git.get("status_sha256") == cell["local_git"]["status_sha256"]
+        if want_mode and machine and code == 0:
+            cell["session_mode"] = self.session_mode(machine, answer.get("session_id"))
+            cell["mode_ok"] = full_access(cell["session_mode"]) if want_mode == "bypass" else None
         cell["machine_killed"] = self.kill(machine) if machine else None
         cell["result"] = verdict(cell, canary)
         return cell
+
+    def session_mode(self, machine: str, session) -> str:
+        """The chat's permission mode on the machine (`acp info --fields currentModeId` in its own acpmux), or ''."""
+        if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", session):
+            return ""
+        command = ('export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && '
+                   f'c="$HOME/.cmux/bin/cmux-tui"; "$c" acp info {shlex_quote(session)} --fields currentModeId')
+        code, out, _ = self.cmux("cloud", "exec", "--target", f"machine:{machine}", "--command", command, "--json",
+                                 timeout=120)
+        stdout = self.parsed(out).get("stdout") if code == 0 else ""
+        lines = (stdout or "").strip().splitlines() if isinstance(stdout, str) else []
+        return clean(lines[-1].strip(), 80) if lines else ""
+
+    def teams(self) -> tuple[list[dict], str]:
+        """The signed-in account's teams as the team menu lists them (`auth.status` teams: id, title, kind, active),
+        and why there are none to read."""
+        code, out, err = self.cmux("app", "call", "auth.status", "--json", timeout=30)
+        status = self.parsed(out) if code == 0 else {}
+        rows = status.get("teams")
+        if not isinstance(rows, list):
+            return [], ("this app's auth.status lists no teams (an app from before `cloud start-session --team`)"
+                        if code == 0 else f"auth.status: {clean(self.error(out, err).get('message') or err, 200)}")
+        return [row for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)], ""
 
 
 def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
@@ -806,12 +865,59 @@ def verdict(cell: dict, canary: str) -> str:
         problems.append("git state differs")
     if cell.get("machine_killed") is False:
         problems.append("machine not killed")
+    if cell.get("mode_ok") is False:
+        problems.append(f"mode is {cell.get('session_mode') or 'unread'}, not Bypass")
     return "pass" if not problems else "fail: " + ", ".join(problems)
 
 
+def full_access(mode: str) -> bool:
+    """Whether a harness mode id skips every approval: the rule in cmux-tui/spec/full-access-modes.json (lowercase,
+    drop `-`, `_` and spaces, then any marker), which acpmux and the app apply too."""
+    markers = json.loads(FULL_ACCESS_MODES.read_text())["markers"]
+    folded = re.sub(r"[-_ ]", "", (mode or "").lower())
+    return bool(folded) and any(marker in folded for marker in markers)
+
+
+def account_cells(words: list[str], teams: list[dict], unread: str, environ=os.environ) -> list[dict]:
+    """--accounts, each as the team its cells start under: `label` (the cell's middle name), `team` (the
+    `start-chat --team` word; '' for `active`, which switches nothing), `active` (it is the team active now) and
+    `skip` (why the account has no row to run, said plainly). The active team's come last, so the run ends in it."""
+    shared = [row for row in teams if row.get("kind") == "team"]
+    out = []
+    for word in words:
+        cell = {"label": word if word in ("personal", "team", "active") else "team", "team": "", "active": False,
+                "skip": ""}
+        if word == "active":
+            cell["active"] = True
+        elif unread:
+            cell["skip"] = f"skipped: no team list to start {word} in ({unread})"
+        elif word == "personal":
+            row = next((row for row in teams if row.get("kind") == "personal"), None)
+            cell.update(team="personal", active=bool(row and row.get("active")))
+            if row is None:
+                cell["skip"] = "skipped: the signed-in account has no Personal team"
+        else:
+            wanted = environ.get(TEAM_ENV, "").strip() if word == "team" else word
+            row = (next((row for row in teams if wanted in (row.get("id"), row.get("title"))), None) if wanted
+                   else next(iter(shared), None))
+            if row is not None:
+                cell.update(team=row["id"], active=bool(row.get("active")))
+            elif wanted:
+                cell["skip"] = f"skipped: the signed-in account is in no team {wanted}"
+            else:
+                cell["skip"] = ("skipped: the signed-in account belongs to no team but its Personal one: add it to a "
+                                f"team, or name one in {TEAM_ENV}")
+        out.append(cell)
+    labels = [cell["label"] for cell in out]
+    for index, cell in enumerate(out):
+        if labels.count(cell["label"]) > 1:
+            cell["label"] = f"{cell['label']}{index + 1}"
+    return sorted(out, key=lambda cell: cell["active"])  # stable: the given order, the active team's last
+
+
 def grid(cells: list[dict]) -> str:
-    rows = ["| Workspace | Agent | Result | Create to reply | Files (here / there) | Hash | Git | Secrets | Reply |",
-            "|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| Workspace | Agent | Result | Create to reply | Files (here / there) | Hash | Git | Secrets | Mode | Reply |",
+            "|---|---|---|---|---|---|---|---|---|---|"]
     for cell in cells:
         local, remote = cell.get("local") or {}, cell.get("remote") or {}
         hash_text = {True: "match", False: "differs", None: "-"}[cell.get("hash_match")]
@@ -820,7 +926,8 @@ def grid(cells: list[dict]) -> str:
             "none leaked" if cell["workspace"] == "secrets" else "-")
         rows.append(f"| {cell['workspace']} | {cell['agent']} | {cell['result']} | "
                     f"{cell.get('create_to_reply_s', '-')} s | {local.get('files', '-')} / {remote.get('files', '-')} | "
-                    f"{hash_text} | {git_text} | {leak} | {(cell.get('reply') or {}).get('text', '-')[:80]} |")
+                    f"{hash_text} | {git_text} | {leak} | {cell.get('session_mode') or '-'} | "
+                    f"{(cell.get('reply') or {}).get('text', '-')[:80]} |")
     return "\n".join(rows) + "\n"
 
 
@@ -891,6 +998,8 @@ def main(argv=None) -> int:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)
         left = matrix.sweep()
+        if args.account_list:
+            left += run_account_cells(matrix, args, agents[0], root, report)
         swept = True
         report["machines_left"] = left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
@@ -903,6 +1012,41 @@ def main(argv=None) -> int:
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)
+
+
+def run_account_cells(matrix: "Matrix", args, agent: str, root: Path, report: dict) -> list[str]:
+    """The --accounts x --modes cells, one at a time (a team switch ends a start running in the team before it), each
+    account's machines swept before the next switch. Answers the machines left."""
+    teams, unread = matrix.teams()
+    report["teams"] = [{key: row.get(key) for key in ("id", "title", "kind", "active")} for row in teams]
+    left = []
+    for account in account_cells(args.account_list, teams, unread):
+        for mode in args.mode_list:
+            name = f"small-repo/{account['label']}/{mode}"
+            started = time.monotonic()
+            folder, note, word = None, account["skip"], f"w{random.token_hex(5)}"
+            if not note and mode == "bypass" and agent not in BYPASS_MODE:
+                note = f"skipped: no Bypass mode known for {agent}"
+            if not note:
+                folder = root / name.replace("/", "-")
+                small_repo(folder)
+                write(folder / WORD_FILE, word + "\n")
+                note = matrix.trust(folder)
+                folder = None if note else folder
+            start_words = (("--team", account["team"]) if account["team"] else ()) + (
+                ("--mode", BYPASS_MODE[agent]) if mode == "bypass" and agent in BYPASS_MODE else ())
+            try:
+                cell = matrix.run_cell(name, agent, folder, note, word=word, canary="", read_only=False,
+                                       start_words=start_words, want_mode=mode)
+            except Exception as error:  # one cell's crash is its own row, never the run's end
+                cell = {"workspace": name, "agent": agent, "result": f"fail: {clean(repr(error), 300)}"}
+            cell.update(account=account["label"], team=account["team"] or None, mode=mode,
+                        fixture_s=round(time.monotonic() - started, 1))
+            report["cells"].append(cell)
+            print(f"[{cell['result']}] {name} ({agent})", flush=True)
+        if not account["skip"] and account["team"]:
+            left += matrix.sweep()  # this account's machines, while it is the active team
+    return left
 
 
 def finish(report: dict, out: Path, code: int) -> int:
