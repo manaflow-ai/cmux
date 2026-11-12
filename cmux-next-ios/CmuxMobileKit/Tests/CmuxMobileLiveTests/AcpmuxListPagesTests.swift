@@ -91,9 +91,10 @@ import Testing
     }
 
     /// How long a test waits for the hub to be ready: past the hub's own 20 s request timeout
-    /// (`AcpmuxHub.bind`'s default), so a Mac that never answers fails as the hub's error, and a
+    /// (`AcpmuxHub.bind`'s default), so a slow answer the hub still takes is not a failure, and a
     /// runner busy with the whole parallel suite only makes it slower. 5 s ran out on two CI
-    /// runs (cmux#40617, #41225) whose changes did not touch the hub.
+    /// runs (cmux#40617, #41225) whose changes did not touch the hub. A Mac that never answers
+    /// still fails here, after the full wait (a failed bind does not end `waitUntilReady`).
     static let readyWait: Duration = .seconds(30)
 
     /// 250 chats: 100 on the watch's page, 100 and 50 after it.
