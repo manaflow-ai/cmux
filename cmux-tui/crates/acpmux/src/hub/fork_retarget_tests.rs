@@ -11,7 +11,13 @@ fn hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {
                         "fake": {"argv": ["python3", fake]},
-                        "other": {"argv": ["python3", fake], "family": "other"}},
+                        "other": {"argv": ["python3", fake], "family": "other"},
+                        // Takes its model over ACP and refuses `bad-model`.
+                        "picky": {"argv": ["python3", fake], "family": "picky",
+                                  "env": {"FAKE_PICKER": "1", "FAKE_REFUSE_ID": "bad-model"}},
+                        // Takes its model at spawn, from its defaults' env only.
+                        "spawned": {"argv": ["python3", fake], "family": "spawned"}},
+                     "defaults": {"spawned": {"env": {"FAKE_MODEL_ARG": "${model}"}}},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
@@ -134,4 +140,71 @@ async fn a_fork_onto_an_unknown_harness_is_refused() {
         .err()
         .expect("refused");
     assert_eq!(refused.code, -32602, "{}", refused.message);
+}
+
+fn to_model(harness: &str, model: &str) -> Retarget {
+    Retarget { harness: harness.into(), model: Some(model.into()), remote: false }
+}
+
+/// `${model}` in the target's defaults' env makes the model a spawn parameter, as `session/new`
+/// decides it: the fork's agent starts with it (review of cmux#41030, F1).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_onto_a_harness_whose_defaults_take_the_model_spawns_with_it() {
+    let hub = hub();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    let fork = hub
+        .fork_to(&parent, to_model("spawned", "m-1"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "spawned");
+    assert_eq!(fork.meta().model_request.as_deref(), Some("m-1"));
+}
+
+/// A model the switch named that the target refuses fails the switch, and no fork is left: the
+/// next prompt would otherwise run the harness's own default (review of cmux#41030, F2). A model
+/// it takes is set before the reply.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_whose_named_model_the_harness_refuses_fails_and_leaves_no_fork() {
+    let hub = hub();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    let before = hub.sessions().len();
+    let refused = hub
+        .fork_to(
+            &parent,
+            to_model("picky", "bad-model"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .err()
+        .expect("refused");
+    assert!(refused.message.contains("bad-model"), "{}", refused.message);
+    let live: Vec<_> = hub
+        .sessions()
+        .into_iter()
+        .filter(|s| s.meta().status != crate::store::SessionStatus::Closed)
+        .collect();
+    assert!(live.len() <= before, "a refused switch left a fork: {}", live.len());
+    let fork = hub
+        .fork_to(
+            &parent,
+            to_model("picky", "good-model"),
+            None,
+            None,
+            Default::default(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "picky");
 }

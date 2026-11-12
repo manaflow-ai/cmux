@@ -48,6 +48,25 @@ pub(super) fn starts_later(params: &Value) -> bool {
     params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// Listed in `initialize`'s `_meta.acpmux.features`: `session/fork` takes `_meta.acpmux.harness`
+/// and `model` (a switch onto another harness, `hub/fork.rs` `Retarget`). A build without it
+/// forks on the chat's own harness and ignores them, so a switch goes only to a peer that lists
+/// it (`peer_forward.rs`).
+pub const RETARGET_FEATURE: &str = "sessionForkRetarget";
+
+/// Why a switch of a peer's chat cannot go to that peer: it did not list [`RETARGET_FEATURE`].
+pub(super) fn retarget_unsupported(peer: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "{peer} runs an acpmux that cannot switch a chat onto another harness: update it, then pick the model again"
+    ))
+    .with_data(serde_json::json!({"reason": "peer.retarget_unsupported", "peer": peer}))
+}
+
+/// Whether `session/fork` params ask for a switch onto another harness.
+pub(super) fn asks_retarget(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/harness").is_some_and(|v| !v.is_null())
+}
+
 /// The harness a `session/fork` forks onto (`_meta.acpmux.harness`, with `model`): a pick of
 /// another harness's model in a started chat, at its next send (`hub/fork.rs` `Retarget`).
 pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, RpcError> {
