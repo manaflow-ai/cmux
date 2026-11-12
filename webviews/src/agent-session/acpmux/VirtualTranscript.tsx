@@ -1468,14 +1468,24 @@ function TranscriptView({
   const idleWrite = useRef<{ sessionId?: string; state: IdleMark; timer: ReturnType<typeof setTimeout> } | undefined>(
     undefined,
   );
-  if (idle.current.sessionId !== sessionId) {
-    // The last chat's change still waiting to be kept goes first, so coming straight back reads it.
+  /// Keeps the chat's stretch as it is now, at once: the write waiting goes, and a change no render
+  /// has read yet (a hand scroll that mounted no new rows) goes with it. Refs only, so stable.
+  const keepIdleNow = useCallback(() => {
     const pending = idleWrite.current;
     if (pending) {
       idleWrite.current = undefined;
       clearTimeout(pending.timer);
-      keepIdle(globalThis.localStorage, pending.sessionId, pending.state);
     }
+    const { sessionId: id, state } = idle.current;
+    if (!id || id === IDLE_UNREAD) return;
+    const key = JSON.stringify(keptIdle(state));
+    if (key === idleKept.current && !pending) return;
+    idleKept.current = key;
+    keepIdle(globalThis.localStorage, id, state);
+  }, []);
+  if (idle.current.sessionId !== sessionId) {
+    // The last chat's stretch is kept first, so coming straight back reads it.
+    keepIdleNow();
     idle.current = { sessionId, state: jumpButton ? loadIdle(globalThis.localStorage, sessionId) : {} };
     idleKept.current = JSON.stringify(keptIdle(idle.current.state));
   }
@@ -5565,7 +5575,8 @@ function TranscriptView({
     // Written when what is kept changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idleKey]);
-  useEffect(() => flushIdle, [flushIdle]);
+  // The pane going keeps what it has, read by a render or not.
+  useEffect(() => keepIdleNow, [keepIdleNow]);
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
   const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
