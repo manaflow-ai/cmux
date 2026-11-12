@@ -155,10 +155,10 @@ class BaselineTests(unittest.TestCase):
 
 class GuardRunnerTests(unittest.TestCase):
     def test_a_passing_steps_warnings_are_forwarded(self):
-        spec = importlib.util.spec_from_file_location("run_ci_guards", REPO_ROOT / "scripts" / "ci" / "run_ci_guards.py")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+        if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+        module = importlib.import_module("run_ci_guards")
         output = "noise\n::warning file=a.rs,line=3,title=t::m\n::notice file=b.rs,title=t::n\n::error::x\n"
         self.assertEqual(
             module.passed_step_annotations(output),

@@ -74,11 +74,10 @@ from test_seed_derived_data import evaluate, github_context  # noqa: E402
 
 
 def load():
-    spec = importlib.util.spec_from_file_location("side_lane_placement", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["side_lane_placement"] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(SCRIPT.parent) not in sys.path:
+        sys.path.insert(0, str(SCRIPT.parent))
+    return importlib.import_module("side_lane_placement")
 
 
 placement = load() if SCRIPT.exists() else None
