@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43203384803",
+  "recorded_at": "2026-11-12T10:55:37Z",
+  "reason": "cmux-tui 3cecf753d1ce changes the image's cmux-tui (pinned a348eca932a1)",
+  "dry_run": false,
+  "cmux_tui": "3cecf753d1ce5bb00f5329e7c423412ae1470b6e",
+  "fixes": [
+    {
+      "sha": "3cecf753d1ce5bb00f5329e7c423412ae1470b6e",
+      "mergedAt": "2026-11-12T10:31:33Z",
+      "subject": "acpmux test: the remote Claude refusal test reads the refusal text of #41629 (#41881)"
+    },
+    {
+      "sha": "e0d3bb0ec2f0b9151b64716ce16ac88e95732e09",
+      "mergedAt": "2026-11-12T04:15:52-06:00",
+      "subject": "acpmux: an idle daemon no longer wakes for writes under the home that no watch needs"
+    },
+    {
+      "sha": "948c59b5e1b82c30d5bcc88e7054de12b7532750",
+      "mergedAt": "2026-11-12T04:15:52-06:00",
+      "subject": "acpmux chats: red test, an idle daemon wakes for every write under its chat roots"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T10:55:37Z",
+    "snapshot_id": "sh-133e8b30cba84efca5994376d716b4b7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43203384803): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "25477387d2c8649d612d0d46c55ceedd0c0e3c05",
+    "image": "cloud-native-auto-3cecf753-43203384803-1",
+    "revision": "ci-43203384803-1",
+    "at": "2026-11-12T10:55:37Z"
+  },
+  "rolled_back": false
+}
