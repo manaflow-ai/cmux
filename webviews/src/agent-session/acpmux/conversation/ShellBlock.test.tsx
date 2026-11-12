@@ -3,6 +3,7 @@
 // output. The command is tokenized once per command string: output streaming under it, chunk by
 // chunk, never re-renders or re-tokenizes it, nor a sibling step's command.
 import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -67,9 +68,10 @@ beforeEach(() => {
   calls = 0;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

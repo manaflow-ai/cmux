@@ -224,6 +224,59 @@ struct AgentPaneColdChatRevealTests {
         }
     }
 
+    /// hq#9655 stage 1: the hold ends on "snapshot drawn", not on a timer. A `pane.painted` that
+    /// says its frame was the chat's settled view ends the loading state in that turn, in one step,
+    /// and disarms the give-up checks (``AgentPaneLoadingView/silentChecks``,
+    /// ``AgentPaneLoadingView/aliveChecks``), which stay only for a page that never reports.
+    @Test func aSettledPaintEndsTheHoldAtOnceAndCancelsTheGiveUp() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        #expect(view.showsLoadingState)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(view.loadingView.awaitsGiveUp, "the loading state never armed its give-up")
+        #endif
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]]))
+        #expect(view.loadingView.leftFading == false, "the settled view was faded in instead of shown at once")
+        #expect(view.loadingView.superview == nil, "the settled view did not end the hold in the same turn")
+        #expect(view.pageContent.alphaValue == 1)
+        #expect(view.model.pageReportedPaint, "the page's own report, not a timer, ended the hold")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(!view.loadingView.awaitsGiveUp, "the give-up stayed armed after the settled view showed")
+        #endif
+    }
+
+    /// A paint report without `settled` (an older page, a page's fallback path) keeps the hold's
+    /// existing behavior: a cold chat fades in, and the give-up is disarmed by its leaving as before.
+    @Test func aPaintWithoutSettledBehavesAsBefore() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": false]]))
+        #expect(!view.model.paintedSettled)
+        #expect(view.loadingView.leftFading == true, "a cold chat without the settled fact lost its fade")
+        #expect(await Self.revealed(view))
+        #expect(view.loadingView.superview == nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(!view.loadingView.awaitsGiveUp)
+        #endif
+    }
+
+    /// The page sends a second `pane.painted {settled: true}` when an earlier plain report (a kept
+    /// tail, the page's `CHAT_DRAW_HOLD_MS` fallback) already ended the hold. By then the cover is
+    /// gone: the late report must not bring it back, fade the page again, or rewrite the first frame.
+    @Test func aSettledPaintAfterAPlainOneChangesNothing() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]]))
+        #expect(view.loadingView.superview == nil)
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": false, "settled": true]]))
+        #expect(view.loadingView.superview == nil, "a late settled report brought the cover back")
+        #expect(view.loadingView.leftFading == false, "a late settled report changed how the page showed")
+        #expect(view.pageContent.alphaValue == 1)
+        #expect(!view.model.paintedSettled, "a later report rewrote what the first frame was")
+    }
+
     /// The same report without the fact is a chat read cold, which keeps the fade it had.
     @Test func aChatReadColdStillFadesIn() async throws {
         let (view, window) = try Self.pane()

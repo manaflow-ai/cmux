@@ -129,7 +129,7 @@
      run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
      (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-run);
+  --cv-note-gap: var(--grid-gap-inner); /* TRANSCRIPT_RUN_GAP (transcriptGrid.ts): 12, 2026-11-11 */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -665,22 +665,35 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
-/* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
-   and a failed prompt's actions and Details. */
-/* Beside the bubble's lower left, out of the layout: a mark appearing or changing never moves a row. */
+/* A sent prompt's way to the agent (PromptDelivery.tsx): while it is on its way, its footer's time
+   slot says so (a clock and one sentence) and the footer stays shown; once it lands the slot is its
+   time again, in the same place, so nothing moves. A failed prompt's card and Details below. */
 .cv-user__bubble {
   position: relative;
 }
-.cv-user__delivery {
-  position: absolute;
-  right: calc(100% + 6px);
-  bottom: 2px;
-  margin: 0;
-  padding: 0;
+/* Two classes: it wins over the action row's resting opacity (.cv-user__actions, later in this file). */
+.cv-user__actions.cv-user__actions--pending {
+  opacity: 1;
+}
+/* At rest only the pending state shows; the row's buttons come with the pointer, as on any prompt. */
+.cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
+  opacity: 0;
+}
+.cv-user__actions .cv-message-footer-row > .cv-user__pending-state {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  gap: var(--grid-half-step);
+  margin: 0;
+  color: var(--cv-text-muted);
   user-select: none;
+}
+/* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
+   aria-label still names it. Variant C (`"dim"`): the words, and the bubble's text muted until it lands. */
+:root[data-prompt-pending-look="clock"] .cv-user__pending-words {
+  display: none;
+}
+:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) .cv-user__bubble {
+  color: var(--cv-text-muted);
 }
 .cv-user__status--failed {
   flex-direction: column;
@@ -2983,13 +2996,43 @@ pre.cv-math-source {
 :root[data-transcript-note-gap="roomy"] {
   --cv-note-gap: var(--cv-turn-gap);
 }
-/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
-   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
-   own their horizontal overflow below. */
+/* An opened run's calls draw at their full height inside it; a long run's own scroll box is
+   `.cv-run-scroll` around it (RunScroll.tsx), and with the `inline` arm they stay in the
+   transcript's one scroll. Opened shell/output bodies own their horizontal overflow below. */
 .cv-tool-run {
   max-height: none;
   overflow: visible;
   overscroll-behavior: auto;
+}
+/* A long opened run as the Codex app draws it (runScroll.experiment.ts; Lucas, 2026-11-11): 14
+   lines tall, scrolled on its own, faded one line deep at the top and bottom where more is hidden
+   (`data-fade-top`, `data-fade-bottom`, RunScroll.tsx). A short run is its own height, unfaded. */
+.cv-run-scroll {
+  --cv-run-fade-top: 0px;
+  --cv-run-fade-bottom: 0px;
+  max-height: calc(var(--cv-tool-row-height) * 14);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+}
+.cv-run-scroll[data-fade-top] {
+  --cv-run-fade-top: var(--cv-tool-row-height);
+}
+.cv-run-scroll[data-fade-bottom] {
+  --cv-run-fade-bottom: var(--cv-tool-row-height);
 }
 .cv-tool {
   all: unset;
@@ -5724,8 +5767,7 @@ a.cv-sha:focus-visible {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
-  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
-     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     animation: cv-send-reveal var(--agent-motion-send, 180ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       backwards;

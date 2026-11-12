@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { RetryNotSent, resendToOwner, retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
 import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/retryState";
+import { teardownDom } from "./support/domTeardown";
 
 const refusal = (reason: string, why?: string) =>
   Object.assign(new Error(`${reason}: refused`), { reason, ...(why ? { data: { why } } : {}) });
@@ -118,13 +119,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = {
