@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// named (an allow-list, so an unknown tag is dropped, never sent).
 ///
 /// An upright PNG or JPEG is copied by ImageIO with empty metadata and the same pixels (no second
-/// lossy encode); the copy is read back, and anything beyond what describes the pixels sends the
-/// photo down the decode path instead. Anything else (HEIC, a turned photo, a copy ImageIO cannot
+/// lossy encode); the copy is read back, and anything beyond what describes the pixels, in its
+/// properties or in the file's own segments and chunks (a JPEG comment, PNG text), sends the photo
+/// down the decode path instead. Anything else (HEIC, a turned photo, a copy ImageIO cannot
 /// make clean) is decoded with its orientation applied to the pixels (an agent that reads pixels,
 /// not the EXIF tag, sees it the right way up) and written again with no metadata: PNG when it has
 /// transparency or was a PNG (lossless, so the same pixels), JPEG otherwise. The image's color
@@ -142,7 +143,8 @@ struct PastedImage: Sendable, Equatable {
         let copied = output as Data
         guard let check = CGImageSourceCreateWithData(copied as CFData, nil), CGImageSourceGetCount(check) > 0,
               let properties = CGImageSourceCopyPropertiesAtIndex(check, 0, nil) as? [CFString: Any],
-              !carriesMetadata(check, properties: properties) else { return nil }
+              !carriesMetadata(check, properties: properties),
+              holdsOnlyPixelSegments(copied, type: type) else { return nil }
         return copied
     }
 
@@ -177,6 +179,8 @@ struct PastedImage: Sendable, Equatable {
         let written: [CFString: Any] = png ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
         CGImageDestinationAddImage(destination, image, written as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
+        // The encoder writes no text of its own; checked all the same, so nothing is sent unchecked.
+        guard holdsOnlyPixelSegments(output as Data, type: type.identifier) else { return nil }
         return PastedImage(data: output as Data, type: type.identifier)
     }
 }
