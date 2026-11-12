@@ -1,3 +1,4 @@
+public import CoreGraphics
 public import CmuxNextDesign
 
 /// The look of a pane tab bar's trailing controls, the + (new tab), the ⌄ (pane-type chooser) and the ⋮ (pane menu)
@@ -14,6 +15,10 @@ public nonisolated enum TabTrailingButtons: String, Sendable, CaseIterable, Tuna
     case circles
     /// `glyphs` without the ⌄: the + and the ⋮ only (the ⋮ menu and the +'s hold and right-click keep the pane types).
     case merged
+    /// cmux classic's split button (Lucas 2026-11-11, a shot of classic's `+ ⌄`): the + and a narrower ⌄ side by
+    /// side as one control with a button's corner (Lucas 2026-11-12); no fill at rest; under the pointer both
+    /// segments take a soft fill and the hovered one the hover fill (the default).
+    case split
 
     public var tunableTitle: String {
         switch self {
@@ -21,13 +26,14 @@ public nonisolated enum TabTrailingButtons: String, Sendable, CaseIterable, Tuna
         case .glyphs: "Glyphs only"
         case .circles: "Circles"
         case .merged: "Plus and More only"
+        case .split: "Split button (classic)"
         }
     }
 
     /// The hover style the three controls share.
     public var hoverStyle: ChromeHoverStyle {
         switch self {
-        case .plates: .plate
+        case .plates, .split: .plate
         case .glyphs, .merged: .glyph
         case .circles: .circle
         }
@@ -35,4 +41,7 @@ public nonisolated enum TabTrailingButtons: String, Sendable, CaseIterable, Tuna
 
     /// Whether the pane-type ⌄ shows beside the + (where the pane asks for it).
     public var showsTypeChooser: Bool { self != .merged }
+
+    /// The ⌄ segment's width beside a + of `plusWidth` in the split look: classic's 70% of the button, never under 14.
+    public static func splitChevronWidth(plusWidth: CGFloat) -> CGFloat { max(14, (plusWidth * 0.7).rounded(.down)) }
 }
