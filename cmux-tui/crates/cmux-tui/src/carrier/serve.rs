@@ -115,6 +115,9 @@ struct Shared {
     log: Arc<dyn Fn(String) + Send + Sync>,
     /// The ssh backup carrier's pieces, for every dial.
     ssh: Arc<super::ssh::SshSetup>,
+    /// stdin's `{"regrant":true}`: the serve loop runs one [`regrant`] (in
+    /// its own task set), and asks that come while one waits are one ask.
+    regrant: tokio::sync::Notify,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -145,6 +148,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         http: source,
         identity,
         prefetched: Arc::new(Prefetched::for_identity(who)),
+        regrant: tokio::sync::Notify::new(),
         log: Arc::new(move |line| {
             if let Some(path) = &connect_log {
                 route_log::append(path, &line);
@@ -177,6 +181,9 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
         tokio::select! {
             () = &mut ended => break 0,
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
+            () = shared.regrant.notified() => {
+                tasks.spawn(regrant(shared.clone()));
+            }
             accepted = listener.listener().accept() => match accepted {
                 Ok((stream, _)) => {
                     backoff.reset();
@@ -243,7 +250,7 @@ async fn ended(shared: Arc<Shared>, terminate: Option<Signal>, interrupt: Option
 /// (in place of an earlier one no connection took); anything else gets one
 /// `bad_request` line on stderr. A line past [`MAX_STDIN_LINE`] bytes is
 /// skipped to its end and refused.
-async fn read_stdin(shared: &Arc<Shared>) {
+async fn read_stdin(shared: &Shared) {
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut line = Zeroizing::new(Vec::new());
     loop {
@@ -277,9 +284,8 @@ async fn read_stdin(shared: &Arc<Shared>) {
             // next connection ([`held`]).
             StdinLine::Token(token) => shared.http.replace_credential(token),
             StdinLine::Answer(answer) => shared.prefetched.put(*answer),
-            // task-owner: one dial, bounded by serve's deadline; the runtime's
-            // shutdown ends it with serve.
-            StdinLine::Regrant => drop(tokio::spawn(regrant(shared.clone()))),
+            // The serve loop runs it in its task set ([`Shared::regrant`]).
+            StdinLine::Regrant => shared.regrant.notify_one(),
             StdinLine::Invalid(why) => reply(&contract::failure_line(BAD_REQUEST, Some(why))),
         }
     }
@@ -372,7 +378,8 @@ fn dial_plan(shared: &Shared, deadline: Instant) -> client::DialPlan {
 async fn regrant(shared: Arc<Shared>) {
     shared.session.retire().await;
     shared.prefetched.clear();
-    let deadline = Instant::now() + shared.deadline;
+    let now = Instant::now();
+    let deadline = now.checked_add(shared.deadline).unwrap_or(now);
     let plan = dial_plan(&shared, deadline);
     let plan = &plan;
     match shared.session.stream(deadline, move || client::dial(plan)).await {

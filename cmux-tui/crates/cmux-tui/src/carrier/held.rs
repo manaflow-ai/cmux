@@ -264,14 +264,14 @@ impl Slot {
     /// The held session takes no new stream: the person's grant changed, and
     /// its `vmk` is the old grant's. The next connection dials with a fresh
     /// grant. Streams already on it keep it until they end; one with none
-    /// left closes off the slot's lock. A dial in flight holds the lock, so
-    /// the session it brings is the one retired.
+    /// left is closed here, after the slot's lock is let go. A dial in flight
+    /// holds the lock, so the session it brings is the one retired.
     pub(super) async fn retire(&self) {
         let gone = self.held.lock().await.take();
         if let Some(gone) = gone {
             gone.retired.store(true, Ordering::Release);
             if gone.streams.load(Ordering::Acquire) == 0 {
-                tokio::spawn(async move { gone.close().await });
+                gone.close().await;
             }
         }
     }
