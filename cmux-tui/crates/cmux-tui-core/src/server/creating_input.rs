@@ -1,6 +1,8 @@
 //! The server side of `terminal-input-while-creating-v1` (cx-wb5.78, `mux::creating_input`):
 //! creations register their caller-minted terminal id when the daemon receives them and end it
-//! after their commit; `send {terminal_id}` writes to the terminal or queues for a creating one.
+//! after their commit; `send {terminal_id}` writes to the terminal or queues for a creating one;
+//! `cancel-creating-input` (`creating-input-cancel-v1`) drops the queue of a creation for the
+//! connection that sent it.
 
 use super::*;
 use crate::mux::creating_input::{TerminalInputTarget, UnclaimedNotice};
@@ -11,6 +13,21 @@ use base64::Engine as _;
 /// `terminal-input-while-creating-v1`.
 pub(super) const TERMINAL_INPUT_WHILE_CREATING_CAPABILITY: &str =
     "terminal-input-while-creating-v1";
+
+/// `creating-input-cancel-v1`: the `cancel-creating-input` command.
+pub(super) const CREATING_INPUT_CANCEL_CAPABILITY: &str = "creating-input-cancel-v1";
+
+/// `cancel-creating-input`: the person closed a pane that is still starting, so the connection
+/// that sent its creation drops the input queued for the new terminal and has the id refuse more
+/// ([`Mux::cancel_creating_input`]). The creation is not stopped; its creator closes the terminal
+/// when the reply names it. `cancelled` is false, and nothing changes, when the caller did not
+/// send a creation of the id that is still in flight.
+pub(super) fn cancel(mux: &Mux, client: u64, terminal_id: &str) -> anyhow::Result<Value> {
+    let terminal_id = crate::terminal_host::TerminalId::from_hex(terminal_id)
+        .ok_or_else(|| anyhow::anyhow!("bad request: terminal_id must be 32 hex digits"))?
+        .to_hex();
+    Ok(json!({"cancelled": mux.cancel_creating_input(&terminal_id, client)}))
+}
 
 impl Command {
     /// The caller-minted host terminal id of a pane or tab creation, normalized to lowercase hex.

@@ -142,6 +142,7 @@ export function FontPicker({
           onSubmit={pick}
           onCancel={close}
           onHighlight={highlight}
+          isItemCurrent={(name) => (name === DEFAULT_FONT_ROW ? value === null : name === value)}
           label={title}
           placeholder={t("settingsPage.filter")}
           inputClassName="field font-search"

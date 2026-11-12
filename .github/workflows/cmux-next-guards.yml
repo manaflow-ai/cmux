@@ -928,6 +928,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_browser_host_release_package.py
 
+      # A remote that does not answer is retried and named as the network, never read as a missing
+      # ref, and no script swallows a remote read's failure (nightly run 43113697713).
+      - name: Remote reads tell no answer from no ref
+        if: ${{ !cancelled() }}
+        run: bash scripts/cmux-next/tests/origin-net.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py

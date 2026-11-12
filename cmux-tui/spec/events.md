@@ -1471,7 +1471,8 @@ object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,r
 
 Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
 [commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
-closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+closed first or its creator cancelled the creation's input (`cancelled`; `cancel-creating-input` gives
+nothing back to the creator itself), it did not end within 10 seconds of the first queued byte (`expired`), or the
 terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
 this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
 may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a

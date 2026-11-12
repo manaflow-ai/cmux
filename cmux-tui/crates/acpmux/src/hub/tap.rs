@@ -296,6 +296,8 @@ impl Hub {
                 {
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
+                    // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
+                    crate::claude_stdio::leave_out_prompt_bodies("claude.stdin", &mut line);
                     return tap_hub
                         .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
@@ -309,6 +311,11 @@ impl Hub {
             let mut value = msg.to_value();
             // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
             crate::model_copies::scrub_logged(&mut value);
+            // The prompt acpmux sends an agent: its long text is in its `user_message` already
+            // (`logged_bodies.rs`).
+            if d == "out" {
+                crate::claude_stdio::leave_out_prompt_bodies(&kind, &mut value);
+            }
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"
