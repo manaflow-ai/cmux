@@ -763,6 +763,50 @@ fn a_tree_path_splits_at_the_shortest_ref_that_exists() {
 }
 
 #[test]
+fn full_commit_pins_require_the_requested_object() {
+    for len in [40, 64] {
+        let pin = "a".repeat(len);
+        let other = "b".repeat(len);
+        let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+        assert_eq!(
+            source::resolve(&tail, |name| {
+                Some(if name == pin { pin.clone() } else { other.clone() })
+            }),
+            Some((pin.clone(), Some(pin.clone()), Some("widgets/hello".into())))
+        );
+        // A missing object must not fall back to a branch/tag, even a longer ref.
+        assert_eq!(source::resolve(&tail, |name| (name != pin).then(|| other.clone())), None);
+        assert_eq!(source::resolve(&tail, |_| Some(other.clone())), None);
+    }
+}
+
+#[test]
+fn fetch_commit_pins_ignore_shadowing_remote_branches_and_tags() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let pin = git_in(&upstream, &["rev-parse", "HEAD"]);
+    let url = upstream.to_string_lossy().into_owned();
+    let clone = root.path().join("clone");
+    let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+    let first = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(first.commit, pin);
+    assert!(!first.dir.join("NOTE").exists());
+
+    // The publisher later adds refs named after the shared commit, at different code.
+    git_in(&upstream, &["branch", &pin, "feature/x"]);
+    git_in(&upstream, &["tag", &pin, "feature/x"]);
+    let again = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(again.commit, pin);
+    assert!(!again.dir.join("NOTE").exists());
+
+    // A pin that is not an object cannot be supplied by either ref namespace.
+    let missing = "f".repeat(40);
+    git_in(&upstream, &["branch", &missing, "feature/x"]);
+    git_in(&upstream, &["tag", &missing, "feature/x"]);
+    assert!(source::fetch(&url, &[missing], Some("widgets/hello"), &clone).is_err());
+}
+
+#[test]
 fn fetch_clones_checks_out_the_named_folder_and_updates_on_a_second_add() {
     let root = tempfile::tempdir().unwrap();
     let upstream = extension_repo(root.path());
