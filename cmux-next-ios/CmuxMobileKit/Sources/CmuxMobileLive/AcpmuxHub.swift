@@ -840,11 +840,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     @discardableResult
     private func expireHeldPrompts() -> Bool {
         let window = heldPromptWindow
-        let now = now()
-        guard heldPrompts.contains(where: { now - $0.at >= window }) else { return false }
+        let instant = self.now()
+        guard heldPrompts.contains(where: { instant - $0.at >= window }) else { return false }
         let dropped = heldPrompts
         heldPrompts = []
-        let seconds = Int(window.components.seconds)
+        let seconds = max(1, Int(window.components.seconds))
         let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
         log.notice("\(dropped.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in dropped {
