@@ -694,17 +694,14 @@ def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
                 certain = False
             i += 1
             continue
-        taken = False
-        for at, letter in enumerate(text[1:], start=1):
-            if letter in "cs":
-                return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin
-            if letter in "oO":
-                certain = False
-                taken = at == len(text) - 1
-                break
-            if letter not in _SHELL_FLAGS:
-                certain = False
-        i += 2 if taken else 1
+        letters = text[1:]
+        if any(letter in "cs" for letter in letters):
+            return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin; anywhere in a cluster
+        # Each o or O in a cluster takes the next word as its value (`-oc pipefail`, `-euo pipefail`), as bash reads it.
+        values = sum(letter in "oO" for letter in letters)
+        if values or any(letter not in _SHELL_FLAGS for letter in letters):
+            certain = False
+        i += 1 + values
     if i >= len(words):
         return None, False  # no operand: the shell reads its script from stdin
     return i, certain
@@ -950,23 +947,28 @@ def _nested(run: str, defined: set[str], depth: int, found: list[list[str]]) -> 
 
 
 def _shell_text(args: list[str]) -> str | None:
-    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead."""
+    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead, or -c has no text.
+
+    bash reads every option first, wherever -c sits among them, and each `o` or `O` in an option word (`-o NAME`,
+    `+O NAME`, or clustered: `-co pipefail`, `-euco pipefail`, `-coo a b`) takes the next word as its value. The
+    text is the first word after the options and their values (or after `--`). #41133 F2: `bash -co pipefail TEXT`
+    read pipefail as the text."""
     index = 0
+    command = False
     while index < len(args):
         word = args[index]
         index += 1
-        if word.startswith("--") and word != "--":
+        if word == "--":
+            break
+        if word.startswith("--"):
             index += 1 if word in ("--rcfile", "--init-file") else 0
             continue
         if word[:1] not in ("-", "+") or len(word) < 2:
-            return None
+            return word if command else None
         letters = word[1:]
-        if word[0] == "-" and "c" in letters:
-            # bash reads its options first: the text is the first operand after them.
-            return next((later for later in args[index:] if later[:1] not in ("-", "+")), None)
-        if letters[-1:] in ("o", "O"):
-            index += 1
-    return None
+        command = command or (word[0] == "-" and "c" in letters)
+        index += sum(letter in "oO" for letter in letters)
+    return args[index] if command and index < len(args) else None
 
 
 def _word_token(text: str) -> Token:

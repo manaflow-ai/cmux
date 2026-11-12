@@ -218,7 +218,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
         self.assertEqual(workflow_jobs.runs_on_cells(job),
                          ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
-        self.assertNotIn("vars.", workflow_jobs.runs_on(job))
+        self.assertNotIn("vars.", " ".join(workflow_jobs.runs_on_cells(job) or ["vars. (unresolved)"]))
         self.assertEqual(job["permissions"], {"issues": "write"})  # the failure incident only
         self.assertLessEqual(job["timeout-minutes"], 5)
         text = json.dumps(job)
