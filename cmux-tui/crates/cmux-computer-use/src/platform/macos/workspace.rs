@@ -318,7 +318,13 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
             ids
         });
     };
+    // The blocked apps known since the build (a prefix entry added, an app
+    // outside the folders) count too.
+    let cold = cold_blocked_names();
     if let Some(ids) = by_name.get(&key) {
+        return merged_names(Some(&by_name), cold.as_deref(), &key).or(Some(ids.clone()));
+    }
+    if let Some(ids) = cold.as_deref().and_then(|m| m.get(&key)) {
         return Some(ids.clone());
     }
     if let Some(hit) = index.answer(&key, generation) {
@@ -329,16 +335,64 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
     Some(ids)
 }
 
-/// [`apps_named`] from the built index alone, with no LaunchServices
-/// lookup: for scanning many words of menu titles (a font pop-up has
-/// hundreds of items). `None` while the first build runs.
-pub fn apps_named_indexed(name: &str) -> Option<Vec<String>> {
-    let key = name.trim().to_lowercase();
+/// The names opened menus are checked against, fetched once for a walk or
+/// a call: the built index plus the blocked apps known before it (the cold
+/// map: exact ids by every name, windowed apps a `prefix*` entry covers),
+/// which can know names the index does not (an app outside the app
+/// folders, a prefix entry added since the build). The listing and the
+/// press use the same one, so they agree.
+pub struct NameSource {
+    index: Option<std::sync::Arc<NameMap>>,
+    cold: Option<std::sync::Arc<NameMap>>,
+}
+
+impl NameSource {
+    pub fn now() -> Self {
+        NameSource { index: names_index().current().map(|(_, m)| m), cold: cold_blocked_names() }
+    }
+
+    /// For tests: a source over these maps.
+    #[cfg(test)]
+    pub(super) fn of(index: Option<NameMap>, cold: Option<NameMap>) -> Self {
+        NameSource { index: index.map(std::sync::Arc::new), cold: cold.map(std::sync::Arc::new) }
+    }
+
+    /// The cold map's answer alone: its ids, or none (never "unknown").
+    pub fn cold_answer(&self, name: &str) -> Option<Vec<String>> {
+        let key = name.trim().to_lowercase();
+        Some(self.cold.as_deref().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
+    }
+
+    /// The ids known by `name`: the index's and the cold map's together;
+    /// before the index is built only the cold map's, and None for a name it
+    /// does not know (not answered yet).
+    pub fn resolve(&self, name: &str) -> Option<Vec<String>> {
+        merged_names(self.index.as_deref(), self.cold.as_deref(), &name.trim().to_lowercase())
+    }
+}
+
+/// [`NameSource::resolve`] on plain maps. Pure, for tests.
+pub(super) fn merged_names(
+    index: Option<&NameMap>,
+    cold: Option<&NameMap>,
+    key: &str,
+) -> Option<Vec<String>> {
     if key.is_empty() {
         return Some(Vec::new());
     }
-    let (_, by_name) = names_index().current()?;
-    Some(by_name.get(&key).cloned().unwrap_or_default())
+    let cold_ids = cold.and_then(|m| m.get(key));
+    match index {
+        Some(index) => {
+            let mut ids = index.get(key).cloned().unwrap_or_default();
+            for id in cold_ids.into_iter().flatten() {
+                if !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+            Some(ids)
+        }
+        None => cold_ids.cloned(),
+    }
 }
 
 /// Whether the app-name index has been built. Items of a menu the desktop
@@ -728,6 +782,22 @@ pub fn set_blocked_ids_source(source: BlockedIds) {
     *blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
 }
 
+/// The guard's entries as (exact ids, lower-cased `prefix*` prefixes). A
+/// lone `*` is the empty prefix: every app. Pure, for tests.
+pub(super) fn split_entries(entries: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let (prefixes, ids): (Vec<String>, Vec<String>) =
+        entries.into_iter().partition(|e| e.ends_with('*'));
+    let prefixes =
+        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    (ids, prefixes)
+}
+
+/// Whether the names cached for `cached` serve `ids` (the same set, so a
+/// deny-list edit rebuilds them). Pure, for tests.
+pub(super) fn reuse_cached(cached: &[String], ids: &[String]) -> bool {
+    cached == ids
+}
+
 /// The blocked apps' names: the exact ids' names built once per id set
 /// (again when it changes), and, only when there are `prefix*` entries, the
 /// windowed apps they cover, refreshed every few seconds. None with no guard
@@ -745,14 +815,11 @@ fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
         let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
         (source.as_ref()?)()
     };
-    let (prefixes, ids): (Vec<String>, Vec<String>) =
-        entries.into_iter().partition(|e| e.ends_with('*'));
-    let prefixes: Vec<String> =
-        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    let (ids, prefixes) = split_entries(entries);
     let exact = {
         let mut cache = EXACT.lock().unwrap_or_else(|e| e.into_inner());
         match cache.as_ref() {
-            Some((cached, map)) if *cached == ids => map.clone(),
+            Some((cached, map)) if reuse_cached(cached, &ids) => map.clone(),
             _ => {
                 let map = std::sync::Arc::new(names_of_bundles(&ids)?);
                 *cache = Some((ids, map.clone()));
@@ -776,15 +843,6 @@ fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
     let map = std::sync::Arc::new(map);
     *merged = Some((prefixes, exact, std::time::Instant::now(), map.clone()));
     Some(map)
-}
-
-/// A name answered from the blocked apps known before the index (the cold
-/// map): their ids, or none for any other name (never "unknown"). For word
-/// runs, so a run naming a blocked app is a real block even while the index
-/// loads.
-pub fn cold_blocked_answer(name: &str) -> Option<Vec<String>> {
-    let key = name.trim().to_lowercase();
-    Some(cold_blocked_names().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
 }
 
 /// The bundle id of the app LaunchServices finds by name, if any.

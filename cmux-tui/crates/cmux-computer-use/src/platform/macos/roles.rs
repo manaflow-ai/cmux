@@ -401,6 +401,21 @@ pub fn is_launch_list(
     siblings_name_apps(ctx.siblings, resolve)
 }
 
+/// Whether a menu counts as a launch list by its items: by what its titles
+/// name, or, when a title could not be read (unknown siblings), whenever
+/// something is denied (fail closed: the rule then wants an item to name an
+/// allowed app). Pure, for tests.
+pub fn launch_by_items(
+    titles: Option<&[String]>,
+    denies_any: bool,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> bool {
+    match titles {
+        Some(t) => siblings_name_apps(t, resolve),
+        None => denies_any,
+    }
+}
+
 /// Whether most of a menu's items name installed apps (Open With in any
 /// app and any language): once per menu.
 pub fn siblings_name_apps(
@@ -441,6 +456,9 @@ pub enum ItemCheck {
     /// A name it shows could not be resolved yet (the app names are still
     /// loading): blocked, and a refusal says the names are loading.
     Unknown,
+    /// Its place in the menus could not be read while something is denied:
+    /// blocked, and a refusal says an item above it cannot be read.
+    Unplaced,
 }
 
 /// [`menu_item_blocked`], telling a real block from a name not resolved yet.
@@ -511,6 +529,8 @@ pub struct ShortcutMatch {
     /// It is blocked only because a name it shows could not be resolved yet
     /// (the app names are still loading).
     pub unknown: bool,
+    /// It is blocked because an item above it could not be read.
+    pub unplaced: bool,
 }
 
 /// What a shortcut does, given its matches in menu order (depth-first).

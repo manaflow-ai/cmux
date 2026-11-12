@@ -58,14 +58,30 @@ impl MacDesktop {
     /// item (Recent Items, Open With and Services entries that reach a
     /// denied or protected app), with its title already read (one read, so
     /// the name checked is the one the caller has), telling a real block
-    /// from a name not resolved yet (for an honest refusal). A title that
-    /// cannot be read is refused by the caller, whatever the deny list.
+    /// from a name not resolved yet (for an honest refusal). Names come from
+    /// LaunchServices-backed [`workspace::apps_named`] (the menu bar and
+    /// shortcuts). A title that cannot be read is refused by the caller,
+    /// whatever the deny list.
     fn menu_item_check_titled(&self, item: &Ax, title: &str) -> roles::ItemCheck {
+        self.menu_item_check_with(item, title, &workspace::apps_named)
+    }
+
+    /// [`Self::menu_item_check_titled`] with the given names.
+    fn menu_item_check_with(
+        &self,
+        item: &Ax,
+        title: &str,
+        resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+    ) -> roles::ItemCheck {
         let Some(guard) = self.guard() else { return roles::ItemCheck::Allowed };
-        // Without its place in the menus the item is still checked by name
-        // (protected apps count with nothing denied); while something is
-        // denied, an item that cannot be placed is blocked.
+        // Without its place in the menus (its own chain could not be read)
+        // the item is still checked by name (protected apps count with
+        // nothing denied); while something is denied it is blocked: an item
+        // above it cannot be read.
         let Some((top_index, depth, siblings)) = ax::menu_context(item) else {
+            if guard.denies_any() {
+                return roles::ItemCheck::Unplaced;
+            }
             let ctx = roles::MenuItemContext {
                 title,
                 top_index: None,
@@ -73,16 +89,15 @@ impl MacDesktop {
                 siblings: &[],
                 launch: None,
             };
-            // While something is denied an item that cannot be placed is
-            // blocked, and stays blocked once the names load: not "loading".
-            if guard.denies_any() {
-                return roles::ItemCheck::Blocked;
-            }
-            return roles::menu_item_check(&*guard, &ctx, &workspace::apps_named);
+            return roles::menu_item_check(&*guard, &ctx, resolve);
         };
-        let ctx =
-            roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch: None };
-        roles::menu_item_check(&*guard, &ctx, &workspace::apps_named)
+        // Siblings whose titles could not be read are unknown: no launch-list
+        // inference from them; the launch-list rule applies while something
+        // is denied (fail closed).
+        let launch = siblings.is_none().then(|| guard.denies_any());
+        let siblings = siblings.unwrap_or_default();
+        let ctx = roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch };
+        roles::menu_item_check(&*guard, &ctx, resolve)
     }
 
     fn denies_any(&self) -> bool {
@@ -92,7 +107,8 @@ impl MacDesktop {
     /// Why one element of an opened menu (a pop-up, a context menu) is
     /// hidden and refused, reading what it needs from AX (one element: a
     /// press or a click; a walk over many uses [`Self::opened_item_known`]);
-    /// None when it is not.
+    /// None when it is not. Names come from the same [`workspace::NameSource`]
+    /// the listing uses, so the press refuses exactly what the listing hides.
     fn opened_item_reason(&self, item: &Ax) -> Option<crate::menus::BlockReason> {
         use crate::menus::BlockReason;
         let guard = self.guard()?;
@@ -101,27 +117,21 @@ impl MacDesktop {
             // Unreadable: blocked, whatever the deny list.
             Err(_) => return Some(BlockReason::Unreadable),
         };
-        match self.menu_item_check_titled(item, &title) {
-            roles::ItemCheck::Blocked => return Some(BlockReason::Denied),
-            roles::ItemCheck::Unknown => return Some(BlockReason::Loading),
-            roles::ItemCheck::Allowed => {}
+        let names = workspace::NameSource::now();
+        let resolve = |n: &str| names.resolve(n);
+        let check = self.menu_item_check_with(item, &title, &resolve);
+        if check == roles::ItemCheck::Unplaced {
+            return Some(BlockReason::Unreadable);
         }
         let path = menus::item_path_checked(item);
-        opened_reason(
-            &*guard,
-            &title,
-            path.as_deref(),
-            workspace::app_names_ready(),
-            &workspace::cold_blocked_answer,
-            &workspace::apps_named_indexed,
-        )
+        press_reason(&*guard, check, &title, path.as_deref(), &|n| names.cold_answer(n), &resolve)
     }
 
     /// Whether a menu item a walk or a menu listing reached is hidden and
     /// refused, from what was already read: no AX reads of its own (a font
-    /// pop-up holds thousands of items). App names come from the built
-    /// index only.
-    fn opened_item_known(&self, it: &ax::OpenedItem) -> bool {
+    /// pop-up holds thousands of items). Names come from `names`, fetched
+    /// once for the walk (the index plus the blocked apps known before it).
+    fn opened_item_known(&self, it: &ax::OpenedItem, names: &workspace::NameSource) -> bool {
         let Some(guard) = self.guard() else { return false };
         // Unreadable: blocked, whatever the deny list.
         if it.title_failed {
@@ -134,8 +144,7 @@ impl MacDesktop {
             siblings: &[],
             launch: Some(it.launch),
         };
-        roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named_indexed)
-            || opened_rules(&*guard, it.title, it.path, &workspace::apps_named_indexed)
+        listing_blocked(&*guard, &ctx, it.path, &|n| names.resolve(n))
     }
 
     /// Whether items at this menu depth need their menu's titles: only a
@@ -149,7 +158,8 @@ impl MacDesktop {
     }
 }
 
-/// The opened-menu rules past the menu bar's: under Services, Quick
+/// The opened-menu rules past the menu bar's: an item under one that cannot
+/// be read is blocked while anything is denied; under Services, Quick
 /// Actions, Share, Open With or Recent Items (or a title above that cannot
 /// be read), while anything is denied, only an item that names an allowed
 /// installed app may run ("Services Settings…", "Make Sticky", "Customize…"
@@ -161,6 +171,11 @@ fn opened_rules(
     path: Option<&[String]>,
     resolve: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> bool {
+    // An item above it cannot be read: while something is denied it is
+    // hidden and refused (the listing and the press agree).
+    if path.is_none() && guard.denies_any() {
+        return true;
+    }
     if guard.denies_any() && roles::in_opened_launch_list(path, workspace::launch_submenu_titles())
     {
         let name = roles::menu_app_name(title).0;
@@ -176,16 +191,12 @@ fn opened_rules(
 
 /// The rules of [`opened_rules`] that need no app names: a word run of the
 /// title or the path above it that the guard blocks by name (a `name:`
-/// entry, a protected app's name), and, while something is denied, a path
-/// that could not be read. A block here is real, loading or not.
+/// entry, a protected app's name). A block here is real, loading or not.
 pub(super) fn opened_rules_name_free(
     guard: &dyn MenuGuard,
     title: &str,
     path: Option<&[String]>,
 ) -> bool {
-    if path.is_none() && guard.denies_any() {
-        return true;
-    }
     let no_names = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
     std::iter::once(title)
         .chain(path.unwrap_or_default().iter().map(String::as_str))
@@ -193,19 +204,26 @@ pub(super) fn opened_rules_name_free(
 }
 
 /// Why an opened-menu item past the menu-bar rule is hidden and refused,
-/// and how to say it: a name-free block, or a word run that names a
-/// blocked app known before the index (`cold`), is Denied; the full rules
-/// on the index (`indexed`) block as Denied once it is built and as
-/// Loading while it loads (a name may only be unknown yet). Pure, for tests.
+/// and how to say it, in this order: an item above it that cannot be read
+/// while something is denied is Unreadable; a name-free block, or a word
+/// run that names a blocked app known before the index (`cold`), is
+/// Denied; a name the menu-bar rule could not resolve yet (`menu_unknown`)
+/// is Loading; the full rules on the index (`indexed`) block as Loading
+/// when it left a name unanswered during this check, else as Denied.
+/// Whether it blocks at all is exactly what [`opened_rules`] says with the
+/// same index, which the listing uses. Pure, for tests.
 pub(super) fn opened_reason(
     guard: &dyn MenuGuard,
     title: &str,
     path: Option<&[String]>,
-    names_ready: bool,
+    menu_unknown: bool,
     cold: &dyn Fn(&str) -> Option<Vec<String>>,
     indexed: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> Option<crate::menus::BlockReason> {
     use crate::menus::BlockReason;
+    if path.is_none() && guard.denies_any() {
+        return Some(BlockReason::Unreadable);
+    }
     if opened_rules_name_free(guard, title, path) {
         return Some(BlockReason::Denied);
     }
@@ -215,8 +233,52 @@ pub(super) fn opened_reason(
     if cold_hit {
         return Some(BlockReason::Denied);
     }
-    let reason = if names_ready { BlockReason::Denied } else { BlockReason::Loading };
-    opened_rules(guard, title, path, indexed).then_some(reason)
+    if menu_unknown {
+        return Some(BlockReason::Loading);
+    }
+    let unanswered = std::cell::Cell::new(false);
+    let tracked = |name: &str| {
+        let ids = indexed(name);
+        if ids.is_none() {
+            unanswered.set(true);
+        }
+        ids
+    };
+    opened_rules(guard, title, path, &tracked)
+        .then(|| if unanswered.get() { BlockReason::Loading } else { BlockReason::Denied })
+}
+
+/// Whether the listing hides an opened-menu item whose title was read: the
+/// menu-bar rule or the opened-menu rules, on `resolve`. Pure, for tests.
+pub(super) fn listing_blocked(
+    guard: &dyn MenuGuard,
+    ctx: &roles::MenuItemContext,
+    path: Option<&[String]>,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> bool {
+    roles::menu_item_blocked(guard, ctx, resolve) || opened_rules(guard, ctx.title, path, resolve)
+}
+
+/// Why the press refuses an opened-menu item whose title was read, given
+/// the menu-bar rule's check on the same `resolve`: a block is Denied; else
+/// [`opened_reason`]. It refuses exactly what [`listing_blocked`] hides for
+/// the same context and names. Pure, for tests.
+pub(super) fn press_reason(
+    guard: &dyn MenuGuard,
+    check: roles::ItemCheck,
+    title: &str,
+    path: Option<&[String]>,
+    cold: &dyn Fn(&str) -> Option<Vec<String>>,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> Option<crate::menus::BlockReason> {
+    use crate::menus::BlockReason;
+    match check {
+        roles::ItemCheck::Blocked => Some(BlockReason::Denied),
+        roles::ItemCheck::Unplaced => Some(BlockReason::Unreadable),
+        roles::ItemCheck::Unknown | roles::ItemCheck::Allowed => {
+            opened_reason(guard, title, path, check == roles::ItemCheck::Unknown, cold, resolve)
+        }
+    }
 }
 
 /// A resolved window: the window server's entry and its app's identity.
@@ -502,12 +564,12 @@ impl Desktop for MacDesktop {
                 .is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
         };
         let extra = self.opened_menu_for(&t.id()).into_iter().collect();
+        let names = workspace::NameSource::now();
+        let denies = self.denies_any();
         let filter = ax::MenuFilter {
-            blocked: &|_: &Ax, it: &ax::OpenedItem| self.opened_item_known(it),
+            blocked: &|_: &Ax, it: &ax::OpenedItem| self.opened_item_known(it, &names),
             needs_siblings: &|depth| self.opened_needs_siblings(depth),
-            launch_list: &|titles| {
-                roles::siblings_name_apps(titles, &workspace::apps_named_indexed)
-            },
+            launch_list: &|titles| roles::launch_by_items(titles, denies, &|n| names.resolve(n)),
         };
         self.elements.tree(&t.id(), window, extra, options, &blocked, &filter)
     }
