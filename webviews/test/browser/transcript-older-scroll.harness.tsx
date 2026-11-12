@@ -7,7 +7,7 @@
 // For transcript-older-scroll.test.ts's reconnect case: `__older.live()` appends a turn, as a reply
 // streaming on does, and `__older.reconnect("tail" | "empty")` draws what a reconnect or a rebuild
 // draws first: only the chat's newest tail (the older pages read so far gone), or no rows for a frame.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { syntheticRows } from "../../src/agent-session/acpmux/synthetic";
@@ -52,13 +52,16 @@ function Transcript() {
   // `?all`: every row from the start and nothing to page, the control the paging is measured against.
   const [from, setFrom] = useState(query.has("all") ? 0 : all.length - LIVE - TAIL);
   const [blank, setBlank] = useState(false);
-  older.loaded = () => end - from;
-  older.total = end;
-  older.live = () => setEnd((at) => Math.min(all.length, at + 3));
-  older.reconnect = (draws) => {
-    if (draws === "empty") setBlank(true);
-    else setFrom(Math.max(0, end - TAIL));
-  };
+  // The test's handles read this commit's rows: set after each commit, before the test reads them.
+  useLayoutEffect(() => {
+    older.loaded = () => end - from;
+    older.total = end;
+    older.live = () => setEnd((at) => Math.min(all.length, at + 3));
+    older.reconnect = (draws) => {
+      if (draws === "empty") setBlank(true);
+      else setFrom(Math.max(0, end - TAIL));
+    };
+  });
   // A rebuild's empty frame lasts one commit: the rows it held come back in the next.
   useEffect(() => {
     if (blank) setBlank(false);
