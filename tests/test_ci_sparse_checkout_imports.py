@@ -238,6 +238,11 @@ IMPORT_BY_NAME = {"__import__", "builtins.__import__", "__builtins__.__import__"
 _IMPORT_ATTRS = {name.rsplit(".", 1)[-1] for name in IMPORT_BY_NAME}
 # Names that call the one builtin: replacing any of them replaces what each of them calls.
 _BUILTIN_IMPORT = {"__import__", "builtins.__import__", "__builtins__.__import__"}
+# The modules the import functions live on: swapping one in sys.modules replaces every function on it.
+_IMPORT_MODULES = {name.rsplit(".", 1)[0] for name in IMPORT_BY_NAME if "." in name}
+# Keywords naming the attribute or dotted target a patch replaces (monkeypatch.setattr(m, name=...),
+# mock.patch.object(m, attribute=...), mock.patch(target=...)).
+_PATCH_KEYWORDS = {"name", "attribute", "target"}
 
 
 def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset[str], frozenset[str]]:
@@ -249,10 +254,26 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
     parameter, loop/with/except/match target, del), or when imports bind it to two different things. An import name
     is replaced by an assignment or del of it (`importlib.import_module = f`, `builtins.__import__ = hook`, the last
     replacing every spelling of the builtin), or by any call that names it as a string (`setattr(importlib,
-    "import_module", f)`, `mock.patch("importlib.import_module")`, `monkeypatch.setattr(b, "__import__", f)`)."""
+    "import_module", f)`, `mock.patch("importlib.import_module")`, `monkeypatch.setattr(b, "__import__", f)`), positionally or
+    by keyword (`name=`, `attribute=`, `target=`, `mock.patch.multiple(importlib, import_module=f)`), by a write
+    through a mapping (`vars(importlib)["import_module"] = f`, `importlib.__dict__[...]`, or a dict of them passed
+    to a call such as `mock.patch.dict(importlib.__dict__, {...})`), or by swapping the module that holds it in
+    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`). A bare
+    attribute name names no object, so it replaces every import function; reading a name replaces nothing."""
     roots: set[str] = set()
     imported: dict[str, set[str]] = {}
     replaced: set[str] = set()
+
+    def names_a_patch(key: ast.AST | None) -> None:
+        # A string key that names an import function, an attribute one lives under, or the module holding one.
+        if isinstance(key, ast.Constant) and type(key.value) is str:
+            if key.value in IMPORT_BY_NAME:
+                replaced.add(key.value)
+            elif key.value in _IMPORT_ATTRS:
+                replaced.update(IMPORT_BY_NAME)
+            elif key.value in _IMPORT_MODULES:
+                replaced.update(name for name in IMPORT_BY_NAME if name.startswith(key.value + "."))
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -283,6 +304,16 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
                         replaced.add(arg.value)
                     elif arg.value in _IMPORT_ATTRS and len(node.args) >= 2:
                         replaced.update(IMPORT_BY_NAME)  # an attribute of some object: whose, this cannot tell
+                elif isinstance(arg, ast.Dict):
+                    for key in arg.keys:  # mock.patch.dict(importlib.__dict__, {"import_module": f})
+                        names_a_patch(key)
+            for keyword in node.keywords:
+                if keyword.arg in _PATCH_KEYWORDS:
+                    names_a_patch(keyword.value)  # monkeypatch.setattr(importlib, name="import_module", value=f)
+                elif keyword.arg in _IMPORT_ATTRS:
+                    replaced.update(IMPORT_BY_NAME)  # mock.patch.multiple(importlib, import_module=f)
+        elif isinstance(node, ast.Subscript) and not isinstance(node.ctx, ast.Load):
+            names_a_patch(node.slice)  # vars(importlib)["import_module"] = f, sys.modules["importlib"] = fake
     roots.update(name for name, targets in imported.items() if len(targets) > 1)
     if replaced & _BUILTIN_IMPORT:
         replaced |= _BUILTIN_IMPORT
