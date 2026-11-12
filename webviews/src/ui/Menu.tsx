@@ -21,6 +21,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { centreInScroller, checkedMenuRow } from "./openAtCurrent";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
@@ -380,9 +381,17 @@ export function MenuPopup({
     (node: HTMLElement | null) => {
       edges(node);
       if (node) popupNode.current = node;
+      // A menu with a checked row opens on it: centred, and focused so the arrows move from it.
+      if (node && !nested)
+        requestAnimationFrame(() => {
+          const checked = node.isConnected ? checkedMenuRow(node) : null;
+          if (!checked) return;
+          centreInScroller(checked, node);
+          checked.focus({ preventScroll: true });
+        });
       if (host) setPopup(node);
     },
-    [host, edges],
+    [host, edges, nested],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(

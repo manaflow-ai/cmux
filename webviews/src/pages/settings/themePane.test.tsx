@@ -9,7 +9,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, ops, renderPage, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, run, settle } = await import("./testing");
 const { t } = await import("./strings");
 
 let page: Rendered | null = null;
@@ -289,4 +289,31 @@ test("Rotate Starred Themes shows once a theme is starred, and works from two", 
   expect(control(page).disabled).toBe(false);
   // Drawn once, in the card: the schema's App Theme group draws no second copy.
   expect(page.container.querySelectorAll('[data-row-key="appearance.rotateFavoriteThemes"]').length).toBe(1);
+});
+
+// Leo, 2026-11-12: "my selected theme vs when i open up the thing. shouldn't the opened thing be
+// jumped already to the proper place?" A picker opens on its current value: that row is checked,
+// highlighted and the active descendant, so the arrow keys move from it.
+test("the theme list opens on the selected theme, highlighted, and the arrow keys move from it", async () => {
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.theme": "Tokyo Night" } } });
+  await click(themeRow(page, "single")!.querySelector("[data-theme-picker]")!);
+  // The highlight lands the frame after the list mounts (Combobox's open-at-current seed).
+  await run(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+  await settle();
+  const input = document.querySelector<HTMLInputElement>(".theme-popover input")!;
+  const selected = document
+    .querySelector<HTMLElement>('[data-theme-option="Tokyo Night"]')!
+    .closest<HTMLElement>(".ui-combobox-item")!;
+  expect(selected.hasAttribute("data-current")).toBe(true);
+  expect(selected.getAttribute("aria-current")).toBe("true");
+  expect(selected.hasAttribute("data-highlighted")).toBe(true);
+  expect(input.getAttribute("aria-activedescendant")).toBe(selected.id);
+  // Opening on the theme in effect previews nothing.
+  expect(ops(page.provider, "cmux.settings.preview")).toEqual([]);
+  await fire(input, "keydown", { key: "ArrowUp" });
+  const above = document
+    .querySelector<HTMLElement>('[data-theme-option="Solarized Light"]')!
+    .closest<HTMLElement>(".ui-combobox-item")!;
+  expect(above.hasAttribute("data-highlighted")).toBe(true);
+  expect(input.getAttribute("aria-activedescendant")).toBe(above.id);
 });

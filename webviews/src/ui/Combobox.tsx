@@ -2,6 +2,12 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
+//
+// A picker opens at its value (Leo 2026-11-11: "my selected theme vs when i open up the thing.
+// shouldn't the opened thing be jumped already to the proper place?"): the row `isItemCurrent`
+// names is centred in the list before the first paint (no scroll animation) and highlighted, so the
+// arrows move from it and Return keeps it. Typing keeps it marked (aria-current, data-current) and,
+// while it still matches and nothing was moved to by hand, highlighted.
 import {
   useCallback,
   useEffect,
@@ -18,6 +24,7 @@ import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
+import { centreInScroller } from "./openAtCurrent";
 import { useScrollEdges } from "./scrollEdges";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
@@ -68,7 +75,8 @@ export interface ComboboxProps {
   renderItem?(value: string): ReactNode;
   /** A rich row's accessible name; its identity remains the stable suggestion string. */
   itemLabel?(value: string): string;
-  /** The committed choice, distinct from the transient keyboard highlight. */
+  /** The committed choice, distinct from the transient keyboard highlight. The list opens scrolled
+   * to it, centred, with it highlighted (see the file comment). */
   isItemCurrent?(value: string): boolean;
   /** Readable Tab completion for suggestions identified by an opaque key. */
   completionText?(value: string): string;
@@ -301,6 +309,11 @@ export function Combobox({
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
     : 0;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
+  const currentItem = isItemCurrent ? enabledSuggestions.find((item) => isItemCurrent(item)) : undefined;
+  // The query the current row was last brought into view for; a new query may bring it again.
+  const seededFor = useRef<string | undefined>(undefined);
+  // True while the highlight below is being set, so it reports as programmatic ("none").
+  const seeding = useRef(false);
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -360,6 +373,33 @@ export function Combobox({
       update(completed);
     }
   };
+  // Open at the value: centre the current row before the first paint, then highlight it. Runs once
+  // per query; a highlight the person moved (arrows, pointer) is left alone, and so is the first-match
+  // highlight of `autoHighlight` while typing.
+  const nativeOnlyNow = nativePopup.available && native !== undefined;
+  useLayoutEffect(() => {
+    if (nativeOnlyNow || currentItem === undefined) return;
+    const key = `${value}\0${currentItem}`;
+    if (seededFor.current === key) return;
+    seededFor.current = key;
+    if (deliberatelyHighlighted.current) return;
+    if (value.trim() && autoHighlight) return;
+    const index = enabledSuggestions.indexOf(currentItem);
+    const row = () => listRef.current?.querySelector<HTMLElement>(".ui-combobox-item[data-current]") ?? null;
+    if (virtualized && index >= 0 && index < scrollingCount)
+      virtualizer.current?.scrollToIndex(index, { align: "center" });
+    centreInScroller(row(), listRef.current);
+    let frame = 0;
+    // Base UI registers the rows and settles its own highlight for the new query in this commit;
+    // the next frame sets ours after it.
+    frame = requestAnimationFrame(() => {
+      const element = row();
+      if (!element || deliberatelyHighlighted.current) return;
+      centreInScroller(element, listRef.current);
+      highlightRow(element, seeding);
+    });
+    return () => cancelAnimationFrame(frame);
+  });
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const renderOption = (
     item: string,
@@ -387,6 +427,7 @@ export function Combobox({
         : {})}
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
+      data-current={isItemCurrent?.(item) ? "" : undefined}
       className={cx("ui-combobox-item", itemClassName)}
       render={hasPinned ? <div /> : <li />}
       onPointerDownCapture={() => {
@@ -474,7 +515,7 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
-  const nativeOnly = nativePopup.available && native !== undefined;
+  const nativeOnly = nativeOnlyNow;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
@@ -485,7 +526,8 @@ export function Combobox({
       inline={inline}
       autoHighlight={autoHighlight}
       virtualized={virtualized}
-      onItemHighlighted={(item, details) => {
+      onItemHighlighted={(item, rawDetails) => {
+        const details = seeding.current ? { ...rawDetails, reason: "none" as const } : rawDetails;
         // A virtualized row the arrows reach may not be mounted yet: bring it into view (a pinned
         // action is never in the scroller).
         if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingCount) {
@@ -603,3 +645,21 @@ function VirtualRows({
 
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.
 const noLayout = () => typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");
+
+/// Scrolls the nearest scroller between `row` and `list` (inclusive) so `row` sits in its middle, at
+/// once: `behavior: "instant"` overrides a smooth `scroll-behavior` in the page's CSS.
+/// Highlights `row` in Base UI's list navigation. Base UI 1.8's Autocomplete has no controlled
+/// highlight, and its list navigation follows the pointer onto a row (mousemove, which WebKit
+/// ignores when the pointer did not move, hence movementX); `seeding` makes the change report as
+/// programmatic.
+function highlightRow(row: HTMLElement, seeding: { current: boolean }): void {
+  seeding.current = true;
+  try {
+    // The row's own window: a test page's DOM is not the global one.
+    const View = row.ownerDocument.defaultView?.MouseEvent;
+    if (!View) return;
+    row.dispatchEvent(new View("mousemove", { bubbles: true, cancelable: true, movementX: 1 } as MouseEventInit));
+  } finally {
+    seeding.current = false;
+  }
+}
