@@ -1,5 +1,5 @@
 {
-  "title": "Home: a Chief with history opened after the store read the inbox (as from the inbox list), its first transcript read failing: what shows (the inbox's newest message at once), then Try Again brings the rest (ui-state-fixes M1, history case)",
+  "title": "Home: a Chief with history opened after the store read the inbox (as from the inbox list), its first transcript read failing: what shows (the inbox's newest message at once), then Try Again brings the rest (older-page reads held until Try Again, so only the inbox's newest message draws; ui-state-fixes M1, history case)",
   "steps": [
     {
       "title": "Launch",
@@ -7,13 +7,14 @@
       "shot": false
     },
     {
-      "title": "The Chief with history, opened once the inbox is read, its first read failing",
+      "title": "The Chief with history, opened once the inbox is read, its first read failing (its older pages held until Try Again)",
       "rpc": {
         "method": "debug.home_native_fixture.open",
         "params": {
           "transcript": "failed",
           "after_inbox": true,
-          "new": true
+          "new": true,
+          "hold_history": true
         }
       },
       "wait": 3,

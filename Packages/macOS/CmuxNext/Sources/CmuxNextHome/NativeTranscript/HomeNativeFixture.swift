@@ -30,6 +30,9 @@ public final class HomeNativeFixture {
     /// The mock behind a gate (capture only): with ``TranscriptLoad`` the first transcript read is
     /// held or fails, so the real view shows its load state (ui-state-fixes M1).
     private let gate: GatedHomeSource
+    /// With `holdHistory` (captures of ui-state-fixes M1), the older pages (`history`) are held until
+    /// Try Again or a release, so a failed first page draws only what the inbox named.
+    private let olderPages: HomeFixtureHeldHistorySource?
     /// What the gate was set to (captures read it back): reads held, reads failing.
     private var gateHolds = false, gateFails = false
     /// The gate's returned reads when it last stopped failing: reads returned since could carry a page.
@@ -90,13 +93,16 @@ public final class HomeNativeFixture {
     /// With `cacheURL` (captures of ui-state-fixes M2), the store keeps a client cache there
     /// (`HomeCache`, its `home.json`), so a later fixture after a relaunch draws what it holds.
     public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false,
-                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil, newChief: Bool = false, holdReads: Bool = false, afterInbox: Bool = false) {
+                transcriptLoad: TranscriptLoad? = nil, cacheURL: URL? = nil, newChief: Bool = false, holdReads: Bool = false, afterInbox: Bool = false,
+                holdHistory: Bool = false) {
         self.afterInbox = afterInbox
         source = MockHomeSource(options: .init(chiefHistory: newChief ? 1 : 300, latency: .zero, replyDelay: .milliseconds(1500)))
         column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
-        gate = GatedHomeSource(newChief ? HomeFixtureNewChiefSource(base: source) : source)
+        let inner: any HomeSource = newChief ? HomeFixtureNewChiefSource(base: source) : source
+        olderPages = holdHistory ? HomeFixtureHeldHistorySource(inner) : nil
+        gate = GatedHomeSource(olderPages ?? inner)
         // `holdReads` with `.failed`: the read stays out (loading) until released, then fails.
         if holdReads { gate.hold() }
         switch transcriptLoad {
@@ -123,6 +129,7 @@ public final class HomeNativeFixture {
         view?.stop()
         store.stop()
         gate.release()
+        olderPages?.release()
     }
 
     private func load() async {
@@ -188,6 +195,7 @@ public final class HomeNativeFixture {
     public func debugReleaseReads() {
         gateHolds = false
         gate.release()
+        olderPages?.release()
     }
 
     /// Shows the mock's team chat in place of the one shown, so the shown one closes (it stays a
@@ -203,6 +211,7 @@ public final class HomeNativeFixture {
         (gateFails, gateHolds) = (false, false)
         gate.failReads(false)
         gate.release()
+        olderPages?.release()
         view.loadState.retry.performClick(nil)
         return true
     }
@@ -221,7 +230,9 @@ public final class HomeNativeFixture {
     public func debugGateState() -> [String: Any] {
         let returned = returnedReads
         return ["holds": gateHolds, "fails": gateFails, "started": gate.snapshots.count, "returned": returned,
-                "held": gate.waiting, "served": gateFails ? 0 : max(0, returned - returnedWhenFailingStopped)]
+                "held": gate.waiting, "served": gateFails ? 0 : max(0, returned - returnedWhenFailingStopped),
+                "history_gated": olderPages != nil, "history_started": olderPages?.started ?? 0,
+                "history_held": olderPages?.waiting ?? 0, "history_returned": olderPages?.returned ?? 0]
     }
 
     /// The load state's band and chip over drawn rows, in the window's coordinates (top-left origin).
@@ -596,5 +607,64 @@ struct HomeFixtureNewChiefSource: HomeSource {
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult { try await base.submit(intent) }
     func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await base.resolve(contact) }
+}
+
+/// DEBUG ONLY (captures of ui-state-fixes M1). Holds every older-page read (`history`) until
+/// `release()`, counting them, and passes every other call through: a capture whose first page
+/// failed then shows only what the inbox named, not older pages read meanwhile.
+final class HomeFixtureHeldHistorySource: HomeSource, @unchecked Sendable {
+    private let inner: any HomeSource
+    private let lock = NSLock()
+    private var holding = true
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var startedCount = 0, returnedCount = 0
+
+    init(_ inner: any HomeSource) { self.inner = inner }
+
+    /// Older-page reads asked so far, returned so far, and waiting now.
+    var started: Int { lock.withLock { startedCount } }
+    var returned: Int { lock.withLock { returnedCount } }
+    var waiting: Int { lock.withLock { held.count } }
+
+    /// Lets every held older-page read go, and stops holding.
+    func release() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            holding = false
+            defer { held = [] }
+            return held
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [CmuxHomeCore.Message] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let wait = lock.withLock { () -> Bool in
+                startedCount += 1
+                if holding { held.append(continuation) }
+                return holding
+            }
+            if !wait { continuation.resume() }
+        }
+        defer { lock.withLock { returnedCount += 1 } }
+        return try await inner.history(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    func events() async -> AsyncStream<HomeEvent> { await inner.events() }
+    func inbox() async throws -> InboxSnapshot { try await inner.inbox() }
+    func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
+        try await inner.snapshot(of: conversation, tail: tail)
+    }
+    func submit(_ intent: HomeIntent) async throws -> HomeOpResult { try await inner.submit(intent) }
+    func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
+        await inner.agentSessions(peers, of: conversation)
+    }
+    func agentStarts() async -> AsyncStream<Set<String>> { await inner.agentStarts() }
+    func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { try await inner.search(query, limit: limit) }
+    func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await inner.resolve(contact) }
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef { try await inner.upload(file) }
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        try await inner.fetch(ref, at: location, variant: variant)
+    }
+    func close(_ conversation: ConversationID) { inner.close(conversation) }
 }
 #endif

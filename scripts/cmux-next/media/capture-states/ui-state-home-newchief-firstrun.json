@@ -1,0 +1,38 @@
+{
+  "title": "Home: a truly new Chief (no history; its first transcript read answers at once, empty): the real transcript view shows the first-run panel (ui-state-fixes M1)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "A new Chief, its reads answering",
+      "rpc": {
+        "method": "debug.home_native_fixture.open",
+        "params": {
+          "chief": "new",
+          "new": true
+        }
+      },
+      "wait": 3,
+      "record": true
+    },
+    {
+      "title": "First page loaded empty: the first-run panel, no error",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state",
+          "expect": {
+            "first_page": "loaded",
+            "panel": "none"
+          }
+        }
+      },
+      "wait": 1,
+      "record": true,
+      "shot": false
+    }
+  ]
+}

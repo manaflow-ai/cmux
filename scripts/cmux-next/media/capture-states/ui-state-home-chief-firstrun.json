@@ -1,5 +1,5 @@
 {
-  "title": "A brand-new Chief: Home still shows its first-run panel (ui-state-fixes M1)",
+  "title": "Real Home (home.show) on a fresh capture slot: what the slot's Chief draws (its welcome transcript; not a truly new Chief, see ui-state-home-newchief-firstrun) (ui-state-fixes M1)",
   "steps": [
     {
       "title": "Launch",
@@ -7,7 +7,7 @@
       "shot": false
     },
     {
-      "title": "Home: the new Chief's first-run panel",
+      "title": "Home (home.show): the slot Chief's transcript",
       "cmux": [
         "action",
         "run",
@@ -16,7 +16,7 @@
       "wait": 3
     },
     {
-      "title": "What the Chief transcript holds (none: a new Chief)",
+      "title": "What the Chief transcript holds",
       "rpc": {
         "method": "debug.home.drive",
         "params": {
