@@ -2427,7 +2427,7 @@
     "pages.settings-menus#terminal": 0.00081,
     "pages.settings-motion#backdrops-workspace": 0.09155,
     "pages.settings-motion#play-changed-only": 0,
-    "pages.settings-motion#play-override-reset": 0,
+    "pages.settings-motion#play-override-reset": 0.0058,
     "pages.settings-motion#play-reset-fontfamily": 0.00011,
     "pages.settings-motion#play-reset-hibernation": 0.01537,
     "pages.settings-motion#play-reset-hibernationexclusions": 0.02961,
