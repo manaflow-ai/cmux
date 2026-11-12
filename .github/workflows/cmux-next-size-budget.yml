@@ -1,0 +1,108 @@
+name: cmux-next size budget
+
+# The bundle-size budget of a pull request into feat-cmux-next. The nightly DMG grew from 205 MB
+# (2026-10-20) to 285 MB (2026-11-12) against a 216 MB cap while the only size check ran once a night
+# and never blocked (cmuxterm-hq docs/perf/bundle-size.md). Leo, 2026-11-12: "in terms of the
+# performance on, like, the bundle size and whatever ... I don't really know what's going on there."
+#
+# scripts/cmux-next/bundle-size-pr.py compares the change with its base on Linux: the committed
+# bytes the app ships, the built web bundles (built for the base and the head when a web input
+# changed, web-bundle-key.py --routed) and the crates each shipped Rust binary links. Growth over
+# the budget's threshold, or a new crate, fails until the description has a line
+# `size: <reason>`. The check and its rules run from the base commit, so a change cannot loosen its
+# own budget; the head is only measured. Editing the description re-runs it.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-size-budget-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  size-budget:
+    name: cmux-next size budget
+    # An edit that leaves the description as it was (a title, a base) changes nothing measured.
+    if: ${{ github.event.action != 'edited' || github.event.changes.body != null }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: The base, and whether a web input changed
+        id: base
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+          tool="$RUNNER_TEMP/base/scripts/cmux-next/bundle-size-pr.py"
+          if [[ ! -f "$tool" ]]; then
+            # The pull request that adds the budget: its base has none to run yet.
+            echo "::notice::The base has no scripts/cmux-next/bundle-size-pr.py yet; nothing to check."
+            echo "tool=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tool=$tool" >> "$GITHUB_OUTPUT"
+          mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
+          if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
+            echo "web=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: ${{ steps.base.outputs.tool != '' && steps.base.outputs.web == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        if: ${{ steps.base.outputs.tool != '' && steps.base.outputs.web == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # Both builds write only under $RUNNER_TEMP (--out-root), never into the checkouts.
+      - name: Build the web bundles of the base and the head
+        if: ${{ steps.base.outputs.tool != '' && steps.base.outputs.web == 'true' }}
+        run: |
+          set -euo pipefail
+          (cd webviews && bun install --frozen-lockfile >/dev/null)
+          ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web-head"
+          (cd "$RUNNER_TEMP/base/webviews" && bun install --frozen-lockfile >/dev/null)
+          "$RUNNER_TEMP/base/scripts/cmux-next/build-web-bundles.sh" --out-root "$RUNNER_TEMP/web-base"
+
+      - name: Check the size budget
+        if: ${{ steps.base.outputs.tool != '' }}
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          TOOL: ${{ steps.base.outputs.tool }}
+          WEB: ${{ steps.base.outputs.web }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$BODY" > "$RUNNER_TEMP/body.md"
+          web=()
+          if [[ "$WEB" == true ]]; then
+            web=(--web-base "$RUNNER_TEMP/web-base" --web-head "$RUNNER_TEMP/web-head")
+          fi
+          rc=0
+          python3 -I "$TOOL" check --repo "$GITHUB_WORKSPACE" \
+            --budget "$RUNNER_TEMP/base/scripts/cmux-next/bundle-size-budget.json" \
+            --base HEAD^1 --head HEAD --body-file "$RUNNER_TEMP/body.md" ${web[@]+"${web[@]}"} \
+            --json "$RUNNER_TEMP/size-budget.json" > "$RUNNER_TEMP/size-budget.md" || rc=$?
+          cat "$RUNNER_TEMP/size-budget.md"
+          { echo '### Bundle size'; cat "$RUNNER_TEMP/size-budget.md"; } >> "$GITHUB_STEP_SUMMARY"
+          headline="$(head -1 "$RUNNER_TEMP/size-budget.md" | tr -d '*`')"
+          if (( rc == 1 )); then
+            echo "::error title=Bundle size over budget::$headline"
+          fi
+          exit "$rc"
