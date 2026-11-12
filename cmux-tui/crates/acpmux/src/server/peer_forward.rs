@@ -441,6 +441,15 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A switch onto another harness goes only to a peer that takes one: an older build forks
+        // on the chat's own harness and the next message would reach the old provider (review of
+        // cmux#41030, F3).
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_retarget(params)
+            && !peer.lists(super::fork_through::RETARGET_FEATURE)
+        {
+            return Err(super::fork_through::retarget_unsupported(&peer.name));
+        }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
@@ -657,6 +666,7 @@ async fn forward_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::SESSION_FORK
+                | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
@@ -961,7 +971,7 @@ async fn forward_inner(
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
-        if m == method::SESSION_FORK
+        if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
             super::view::subscribe_remote(hub, conn, new_id, None);

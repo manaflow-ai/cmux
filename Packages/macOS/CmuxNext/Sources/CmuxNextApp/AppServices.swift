@@ -534,8 +534,7 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
     private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
-    let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
-    let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
+    let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -575,7 +574,6 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
-        (dialogs, toasts) = (OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess), CmuxToastWebHost(drawing: .shared, overlayProcess: overlayProcess))
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
@@ -747,7 +745,7 @@ final class AppServices {
         _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self) }
+        WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self); keyRouter.creationInputCoordinator.drop(closing: workspace.screens.flatMap(\.panes)) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every

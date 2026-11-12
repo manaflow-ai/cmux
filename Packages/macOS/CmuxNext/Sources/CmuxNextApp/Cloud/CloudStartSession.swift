@@ -234,7 +234,8 @@ struct CloudStartSession {
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
+        if let local = request.fromFolder, let cli = services.cloud.move.cli, let refusal = await CloudMoveCLI(binary: cli).startChatPreflight(local: local) { throw ActionFailure(message: refusal.message) } // past the copy's limits
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
@@ -246,30 +247,19 @@ struct CloudStartSession {
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect")
         try still(name)
-        let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
-        try still(name)
+        async let anchored = self.anchor(session, request, context, account: account, byPerson: byPerson) // beside the copy and the login: the tab waits on all three
+        async let copied = copiedIfAsked(request, to: session, account: account)
         // Remote approvals turn on beside the login (an idle daemon only), awaited on every exit: the gate is never released under them.
         try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {
             try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
             steps.done("login")
         }
         steps.done("approvals")
+        let copy = try await copied, cwd = copy?.chat ?? request.cwd // before the session starts in it; the account is checked again past the anchor
         if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name))) }
-        guard let host = AgentTabStore.registryHost(of: session.daemon) else {
-            throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
-        }
-        let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
-        do {
-            anchor = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) {
-                try await CloudHandlers.terminalAnchor(on: session, context) { [services] in try Self.check(account, now: services.cloud.account, request.asked(machine: name)) }
-            }
-        } catch let changed as AccountChanged {
-            throw changed.failure
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
-        }
+        guard let host = AgentTabStore.registryHost(of: session.daemon) else { throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)) }
+        let (found, foundEpoch) = try await anchored // the copy (an older daemon's update) or the login may have relinked since: its pane is the old link's, so find it again
+        let anchor = if session.daemon.store.connectionEpoch == foundEpoch { found } else { try await self.anchor(session, request, context, account: account, byPerson: byPerson).0 }
         steps.done("anchor")
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey: String
@@ -300,7 +290,7 @@ struct CloudStartSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), AgentRemoteStartRefusal.untrustedCopy(error, of: copy?.trusted == false ? request.fromFolder : nil)?.userMessage ?? Self.startFailure(error, name: name, id: id, agent: agent))
         }
         steps.done("start")
         CloudStartStepRecord.current?.machine = started.phases
@@ -396,6 +386,7 @@ struct CloudStartSession {
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        if let refused = await cloud.agentCheck.newMachineRefusal(harness: request.agent, model: request.model, login: request.login, userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled) { throw ActionFailure(message: refused.limitWords ?? CloudStartSessionStrings.loginRefused(Self.loginRefusal(refused.loginReason ?? .ffiFailed), request.asked(machine: name))) } // a new machine: the login rules' refusal or a used-up Claude limit before it is made
         do {
             return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
@@ -414,6 +405,16 @@ struct CloudStartSession {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
                             CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: CloudStartCore.reason(detail)))
+        }
+    }
+
+    /// The workspace and pane the run's tab opens in, found again once on a relink, and the link epoch it was found on; a run whose account changed creates none.
+    private func anchor(_ session: CloudMachineSession, _ request: Request, _ context: AppActionContext, account: [String?], byPerson: Bool) async throws -> ((id: String, key: WorkspaceKey, pane: PaneModel), Int) {
+        let asked = request.asked(machine: session.machine.title)
+        do {
+            return (try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) { try await CloudHandlers.terminalAnchor(on: session, context) { [services] in try Self.check(account, now: services.cloud.account, asked) } }, session.daemon.store.connectionEpoch) // the epoch read past the wait
+        } catch let changed as AccountChanged { throw changed.failure } catch is CancellationError { throw CancellationError() } catch {
+            try Self.failed(account, now: services.cloud.account, asked, CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent))
         }
     }
 

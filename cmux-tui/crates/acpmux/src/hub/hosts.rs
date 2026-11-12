@@ -14,11 +14,10 @@ use crate::store::RecordHead;
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
-/// How long adoption waits for the next replayed entry of one host to be
-/// logged before it recovers from the log as it is.
-const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
-/// The most one host's replay may hold adoption (and daemon startup).
-const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long adoption waits for the next replayed entry of one host to be logged before it recovers
+/// from the log as it is (`REPLAY_STALL`), and the most one host's replay may hold adoption and
+/// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
+use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
@@ -148,7 +147,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
                 continue;
             }
             unreadable.insert(b.session_id.clone());
@@ -464,7 +463,7 @@ impl Hub {
             if let Some(record) = record {
                 agent_host::remove_artifacts(&dir, &record);
             } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {
@@ -601,11 +600,7 @@ impl Hub {
         self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the

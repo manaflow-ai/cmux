@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -12,6 +13,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SOURCE = Path(__file__).resolve().parents[1]
 SCRIPT = SOURCE / "scripts/cmux-next/cargo-locks.py"
@@ -23,9 +30,10 @@ class CargoLocksTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-")
         self.addCleanup(temporary.cleanup)
         self.repo = Path(temporary.name)
-        self.env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "F", "GIT_AUTHOR_EMAIL": "f@e",
-                    "GIT_COMMITTER_NAME": "F", "GIT_COMMITTER_EMAIL": "f@e"}
-        self.git("init", "-q")
+        self.env = git_fixture_env.fixture_env({
+            **os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "F", "GIT_AUTHOR_EMAIL": "f@e",
+            "GIT_COMMITTER_NAME": "F", "GIT_COMMITTER_EMAIL": "f@e"})
+        git_fixture_env.init_repo(self.repo, env=self.env)
         # Two workspaces: core (crates a and b) and ffi, its own workspace, which builds a by path.
         self.write("core/Cargo.toml", '[workspace]\nmembers = ["a", "b"]\nresolver = "2"\n')
         for name in ("a", "b"):

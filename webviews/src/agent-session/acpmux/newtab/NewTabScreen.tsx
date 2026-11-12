@@ -54,6 +54,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { customizeMessage, newChatRunsElsewhere } from "../customizeCommand";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -84,6 +85,7 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
@@ -149,6 +151,7 @@ import {
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
+import { type NewTabStartFailure, StartFailure } from "./StartFailure";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
@@ -559,7 +562,6 @@ export function NewTabScreen(props: Props) {
     pending: reading,
     originalFailures,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -589,13 +591,19 @@ export function NewTabScreen(props: Props) {
     if (carried?.attachments.length) setAttachments(carried.attachments);
   }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
-  // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
-  // for a few seconds at most (composer/videoAttachments.ts).
-  const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  // chat starts, so a file still streaming has no next prompt to go with. A video's read holds no
+  // send (Composer.tsx): the chip goes as its path.
+  const holdForAttachments = useSendWhenAttached(unsettled);
+  /// Where the chat would start, as picked now (set below, once every pick is read).
+  const elsewhere = useRef(false);
   const command = useNewTabCommand(
     text,
     setText,
-    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      ...props,
+      importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed",
+      startsElsewhere: () => elsewhere.current,
+    },
     {
       attachments,
       setAttachments,
@@ -640,7 +648,10 @@ export function NewTabScreen(props: Props) {
   const submitNow = useRef(() => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
-  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
+  /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
+  /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  const continueAfterSetup = useRef<(harness: string, model?: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
     else openHarnessesPage();
@@ -665,20 +676,20 @@ export function NewTabScreen(props: Props) {
   // A saved environment the picker picked names where the chat starts (askInEnvironment).
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
+  // `/customize` changes this machine's cmux: refused when the chat would start anywhere else.
+  // Read when a command runs (after commit), so the ref is written in an effect, never in render.
+  const runsElsewhere = newChatRunsElsewhere({
+    mode: props.runMode?.mode,
+    machine: machine !== undefined,
+    environmentKind: environment?.kind,
+  });
+  useLayoutEffect(() => {
+    elsewhere.current = runsElsewhere;
+  }, [runsElsewhere]);
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
   useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = environment
-    ? environment.kind === "local"
-      ? environment.folder
-      : undefined
-    : none
-      ? undefined
-      : project && project !== props.cwd
-        ? project
-        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -689,6 +700,12 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
+  // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
+  // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
+  // refuses ("This folder is outside the folders this pane may use", cmux#40938). No folder sends
+  // none, and the host starts the chat in its own start folder.
+  const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
   const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
@@ -741,7 +758,7 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
-  const [startError, setStartError] = useState<string>();
+  const [startError, setStartError] = useState<NewTabStartFailure>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
   const asking = useRef(0);
@@ -763,7 +780,17 @@ export function NewTabScreen(props: Props) {
       forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
-      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
+      if (isStartCancelled(error)) return;
+      const code = (error as { code?: unknown } | undefined)?.code;
+      setStartError({
+        harness: args[0],
+        error: errorMessage(error) || t("switch.unknownError"),
+        ...(typeof code === "string" ? { code } : {}),
+        // A chat on another machine installs nothing here: its agent is set up on that machine.
+        local: !args[6]?.peer,
+        // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        retry: () => continueAfterSetup.current(args[0], args[3]),
+      });
     };
     const done = () => {
       if (asking.current !== request) return;
@@ -797,8 +824,12 @@ export function NewTabScreen(props: Props) {
     const isCommand =
       slash !== undefined &&
       (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
     const sent = isCommand
-      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      ? {
+          text: customizeMessage(words) ?? words,
+          attachments: attachments.map(({ inline: _, ...attachment }) => attachment),
+        }
       : inText;
     const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
@@ -1012,18 +1043,21 @@ export function NewTabScreen(props: Props) {
       profilePick
         ? profileRows(typed, profilePick.url, profiles ?? [])
         : touched && !shell && !commandTyping
-          ? screenRows(typed, {
-              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
-              home,
-              create: creates,
-              ...(ask ? { ask } : {}),
-              createNames: {
-                terminal: nt("create.terminal"),
-                browser: nt("create.browser"),
-                chat: nt("create.chat"),
-              },
-              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-            })
+          ? searchWords(
+              screenRows(typed, {
+                omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+                home,
+                create: creates,
+                ...(ask ? { ask } : {}),
+                createNames: {
+                  terminal: nt("create.terminal"),
+                  browser: nt("create.browser"),
+                  chat: nt("create.chat"),
+                },
+                ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+              }),
+              (words) => withoutInlineTokens(words),
+            )
           : [],
     [
       profilePick,
@@ -1135,10 +1169,18 @@ export function NewTabScreen(props: Props) {
       // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
       try {
         void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
-          setStartError(errorMessage(error) || t("switch.unknownError"));
+          setStartError({
+            error: errorMessage(error) || t("switch.unknownError"),
+            local: true,
+            retry: () => (setStartError(undefined), openCard(id)),
+          });
         });
       } catch (error) {
-        setStartError(errorMessage(error) || t("switch.unknownError"));
+        setStartError({
+          error: errorMessage(error) || t("switch.unknownError"),
+          local: true,
+          retry: () => (setStartError(undefined), openCard(id)),
+        });
       }
       return;
     }
@@ -1152,7 +1194,14 @@ export function NewTabScreen(props: Props) {
   // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
   const coldArchiveCard = (id: string, archived: boolean) => {
     void props.onColdArchive?.(id, archived).catch((error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
+      setStartError({
+        error: errorMessage(error) || t("switch.unknownError"),
+        local: true,
+        retry: () => {
+          setStartError(undefined);
+          coldArchiveCard(id, archived);
+        },
+      });
     });
   };
   const list = useRef<HTMLDivElement>(null);
@@ -1459,16 +1508,17 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  continueAfterSetup.current = (agent) => {
+  continueAfterSetup.current = (agent, model) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    if (holdForAttachments(() => continueAfterSetup.current(agent, model)) || created.current) return;
     created.current = true;
     const prompt = shell ? "" : typed.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
+      model,
     );
     if (asked === false) created.current = false;
   };
@@ -2186,9 +2236,15 @@ export function NewTabScreen(props: Props) {
         {props.startNotice}
 
         {startError && (
-          <p role="alert" className="acpmux-switch-notice">
-            {startError}
-          </p>
+          <StartFailure
+            failure={startError}
+            name={snapshot.catalog.find((entry) => entry.id === startError.harness)?.name ?? startError.harness ?? ""}
+            onInstall={() => {
+              setStartError(undefined);
+              openSetup();
+            }}
+            onDismiss={() => setStartError(undefined)}
+          />
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {newProjectError && (

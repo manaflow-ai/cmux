@@ -1217,7 +1217,11 @@ jobs:
             # Process-heavy CLI tests can exceed the runner's child-process
             # limit on the smaller macOS and Windows matrix runners, and
             # timing-bound tests flake at 32 threads on Linux.
-            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
+            # A red workspace must not skip the cmux-tui-core tests below: record
+            # its status, run the core tests, then fail the step with it.
+            workspace_status=0
+            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2 \
+              || workspace_status=$?
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
@@ -1225,7 +1229,7 @@ jobs:
               target/cmux-tui-core-test-binaries.jsonl \
               crates/cmux-tui-core
             cargo test -p cmux-tui-core --doc --locked
-            exit 0
+            exit "$workspace_status"
           fi
           # optchat_chief selects the optchat-chief job (its own Cargo workspace), no cmux-tui test.
           if [[ "$TEST_FILTER" == "optchat_chief" ]]; then
