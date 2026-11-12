@@ -968,6 +968,32 @@ fn a_close_after_a_replayed_move_restates_the_pane_whose_active_tab_changed() {
     }
 }
 
+/// The case `layout_ops_conserve_tabs` shrank to in the full --lib rounds on feat 28dc8709eaa
+/// (lane c-conc, 2026-11-11). The replayed tab move takes the first tab of a pane whose active
+/// tab is its second to another pane: the live pane keeps its active tab (now first), but the
+/// move's durable plan read the old active index in the new order and stored the tab after it.
+/// The last close, scoped to another workspace, trusts that stored row, and the debug
+/// cross-check failed: "only the full projection writes UpsertPane(... active_tab ...)". A
+/// release daemon kept the wrong stored active tab until a full projection rewrote it.
+#[test]
+fn a_tab_moved_out_from_before_the_active_tab_keeps_its_panes_stored_active_tab() {
+    let mux = test_mux("layout-invariants-shrunk-workspace-move");
+    build(&mux, &[vec![3, 3], vec![1, 1, 1], vec![1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::MoveTab { tab: 0, pane: 1, index: 1, undoable: false },
+        Op::Close { tab: 14 },
+        Op::ReplayedMove { tab: 52, pane: 9, index: 0 },
+        Op::MoveWorkspace { workspace: 3, index: 2 },
+        Op::Close { tab: 8 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}
+
 /// A second case `layout_ops_conserve_tabs` shrank to on feat (c6be943058a, BASE RED SUITE
 /// 2026-11-04): after moves into new workspaces and back, two tab closes left a pane whose
 /// focus changed out of the scoped projection ("the scoped projection omits a changed pane":
