@@ -65,6 +65,9 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             shutil.copyfile(ROOT / guard, fixture / guard)
             # The guard reads jobs through tests/workflow_jobs.py, which it imports from its own tree.
             shutil.copyfile(ROOT / "tests/workflow_jobs.py", fixture / "tests/workflow_jobs.py")
+            # workflow_jobs finds each `${{ }}` with scripts/ci/gh_expressions.py.
+            (fixture / "scripts/ci").mkdir(parents=True)
+            shutil.copyfile(ROOT / "scripts/ci/gh_expressions.py", fixture / "scripts/ci/gh_expressions.py")
             action_path = fixture / ".github/actions/cache-restore/action.yml"
             original = action_path.read_text()
             for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):
