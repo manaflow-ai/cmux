@@ -773,6 +773,18 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
+- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper, so the
+  phone's chrome takes the colors the Mac's chrome derives from and shows the picture
+  behind the Mac's sidebar. One JSON frame now and on every change, nothing before the
+  Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
+  16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
+  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. `id` is the SHA-256 of the picture (hex), the phone's cache key. The phone
+  derives every chrome color itself (`ThemeTokens.derive`, the Mac's own code) and keeps
+  the last frame, so it paints the same palette at launch and offline.
+- `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
+  or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
+  `not_found` when it shows none. Machines need the View grant for both.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it

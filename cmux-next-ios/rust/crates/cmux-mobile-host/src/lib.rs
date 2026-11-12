@@ -11,6 +11,7 @@
 //! (`media_session.rs`).
 
 pub mod acpmux_policy;
+pub mod appearance;
 pub mod auth;
 pub mod browser;
 pub mod browser_policy;
