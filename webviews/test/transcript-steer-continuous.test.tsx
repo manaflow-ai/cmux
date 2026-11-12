@@ -705,11 +705,12 @@ test("a turn steered twice keeps every call under one completed-turn fold", () =
     "a-b2",
     `${SUPERSEDED}-s2`,
     "s2",
+    // Two runs with nothing between them draw as one line (transcript-run-seams.test.ts).
     "a-b3",
-    "a-b4",
     "r2",
     "sum",
   ]);
+  expect(open.find((each) => each.id === "a-b3")?.joined).toEqual(["a-b3", "a-b4"]);
   expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual(rows.map(() => `${WORKED}-u`));
 });
 
