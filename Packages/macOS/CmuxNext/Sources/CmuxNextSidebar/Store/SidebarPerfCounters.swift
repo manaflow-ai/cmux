@@ -41,6 +41,9 @@ import Foundation
 ///   with no feed (every row it lists): one new workspace maps its own row, at 60 workspaces as at 826 (WORKSPACE LIST 800).
 /// - `slot_rows`: rows `SidebarSection.withoutPlaceholders` walked and copied (a new workspace's slot rule).
 /// - `doc_reshows`: `SidebarDocStore.reshow` calls (a create's placement: one, with one read of every live ref).
+/// - `blank_rows`: rows in the clip's visible rect that had no row view when a realize pass ran: rows the person saw
+///   empty, since responsive scrolling moves the clip off the main thread and draws only rows that have views
+///   (Leo 2026-11-12: "Sidebar, though, still kind of a little bit whack"). `blank_passes`: the passes that found one.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -76,6 +79,10 @@ nonisolated enum SidebarPerfCounters {
         case slotRows = "slot_rows"
         /// `SidebarDocStore.reshow` calls.
         case docReshows = "doc_reshows"
+        /// Visible rows a realize pass found with no view (shown empty until then).
+        case blankRows = "blank_rows"
+        /// Realize passes that found a visible row with no view.
+        case blankPasses = "blank_passes"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
