@@ -169,6 +169,50 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertEqual(job_failures("w:j", {"steps": [dict(START, **{"if": stale}), dict(TEST, **{"if": stale}),
                                                         dict(STOP, **{"if": f"${{{{ always() && {stale} }}}}"})]}), [])
 
+    def test_text_that_only_names_the_export_shutdown_or_delete_is_not_credited(self) -> None:
+        # Sweep of cmux#40784 F1: is_start and is_stop matched substrings, so a comment, an echo, a heredoc body or
+        # a skipped command that named the export, the shutdown or the delete counted as one. Each form is named.
+        home = 'home="$RUNNER_TEMP/acpmux-home"\n'
+        shutdown = 'env -u ACPMUX_SOCKET ACPMUX_HOME="$home" acpmux daemon shutdown --end-agents || true\n'
+        stops = {
+            "shutdown in a comment": home + f"# {shutdown}" + 'rm -rf "$home"\n',
+            "shutdown echoed": home + f"echo '{shutdown.strip()}'\n" + 'rm -rf "$home"\n',
+            "shutdown in a heredoc body": home + f"cat <<'EOF' >/dev/null\n{shutdown}EOF\n" + 'rm -rf "$home"\n',
+            "delete echoed": home + shutdown + 'echo rm -rf "$home"\n',
+            "delete in a comment": home + shutdown + '# rm -rf "$home"\n',
+            "delete right of &&": home + shutdown + 'false && rm -rf "$home"\n',
+            "delete in an if branch": home + shutdown + 'if [[ -n "${KEEP:-}" ]]; then rm -rf "$home"; fi\n',
+            "delete after an exit 0 guard": home + '[[ -d "$home" ]] || exit 0\n' + shutdown + 'rm -rf "$home"\n',
+            "another directory deleted": home + shutdown + 'rm -rf "$RUNNER_TEMP/other"  # acpmux-home\n',
+        }
+        for form, run in stops.items():
+            with self.subTest(form):
+                self.assertEqual(len(job_failures("w:j", {"steps": [START, TEST, dict(STOP, run=run)]})), 1)
+        export = 'echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"\n'
+        clear = 'echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"\n'
+        starts = {
+            "export in a comment": f"# {export}" + clear,
+            "export in a heredoc body": f"cat <<'EOF' >/dev/null\n{export}EOF\n" + clear,
+            "export to stdout": 'echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home"  # >> "$GITHUB_ENV"\n' + clear,
+            "export right of &&": "false && " + export + clear,
+            "socket clear in an if branch": export + f"if false; then {clear.strip()}; fi\n",
+        }
+        for form, run in starts.items():
+            with self.subTest(form):
+                self.assertEqual(len(job_failures("w:j", {"steps": [dict(START, run=run), TEST, STOP]})), 1)
+
+    def test_the_workflows_stop_shape_is_credited(self) -> None:
+        # The stop every workflow uses: the shutdown only where the home and an acpmux binary exist, the delete on
+        # every path.
+        run = ('home="$RUNNER_TEMP/acpmux-home"\nif [[ -d "$home" ]]; then\n'
+               '  acpmux="$(command -v acpmux || true)"\n'
+               '  [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents'
+               ' || true\nfi\nrm -rf "$home"\n')
+        self.assertEqual(job_failures("w:j", {"steps": [START, TEST, dict(STOP, run=run)]}), [])
+        self.assertTrue(is_stop(dict(STOP, run=run.replace('rm -rf "$home"', 'rm -rf "${RUNNER_TEMP}/acpmux-home"'))))
+        self.assertTrue(is_start({"run": "printf '%s\\n' \"ACPMUX_HOME=$RUNNER_TEMP/acpmux-home\" >> \"$GITHUB_ENV\"\n"
+                                         "echo ACPMUX_SOCKET= >>$GITHUB_ENV\n"}))
+
     def test_the_fleet_package_lane_gives_its_tests_a_home_of_their_own(self) -> None:
         # A fleet step (`cmux-ci run --script scripts/ci/package-test-lane.sh`) runs on a mini
         # outside this job, so the lane itself makes a home when it was given none.

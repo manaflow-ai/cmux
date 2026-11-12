@@ -173,6 +173,29 @@ class ShellTests(unittest.TestCase):
         # A one-line helper ends at its closing brace.
         self.assertIsNone(shell_polls("nap() { sleep 5; }\n  gh api x\nfor i in 1 2; do nap; done\n"))
 
+    def test_a_call_or_sleep_through_a_wrapper_path_or_shell_is_read(self) -> None:
+        # Sweep of cmux#40784 F1: the loop's commands were matched by a hand-rolled word scan, so a wrapper, a path
+        # or a shell's -c text hid the call or the sleep. They are read by tests/shell_invocations.py now.
+        for form, body in (
+                ("env", "env GH_PAGER= gh api x; sleep 5"),
+                ("a path", "/usr/bin/gh run list; sleep 5"),
+                ("timeout", "timeout 30 gh api x; sleep 5"),
+                ("command in a substitution", 's="$(command gh run view 1)"; sleep 5'),
+                ("bash -c", "bash -c 'gh api x'; sleep 5"),
+                ("eval", "eval 'gh api x'; sleep 5"),
+                ("a sleep through nice", "gh api x; nice -n 5 sleep 5"),
+                ("a sleep at a path", "gh api x; /bin/sleep 5"),
+                ("curl through env", "env -u X curl -s https://api.github.com/repos/o/r; sleep 5"),
+                ("an option before the verb", "gh -R o/r run list; sleep 5"),
+                ("a helper through command", "command state; sleep 5")):
+            with self.subTest(form):
+                script = f"state() {{ gh api x; }}\nwhile true; do\n  {body}\ndone\n"
+                self.assertTrue(shell_polls(script), script)
+        for form, body in (("gh echoed", "echo gh api x; sleep 5"), ("sleep echoed", "gh api x; echo sleep 5"),
+                           ("gh in a string", "printf '%s' 'gh api x'; sleep 5")):
+            with self.subTest(form):
+                self.assertIsNone(shell_polls(f"while true; do\n  {body}\ndone\n"))
+
     def test_a_python_heredoc_is_read_as_python(self) -> None:
         script = ("python3 - <<'PY'\nimport time, subprocess\nfor _ in range(5):\n"
                   "    subprocess.run(['gh', 'api', 'x'])\n    time.sleep(5)\nPY\n")

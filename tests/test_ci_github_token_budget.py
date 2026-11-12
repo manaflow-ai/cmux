@@ -34,6 +34,14 @@ class StepDetection(unittest.TestCase):
         # The token is set on the job, the call on the step.
         self.assertTrue(spends({"run": "gh api rate_limit"}, {"env": {"GH_TOKEN": OWN}}))
 
+    def test_a_call_through_a_wrapper_path_or_shell_counts(self):
+        # Sweep of cmux#40784 F1: read by tests/shell_invocations.py, not a word scan.
+        for run in ("env GH_PAGER= gh pr view 1", "/usr/bin/gh pr view 1", "timeout 30 gh api x",
+                    "bash -c 'gh api x'", 'x="$(command gh run list)"'):
+            with self.subTest(run):
+                self.assertTrue(spends({"run": run, "env": {"GH_TOKEN": OWN}}))
+        self.assertFalse(spends({"run": "echo gh api x", "env": {"GH_TOKEN": OWN}}))
+
     def test_another_token_or_no_call_does_not_count(self):
         self.assertFalse(spends({"run": "gh pr view 1", "env": {"GH_TOKEN": "${{ steps.app.outputs.token }}"}}))
         self.assertFalse(spends({"run": "echo hi", "env": {"GH_TOKEN": OWN}}))
