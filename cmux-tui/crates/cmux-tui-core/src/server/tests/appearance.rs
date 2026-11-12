@@ -4,7 +4,9 @@
 //! (coalesced, and well under a second after a settings write).
 
 use super::*;
+use crate::mux::appearance::APPEARANCE_CAPABILITY;
 use crate::mux::settings::SettingsPaths;
+use cmd_subscribe::subscribed_event_json;
 use std::time::{Duration, Instant};
 
 struct Rig {
@@ -118,11 +120,9 @@ fn next_appearance_event(events: &crate::MuxEventReceiver, within: Duration) -> 
 
 #[test]
 fn appearance_is_advertised_and_its_event_has_the_wire_shape() {
-    assert!(
-        capabilities::build_capabilities().contains(&crate::mux::appearance::APPEARANCE_CAPABILITY)
-    );
+    assert!(capabilities::build_capabilities().contains(&APPEARANCE_CAPABILITY));
     assert_eq!(
-        cmd_subscribe::subscribed_event_json(&MuxEvent::AppearanceChanged { revision: 7 }),
+        subscribed_event_json(&MuxEvent::AppearanceChanged { revision: 7 }),
         json!({"event":"appearance-changed","revision":7})
     );
 }
@@ -230,7 +230,7 @@ fn appearance_background_is_the_apps_only_and_its_path_stays_on_the_mac() {
     let revision = rig.mux.appearance_revision();
     rig.run(Via::App, set).unwrap();
     assert_eq!(rig.mux.appearance_revision(), revision);
-    let mut missing = background.clone();
+    let mut missing = background;
     missing["path"] = json!(rig.dir.path().join("gone.jpg").to_string_lossy());
     let error = rig
         .run(Via::App, json!({"cmd":"set-appearance-background","background":missing}))

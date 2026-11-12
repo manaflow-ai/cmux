@@ -530,8 +530,9 @@ impl Mux {
         shared.bump();
     }
 
-    /// An appearance change from outside the settings file (a test, a
-    /// Ghostty file); advances the revision.
+    /// An appearance change from outside the settings file; advances the
+    /// revision (tests: a burst of changes).
+    #[cfg(test)]
     pub(crate) fn note_appearance_changed(self: &Arc<Self>) -> u64 {
         let shared = &self.appearance.0;
         shared.attach(self);
@@ -608,16 +609,10 @@ mod tests {
         );
         assert!(AppearanceBackground::validated(path.clone(), "zz".into(), 1, 1, 0.5).is_err());
         assert!(AppearanceBackground::validated(path.clone(), hash.clone(), 0, 1, 0.5).is_err());
-        assert!(AppearanceBackground::validated(path.clone(), hash.clone(), 1, 1, 1.5).is_err());
+        assert!(AppearanceBackground::validated(path, hash.clone(), 1, 1, 1.5).is_err());
         assert!(
-            AppearanceBackground::validated(
-                dir.to_string_lossy().into_owned(),
-                hash.clone(),
-                1,
-                1,
-                0.5
-            )
-            .is_err()
+            AppearanceBackground::validated(dir.to_string_lossy().into_owned(), hash, 1, 1, 0.5)
+                .is_err()
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
