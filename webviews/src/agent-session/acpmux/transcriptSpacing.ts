@@ -104,10 +104,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: 34,
     tolerance: 0.5,
     source:
-      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
+      '22 line + scaled run gap 12; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
 ];
 

@@ -4,7 +4,7 @@
 // says only "Thinking", with no clock (conversation/liveTurnClock.experiment.ts).
 import { afterEach, expect, test } from "bun:test";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { THINKING, WORKED, WORKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { ACTIVITY_LINE, THINKING, WORKED, WORKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const scope = globalThis as { cmuxExperiments?: Record<string, string> };
 afterEach(() => {
@@ -54,6 +54,16 @@ test("the turn's end puts Worked for in Working for's place, at the same height"
 test("a turn of only a reply so far draws no Working for: its end has no fold line to take its place", () => {
   const live = shown(turnView(turn.slice(0, 2), new Set(), { now: 60_000, agentFamily: "codex", working: true }));
   expect(live.some((each) => each.kind === WORKING)).toBe(false);
+});
+
+test("a plan's activity line replaces the top clock when session status is enabled", () => {
+  const plan = row("steps", "plan", 4_000, { plan: [{ content: "Build", status: "in_progress" }] });
+  const rows = [...turn.slice(0, -1), plan];
+  const options = { now: 60_000, agentFamily: "codex", working: true };
+  expect(turnView(rows, new Set(), options).some((each) => each.kind === WORKING)).toBe(true);
+  const status = turnView(rows, new Set(), { ...options, sessionStatus: true });
+  expect(status.at(-1)?.kind).toBe(ACTIVITY_LINE);
+  expect(status.some((each) => each.kind === WORKING)).toBe(false);
 });
 
 test("the line arm keeps the clock on the bottom line and draws nothing over the work", () => {

@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
@@ -99,11 +100,17 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
+  async function open(
+    variant = VARIANT,
+    ready = GROUP,
+    engine: Browser = browser!,
+    arms: Readonly<Record<string, string>> = {},
+  ): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, arms);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(ready).waitFor();
     await settled(page);
@@ -314,7 +321,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// every frame, the lines it shows come in above it, and the rows under it and the view's end stay.
   test("at the very bottom, a shell block's Show all lines stays under the pointer and its log rises", async () => {
     // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
-    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
+    // This oracle follows the transcript end while output grows, so it uses the inline run arm.
+    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]', browser!, {
+      "run-scroll": "inline",
+    });
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 60_000,
     });
