@@ -352,17 +352,17 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         let secrets = MemorySecretStore()
         let made = KeyMakeCounter()
         let user = "user-\(UUID().uuidString)"
-        let keys = await withTaskGroup(of: Data?.self) { group in
-            for _ in 0..<8 {
-                group.addTask {
-                    try? CloudCarrierKey.load(userID: user, store: secrets, newKey: {
-                        made.add()
-                        return Data((0..<32).map { _ in UInt8.random(in: 0...255) })
-                    })
-                }
+        // Eight first dials at once, off the main actor.
+        let loads = (0..<8).map { _ in
+            Task.detached {
+                try? CloudCarrierKey.load(userID: user, store: secrets, newKey: {
+                    made.add()
+                    return Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+                })
             }
-            return await group.reduce(into: [Data?]()) { $0.append($1) }
         }
+        var keys: [Data?] = []
+        for load in loads { keys.append(await load.value) }
         #expect(made.value == 1)
         #expect(Set(keys.compactMap(\.self)).count == 1)
 
