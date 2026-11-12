@@ -278,7 +278,16 @@ pub(crate) fn harness_command(
                 let blank = |key: &str| env.get(key).is_some_and(|v| v.is_empty());
                 // SAFETY: getuid has no preconditions.
                 let uid = unsafe { libc::getuid() };
-                cmd.envs(session_tmp::env_for(&dir, agent, blank, cfg!(target_os = "macos"), uid));
+                let mut pins =
+                    session_tmp::env_for(&dir, &agent, blank, cfg!(target_os = "macos"), uid);
+                pins.extend(session_tmp::compile_cache_env(
+                    &base,
+                    &pins,
+                    &agent,
+                    |k| env.contains_key(k),
+                    uid,
+                ));
+                cmd.envs(pins);
             }
         }
     }

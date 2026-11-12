@@ -19,6 +19,14 @@
 //! and a starting daemon removes every folder in its own root whose session
 //! its store no longer has, and the root of any daemon whose acpmux home is
 //! gone (`stale`). Nothing goes by age.
+//!
+//! Node's compile cache is the exception to one folder per session: it
+//! defaults to `$TMPDIR/node-compile-cache`, so every session kept its own
+//! copy of the same compiled agent (20 copies, 184 MB, on one lane VM on
+//! 2026-11-12). An agent whose `TMPDIR` moves here gets `NODE_COMPILE_CACHE`
+//! = `<base>/node-compile-cache` instead, one per user ([`compile_cache_env`]).
+//! Node keys its entries by Node version and source hash, so sessions share
+//! it safely; a starting daemon removes it past [`COMPILE_CACHE_MAX_BYTES`].
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -28,6 +36,14 @@ pub(crate) const SESSION_TMPDIR_ENV: &str = "ACPMUX_SESSION_TMPDIR";
 
 /// The folder in the per-user directory that holds each daemon's root.
 const TMP_SUBDIR: &str = "t";
+
+/// The per-user directory's one Node compile cache ([`compile_cache_env`]).
+const COMPILE_CACHE_SUBDIR: &str = "node-compile-cache";
+const COMPILE_CACHE_ENV: &str = "NODE_COMPILE_CACHE";
+
+/// Past this a starting daemon removes the shared compile cache ([`stale`]);
+/// Node rebuilds what it needs. One agent's cache was 30 to 36 MB.
+pub(crate) const COMPILE_CACHE_MAX_BYTES: u64 = 512 << 20;
 
 #[cfg(test)]
 thread_local! {
@@ -213,6 +229,48 @@ pub(crate) fn env_for(
     out
 }
 
+/// `NODE_COMPILE_CACHE` = `<base>/node-compile-cache` (made 0700) for an
+/// agent whose `TMPDIR` [`env_for`] moved into its session folder (`env`), so
+/// sessions share one cache instead of one copy each. None when `TMPDIR` did
+/// not move (the agent's cache is already in its shared temp), when the agent
+/// or its profile sets `NODE_COMPILE_CACHE` (blank included: a profile's value
+/// is applied after this one), or when the folder is not a private one of
+/// this user's.
+#[cfg(unix)]
+pub(crate) fn compile_cache_env(
+    base: &Path,
+    env: &[(&'static str, OsString)],
+    agent: impl Fn(&str) -> Option<String>,
+    profile_sets: impl Fn(&str) -> bool,
+    uid: u32,
+) -> Option<(&'static str, OsString)> {
+    if !env.iter().any(|(k, _)| *k == "TMPDIR")
+        || agent(COMPILE_CACHE_ENV).is_some()
+        || profile_sets(COMPILE_CACHE_ENV)
+        || !private_to_me(base)
+    {
+        return None;
+    }
+    let dir = private_child(base, COMPILE_CACHE_SUBDIR, uid)?;
+    Some((COMPILE_CACHE_ENV, dir.into_os_string()))
+}
+
+/// The bytes of the regular files in `dir`, down to `depth` folders (Node's
+/// cache is `<version hash>/<entries>`); symlinks are not followed.
+fn bytes_in(dir: &Path, depth: u32) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let Ok(meta) = std::fs::symlink_metadata(entry.path()) else { continue };
+        if meta.file_type().is_file() {
+            total += meta.len();
+        } else if meta.file_type().is_dir() && depth > 0 {
+            total += bytes_in(&entry.path(), depth - 1);
+        }
+    }
+    total
+}
+
 /// Remove `dir` when it is a real directory (lstat: a symlink there is left,
 /// and nothing it points at is touched; `remove_dir_all` does not follow
 /// symlinks inside it either).
@@ -334,13 +392,16 @@ pub(crate) fn remove_session(session_id: &str) {
 ///   removed Chief home's), when the per-user directory is private;
 /// - in the first build's shared root (every daemon of this user used it,
 ///   so a session this daemon does not know may be another daemon's live
-///   one): only folders of sessions this daemon knows as closed (`closed`).
+///   one): only folders of sessions this daemon knows as closed (`closed`);
+/// - the shared Node compile cache past `cache_max` bytes, when the per-user
+///   directory is private (a live agent's Node recreates what it misses).
 pub(crate) fn stale(
     base: &Path,
     acpmux_home: &Path,
     user_home: Option<&Path>,
     known: &dyn Fn(&str) -> bool,
     closed: &dyn Fn(&str) -> bool,
+    cache_max: u64,
 ) -> Vec<PathBuf> {
     let own = daemon_root(base, acpmux_home);
     let mut out = match own_root(base, acpmux_home) {
@@ -357,6 +418,10 @@ pub(crate) fn stale(
     } else {
         Vec::new()
     };
+    let cache = base.join(COMPILE_CACHE_SUBDIR);
+    if private_to_me(base) && private_to_me(&cache) && bytes_in(&cache, 3) > cache_max {
+        out.push(cache);
+    }
     for root in roots {
         if recorded_home(&root).is_some_and(|home| {
             home.is_absolute()
@@ -386,7 +451,14 @@ pub(crate) fn stale_for_daemon(
     closed: &dyn Fn(&str) -> bool,
 ) -> Vec<PathBuf> {
     let user_home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
-    stale(&per_user_base(), &crate::config::home(), user_home.as_deref(), known, closed)
+    stale(
+        &per_user_base(),
+        &crate::config::home(),
+        user_home.as_deref(),
+        known,
+        closed,
+        COMPILE_CACHE_MAX_BYTES,
+    )
 }
 
 #[cfg(all(test, unix))]
@@ -606,7 +678,7 @@ mod tests {
         let link_id = "01a15db7-20cd-7e10-8535-158031297e5e";
         std::os::unix::fs::symlink(&target, root.join(link_id)).unwrap();
 
-        let stale = stale(&base, mine, None, &|id| id == A, &|_| false);
+        let stale = stale(&base, mine, None, &|id| id == A, &|_| false, u64::MAX);
         assert_eq!(stale, vec![gone.clone()]);
         remove_all(&stale);
         assert!(kept.is_dir() && !gone.exists());
@@ -614,6 +686,73 @@ mod tests {
         assert!(root.join("notes").is_dir() && root.join(file_id).is_file());
         assert!(root.join(link_id).symlink_metadata().unwrap().file_type().is_symlink());
         assert!(target.join("keep").is_file());
+    }
+
+    /// Node's compile cache: one per user, not one copy per session folder
+    /// (20 copies, 184 MB, on gcp-agent-lane-6, 2026-11-12).
+    #[test]
+    fn sessions_whose_tmpdir_moves_share_one_compile_cache() {
+        let s = Scratch::new("cache");
+        let base = s.0.join("acpmux-1");
+        let home = s.0.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let runtime = |k: &str| (k == "XDG_RUNTIME_DIR").then(|| "/run/user/1".to_owned());
+        let mut caches = Vec::new();
+        for id in [A, B] {
+            let dir = make(&base, &home, id).unwrap();
+            let env = env_for(&dir, runtime, |_| false, false, uid);
+            let (key, cache) = compile_cache_env(&base, &env, runtime, |_| false, uid).unwrap();
+            assert_eq!(key, "NODE_COMPILE_CACHE");
+            assert!(!Path::new(&cache).starts_with(&dir), "the cache is the session's own again");
+            caches.push(PathBuf::from(cache));
+        }
+        assert_eq!(caches[0], caches[1]);
+        assert_eq!(caches[0], base.join("node-compile-cache"));
+        let mode = std::fs::metadata(&caches[0]).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        let dir = make(&base, &home, A).unwrap();
+        let moved = env_for(&dir, runtime, |_| false, false, uid);
+        // The agent's or its profile's own value wins; so does a TMPDIR left shared.
+        let set =
+            |k: &str| runtime(k).or_else(|| (k == "NODE_COMPILE_CACHE").then(|| "/x".to_owned()));
+        assert_eq!(compile_cache_env(&base, &moved, set, |_| false, uid), None);
+        assert_eq!(
+            compile_cache_env(&base, &moved, runtime, |k| k == "NODE_COMPILE_CACHE", uid),
+            None
+        );
+        let shared =
+            env_for(&dir, |k| (k == "TMPDIR").then(|| "/tmp".into()), |_| false, false, uid);
+        assert_eq!(compile_cache_env(&base, &shared, |_| None, |_| false, uid), None);
+    }
+
+    #[test]
+    fn a_starting_daemon_removes_the_compile_cache_past_its_byte_bound() {
+        let s = Scratch::new("cache-bound");
+        let base = s.0.join("acpmux-1");
+        let home = s.0.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let dir = make(&base, &home, A).unwrap();
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let runtime = |k: &str| (k == "XDG_RUNTIME_DIR").then(|| "/run/user/1".to_owned());
+        let env = env_for(&dir, runtime, |_| false, false, uid);
+        let (_, cache) = compile_cache_env(&base, &env, runtime, |_| false, uid).unwrap();
+        let cache = PathBuf::from(cache);
+        std::fs::create_dir_all(cache.join("v22-abc")).unwrap();
+        std::fs::write(cache.join("v22-abc/entry"), vec![0u8; 4096]).unwrap();
+        let known = |id: &str| id == A;
+        assert!(stale(&base, &home, None, &known, &|_| false, 8192).is_empty());
+        std::fs::write(cache.join("v22-abc/entry2"), vec![0u8; 8192]).unwrap();
+        let listed = stale(&base, &home, None, &known, &|_| false, 8192);
+        assert_eq!(listed, vec![cache.clone()]);
+        remove_all(&listed);
+        assert!(
+            !cache.exists() && dir.is_dir(),
+            "only the cache goes, never a live session's folder"
+        );
     }
 
     #[test]
@@ -655,13 +794,13 @@ mod tests {
         let bare = base.join("t").join("0badc0de");
         std::fs::create_dir(&bare).unwrap();
         std::fs::remove_dir(&gone).unwrap();
-        let stale = stale(&base, &mine, None, &|id| id == A, &|_| false);
+        let stale = stale(&base, &mine, None, &|id| id == A, &|_| false, u64::MAX);
         assert_eq!(stale, vec![daemon_root(&base, &gone)]);
         remove_all(&stale);
         assert!(!gone_dir.exists() && live_dir.is_dir() && bare.is_dir());
         // Its own root is never taken for a gone one, even with a stale record.
         std::fs::remove_dir(&mine).unwrap();
-        assert!(super::stale(&base, &mine, None, &|_| true, &|_| false).is_empty());
+        assert!(super::stale(&base, &mine, None, &|_| true, &|_| false, u64::MAX).is_empty());
     }
 
     #[test]
@@ -678,7 +817,7 @@ mod tests {
         let own = daemon_root(&base, &mine);
         for widen in [base.clone(), base.join("t"), own.clone()] {
             std::fs::set_permissions(&widen, std::fs::Permissions::from_mode(0o777)).unwrap();
-            let listed = stale(&base, &mine, None, &|_| false, &|_| false);
+            let listed = stale(&base, &mine, None, &|_| false, &|_| false, u64::MAX);
             if widen == own {
                 // Only the gone daemon's root, in a base still private.
                 assert_eq!(listed, vec![daemon_root(&base, &gone)]);
@@ -696,7 +835,7 @@ mod tests {
         std::fs::create_dir(&base2).unwrap();
         std::fs::set_permissions(&base2, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::os::unix::fs::symlink(base.join("t"), base2.join("t")).unwrap();
-        assert!(stale(&base2, &mine, None, &|_| false, &|_| false).is_empty());
+        assert!(stale(&base2, &mine, None, &|_| false, &|_| false, u64::MAX).is_empty());
         remove(&base2, &mine, None, A);
         assert!(a.is_dir());
     }
@@ -720,7 +859,7 @@ mod tests {
         let shared = collided(second);
         assert!(make(&base, second, B).is_none(), "a second home took the first's root");
         // The second daemon neither sweeps nor purges the first's sessions.
-        assert!(stale(&base, second, None, &|_| false, &|_| false).is_empty());
+        assert!(stale(&base, second, None, &|_| false, &|_| false, u64::MAX).is_empty());
         remove(&base, second, None, A);
         assert!(shared.join(A).is_dir() && !dir.exists());
     }
@@ -752,7 +891,7 @@ mod tests {
         let known = |id: &str| id == A || id == B;
         let closed = |id: &str| id == A;
         let home = Path::new("/h");
-        remove_all(&stale(&base, home, Some(&user), &known, &closed));
+        remove_all(&stale(&base, home, Some(&user), &known, &closed, u64::MAX));
         assert!(!legacy_root(&user).join(A).exists());
         assert!(legacy_root(&user).join(B).is_dir());
         assert!(legacy_root(&user).join(id_c).is_dir());
