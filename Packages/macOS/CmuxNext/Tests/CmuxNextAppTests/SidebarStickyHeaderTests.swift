@@ -26,9 +26,11 @@ struct SidebarStickyHeaderTests {
         let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
         defer { bench.close() }
         #expect(!bench.list.sticksHeaders)
-        // At the top the header is on screen. At 400 and 2,000 pt its place is above the rows that the list keeps.
+        // At the top the header is on screen. Just past it, it is above the visible rows and still a realized row. At 400
+        // and 2,000 pt its place is above the rows that the list keeps. Then back at the top.
+        let past = try #require(bench.list.displayed.row(for: .group(Self.group)), "the group's header is listed").maxY + 8
         var realized = 0, away = 0
-        for y: CGFloat in [0, 400, 2_000] {
+        for (step, y) in [0, past, 400, 2_000, 0].enumerated() {
             _ = bench.frame(to: y)
             #expect(bench.list.stuckHeader == nil && bench.list.stuckVeil.isHidden && !bench.sidebar.edgeFade.holdsTopEdge)
             let row = try #require(bench.list.displayed.row(for: .group(Self.group)), "the group's header is listed")
@@ -46,8 +48,10 @@ struct SidebarStickyHeaderTests {
             }
             if let view { #expect(view.frame == place, "at its own place (y \(y))") }
             if y == 0 { #expect(place.intersects(bench.clip.bounds), "at the top the header is on screen") }
+            // Scrolled past: the view went up with its row. A stuck header would be at the visible top.
+            if step == 1 { #expect(!place.intersects(bench.clip.bounds) && view != nil, "just past the header, its view is above the visible rows") }
         }
-        #expect(realized == 1 && away == 2, "on screen at the top, away after it: realized \(realized), away \(away)")
+        #expect(realized == 3 && away == 2, "a view at the top, just past it and back at the top; none at 400 and 2,000: realized \(realized), away \(away)")
     }
 
     static func top(_ bench: SidebarScrollBench) -> CGFloat { bench.clip.bounds.minY + bench.list.stickyTopInset }
