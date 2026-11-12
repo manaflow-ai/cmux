@@ -54,8 +54,10 @@ def retryable(code: int) -> bool:
 
 RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
 # At most this many attempts per call, whatever the waits, so the calls' own time
-# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes.
-MAX_ATTEMPTS = 8
+# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes. A longer budget
+# (the sign stage's restore sets 1800 s) gets one more attempt per 120 s backoff step in it, so the
+# cap never ends the retries before the budget does (8 attempts gave up at 510 s of 1800).
+MAX_ATTEMPTS = max(8, int(RETRY_BUDGET_SECONDS // 120) + 5)
 sleep = time.sleep
 clock = time.monotonic
 # One wall-clock deadline for the whole download (lookup, redirect and its
