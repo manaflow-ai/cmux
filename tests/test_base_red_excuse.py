@@ -4452,6 +4452,51 @@ class SourceReads(unittest.TestCase):
         self.assertIn("From git", text)
         self.assertEqual(self.calls(), [])
 
+    def git_reads(self, *paths):
+        """Each of PATHS at HQ@main through the real git_text, against self.origin() with the links below committed:
+        its text, or the Refused it raised. GraphQL is never asked (self.calls())."""
+        work = self.origin()
+        workflows = work / ".github/workflows"
+        (workflows / "linked-dir").symlink_to(".")
+        (work / ".github/flows").symlink_to("workflows")
+        (workflows / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (workflows / "bin.yml").symlink_to("bin.dat")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "links", cwd=work)
+        said = {}
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            for path in paths:
+                try:
+                    said[path] = excuse.source_text_if_present(HQ, "main", path, excuse.GitHub())
+                except excuse.Refused as why:
+                    said[path] = why
+        self.assertEqual(self.calls(), [], "git answered each read; GraphQL was never asked")
+        return said
+
+    def test_review_f1_git_refuses_a_symlink_to_a_directory_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): git_text showed a symlink to a directory as git's tree listing, text no file has.
+        # GitTree refuses a directory by name; git_text reads through it, so it says the same.
+        said = self.git_reads(".github/workflows/linked-dir")[".github/workflows/linked-dir"]
+        self.assertIsInstance(said, excuse.Refused, said)
+        self.assertIn("is a directory, not a file", str(said))
+
+    def test_review_f1_git_reads_a_file_through_a_symlinked_parent_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): `git ls-tree` does not follow a symlinked parent, so git_text read
+        # .github/flows/skills-tests.yml as absent. GitTree follows it to the file, as a checkout's filesystem does.
+        said = self.git_reads(".github/flows/skills-tests.yml")[".github/flows/skills-tests.yml"]
+        self.assertIsInstance(said, str, said)
+        self.assertIn("From git", said)
+
+    def test_review_f2_git_refuses_a_symlink_to_a_binary_blob(self):
+        # Review of cmux#41314 (F2): following a link to a binary blob returned its bytes decoded. The binary
+        # refusal GitTree and GraphQL apply holds through a link and on the blob itself.
+        said = self.git_reads(".github/workflows/bin.yml", ".github/workflows/bin.dat")
+        for path, answer in said.items():
+            with self.subTest(path=path):
+                self.assertIsInstance(answer, excuse.Refused, answer)
+                self.assertIn("is binary, not text", str(answer))
+
     def test_no_code_path_sets_the_shims_source_override(self):
         sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
                                                            "test_reds.py", "gh_pages.py")]
