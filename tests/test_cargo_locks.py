@@ -143,10 +143,11 @@ class CiIsStrictTests(unittest.TestCase):
 
 
 STALE_MESSAGE = "error: cannot update the lock file {lock} because --locked was passed to prevent this\n"
+ROOTS = ("core", "core/inner", "core/vendored", "ffi", "other")
 OFFLINE_MISS = "error: no matching package named `serde` found\nattempting to make an HTTP request, but --offline was specified\n"
 
 
-class BusyRunnerTests(unittest.TestCase):
+class BusyFixture(unittest.TestCase):
     """A busy or cold runner makes the lock check slower, never red (cmux#41586, run 43124136001, 2026-11-12).
 
     On a 2-vCPU runner with an empty cargo home, the check ran eight `cargo update --locked` resolves at once; cargo
@@ -173,12 +174,22 @@ class BusyRunnerTests(unittest.TestCase):
         self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
                    '[lib]\npath = "src/lib.rs"\n\n[dependencies]\na = { path = "../core/a" }\n\n[workspace]\n')
         self.write("other/Cargo.toml", '[package]\nname = "other"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n')
-        for root in ("core", "ffi", "other"):
+        # Inside core's tree but not core's: inner has a [workspace] of its own (as cmux-tui/crates/cmux-app-ffi
+        # does), and vendored is in core's `exclude` (as cmux-tui/crates/cmux-rd-host is). Each has its own lock.
+        self.write("core/Cargo.toml", '[workspace]\nmembers = ["a"]\nexclude = ["vendored"]\nresolver = "2"\n')
+        self.write("core/inner/Cargo.toml",
+                   '[package]\nname = "inner"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n')
+        self.write("core/vendored/Cargo.toml", '[package]\nname = "vendored"\nversion = "0.1.0"\nedition = "2021"\n')
+        for root in ROOTS:
             self.write(f"{root}/Cargo.lock", "version = 4\n")
         self.git("add", "-A")
         self.git("commit", "-qm", "base")
         self.base = self.git("rev-parse", "HEAD").strip()
-        self.behaviour = {"core": "ok", "ffi": "ok", "other": "ok"}
+        self.behaviour = dict.fromkeys(ROOTS, "ok")
+        # Seconds the fake resolves take: a hung one uses up its whole limit. The check reads its clock through
+        # cargo-locks.py's `clock`, so no test waits for real.
+        self.now = 0.0
+        self.module.clock = lambda: self.now
         self.calls: list[tuple[str, bool, float]] = []
         self.running = 0
         self.most_running = 0
@@ -223,8 +234,12 @@ class BusyRunnerTests(unittest.TestCase):
             if offline:
                 return 101, OFFLINE_MISS
             if kind == "slow" and limit > 120:
+                with self.lock:
+                    self.now += 121
                 return 0, ""
-            return 124, f"timed out after {limit}s"
+            with self.lock:
+                self.now += limit
+            return 124, f"timed out after {limit:g}s"
         finally:
             if not offline:
                 with self.lock:
@@ -238,6 +253,11 @@ class BusyRunnerTests(unittest.TestCase):
 
     def network_limits(self, root):
         return [limit for name, offline, limit in self.calls if name == root and not offline]
+
+
+
+class BusyRunnerTests(BusyFixture):
+    """The busy-runner cases (BusyFixture's docstring)."""
 
     def test_a_stale_lock_still_fails(self):
         self.behaviour["ffi"] = "stale"
@@ -292,12 +312,143 @@ class BusyRunnerTests(unittest.TestCase):
 
     def test_network_resolves_run_one_at_a_time(self):
         """cargo's package cache lock serializes resolves anyway; run in parallel, the queue eats each limit."""
-        self.behaviour = {"core": "slow", "ffi": "slow", "other": "slow"}
+        self.behaviour = dict.fromkeys(ROOTS, "slow")
 
-        code, output = self.run_check("--jobs", "8")
+        code, output = self.run_check("--jobs", "8", "--base", self.base)
 
         self.assertEqual(code, 0, output)
         self.assertEqual(self.most_running, 1, self.calls)
+
+
+class NestedWorkspaceTests(BusyFixture):
+    """A workspace's tree is not all its own: a Cargo.toml below it with a [workspace] of its own, or in its
+    `exclude`, is another workspace (cmux#41742 review F1: a change only in cmux-tui/crates/cmux-app-ffi counted as
+    touching cmux-tui, so cmux-tui's timeout failed CI instead of warning)."""
+
+    def test_a_change_in_a_nested_workspace_does_not_touch_the_outer_one(self):
+        self.commit("core/inner/Cargo.toml",
+                    '[package]\nname = "inner"\nversion = "0.2.0"\nedition = "2021"\n\n[workspace]\n')
+        self.behaviour["core"] = "hang"
+
+        code, output = self.run_check("--base", self.base)
+
+        self.assertEqual(code, 0, output)
+        self.assertRegex(output, r"warning:.*cargo-locks: core timed out")
+
+    def test_a_change_in_an_excluded_package_does_not_touch_the_workspace_that_excludes_it(self):
+        self.commit("core/vendored/Cargo.toml",
+                    '[package]\nname = "vendored"\nversion = "0.2.0"\nedition = "2021"\n')
+        self.behaviour["core"] = "hang"
+
+        code, output = self.run_check("--base", self.base)
+
+        self.assertEqual(code, 0, output)
+        self.assertRegex(output, r"warning:.*cargo-locks: core timed out")
+
+    def test_the_nested_workspace_itself_is_still_touched(self):
+        self.commit("core/inner/Cargo.toml",
+                    '[package]\nname = "inner"\nversion = "0.2.0"\nedition = "2021"\n\n[workspace]\n')
+        self.behaviour["core/inner"] = "hang"
+
+        code, output = self.run_check("--base", self.base)
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: core/inner", output)
+
+    def test_a_change_in_the_outer_workspace_still_touches_it(self):
+        self.commit("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.2.0"\nedition = "2021"\n')
+        self.behaviour["core"] = "hang"
+
+        code, output = self.run_check("--base", self.base)
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: core", output)
+
+    def test_a_nested_workspace_reached_by_path_is_still_followed(self):
+        """Another workspace that uses a package inside the nested one by path is touched by a change there."""
+        self.commit("other/Cargo.toml", '[package]\nname = "other"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                    '[dependencies]\ninner = { path = "../core/inner" }\n\n[workspace]\n')
+        self.base = self.git("rev-parse", "HEAD").strip()
+        self.commit("core/inner/Cargo.toml",
+                    '[package]\nname = "inner"\nversion = "0.2.0"\nedition = "2021"\n\n[workspace]\n')
+        self.behaviour["other"] = "hang"
+
+        code, output = self.run_check("--base", self.base)
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: other", output)
+
+
+def gate_lock_check_timeout() -> float:
+    """The pre-push gate's outer limit on the lock check, read from prepush-gate.py's cargo_lock_drift: the
+    `timeout=` of its run(...) call, a number or a module-level name for one."""
+    import ast
+    tree = ast.parse((SOURCE / "scripts/cmux-next/prepush-gate.py").read_text())
+    constants = {target.id: node.value.value for node in tree.body if isinstance(node, ast.Assign)
+                 and isinstance(node.value, ast.Constant) for target in node.targets if isinstance(target, ast.Name)}
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "cargo_lock_drift")
+    for node in ast.walk(function):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "run":
+            for keyword in node.keywords:
+                if keyword.arg == "timeout":
+                    value = keyword.value
+                    return float(value.value if isinstance(value, ast.Constant) else constants[value.id])
+    raise AssertionError("cargo_lock_drift runs the lock check with no timeout")
+
+
+class NoBaseBudgetTests(BusyFixture):
+    """With no --base the check still ends inside its callers' outer limits (cmux#41742 review F2: the budget was
+    off with no base, so serial network resolves could run past the pre-push gate's own limit on the check, and the
+    gate then skipped the lock check entirely)."""
+
+    def lenient(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+            code = self.module.main(["check", "--repo", str(self.repo), *extra])
+        return code, out.getvalue() + err.getvalue()
+
+    def test_slow_resolves_with_no_base_finish_inside_the_gates_limit(self):
+        """As the gate runs it: no --base, no --strict, and every workspace's network resolve hangs."""
+        self.behaviour = dict.fromkeys(ROOTS, "hang")
+
+        code, output = self.lenient()
+
+        self.assertEqual(code, 0, output)
+        self.assertLess(self.now, gate_lock_check_timeout(), (output, self.calls))
+        self.assertIn("unchecked: other", output)
+
+    def test_the_deadline_the_gate_passes_is_kept(self):
+        self.behaviour = dict.fromkeys(ROOTS, "hang")
+
+        code, output = self.lenient("--deadline", "150")
+
+        self.assertEqual(code, 0, output)
+        self.assertLessEqual(self.now, 150, (output, self.calls))
+
+    def test_strict_with_no_base_stays_inside_the_budget_and_fails(self):
+        self.behaviour = dict.fromkeys(ROOTS, "hang")
+
+        code, output = self.run_check()
+
+        self.assertEqual(code, 2, output)
+        self.assertLess(self.now, gate_lock_check_timeout(), (output, self.calls))
+
+    def test_quick_resolves_with_no_base_are_all_judged(self):
+        self.behaviour["ffi"] = "stale"
+
+        code, output = self.lenient()
+
+        self.assertEqual(code, 1, output)
+        self.assertIn("stale: ffi/Cargo.lock", output)
+        self.assertNotIn("unchecked:", output)
+
+    def test_the_gate_passes_a_deadline_below_its_own_limit(self):
+        import ast
+        tree = ast.parse((SOURCE / "scripts/cmux-next/prepush-gate.py").read_text())
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == "cargo_lock_drift")
+        source = ast.unparse(function)
+        self.assertIn("'--deadline'", source)
 
 
 class CiPassesTheBaseTests(unittest.TestCase):

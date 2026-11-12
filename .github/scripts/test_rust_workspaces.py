@@ -50,6 +50,14 @@ run = true
 root = "vws"
 run = true
 inputs = ["docs/vws-protocol.json"]
+
+[[workspace]]
+root = "solo/tool"
+run = true
+
+[[workspace]]
+root = "vws/side"
+run = true
 """
 
 
@@ -91,7 +99,13 @@ class RustWorkspacesTests(unittest.TestCase):
         self.write("term/build.rs", 'const TOKENS: &str = "../tokens/t.json";\nconst NOPE: &str = "../escape";\nfn main() {}\n')
         self.write("tokens/t.json", "{}\n")
         # vws: a virtual workspace (no [package] at its root) with a lockfile and toolchain pin.
-        self.write("vws/Cargo.toml", '[workspace]\nmembers = ["m"]\n')
+        self.write("vws/Cargo.toml", '[workspace]\nmembers = ["m"]\nexclude = ["side"]\n')
+        # Inside run entries' trees but workspaces of their own: solo/tool has a [workspace] (as
+        # cmux-tui/crates/cmux-app-ffi does inside cmux-tui), vws/side is in vws's `exclude`.
+        self.write("solo/tool/Cargo.toml", '[package]\nname = "tool"\n\n[workspace]\n')
+        self.write("solo/tool/src/lib.rs", 'const T: &str = include_str!("../../../tokens/t.json");\n')
+        self.write("vws/side/Cargo.toml", '[package]\nname = "side"\n')
+        self.write("vws/side/src/lib.rs", "pub fn side() {}\n")
         self.write("vws/Cargo.lock", "# lock\n")
         self.write("vws/rust-toolchain.toml", '[toolchain]\nchannel = "1.91.0"\n')
         self.write("vws/m/Cargo.toml", '[package]\nname = "m"\n')
@@ -224,7 +238,7 @@ class RustWorkspacesTests(unittest.TestCase):
             "proto/v1_y.json": ["solo"],         # a concat! prefix: its directory
             "fixtures/f.json": ["ws/crates/own"],  # CARGO_MANIFEST_DIR joined with a path
             "docs/vws-protocol.json": ["vws"],   # the entry's inputs
-            "tokens/t.json": ["term"],           # a "../" const naming a tracked file
+            "tokens/t.json": ["term", "solo/tool"],  # a "../" const naming a tracked file; include_str!
         }
         for path, planned in cases.items():
             with self.subTest(path=path):
@@ -233,12 +247,33 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.assertEqual(self.planned(), planned)
 
     def test_no_usable_base_or_a_list_change_plans_every_run_entry(self) -> None:
-        everything = ["ws/crates/own", "solo", "term", "vws"]
+        everything = ["ws/crates/own", "solo", "term", "vws", "solo/tool", "vws/side"]
         for base in ("", "0" * 40, "f" * 40):
             with self.subTest(base=base):
                 self.assertEqual(self.planned(base), everything)
         self.change(".github/rust-workspaces.toml", LIST + '\n[[workspace]]\nroot = "gvs"\nskip = "changed"\n')
         self.assertEqual(self.planned(), everything)
+
+    def test_a_change_in_a_nested_workspace_plans_only_it(self) -> None:
+        """A Cargo.toml below a workspace with a [workspace] of its own, or in its `exclude`, is another workspace:
+        a change there is not the outer one's (the cmux#41742 review's F1 class)."""
+        cases = {
+            "solo/tool/src/lib.rs": ["solo/tool"],
+            "solo/tool/Cargo.toml": ["solo/tool"],
+            "vws/side/src/lib.rs": ["vws/side"],
+            "vws/side/Cargo.toml": ["vws/side"],
+        }
+        for path, planned in cases.items():
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, (self.repo / path).read_text() + ("\n# changed\n" if path.endswith(".toml")
+                                                                     else "// changed\n"))
+                self.assertEqual(self.planned(), planned)
+
+    def test_a_nested_workspaces_reads_are_not_the_outer_ones(self) -> None:
+        # solo/tool's source reads tokens/t.json; solo does not.
+        self.change("tokens/t.json", "{\"v\": 3}\n")
+        self.assertNotIn("solo", self.planned())
 
     def test_a_workspace_using_ghostty_vt_sys_is_planned_with_ghostty(self) -> None:
         self.change("gvs/src/lib.rs")
