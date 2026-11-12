@@ -326,4 +326,19 @@ impl Mux {
         let client = self.control_clients.register(super::ClientTransport::Unix, writer);
         disconnect_client(self, client, false)
     }
+
+    /// Test seam: a view client (a TUI or the app) that announced its attach
+    /// leaves. Returns whether the close found the client.
+    pub(crate) fn connect_and_close_a_view_client_for_test(self: &Arc<Self>) -> bool {
+        use crate::panic_free::RecoverPoison;
+        let outbound = Arc::new(super::BoundedOutbound::default());
+        let writer = MessageWriter::new(super::QueuedSink { outbound, control: None });
+        let client = self.control_clients.register(super::ClientTransport::Unix, writer);
+        if let Some(record) =
+            self.control_clients.state.lock().recover_poison().clients.get_mut(&client)
+        {
+            record.announced_attached = true;
+        }
+        disconnect_client(self, client, false)
+    }
 }

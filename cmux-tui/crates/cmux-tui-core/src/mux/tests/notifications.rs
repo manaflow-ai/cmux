@@ -1036,6 +1036,9 @@ enum W6dStep {
     /// call, a status query or a hook emit) connects and closes without a
     /// view attach.
     PlainClientComesAndGoes,
+    /// When a desktop notification is held, a view client (a TUI or the
+    /// app) that announced its attach leaves.
+    ViewClientLeaves,
 }
 
 /// The Claude hook events and output of one permission request, one
@@ -1119,6 +1122,19 @@ fn w6d_notification_titles(
                 }
                 assert!(mux.connect_and_close_a_plain_client_for_test());
             }
+            W6dStep::ViewClientLeaves => {
+                let held = Instant::now() + Duration::from_secs(20);
+                while mux.held_agent_desktop_notifications_for_test() == 0 {
+                    assert!(Instant::now() < held, "no desktop notification was held");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert!(mux.connect_and_close_a_view_client_for_test());
+                assert_eq!(
+                    mux.held_agent_desktop_notifications_for_test(),
+                    0,
+                    "the view client's detach did not post the held notification"
+                );
+            }
         }
     }
     let titles = || {
@@ -1182,6 +1198,27 @@ fn w6d_c_a_plain_client_that_comes_and_goes_keeps_the_hold() {
             "claude-code needs sign-in",
         ),
         ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D review of a139bbee: a view client (a TUI or the app) that announced
+/// its attach and leaves still ends the hold. Claude's own OSC 777, held at
+/// that time, posts at once, so the person sees it; the hook notification
+/// that follows posts as before.
+#[test]
+fn w6d_c_a_view_clients_detach_ends_the_hold() {
+    let mut steps = w6d_claude_steps();
+    let first_print = steps.iter().position(|step| matches!(step, W6dStep::Print)).unwrap();
+    steps.insert(first_print + 1, W6dStep::ViewClientLeaves);
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-view-client",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            steps,
+            "claude-code needs sign-in",
+        ),
+        ["Claude Code", "Claude finished", "Claude needs approval", "claude-code needs sign-in"],
     );
 }
 
