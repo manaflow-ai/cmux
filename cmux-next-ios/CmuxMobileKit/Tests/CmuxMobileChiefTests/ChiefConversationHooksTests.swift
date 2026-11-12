@@ -191,6 +191,36 @@ struct ChiefConversationHooksTests {
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
     }
 
+    /// The ••• menu lifts the trailing button out and puts it back as it closes: both previews
+    /// are the button's glass circle on a clear background, never its square bounds on UIKit's
+    /// default platter (the square that flashed after the menu closed).
+    @Test(.timeLimit(.minutes(1))) func headerMenuPreviewsKeepTheTrailingButtonCircular() async throws {
+        let (controller, window) = try await loaded([])
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
+        controller.headerActionMenu = menu
+        controller.view.layoutIfNeeded()
+        let button = controller.header.trailingButton
+        let interaction = try #require(button.contextMenuInteraction)
+        let configuration = UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in menu }
+        let previews = [
+            button.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration),
+            button.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration),
+        ]
+        #expect(button.bounds.size == CGSize(width: 44, height: 44))
+        for preview in previews {
+            let preview = try #require(preview)
+            #expect(preview.view === button)
+            #expect(preview.parameters.backgroundColor == .clear)
+            let path = try #require(preview.parameters.visiblePath)
+            #expect(path.bounds == button.bounds)
+            #expect(path.contains(CGPoint(x: 22, y: 22)))
+            // Inside the square, outside the circle: the corners are not drawn.
+            #expect(!path.contains(CGPoint(x: 2, y: 2)))
+            #expect(!path.contains(CGPoint(x: 42, y: 42)))
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func editModeKeepsTheTrailingTapForEndingTheEdit() async throws {
         let source = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine to edit")
         let (controller, window) = try await loaded([source])
