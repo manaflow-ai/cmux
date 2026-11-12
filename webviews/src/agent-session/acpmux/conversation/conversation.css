@@ -216,7 +216,6 @@
   font: inherit;
   line-height: inherit;
   color: var(--cv-link);
-  cursor: pointer;
 }
 .cv-fork-divider__action:hover {
   color: var(--cv-text);
