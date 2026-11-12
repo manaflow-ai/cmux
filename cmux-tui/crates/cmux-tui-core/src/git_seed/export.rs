@@ -25,6 +25,29 @@
 //!
 //! The answer, once the job is done (`git.seed.status`): `{head_ref, head,
 //! index, work, stash, unchanged, bundle_bytes, left_out}`.
+//!
+//! `{folder, bundle, move: "upstream" | "seed" | "since" | "check", since_work?, since_head?}` is a
+//! move's export (Move to another Cloud machine, VM to VM): the folder's state for a
+//! second machine, never for a Mac to merge back, so it leaves the folder's seed records
+//! (`refs/cmux-back`, `refs/cmux-base`, `refs/cmux-seed`) as they are and names its commits
+//! `refs/cmux-move/*` instead ([`MOVE_RECORD`]). Any clone exports, seed or not. Its base:
+//!
+//! - `upstream`: the tip the folder's branch tracks (`@{upstream}`), else the remote's
+//!   default branch (`refs/remotes/origin/HEAD`). A commit GitHub has, so the second
+//!   machine clones the history from GitHub and gets only this bundle on top: a folder
+//!   that started on a Cloud machine moves as git, not file by file.
+//! - `seed`: the folder's own seed (`refs/cmux-seed`), for a machine that still has the
+//!   folder as that seed left it (a chat moving back to the machine it came from).
+//! - `since`: `since_work` and `since_head`, the move's own last export (its frozen pass).
+//! - `check`: `since_work` and `since_head` of a record the folder keeps, only to ask whether
+//!   the folder is still as that record left it (a chat moving back when the machine it is on
+//!   has nothing to send): the answer's `unchanged`. Nothing is recorded and no bundle is
+//!   written.
+//!
+//! The URL is the remote the folder's branch tracks (`branch.<name>.remote`), else `origin`.
+//!
+//! A move's answer adds `since_head`, `since_work` (the base it used) and `url`, the
+//! remote's URL as configured (`remote.<name>.url`, no `insteadOf`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,8 +59,14 @@ use super::git::{Credential, Failure, Git};
 
 /// The back record a Mac may still be on (module docs).
 pub(super) const BASE_RECORD: &str = "refs/cmux-base";
-/// The records an export's or a delta seed's `since` may be, newest first.
-pub(super) const RECORDS: [&str; 3] = ["refs/cmux-back", BASE_RECORD, "refs/cmux-seed"];
+/// A move's export (module docs): the same length as `refs/cmux-back`, so the Mac renames
+/// a bundle's refs in its header alone.
+pub(super) const MOVE_RECORD: &str = "refs/cmux-move";
+/// The records an export's or a delta seed's `since` may be, newest first: a seed's, and a
+/// move's last export (a chat moving back to the machine it came from; only a move's own
+/// export reads that one).
+pub(super) const DELTA_RECORDS: [&str; 4] =
+    ["refs/cmux-back", BASE_RECORD, "refs/cmux-seed", MOVE_RECORD];
 use super::job::{Failed, Job};
 use super::params::check_sha;
 use super::snapshot::{self, Snapshot};
@@ -47,32 +76,68 @@ use crate::fs_ops::Roots;
 #[derive(Deserialize)]
 struct Wire {
     folder: String,
-    since_work: String,
-    since_head: String,
+    #[serde(default)]
+    since_work: Option<String>,
+    #[serde(default)]
+    since_head: Option<String>,
     bundle: String,
+    #[serde(default, rename = "move")]
+    move_from: Option<String>,
 }
 
-/// A checked export request.
+/// A move's base (module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveFrom {
+    Upstream,
+    Seed,
+    Since,
+    Check,
+}
+
+/// A checked export request. A move's `since_*` are empty until [`Export::run`] finds
+/// its base (`upstream`, `seed`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportParams {
     pub folder: String,
     pub since_work: String,
     pub since_head: String,
     pub bundle: String,
+    pub move_from: Option<MoveFrom>,
 }
 
 impl ExportParams {
     pub fn parse(params: &Value) -> Result<Self, SeedRefusal> {
         let wire: Wire = serde_json::from_value(params.clone())
             .map_err(|error| SeedRefusal::bad_request(format!("invalid params: {error}")))?;
-        check_sha("since_work", &wire.since_work)?;
-        check_sha("since_head", &wire.since_head)?;
-        Ok(Self {
-            folder: wire.folder,
-            since_work: wire.since_work,
-            since_head: wire.since_head,
-            bundle: wire.bundle,
-        })
+        let move_from = match wire.move_from.as_deref() {
+            None => None,
+            Some("upstream") => Some(MoveFrom::Upstream),
+            Some("seed") => Some(MoveFrom::Seed),
+            Some("since") => Some(MoveFrom::Since),
+            Some("check") => Some(MoveFrom::Check),
+            Some(other) => {
+                return Err(SeedRefusal::bad_request(format!("unknown move base {other}")));
+            }
+        };
+        // Only a move's own last export names its commits; the others find theirs.
+        let named = matches!(move_from, None | Some(MoveFrom::Since | MoveFrom::Check));
+        let (since_work, since_head) = match (wire.since_work, wire.since_head) {
+            (Some(work), Some(head)) if named => {
+                check_sha("since_work", &work)?;
+                check_sha("since_head", &head)?;
+                (work, head)
+            }
+            (None, None) if !named => (String::new(), String::new()),
+            _ if named => {
+                return Err(SeedRefusal::bad_request("since_work and since_head are needed"));
+            }
+            _ => {
+                return Err(SeedRefusal::bad_request(
+                    "a move from its upstream or its seed names no since commits",
+                ));
+            }
+        };
+        Ok(Self { folder: wire.folder, since_work, since_head, bundle: wire.bundle, move_from })
     }
 
     /// What makes a retry the same job, with the folder.
@@ -112,20 +177,34 @@ impl Export {
             .filter(|text| !text.is_empty())
     }
 
-    pub fn run(self) -> Result<(), Failed> {
+    pub fn run(mut self) -> Result<(), Failed> {
         place::recheck(&self.folder).map_err(|refusal| failed(refusal.code, refusal.message))?;
         let wrap = |failure: Failure| {
             let code = if failure.disk_full() { "seed.disk_full" } else { "seed.export_failed" };
             failed(code, failure.message())
         };
-        // Only a seed's folder exports. `since` need not be its newest
-        // record: an export the Mac could not merge (a conflict) moved the
-        // back record, and the Mac pulls again from its own base.
-        if self
-            .read(&["rev-parse", "--verify", "--quiet", "refs/cmux-seed/work^{commit}"])
-            .is_none()
-        {
-            return Err(failed("seed.since_mismatch", "the folder is not a seed"));
+        let mut url = None;
+        match self.params.move_from {
+            // Only a seed's folder exports. `since` need not be its newest
+            // record: an export the Mac could not merge (a conflict) moved the
+            // back record, and the Mac pulls again from its own base.
+            None => {
+                if self
+                    .read(&["rev-parse", "--verify", "--quiet", "refs/cmux-seed/work^{commit}"])
+                    .is_none()
+                {
+                    return Err(failed("seed.since_mismatch", "the folder is not a seed"));
+                }
+            }
+            // A move: any clone, from a base it finds or is given (module docs).
+            Some(from) => {
+                let (head, work, remote) = self.move_base(from)?;
+                self.params.since_head = head;
+                self.params.since_work = work;
+                url = Some(self.remote_url(&remote).ok_or_else(|| {
+                    failed("seed.no_upstream", format!("the folder has no remote {remote}"))
+                })?);
+            }
         }
         let recorded_stash = self.record_of_since().and_then(|record| {
             self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/stash")])
@@ -165,7 +244,8 @@ impl Export {
         let same_work = work == self.params.since_work;
         let mut unchanged = same_work && stash == recorded_stash;
         let mut bundle_bytes = 0;
-        if !unchanged {
+        let checking = self.params.move_from == Some(MoveFrom::Check);
+        if !unchanged && !checking {
             self.record(&head, &index, &work, stash.as_deref()).map_err(wrap)?;
             // Only the stash went: the record moved, but no object is new.
             if same_work && stash.is_none() {
@@ -174,7 +254,7 @@ impl Export {
                 bundle_bytes = self.bundle(stash.is_some())?;
             }
         }
-        let answer = json!({
+        let mut answer = json!({
             "head_ref": head_ref,
             "head": head,
             "index": index,
@@ -184,10 +264,75 @@ impl Export {
             "bundle_bytes": bundle_bytes,
             "left_out": snapshot.left_out,
         });
+        if let (Some(url), Value::Object(fields)) = (url, &mut answer) {
+            fields.insert("url".into(), json!(url));
+            fields.insert("since_head".into(), json!(self.params.since_head));
+            fields.insert("since_work".into(), json!(self.params.since_work));
+        }
         if let Value::Object(fields) = answer {
             self.job.exported(fields);
         }
         Ok(())
+    }
+
+    /// A move's base (module docs): its HEAD and WORK commits, and the remote it is on.
+    fn move_base(&self, from: MoveFrom) -> Result<(String, String, String), Failed> {
+        let commit = |reference: &str| {
+            self.read(&["rev-parse", "--verify", "--quiet", &format!("{reference}^{{commit}}")])
+        };
+        let none = |why: &str| failed("seed.no_upstream", why.to_owned());
+        match from {
+            MoveFrom::Upstream => {
+                let tracked =
+                    self.tracked_remote().and_then(|remote| Some((commit("@{upstream}")?, remote)));
+                let (tip, remote) = match tracked {
+                    Some(tracked) => tracked,
+                    None => (
+                        commit("refs/remotes/origin/HEAD").ok_or_else(|| {
+                            none("the folder's branch tracks nothing on a remote")
+                        })?,
+                        "origin".to_owned(),
+                    ),
+                };
+                // The tip is both: nothing GitHub has goes in the bundle.
+                Ok((tip.clone(), tip, remote))
+            }
+            MoveFrom::Seed => {
+                let (Some(head), Some(work)) =
+                    (commit("refs/cmux-seed/head"), commit("refs/cmux-seed/work"))
+                else {
+                    return Err(failed("seed.since_mismatch", "the folder is not a seed"));
+                };
+                Ok((head, work, self.remote()))
+            }
+            MoveFrom::Since | MoveFrom::Check => {
+                Ok((self.params.since_head.clone(), self.params.since_work.clone(), self.remote()))
+            }
+        }
+    }
+
+    /// The remote the checked-out branch tracks (`branch.<name>.remote`), if any.
+    fn tracked_remote(&self) -> Option<String> {
+        let branch = self
+            .read(&["symbolic-ref", "-q", "HEAD"])
+            .and_then(|name| name.strip_prefix("refs/heads/").map(str::to_owned))?;
+        self.read(&["config", "--get", &format!("branch.{branch}.remote")])
+            .filter(|remote| remote != ".")
+    }
+
+    /// The move's remote: the tracked one, else `origin` (module docs).
+    fn remote(&self) -> String {
+        self.tracked_remote().unwrap_or_else(|| "origin".to_owned())
+    }
+
+    /// `remote.<name>.url` as configured: never rewritten by `insteadOf`.
+    fn remote_url(&self, remote: &str) -> Option<String> {
+        self.read(&["config", "--get", &format!("remote.{remote}.url")])
+    }
+
+    /// Where this export names its commits: a move's own record, else the back record.
+    fn record_name(&self) -> &'static str {
+        if self.params.move_from.is_some() { MOVE_RECORD } else { "refs/cmux-back" }
     }
 
     /// The folder's record (`refs/cmux-back`, the newer, before
@@ -195,7 +340,8 @@ impl Export {
     /// `since_head`; None when neither is (then a stash counts as a
     /// change).
     fn record_of_since(&self) -> Option<&'static str> {
-        RECORDS.into_iter().find(|record| {
+        let moving = self.params.move_from.is_some();
+        DELTA_RECORDS.into_iter().filter(|record| moving || *record != MOVE_RECORD).find(|record| {
             let read = |name: &str| {
                 self.read(&[
                     "rev-parse",
@@ -244,6 +390,18 @@ impl Export {
         work: &str,
         stash: Option<&str>,
     ) -> Result<(), Failure> {
+        if self.params.move_from.is_some() {
+            // A move leaves the seed's records as they are (module docs).
+            return self.set(
+                MOVE_RECORD,
+                [
+                    ("head", Some(head)),
+                    ("index", Some(index)),
+                    ("work", Some(work)),
+                    ("stash", stash),
+                ],
+            );
+        }
         let read = |record: &str, name: &str| {
             self.read(&["rev-parse", "--verify", "--quiet", &format!("{record}/{name}")])
         };
@@ -297,11 +455,12 @@ impl Export {
         let made = scratch.0.join("back.bundle");
         let made_arg = made.display().to_string();
         let mut args: Vec<String> = vec!["bundle".into(), "create".into(), "-q".into(), made_arg];
+        let record = self.record_name();
         for name in ["head", "index", "work"] {
-            args.push(format!("refs/cmux-back/{name}"));
+            args.push(format!("{record}/{name}"));
         }
         if with_stash {
-            args.push("refs/cmux-back/stash".into());
+            args.push(format!("{record}/stash"));
         }
         let (since_work, since_head) = (&self.params.since_work, &self.params.since_head);
         args.push(format!("^{since_work}"));

@@ -434,6 +434,22 @@ impl Ledger {
         count
     }
 
+    /// A start that can't go on gives up `machine`, the one made for it: drops `send`'s pin, and
+    /// answers whether the machine is the start's alone to delete. It is when no other send of
+    /// any account is pinned to it; then every workspace binding to it goes too, so no later
+    /// plan picks it (a plan pins under this same lock, so a send that took it first keeps it,
+    /// and one after this never finds it). When another send is on it, its bindings stay and
+    /// the machine is only released (Codex review F1 on #40957: a second chat on the
+    /// workspace's machine while the first start was still copying).
+    pub(crate) fn strand(&mut self, send: &Send, machine: &str) -> bool {
+        self.forget(send);
+        let shared = self.entries.iter().any(|entry| entry.machine_id == machine);
+        if !shared {
+            self.workspaces.retain(|binding| binding.machine_id != machine);
+        }
+        !shared
+    }
+
     /// Drops `send`'s pin (its machine is gone).
     pub(crate) fn forget(&mut self, send: &Send) {
         self.entries.retain(|entry| !entry.is(send));

@@ -20,7 +20,8 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { takeCapture } from "./composer/screenCapture";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
@@ -97,6 +98,7 @@ import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
+  cloudSendAgent,
   cloudStartModePick,
   holdCloudModePick,
   useCloudModePick,
@@ -168,6 +170,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
@@ -181,7 +184,6 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
-  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -189,7 +191,6 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
-  withSource,
 } from "./attachments";
 import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers } from "./ComposerPickers";
@@ -600,8 +601,10 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
+  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
+  withoutHeldRows,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -764,6 +767,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
+import { hatSeenKey, unseenHatQuestions } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -857,6 +861,9 @@ declare global {
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
       /// its chips join the composer and go with the next message (designSelection.ts).
       designSelection?(selection: unknown): void;
+      /// `cmux app chat perf` (the app's `agent.chat.perf`, every build): frames, long tasks,
+      /// layout shift and each arriving record's time to paint for `seconds` (chatPerfCapture.ts).
+      perfCapture?(options: { seconds?: unknown }): Promise<Record<string, unknown>>;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -1254,7 +1261,9 @@ const hatActions = (
   focusComposer: () => void,
   reaches: (owner: string) => boolean,
   asker: () => string | undefined,
+  dismiss: (question: HatQuestion) => void,
 ): HatQuestionActions => ({
+  dismiss,
   answer: (question, answer) => {
     // A tagged ask's answer goes as its card's does (`restartReaches`): only to the chat it was read
     // for, never the next during a switch's hold, and as its card sends it (`answerThrough`): a send
@@ -2022,8 +2031,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// until the view follows again (conversation/turnEndHold.ts `withoutHeldCalls`, cmux#33200), and
   /// the call the line named out of its run when the rows were last shaped.
   const heldCalls = useRef<{ session?: string; keys: ReadonlySet<string>; lined?: string }>({ keys: new Set() });
-  /// Moves when the view follows again with commands held out, so they go back into their runs.
+  /// The finished runs that came back between rows a reader scrolled up had in view, kept out of the
+  /// rows until the view follows again (conversation/turnEndHold.ts `rowsToHold`).
+  const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
+  /// Moves when the view follows again with commands or runs held out, so they go back in.
   const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
+  /// A held run the reader asks for (Find's match, a link to a call or to a message) goes back in,
+  /// with every run held with it: a row that is not drawn cannot be shown.
+  const showHeldRuns = useCallback((rowId: string) => {
+    if (!heldRuns.current.keys.has(rowId)) return;
+    heldRuns.current = { ...heldRuns.current, asked: true };
+    releaseCalls();
+  }, []);
   /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
   /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
   const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
@@ -2531,20 +2550,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
-  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{
-      name?: string;
-      mimeType?: string;
-      data?: string;
-      source?: unknown;
-    } | null>("composer.capture", { mode }).catch(() => null);
-    if (!shot?.data) return undefined;
-    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
-    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
-    return withSource(file, attachmentSource(shot.source));
+  // The + menu's Attach Screenshot…, Attach Window… and Record Screen… (composer/screenCapture.ts):
+  // a still goes back to the composer as an image; a recording goes in here as a video link chip.
+  // Either goes only to the chat the capture started in.
+  const captureChat = useRef(snapshot.sessionId);
+  useLayoutEffect(() => {
+    captureChat.current = snapshot.sessionId;
+  }, [snapshot.sessionId]);
+  const captureScreen = useCallback(async (mode: CaptureMode) => {
+    const taken = await takeCapture(mode, callNative, () => captureChat.current);
+    if (taken?.kind === "recording") composerHandle.current?.attach(taken.attachment);
+    return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
@@ -2911,6 +2927,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       void callRelease;
       const viewNow = transcriptInView.current?.();
       if (!viewNow && heldCalls.current.keys.size > 0) heldCalls.current = { ...heldCalls.current, keys: new Set() };
+      // The reader asked for a held run (`showHeldRuns`): they all go back in, and this pass holds none.
+      const asked = heldRuns.current.asked === true;
+      if (heldRuns.current.session !== shownSessionId || asked || (!viewNow && heldRuns.current.keys.size > 0))
+        heldRuns.current = { session: shownSessionId, keys: new Set() };
       const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
           source,
@@ -2929,7 +2949,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           last?.turns,
         );
-      const shape = (open: Folds) => shapeFrom(withoutHeldCalls(rows, heldCalls.current.keys), open);
+      const shape = (open: Folds) =>
+        shapeFrom(withoutHeldRows(withoutHeldCalls(rows, heldCalls.current.keys), heldRuns.current.keys), open);
       // While the reader is scrolled up, an update that would fold away a row they have in view (a
       // turn's end folding its work, a run of calls closing) leaves that fold open
       // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
@@ -2951,6 +2972,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
           if (one.length !== held.length)
             heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...one]) };
+        }
+        // The finished runs a running turn kept out of sight, which this update draws again between
+        // rows in view (another agent's prompt ends the stretch they are in), stay out while the
+        // reader is scrolled up, as they saw the stretch (turnEndHold.ts `rowsToHold`).
+        const back = asked ? [] : rowsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView);
+        if (back.length > 0) {
+          heldRuns.current = { session: shownSessionId, keys: new Set([...heldRuns.current.keys, ...back]) };
+          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -3764,9 +3793,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.asks,
     ],
   );
-  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
+  // The ones the person put away (the hat's × or Escape, question/hatSeen.ts) leave it; they share
+  // the pinned asks' dismissals, so a tagged ask put away in one place leaves both.
+  const hatQuestionsUnseen = useMemo(
+    () => unseenHatQuestions(hatQuestionsRead, askDismissals.keys),
+    [hatQuestionsRead, askDismissals],
+  );
+  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
-    : (hatQuestionsKept.current = hatQuestionsRead);
+    : (hatQuestionsKept.current = hatQuestionsUnseen);
   // Who asks in this chat: its agent by name, as the trust card names it. An answer to its ask
   // quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   const asker = snapshot.summary?.harness
@@ -3774,12 +3809,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const askerRef = useRef(asker);
   askerRef.current = asker;
+  // The hat's × reaches the shown chat's dismissals; the ref follows it after each commit (never in render).
+  const dismissPinnedAskRef = useRef(dismissPinnedAsk);
+  useLayoutEffect(() => {
+    dismissPinnedAskRef.current = dismissPinnedAsk;
+  }, [dismissPinnedAsk]);
   const hatQuestionActions = useMemo(
     () =>
       hatActions(
         () => composerHandle.current?.focus(),
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => askerRef.current,
+        (question) => dismissPinnedAskRef.current(hatSeenKey(question)),
       ),
     [],
   );
@@ -5580,7 +5621,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // this row whenever its id is drawn again.
   const showRows = (pick: (rows: readonly AcpmuxRow[]) => readonly string[]) => {
     const { sourceRows: rows, transcriptRows: shown } = counted.current;
-    const target = messageRevealTarget(rows, shown, pick(rows));
+    const picked = pick(rows);
+    for (const id of picked) showHeldRuns(id);
+    const target = messageRevealTarget(rows, shown, picked);
     if (target === undefined) return undefined;
     if (target.fold !== undefined) openFold(target.fold);
     if (target.run !== undefined) openFold(target.run);
@@ -5618,6 +5661,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const index = timed >= 0 ? timed : toolId ? rows.findIndex((row) => holds(row, false)) : -1;
       const row = rows[index];
       if (!row || !toolId) return false;
+      showHeldRuns(row.id);
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
         for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
@@ -5626,7 +5670,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
       return true;
     },
-    [openFold],
+    [openFold, showHeldRuns],
   );
   showCallRef.current = showToolRow;
   // Workflow transcript links use the adapter's stable row id. Reveal the row with the same
@@ -5637,6 +5681,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const index = rows.findIndex((row) => row.id === rowId);
       const row = rows[index];
       if (!row) return;
+      showHeldRuns(row.id);
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
         for (const fold of hiddenRowFolds(rows, shown, index)) openFold(fold);
       }
@@ -5644,7 +5689,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setRevealRow({ rowId: row.id, key, toolId: "" });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     },
-    [openFold],
+    [openFold, showHeldRuns],
   );
   // Load the clicked turn before asking the virtual transcript to draw it. The existing
   // history loader stops on a changed chat or a page that makes no progress.
@@ -6364,7 +6409,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
-    if (following && heldCalls.current.keys.size > 0) releaseCalls();
+    if (following && (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0)) releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
@@ -7123,6 +7168,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      perfCapture: (options) => chatPerfCapture.capture(options),
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       conversationMarkdown: async () => {
         const client = directClient.current;
@@ -8079,6 +8125,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // next try would send this prompt there, so it stops and fails as before.
           let unhold: (() => void) | undefined;
           const movedOn = heldStartStop(client);
+          const started = client.startedSession;
           const sessionId = await untilHostAnswers(() => client.ensureSession(), {
             stop: () => movedOn() || !ownsSession(),
             waiting: () => {
@@ -8106,7 +8153,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           };
           if (sessionId) sentFrom = { ...sentFrom, chat: sessionId };
           if (!ownsSession()) throw startCancelled();
-          await persistSession(sessionId);
+          // A chat this send started is the tab's before its prompt goes. A started one already is:
+          // its prompt goes in this task, so a prompt behind the turn draws as its queued row in the
+          // frame the composer clears, never a native round trip later (Leo, 2026-11-11: "you sending
+          // a message while I have things queued up, like that sort of slow growth is just... it gives
+          // me the heebie-jeebies to look at").
+          if (sessionId && sessionId === started) void persistSession(sessionId);
+          else await persistSession(sessionId);
           if (!ownsSession()) throw startCancelled();
           if (client.trustGeneration !== sendOwner.generation || client.selectedSession !== sendOwner.sessionId) {
             if (!accepted) restorePrompt(text, attachments);
@@ -10768,6 +10821,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               }
                                                               shown={childRows ? undefined : transcriptRows}
                                                               openFold={openFold}
+                                                              showHeld={showHeldRuns}
                                                               findRef={findRef}
                                                             >
                                                               {(find) => (
@@ -11993,6 +12047,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             plusExtensions={plusSearchExtensions}
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
+            // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
+            canRecord={
+              localCwd !== undefined &&
+              !quick &&
+              !readOnlySubagent &&
+              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
+            }
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
@@ -12432,11 +12493,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             text,
                             attachments,
                             {
-                              harness,
                               ...cloudStartFolder(cwd),
-                              ...(model ? { model } : {}),
-                              // The Mode chip's pick for this harness goes with New Tab's send too.
-                              ...cloudStartModePick(harness),
+                              // The agent the Mode chip names and its pick: a harness with no
+                              // Cloud start mode is left out, so the machine starts Claude.
+                              ...cloudSendAgent(
+                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
+                                harness,
+                                model,
+                              ),
                             },
                             true,
                           ),

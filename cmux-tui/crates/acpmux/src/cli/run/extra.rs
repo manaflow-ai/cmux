@@ -312,18 +312,25 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Fork { session, name, cwd, force_admit } => {
+        Command::Fork { session, name, cwd, force_admit, harness, model } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
-            if let Some(c) = cwd {
-                p["cwd"] = json!(c);
-            }
+            let mut acpmux = serde_json::Map::new();
             if let Some(n) = name {
-                p["_meta"]["acpmux"]["name"] = json!(n);
+                acpmux.insert("name".into(), json!(n));
             }
             if force_admit {
-                p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
+                acpmux.insert("forceAdmit".into(), json!(true));
+            }
+            if let Some(h) = harness {
+                acpmux.insert("harness".into(), json!(h));
+            }
+            if let Some(m) = model {
+                acpmux.insert("model".into(), json!(m));
+            }
+            let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": acpmux}});
+            if let Some(c) = cwd {
+                p["cwd"] = json!(c);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
             super::launch::print_new_warnings(&v);

@@ -118,6 +118,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
@@ -4364,7 +4365,14 @@ export class AcpmuxDirectClient {
       // tell failures apart.
       if (message.error) {
         const data = message.error.data as
-          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | {
+              code?: unknown;
+              details?: unknown;
+              reason?: unknown;
+              detail?: unknown;
+              errorKind?: unknown;
+              recovery?: unknown;
+            }
           | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
@@ -4374,6 +4382,9 @@ export class AcpmuxDirectClient {
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
+            // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.
+            ...(typeof data?.errorKind === "string" ? { errorKind: data.errorKind } : {}),
+            ...(typeof data?.recovery === "string" ? { recovery: data.recovery } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
@@ -4411,19 +4422,26 @@ export class AcpmuxDirectClient {
       if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
       if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
+      // `cmux app chat perf` (chatPerfCapture.ts): one boolean when no capture runs.
+      const arrived = chatPerfCapture.active && params.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply(notification.params as EventRecord);
+      if (arrived >= 0) chatPerfCapture.arrived(params.kind, arrived);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       if (notification.params?.sessionId === this.selectedSessionId)
         acpmuxPerf.markEvent(notification.params?._meta?.acpmux?.at);
+      const kind = String(notification.params?.update?.sessionUpdate ?? "");
+      const arrived =
+        chatPerfCapture.active && notification.params?.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
         at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
         dir: "in",
-        kind: String(notification.params?.update?.sessionUpdate ?? ""),
+        kind,
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
+      if (arrived >= 0) chatPerfCapture.arrived(kind, arrived);
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) {
       this.asks.pending(notification.params);
@@ -9399,6 +9417,10 @@ export class AcpmuxDirectClient {
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
+  }
+  /** The started chat a send goes to in its own task (`send`'s `shown`); none while a chat starts. */
+  get startedSession(): string | undefined {
+    return this.creating ? undefined : this.selectedSessionId;
   }
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
