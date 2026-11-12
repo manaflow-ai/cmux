@@ -38,6 +38,9 @@
 //! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
 //! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
+
+// The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
+#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
