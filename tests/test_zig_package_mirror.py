@@ -18,16 +18,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).with_name("git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("zig_package_mirror", ROOT / "scripts/ci/zig_package_mirror.py")
 zpm = importlib.util.module_from_spec(spec)
 sys.modules["zig_package_mirror"] = zpm
 spec.loader.exec_module(zpm)
-# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
-# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
-_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
-git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 MIRROR = "https://github.com/manaflow-ai/ghostty-next/releases/download/zig-packages/"
 SHA = "0" * 64

@@ -110,6 +110,7 @@ const STDIO_MCP_SERVERS: [&str; 9] = [
 const MCP_WORKERS: usize = 2;
 /// The longest a stopping daemon waits for its queued log lines to be written: a log output
 /// that takes no bytes must not keep a stopped daemon from exiting.
+// timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The worker count `args` (without the program name) runs with: None is
