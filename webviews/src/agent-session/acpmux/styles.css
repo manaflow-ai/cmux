@@ -193,9 +193,10 @@
   -webkit-mask-image:none;
   mask-image:none;
 }
-/* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
-   60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
-.acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
+/* The + menu is every popup's glass (ui/glass/glass.css GLASS LEVELS). Its 86% tint of its own, over the
+   project and machine pills above New Tab's box, made it a third material beside the menus (Leo,
+   2026-11-11: "the styles mix and they don't look good"); the menu level's 32 px frost turns the pills
+   to frost. */
 /* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
 .acpmux-composer-plus .acpmux-menu-text,.acpmux-menu.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
 .acpmux-composer-plus .acpmux-menu-label,.acpmux-menu.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}

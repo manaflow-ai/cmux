@@ -526,8 +526,6 @@
    "src/pages/home-messages/transcript/MessagesTranscript.tsx::react-hooks-js/refs": 1,
    "src/pages/markdown/MarkdownPage.tsx::react-hooks-js/refs": 1,
    "src/pages/markdown/linkOverlays.tsx::react-hooks-js/todo": 1,
-   "src/pages/overlay/dialog/OverlayDialog.tsx::react-doctor/no-ref-current-in-render": 1,
-   "src/pages/overlay/dialog/OverlayDialog.tsx::react-hooks-js/refs": 1,
    "src/pages/server-cards/host.ts::react-doctor/effect-needs-cleanup": 1,
    "src/pages/server-cards/host.ts::react-doctor/no-ref-current-in-render": 2,
    "src/pages/server-cards/host.ts::react-hooks-js/refs": 2,

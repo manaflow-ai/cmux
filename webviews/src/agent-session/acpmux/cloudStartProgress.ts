@@ -529,6 +529,8 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_folder_secret")
     return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
   if (code === "cloud_team_switching") return translate("cloudStart.planTeam.switching");
+  // The host's "not now": a chat is starting or opening in this tab (AgentPaneHandOff), said as such.
+  if (code === "unavailable_now") return translate("cloudStart.chatStartingHere");
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
   if (code === "cloud_attachments")

@@ -295,7 +295,7 @@ cmux Home, and your final reply of each turn is posted there.
   the tab inside it. Home's right column (the first pane after the dock) is
   only when the user asks to see something beside the chat: then open it
   there as a new tab, or make the column once with `cmux pane <dock pane>
-  split --right --viewport-width 0.5`. Never open tabs in the dock, split
+  split --right --fit`. Never open tabs in the dock, split
   down or add another column unless the user asks.
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id

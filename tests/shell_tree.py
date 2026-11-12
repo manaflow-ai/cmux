@@ -107,6 +107,9 @@ class Word:
     start: int
     end: int
     parts: list
+    # The word's text as the parser that read it saw it: an eval's or -c string's word is read from the string's
+    # decoded value, which parse()'s text at START:END need not hold (a $'\x63' there is a c here).
+    text: str | None = None
 
 
 @dataclass
@@ -274,9 +277,10 @@ class _Parser:
     def strings(self, cmd: Command, spans: list) -> None:
         """Parse onto CMD.scripts the text CMD has bash run as shell (Command.scripts); SPANS: each word's (start,
         end) in this parser's text. Text that is not all literal, or that does not parse, adds nothing."""
-        s, argv = self.s, []
+        s, argv, values = self.s, [], []
         for w, (a, b) in zip(cmd.words, spans):
             got = _unquote(s[a:b]) if all(isinstance(p, Lit) for p in w.parts) else None
+            values.append(got)  # whether the word decodes, apart from the X= unwrap() reads an assignment as
             argv.append("X=" if ASSIGNMENT.match(s, a) else "\0" if got is None else got[0])
         run = unwrap(argv)
         if not run or argv[len(argv) - len(run):] != run:
@@ -296,14 +300,14 @@ class _Parser:
                 if a == "--" or not a.startswith(("-", "+")) or a in ("-", "+"):
                     j += a == "--"
                     break
-                if a in ("-o", "+o", "-O", "+O"):
-                    j += 2
+                if a.startswith("--"):  # --rcfile FILE and --init-file FILE take the next word
+                    j += 2 if a in ("--rcfile", "--init-file") else 1
                     continue
-                string = string or not a.startswith("--") and "c" in a[1:]
-                j += 1
+                string = string or "c" in a[1:]
+                j += 1 + a[1:].count("o") + a[1:].count("O")  # each o or O in a group (-co NAME) takes a word
             if string and j < len(argv):
                 picks = [j]
-        if not picks or any(argv[j] == "\0" for j in picks):
+        if not picks or any(values[j] is None for j in picks):
             return
         body, origin, prev = "", [], 0
         for j in picks:
@@ -450,7 +454,7 @@ class _Parser:
         while i < self.n and (self.s[i] not in WORD_END or self.s.startswith(("<(", ">("), i)):
             got, i = self.piece(i, WORD_END)
             parts += got
-        return Word(self.o[start], self.o[i], parts), i
+        return Word(self.o[start], self.o[i], parts, self.s[start:i]), i
 
     def parts(self, i: int, stop: int, quotes: str) -> tuple[list, int]:
         """Parts of s[i:stop] read as double-quoted text (a here-document's body); the index after."""
@@ -588,12 +592,73 @@ class _Parser:
         return Sub(self.o[i], self.o[j + 1], "`", script), j + 1
 
 
-def _unquote(raw: str) -> tuple[str, list[int]] | None:
-    """The value of RAW, an all-literal word as bash reads it (quotes and escapes removed), with the offset in RAW of
-    each of its characters; None for a $'...' or $"..." string."""
+# $'...' escapes (bash's ANSI-C quoting) that stand for one fixed character.
+ANSI_C = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v",
+          "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_c(raw: str, i: int, out: list, at: list) -> int:
+    """Decode the $'...' string whose $ is at RAW[i] as bash does onto OUT, each character's offset in RAW (an
+    escape's: its backslash) onto AT; the index after its closing quote. The string ends at the first ' no backslash
+    escapes, then its text is decoded: \\nnn, \\xHH, \\uHHHH, \\UHHHHHHHH and \\cX (X & 0x1F; a \\\\ after it is one
+    backslash, a \\c at the end stays as it is) are read, and another backslash stays as it is. A \\U value past
+    0x7FFFFFFF adds nothing. Bash keeps a string in C strings, so its value ends at its first NUL (\\0, \\x00,
+    \\u0000, \\400, \\c@, ...): nothing after it in the string is kept, while the word's text after the string is."""
+    n, k = len(raw), i + 2
+    end = k
+    while end < n and raw[end] != "'":
+        end += 2 if raw[end] == "\\" else 1
+    end = min(end, n)
+    while k < end:
+        c, start = raw[k], k
+        if c != "\\" or k + 1 >= end:
+            out.append(c)
+            at.append(k)
+            k += 1
+            continue
+        e = raw[k + 1]
+        k += 2
+        if e in ANSI_C:
+            ch = ANSI_C[e]
+        elif e in "01234567":
+            j = k
+            while j < end and j < k + 2 and raw[j] in "01234567":
+                j += 1
+            ch, k = chr(int(raw[k - 1:j], 8) & 0xFF), j
+        elif e in "xuU" and k < end and raw[k] in "0123456789abcdefABCDEF":
+            j = k
+            while j < end and j < k + {"x": 2, "u": 4, "U": 8}[e] and raw[j] in "0123456789abcdefABCDEF":
+                j += 1
+            value, k = int(raw[k:j], 16), j
+            ch = "" if value > 0x7FFFFFFF else chr(min(value, 0x10FFFF))
+        elif e == "c" and k < end:
+            if raw[k] == "\\" and k + 1 < end and raw[k + 1] == "\\":
+                k += 1
+            ch, k = "\x7f" if raw[k] == "?" else chr(ord(raw[k]) & 0x1F), k + 1
+        else:
+            out += "\\" + e
+            at += [start, start + 1]
+            continue
+        if ch == "\0":
+            break
+        if ch:
+            out.append(ch)
+            at.append(start)
+    return end + 1
+
+
+def _unquote(raw: str) -> tuple[str, list[int]]:
+    """The value of RAW, an all-literal word as bash reads it (quotes and escapes removed, a $'...' string decoded,
+    a $"..." string read as "..." is in the C locale), with the offset in RAW of each of its characters."""
     out, at, i, n = [], [], 0, len(raw)
     while i < n:
         c = raw[i]
+        if c == "$" and raw.startswith("$'", i):
+            i = _ansi_c(raw, i, out, at)
+            continue
+        if c == "$" and raw.startswith('$"', i):
+            i += 1  # $"...": bash translates it by the locale's catalog; with none it is "..."
+            continue
         if c == "'":
             j = raw.find("'", i + 1)
             out += raw[i + 1:j]
@@ -617,8 +682,6 @@ def _unquote(raw: str) -> tuple[str, list[int]] | None:
                 out.append(raw[i + 1])
                 at.append(i + 1)
             i += 2
-        elif c == "$" and i + 1 < n and raw[i + 1] in "'\"":
-            return None
         else:
             out.append(c)
             at.append(i)
@@ -676,10 +739,12 @@ def literal(text: str, word: Word) -> str:
 
 
 def name(text: str, word: Word) -> str:
-    """WORD's value when it is all literal (quotes and escapes removed), else ""."""
+    """WORD's value when it is all literal (quotes and escapes removed, a $'...' string decoded), else ""."""
     if any(not isinstance(p, Lit) for p in word.parts):
         return ""
-    return re.sub(r"[\"'\\]", "", literal(text, word))
+    if word.text is None:
+        return re.sub(r"[\"'\\]", "", literal(text, word))
+    return _unquote(word.text)[0]
 
 
 def unwrap(argv: list[str], assigned: list | None = None) -> list[str] | None:

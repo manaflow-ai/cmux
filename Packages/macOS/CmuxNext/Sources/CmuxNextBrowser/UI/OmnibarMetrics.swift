@@ -2,12 +2,14 @@ public import CoreGraphics
 public import CmuxNextDesign
 
 /// The omnibar's sizes at one density (https://github.com/manaflow-ai/cmux/issues/28734): the bar,
-/// its text, the toolbar buttons beside it and their icons. Standard (the `compact` preset, level 0,
-/// the default) is today's Helium bar exactly: a 28 pt bar and buttons, 14 pt text, 13 pt chip
-/// icons, 20 pt toolbar icons, 18 pt trailing icons. Comfortable (level 1) is Chrome's roomier bar:
-/// 34 pt (`kToolbarButtonHeight`), 15 pt text (`TypeScale.field` to `TypeScale.title`). Other densities sit on the same line by their level
-/// (`DensityTokens.resolve`), so Ultra-compact is tighter than today and Spacious roomier, and a
-/// custom density's `fontSize` scales the text with the rest of the chrome.
+/// its text, the toolbar buttons beside it and their icons. The bar and the buttons are the window's
+/// one chrome row, a sidebar workspace row and a tab pill tall (`Metrics.chromeRowHeight`; Lawrence
+/// 2026-11-09): 24 pt at Standard (the `compact` preset, level 0, the default) and 32 at Comfortable,
+/// with 14 and 15 pt text (`TypeScale.field` to `TypeScale.title`), 13 pt chip icons, 18 pt trailing
+/// icons, and toolbar glyphs whose ink is a tab icon's side (14 and 16 pt). Other densities sit on the
+/// same line by their level (`DensityTokens.resolve`), and the text fits the row: Ultra-compact's
+/// 20 pt row draws 11 pt text. A custom density's `fontSize` scales the text with the rest of the
+/// chrome.
 ///
 /// `browser.omnibar.height` and `browser.omnibar.fontSize` (`OmnibarGlassAppearance`) override the
 /// bar height and text size; unset, they follow density. The bar is never shorter than its text
@@ -35,26 +37,37 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     public static let heightRange: ClosedRange<Double> = 20...56
     /// `browser.omnibar.fontSize`'s allowed range in points (`BrowserOmnibarSetting.fontSizeRange`).
     public static let fontSizeRange: ClosedRange<Double> = 10...24
-    /// Space the bar keeps above and below its text line: the page-info chip's 2 pt inset on each
-    /// side, then 2 pt of the chip's own padding.
-    static let textClearance: CGFloat = 8
+    /// Space the bar keeps above and below its text line together: the page-info chip's 2 pt inset on
+    /// each side, then 1 pt of the chip's own padding, so a 24 pt row holds 14 pt text.
+    static let textClearance: CGFloat = 6
 
     /// The metrics at `tokens`, with the user's overrides (each clamped into its range).
     /// `textScale` is the caller's live Interface Size multiplier; pure callers keep reference sizes.
-    public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil, textScale: CGFloat = 1) {
-        let densityFont = tokens.textSize(compact: TypeScale.Base.field, comfortable: TypeScale.Base.title) * textScale
-        // Whole points: a fractional bar would sit off the pixel grid.
+    /// - Parameters:
+    ///   - rowHeight: The chrome row the bar and buttons take; nil uses the density's
+    ///     (``DensityTokens/toolbarButtonSize``), without the sidebar's extra height.
+    ///   - glyphSide: The toolbar glyphs' side; nil uses the density's (``DensityTokens/toolbarGlyphSize``).
+    public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil, textScale: CGFloat = 1,
+                rowHeight: CGFloat? = nil, glyphSide: CGFloat? = nil) {
+        let row = rowHeight ?? tokens.toolbarButtonSize
+        let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? row
+        // A built-in density's text fits the bar's line (Ultra-compact's 20 pt row draws 11 pt text,
+        // whole points). A custom density's `fontSize` and Interface Size are the user's: the bar
+        // grows for them instead (`minimumBarHeight`).
+        var levelFont = tokens.textSize(compact: TypeScale.Base.field, comfortable: TypeScale.Base.title)
+        if tokens.fontSize == nil {
+            levelFont = min(levelFont, max(CGFloat(Self.fontSizeRange.lowerBound), ((requested - Self.textClearance) / 1.25).rounded(.down)))
+        }
+        let densityFont = levelFont * textScale
         let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
-        let densityHeight = tokens.resolve(compact: 28, comfortable: 34)
-        let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? densityHeight
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        buttonSize = tokens.toolbarButtonSize
+        buttonSize = row
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
         iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
-        toolbarIconSize = min(tokens.toolbarGlyphSize, buttonSize - 4)
+        toolbarIconSize = min(glyphSide ?? tokens.toolbarGlyphSize, buttonSize)
         trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
 
@@ -69,7 +82,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     @MainActor public static var current: OmnibarMetrics {
         let overrides = OmnibarGlassAppearance.current
         return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
-                              textScale: Typography.userScale)
+                              textScale: Typography.userScale, rowHeight: Metrics.chromeRowHeight, glyphSide: Metrics.toolbarGlyphSize)
     }
 
     private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {

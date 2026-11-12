@@ -28,7 +28,7 @@ final class PageInfoSiteNameView: NSView {
             label.topAnchor.constraint(equalTo: topAnchor),
             label.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(lessThanOrEqualToConstant: fullWidth),
-            widthAnchor.constraint(equalToConstant: fullWidth).withPriority(.defaultHigh),
+            widthAnchor.constraint(equalToConstant: fullWidth).prioritized(.defaultHigh),
         ])
         themedToolTip = name
     }
