@@ -281,6 +281,10 @@ fn a_long_followed_chat_holds_a_whole_reads_newest_messages_in_its_bound() {
     );
 }
 
+fn found(chat: &Followed, word: &str) -> bool {
+    !chat.text.search(&Needle::parse(word).expect("words")).is_empty()
+}
+
 #[test]
 fn a_rewrite_in_place_that_keeps_every_line_end_is_read_whole_again() {
     // Review of #41870, F1: the same inode, length and line ends, other words.
@@ -290,13 +294,12 @@ fn a_rewrite_in_place_that_keeps_every_line_end_is_read_whole_again() {
     };
     chat.append(&(prompt("first-word") + &prompt("old-word")));
     chat.check("first read");
-    let before = chat.bytes();
     std::fs::write(&chat.path, prompt("first-word") + &prompt("new-word")).expect("rewrite end");
     chat.check("the newest line rewritten");
-    assert!(chat.bytes() > before, "read whole again");
+    assert!(!found(&chat, "old-word") && found(&chat, "new-word"), "the rewritten words are held");
     std::fs::write(&chat.path, prompt("other-word") + &prompt("new-word")).expect("rewrite start");
     chat.check("the first line rewritten");
-    assert!(chat.text.search(&Needle::parse("old-word").expect("words")).is_empty());
+    assert!(!found(&chat, "first-word") && found(&chat, "other-word"));
 }
 
 /// A current Codex turn: an annotated prompt, about 1 MB of tool output, a plain final answer.
