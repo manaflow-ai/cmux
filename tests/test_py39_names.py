@@ -10,8 +10,9 @@ The files are what install-git-hooks.sh installs: scripts/cmux-next's tracked .p
 the COPY_CHECKERS set) and every scripts/**/*.py the installer names. UnderPython39 checks, with a real 3.9:
 - each file parses under it (a `match` statement, a PEP 701 f-string, `except*`);
 - each stdlib module the files import and each stdlib name they read (a load; `mod.name = x` reads nothing) is one
-  3.9 has, or the read is guarded (below). Ported from cmuxterm-hq's tests/test_py39_names.py (the same scan for
-  hq's and leo-workspace's tools), with its guards;
+  3.9 has, or the read is guarded (below). Attribute presence is probed separately from a same-named submodule's
+  importability, and a shadowed module alias is unknown. Ported from cmuxterm-hq's tests/test_py39_names.py (the same
+  scan for hq's and leo-workspace's tools), with its guards;
 - no `X | Y` annotation runs when a def or a module/class body runs, in a file without
   `from __future__ import annotations` (TypeError on 3.9), and no `zip(..., strict=...)` (TypeError on 3.9);
 - check-test-redefinitions.py's suite passes under the 3.9.
@@ -112,8 +113,8 @@ _CMP = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b, ast.Gt: lambda
 
 # What _on39 knows of the file and the 3.9 it reads a hasattr/getattr for: the file's stdlib aliases (set by
 # sites() and runtime_sites() per file), and the (module, name) pairs unguarded() probed in the 3.9 with the ones it
-# lacks. A pair it did not probe is unknown.
-_SCOPE = {"alias": {}, "probed": set(), "lacks": set()}
+# lacks. Attribute presence and submodule importability are separate probes; a pair it did not probe is unknown.
+_SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set()}
 
 
 def _aliases(tree):
@@ -126,6 +127,16 @@ def _aliases(tree):
                 top = a.name.split(".")[0]
                 if top in std:
                     alias[a.asname or top] = a.name if a.asname else top
+    shadowed = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            shadowed.add(n.id)
+        elif isinstance(n, ast.arg):
+            shadowed.add(n.arg)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            shadowed.add(n.name)
+    for name in shadowed:
+        alias.pop(name, None)
     return alias
 
 
@@ -146,7 +157,7 @@ def _attr_on39(expr):
     if pair is None or pair not in _SCOPE["probed"] or pair in PLATFORM_ONLY or any(
             pair[0] == pm and pair[1].startswith(pre) for pm, pre in PLATFORM_PREFIX):
         return None
-    missing = pair in _SCOPE["lacks"]
+    missing = pair in _SCOPE["attr_lacks"]
     if expr.func.id == "hasattr":
         return not missing
     if not missing or len(expr.args) < 3:
@@ -291,14 +302,14 @@ def sites(path):
         if isinstance(n, ast.Import):
             for a in n.names:
                 if a.name.split(".")[0] in std:
-                    out.append((a.name, None, n.lineno, guarded(n)))
+                    out.append((a.name, None, n.lineno, guarded(n), "import"))
         elif isinstance(n, ast.ImportFrom) and n.module and not n.level and n.module.split(".")[0] in std:
-            out.append((n.module, None, n.lineno, guarded(n)))
+            out.append((n.module, None, n.lineno, guarded(n), "import"))
             for a in n.names:
-                out.append((n.module, a.name, n.lineno, guarded(n)))
+                out.append((n.module, a.name, n.lineno, guarded(n), "import"))
         elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)
               and n.value.id in alias):
-            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n)))
+            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n), "attr"))
     return out
 
 
@@ -369,21 +380,25 @@ def unparsed(python, files=None):
 
 LACKS = r"""
 import importlib, json, sys
-lacks = []
+missing = []
 for module, name in json.load(sys.stdin):
     try:
         mod = importlib.import_module(module)
     except Exception:
-        if name is None:
-            lacks.append([module, name])  # a module 3.9 lacks; its names are this module's one site
+        missing.append([module, name, True, True])
         continue
-    if name is None or hasattr(mod, name):
+    if name is None:
         continue
+    attr_missing = not hasattr(mod, name)
     try:
         importlib.import_module(module + "." + name)
     except Exception:
-        lacks.append([module, name])
-print(json.dumps(lacks))
+        import_missing = True
+    else:
+        import_missing = False
+    if attr_missing or import_missing:
+        missing.append([module, name, attr_missing, import_missing])
+print(json.dumps(missing))
 """
 
 
@@ -437,18 +452,21 @@ def unguarded(python, files=None):
     """["path:line: module.name"] for each unguarded read of a stdlib name PYTHON lacks and this Python has."""
     files = list(files if files is not None else _files())
     # The probe first: what a hasattr/getattr guard is on 3.9 depends on whether 3.9 has the name it tests.
-    _SCOPE["probed"], _SCOPE["lacks"] = set(), set()
-    names = {(m, a) for p in files for (m, a, _, _) in sites(p)} | {pair for p in files for pair in guard_pairs(p)}
+    _SCOPE["probed"], _SCOPE["attr_lacks"], _SCOPE["import_lacks"] = set(), set(), set()
+    names = {(m, a) for p in files for (m, a, _, _, _) in sites(p)} | {pair for p in files for pair in guard_pairs(p)}
     names = sorted(names, key=lambda x: (x[0], x[1] or ""))
     out = subprocess.run([python, "-I", "-c", LACKS], input=json.dumps(names), capture_output=True, text=True,
                          timeout=300)
     if out.returncode != 0:
         raise AssertionError("the 3.9 probe failed: " + out.stderr[-2000:])
-    lacks = {tuple(x) for x in json.loads(out.stdout)} | BACKPORTED
-    _SCOPE["probed"], _SCOPE["lacks"] = set(names), lacks
+    missing = json.loads(out.stdout)
+    _SCOPE["probed"] = set(names)
+    _SCOPE["attr_lacks"] = {tuple(x[:2]) for x in missing if x[2]} | BACKPORTED
+    _SCOPE["import_lacks"] = {tuple(x[:2]) for x in missing if x[3]} | BACKPORTED
     found = [(p, s) for p in files for s in sites(p)]
     bad = []
-    for p, (m, a, line, ok) in found:
+    for p, (m, a, line, ok, kind) in found:
+        lacks = _SCOPE["attr_lacks"] if kind == "attr" else _SCOPE["import_lacks"]
         if ok or (m, a) not in lacks or (m, a) in PLATFORM_ONLY or (a is not None and any(
                 m == pm and a.startswith(pre) for pm, pre in PLATFORM_PREFIX)):
             continue
@@ -606,21 +624,21 @@ class UnderPython39(unittest.TestCase):
     def test_attribute_presence_is_separate_from_submodule_importability(self):
         """cmux#41945 F1: importing importlib.resources succeeds even when the fresh importlib module has no
         `resources` attribute; the 3.9 probe must preserve that distinction for hasattr guards."""
-        self.scan("import ast, importlib\\n"
-                  "if hasattr(importlib, 'resources'):\\n"
-                  "    pass\\n"
-                  "else:\\n"
-                  "    value = ast.match_case  # bare: ast.match_case\\n")
+        self.scan("import ast, importlib\n"
+                  "if hasattr(importlib, 'resources'):\n"
+                  "    pass\n"
+                  "else:\n"
+                  "    value = ast.match_case  # bare: ast.match_case\n")
 
     def test_a_shadowed_module_alias_is_unknown(self):
         """cmux#41945 F2: a function parameter shadows an imported module alias, so its guard cannot hide the
         incompatible read in the branch the scanner evaluates for Python 3.9."""
-        self.scan("import ast, sys\\n"
-                  "def check(sys):\\n"
-                  "    if hasattr(sys, 'version_info'):\\n"
-                  "        pass\\n"
-                  "    else:\\n"
-                  "        value = ast.match_case  # bare: ast.match_case\\n")
+        self.scan("import ast, sys\n"
+                  "def check(sys):\n"
+                  "    if hasattr(sys, 'version_info'):\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n")
 
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""

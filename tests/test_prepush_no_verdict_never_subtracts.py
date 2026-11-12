@@ -301,14 +301,15 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
 
     @contextlib.contextmanager
     def rustfmt_on_path(self):
-        """The gate's rustfmt lookup answers "this rustfmt" while PATH itself holds none, so a test that mocks the
-        rustfmt run judges the same on a machine with or without a real one (#41945 review, F3: these passed only
-        where rustfmt was installed, and on a machine without one the layer warned and returned before the mock)."""
+        """Put a filesystem rustfmt fixture on PATH before mocking its run, so the gate's availability precheck is
+        exercised on a machine with or without a real install (#41945 review, F3/F4)."""
         from unittest import mock  # noqa: PLC0415
-        empty = Path(self.tmp.name) / "empty-path"
-        empty.mkdir(exist_ok=True)
-        with mock.patch.dict(os.environ, {"PATH": str(empty)}), \
-                mock.patch.object(self.gate.subprocess, "run"):
+        folder = Path(self.tmp.name) / "rustfmt-fixture"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        fake.chmod(0o644)
+        with mock.patch.dict(os.environ, {"PATH": str(folder)}):
             yield
 
     def test_a_whats_new_validator_that_crashes_refuses(self) -> None:
