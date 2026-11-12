@@ -192,6 +192,7 @@ fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
     server.bound_with_ticket(client(&fake), true, Some(bind_ticket("bind-ticket-0123", 300)));
     let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
     assert_eq!((&reply["ok"], &reply["ticket"]), (&json!(true), &json!("bind-ticket-0123")));
+    wait_for_requests(&fake, 2);
     // Dropping the server joins its request threads: the bind's request minted
     // the bearer (for later tickets) and asked for no ticket.
     drop(server);
@@ -835,6 +836,52 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
     let reply = asking.join().unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
     assert_ne!(reply["ticket"], "t-1", "the ticket from before the resume was handed out");
+    drop(server);
+}
+
+/// A resume can be noted while a seeded bind is still waiting for the fetch
+/// thread. The bind's ticket is stale as soon as the resume is noted, so the
+/// fetcher must keep the pending resume and prefetch a fresh ticket before the
+/// Register ask is answered. The token mint is held to make the before/after
+/// Register wait visible in this same harness.
+#[test]
+fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(5);
+    let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
+    let (release_token, token_gate) = std::sync::mpsc::channel();
+    let (token_started, token_reached) = std::sync::mpsc::channel();
+    *live.token_gate.lock().unwrap() = Some((token_started, token_gate));
+
+    let (release_fetcher, fetcher_gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(fetcher_gate);
+    server.bound_with_ticket(
+        client_with(LiveHttp(Arc::clone(&live))),
+        true,
+        Some(bind_ticket("stale-after-resume", 300)),
+    );
+    wait_for("the fetcher held before the seeded bind", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    resumes.note();
+
+    let asking = {
+        let path = path.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
+        })
+    };
+    release_fetcher.send(()).unwrap();
+    token_reached.recv_timeout(Duration::from_secs(10)).expect("the seeded bind did not mint");
+    wait_for("the fresh reconnect prefetch", || live.tickets() == 1);
+    let (reply, took) = asking.join().unwrap();
+    eprintln!("reconnect Register wait: {took:?}");
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(took < Duration::from_secs(1), "Register waited {took:?} behind the seeded bind");
+
+    release_token.send(()).unwrap();
     drop(server);
 }
 
