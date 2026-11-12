@@ -11,10 +11,15 @@
 // - An edits group the reader opened during the turn is open again inside the folded turn.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the work that stays in
+// sight and folds at the turn's end is finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -225,6 +230,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     events.length = opened;
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 }, reducedMotion });
     await installPaintedFrames(page);
+    await pinLiveTurnRuns(page);
     runningOn = page;
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;

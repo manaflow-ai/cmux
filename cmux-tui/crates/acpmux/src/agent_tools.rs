@@ -317,6 +317,9 @@ pub struct Inputs {
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
     /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
     pub hosted: bool,
+    /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
+    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
+    pub github: bool,
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
@@ -358,6 +361,7 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
+            github: crate::github_mcp::available(),
         }
     }
 }
@@ -716,6 +720,16 @@ fn resolve_with_cua_helper(
             name: crate::acpmux_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["acpmux-mcp"]),
+            env: vec![],
+        });
+    }
+    if let (true, Some(acpmux)) = (inputs.github, &inputs.acpmux) {
+        // GitHub's own MCP server through the team's GitHub connection (`github_mcp.rs`): the
+        // machine's Cloud agent mints each call's token; nothing goes in its env.
+        servers.push(McpServer {
+            name: crate::github_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["github-mcp"]),
             env: vec![],
         });
     }

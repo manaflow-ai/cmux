@@ -38,6 +38,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         subsessions: false,
         displays: None,
         hosted: false,
+        github: false,
     }
 }
 
@@ -605,5 +606,39 @@ fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
     assert_eq!(shared["env"]["ACPMUX_SESSION_ID"], "s-one", "{shared}");
     // Computer use is not acpmux's own: it keeps its process.
     assert!(upstreams[0].get("shared").is_none(), "{}", upstreams[0]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Leo, 2026-11-10: a session on a Cloud machine gets GitHub's MCP server through the team's
+/// GitHub connection, with no setup there; its config holds no token.
+#[test]
+fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_config() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-github-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    // The `cmux` CLI, so the `cmux` server exists to fold the github server under.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let inputs = |github: bool| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        github,
+        ..memory_inputs(&root, None)
+    };
+    let name = crate::github_mcp::SERVER_NAME;
+    assert!(super::resolve(&inputs(false)).servers.iter().all(|s| s.name != name));
+    let on = super::resolve(&inputs(true)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the github server");
+    assert_eq!(server.args, ["github-mcp"]);
+    assert!(server.env.iter().all(|(k, v)| !k.contains("TOKEN") && !v.starts_with("ghs_")));
+    let folded = super::resolve(&inputs(true)).for_session("s1").folded();
+    let upstreams: serde_json::Value = serde_json::from_str(
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1,
+    )
+    .unwrap();
+    assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == name));
     let _ = std::fs::remove_dir_all(&root);
 }

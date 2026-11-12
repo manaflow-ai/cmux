@@ -4365,7 +4365,14 @@ export class AcpmuxDirectClient {
       // tell failures apart.
       if (message.error) {
         const data = message.error.data as
-          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | {
+              code?: unknown;
+              details?: unknown;
+              reason?: unknown;
+              detail?: unknown;
+              errorKind?: unknown;
+              recovery?: unknown;
+            }
           | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
@@ -4375,6 +4382,9 @@ export class AcpmuxDirectClient {
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
+            // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.
+            ...(typeof data?.errorKind === "string" ? { errorKind: data.errorKind } : {}),
+            ...(typeof data?.recovery === "string" ? { recovery: data.recovery } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
