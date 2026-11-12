@@ -105,6 +105,8 @@ extension AgentPaneView {
         transportPacer = pacer
         model.transport.pacer = pacer
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
+        model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
+        model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
         model.transport.onQuestionStateChanged = { [weak self] in
@@ -124,6 +126,8 @@ extension AgentPaneView {
                 }
                 // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
+                    // Said in the log: this close reaches the page as a clean one with no reason.
+                    AgentPaneTransport.logger.notice("agent pane transport closed: the page host fell a full buffer behind connection=\(event.connection, privacy: .public)")
                     self.model.transport.close(connection: event.connection)
                 }
                 // task-owner: one completion for the pacer, on the main actor

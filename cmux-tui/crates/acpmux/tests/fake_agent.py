@@ -78,11 +78,16 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
-FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
+
+Start under load (tests/start_under_load_bench.rs):
+FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
+wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
+little of the CPU takes much longer to start.
 """
 import base64
 import hashlib
@@ -118,6 +123,17 @@ RUNNING_MCP = []
 # schema strips the draft `subagents` field, so that one does not count).
 NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
+
+
+def boot_work():
+    """FAKE_BOOT_CPU_MS: this process's CPU time, spent before it reads anything."""
+    budget = int(os.environ.get("FAKE_BOOT_CPU_MS", "0")) / 1000
+    until = time.process_time() + budget
+    while time.process_time() < until:
+        pass
+
+
+boot_work()
 
 
 def send(obj):
@@ -1318,6 +1334,39 @@ def handle_prompt(rid, params):
         chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
+    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
+    # the message one row and acpmux one segment (#41540 review F1).
+    if text == "reply-checklist-ticks":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        update(sid, {"sessionUpdate": "plan", "entries": step})
+        chunk("a")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tick-ts", "status": "completed"})
+        update(sid, {"sessionUpdate": "plan", "entries": [{**step[0], "status": "in_progress"}]})
+        chunk("b")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
+    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
+    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    if text == "reply-dsh-todo":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todos = lambda status: {"todos": [{"content": "step", "status": status}]}
+        call = lambda n, status: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"dsh-todo-{n}", "title": "todo_write", "kind": "other", "status": "pending", "rawInput": todos(status)})
+        done = lambda n: update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": f"dsh-todo-{n}", "status": "completed"})
+        chunk("a")
+        call(1, "pending")
+        chunk("b")
+        done(1)
+        chunk("c")
+        call(2, "in_progress")
+        chunk("d")
+        done(2)
+        chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")
@@ -1780,7 +1829,8 @@ def main():
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
-                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
+                nice = os.getpriority(os.PRIO_PROCESS, 0)
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri(), "nice": nice}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.

@@ -11,7 +11,8 @@ Secrets are matched in every form GitHub accepts: `secrets.X`, `secrets['X']`,
 `secrets["X"]`, any case, `toJSON(secrets)`, `secrets.*`, a computed index and `secrets: inherit`.
 Each `${{ }}` is read by a tokenizer (expressions(), context_reads()), not a regex: a string
 literal may hold `}}` (a format() writing JSON braces), and the reference may sit in any function,
-index or operator (Codex review of #40784 at 96e5261c).
+index or operator (Codex review of #40784 at 96e5261c). Value resolution refuses unterminated
+expressions; substitutions replace whole expression spans, never text inside a string literal.
 
 PyYAML reads the `on:` key as the boolean True; a guard that needs the triggers reads
 `document.get("on", document.get(True))`.
@@ -361,7 +362,7 @@ def _raw_matrix(job: Mapping[str, Any]) -> Any:
     return (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), Mapping) else None
 
 
-_FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
+_FROM_JSON = re.compile(r"fromJSON\s*\(\s*(.*?)\s*\)", re.IGNORECASE | re.DOTALL)
 _NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)", re.IGNORECASE)
 _STEP_OUTPUT = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\s*\}\}", re.IGNORECASE)
 
@@ -408,7 +409,12 @@ def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
         return matrix
     if not isinstance(matrix, str):
         return None
-    called = _FROM_JSON.match(matrix.strip())
+    text = matrix.strip()
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return None
+    called = _FROM_JSON.fullmatch(text[3:-2].strip()) if spans == [(0, len(text))] else None
     if called is None:
         return None
     argument = dotted("${{ " + called.group(1) + " }}")[3:-2].strip()
@@ -487,9 +493,14 @@ def _dotted_body(body: str) -> str:
 def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
     `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`. Read by tokens, so text inside a
-    string literal is never rewritten."""
+    string literal is never rewritten. An unterminated expression leaves the text unchanged;
+    value resolution then refuses it."""
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return text
     out, at = [], 0
-    for start, end in expression_spans(text):
+    for start, end in spans:
         out += [text[at:start], "${{", _dotted_body(text[start + 3:end - 2]), "}}"]
         at = end
     return "".join(out) + text[at:]
@@ -500,7 +511,11 @@ def _matrix_shape(text: str) -> tuple[list[tuple[int, int, str]], bool] | None:
     expression reads the matrix, by tokens (a `'matrix.x'` literal is no read); None when one cannot be read."""
     wholes: list[tuple[int, int, str]] = []
     other = False
-    for start, end in expression_spans(text):
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return None
+    for start, end in spans:
         body = text[start + 3:end - 2]
         try:
             stream = tokens(body)
@@ -803,7 +818,13 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
-        bodies = expressions(cell)
+        # Keep the base tokenizer's strict unterminated-expression behavior while retaining
+        # this branch's caller tracing for every unresolved term.
+        try:
+            bodies = expressions(cell, strict=True)
+        except Unreadable:
+            unresolved.add(cell)
+            continue
         if not bodies:
             values.add(cell)
         elif len(bodies) == 1 and cell.startswith("${{") and cell.endswith("}}"):
@@ -933,18 +954,17 @@ class Workflows:
         return trace_term
 
 
-def _runs_on_items(job: Mapping[str, Any]) -> list[Any]:
+def runs_on_items(job: Mapping[str, Any]) -> list[Any]:
     return [item for _, item in _runs_on_paths(job)]
 
 
-def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
-                  workflows: Workflows | None = None) -> list[str] | None:
-    """The job's runs-on as each matrix cell would write it (`${{ matrix.runner }}` replaced by every value the
-    matrix gives it; a list of labels joined by ", "), or None when a matrix value cannot be resolved (a
-    fromJSON matrix, a key the matrix lacks): a guard counts such a job as unclassified, never as off its route.
-    [] for a job with no runs-on (a reusable-workflow call)."""
+def runs_on_label_cells(job: Mapping[str, Any], workflow: str | None = None,
+                        workflows: Workflows | None = None) -> list[tuple[str, ...]] | None:
+    """runs_on_cells before it joins a cell's labels: each matrix cell's runs-on as the tuple of labels it asks
+    for (one for a string runs-on), so a reader that tells one label from a list of them keeps the difference.
+    None and [] as runs_on_cells."""
     cells: list[list[str]] = []
-    for item in _runs_on_items(job):
+    for item in runs_on_items(job):
         if not isinstance(item, str):
             return None
         expanded = expand_matrix(job, item.strip())
@@ -967,7 +987,36 @@ def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
         cells.append(expanded)
     if not cells:
         return []
-    return list(dict.fromkeys(", ".join(combination) for combination in itertools.product(*cells)))
+    return list(dict.fromkeys(itertools.product(*cells)))
+
+
+def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
+                  workflows: Workflows | None = None) -> list[str] | None:
+    """The job's runs-on as each matrix cell would write it (`${{ matrix.runner }}` replaced by every value the
+    matrix gives it; a list of labels joined by ", "), or None when a matrix value cannot be resolved (a
+    fromJSON matrix, a key the matrix lacks): a guard counts such a job as unclassified, never as off its route.
+    [] for a job with no runs-on (a reusable-workflow call)."""
+    cells = runs_on_label_cells(job, workflow, workflows)
+    if cells is None:
+        return None
+    return list(dict.fromkeys(", ".join(cell) for cell in cells))
+
+
+class UnresolvedRunsOn(ValueError):
+    """A job whose runs-on a guard reading one route cannot read as one."""
+
+
+def single_runs_on(job: Mapping[str, Any], workflow: str | None = None,
+                   workflows: Workflows | None = None) -> str:
+    """The one runs-on a job runs on, as runs_on_cells writes it. Raises UnresolvedRunsOn when a matrix value
+    cannot be resolved, the job has no runs-on, or its cells differ: a guard that checks one route text refuses a
+    job it cannot read as one, instead of checking `${{ matrix.runner }}` and passing every cell."""
+    cells = runs_on_cells(job, workflow, workflows)
+    if cells is None:
+        raise UnresolvedRunsOn(f"runs-on {runs_on(job)!r}: a matrix value cannot be resolved")
+    if len(cells) != 1:
+        raise UnresolvedRunsOn(f"runs-on {runs_on(job)!r}: {len(cells)} routes ({cells}), not one")
+    return cells[0]
 
 
 def _tracer(workflow: str | None, workflows: Workflows | None, reads: VarReads | None = None) -> Tracer | None:
@@ -975,7 +1024,7 @@ def _tracer(workflow: str | None, workflows: Workflows | None, reads: VarReads |
 
 
 def _runs_on_paths(job: Mapping[str, Any]) -> list[tuple[str, Any]]:
-    """_runs_on_items with the key path of each."""
+    """runs_on_items with the key path of each."""
     raw = job.get("runs-on")
     if isinstance(raw, Mapping):
         labels = raw.get("labels")

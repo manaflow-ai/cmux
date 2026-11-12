@@ -403,6 +403,41 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "ui font exit 1, only its summary")
 
+    # #41888 review (F2): the reserved-key and UI-font layers took any nonempty output as findings, so a checker that
+    # printed "could not read checker input" on both revisions subtracted to [] and the push passed.
+
+    def test_a_reserved_keys_line_in_no_finding_shape_refuses(self) -> None:
+        self.install(self.gate.RESERVED_SCRIPT, "print('could not read checker input')\nraise SystemExit(1)\n")
+        self.write(self.gate.RESERVED_LIST, "[]\n")
+        self.write(self.gate.RESERVED_SURFACES, "{}\n")
+        base = self.commit("base")
+        self.write(self.gate.RESERVED_SURFACES, '{"changed": true}\n')
+        head = self.commit("head")
+        found = self.quiet(self.gate.reserved_keys, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "reserved keys, unreadable output alike on both sides")
+
+    def test_a_ui_font_line_in_no_finding_shape_refuses(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('could not read checker input')\n"
+                                               "print('ui font: 1 finding(s).')\nraise SystemExit(1)\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "ui font, unreadable output alike on both sides")
+
+    def test_real_finding_lines_still_subtract(self) -> None:
+        # The shapes the two checkers print: old debt on both sides is not the push's.
+        self.install(self.gate.RESERVED_SCRIPT, "print('action-surfaces.json: a.b takes Ghostty\\'s cmd+d (split, "
+                                                "reserved for split)')\nraise SystemExit(1)\n")
+        self.write(self.gate.RESERVED_LIST, "[]\n")
+        self.write(self.gate.RESERVED_SURFACES, "{}\n")
+        base = self.commit("base")
+        self.write(self.gate.RESERVED_SURFACES, '{"changed": true}\n')
+        head = self.commit("head")
+        self.assertEqual(self.quiet(self.gate.reserved_keys, self.repo, base, head, self.installed), [])
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())

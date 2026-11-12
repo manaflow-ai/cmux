@@ -101,6 +101,9 @@ impl Daemon {
             .env("CMUX_NEXT_CONFIG_FILE", &settings)
             .env("ACPMUX_SOCKET", &acpmux)
             .env("CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS", MAINTENANCE_INTERVAL_MS)
+            // The settings file decides whether usage patterns are counted,
+            // not the host's environment (a test turns it on through `env`).
+            .env_remove("CMUX_USAGE_PATTERNS")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -588,6 +591,172 @@ fn cmux_next_daemon_writes_its_usage_counts_when_it_stops() {
         .sum();
     let _ = fs::remove_dir_all(&counts);
     assert!(commands >= 1, "the command counted before the stop was not written");
+}
+
+/// A folder for one test's usage pattern files, outside the daemon's own
+/// folder (the settings watch covers that one). Removed when the test ends.
+struct UsageFiles(PathBuf);
+
+impl UsageFiles {
+    fn new(name: &str) -> Self {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        Self(
+            PathBuf::from("/tmp").join(format!("cmux-usage-{name}-{}-{stamp}", std::process::id())),
+        )
+    }
+
+    /// The commands counted in the files written so far.
+    fn commands(&self) -> u64 {
+        cmux_usage_patterns::read_dir(&self.0)
+            .rollup
+            .counts
+            .get("command")
+            .map_or(0, |keys| keys.values().sum())
+    }
+}
+
+impl Drop for UsageFiles {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A person turns `diagnostics.usagePatterns` on and off in the settings
+/// file while the daemon runs. The daemon reads the setting through a watch
+/// of that file and not only when it starts: it counts the commands that
+/// come after the setting went on, writes them when the setting goes off
+/// (not at the next timed write), and counts nothing after that.
+///
+/// This test and the next one are not named `cmux_next_`: that prefix puts
+/// a test in the `cmux_next_ daemon tests` job (cmux-tui-artifacts.yml),
+/// which gates the feat-cmux-next channel. These two run with the file and
+/// by name.
+#[test]
+fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
+    /// How long the setting stays on. The daemon cannot say when it read the
+    /// change, so commands come through all of it; the watch reads a change
+    /// about 0.1 s after the write.
+    const ON: Duration = Duration::from_secs(5);
+    /// From the write that turns the setting on to the file on disk. The
+    /// first timed write comes `FLUSH_EVERY` after the daemon reads that
+    /// setting, so a file inside this limit was written because the setting
+    /// went off.
+    const LIMIT: Duration = Duration::from_secs(20);
+    const { assert!(LIMIT.as_secs() < cmux_usage_patterns::FLUSH_EVERY.as_secs()) };
+
+    let files = UsageFiles::new("follow");
+    let mut daemon = Daemon::start_with_env(
+        "usage-follow",
+        Path::new("cmux-next.json"),
+        &[("CMUX_USAGE_PATTERNS_DIR", files.0.as_os_str())],
+    );
+    let settings = daemon.dir.join("cmux-next.json");
+    let ask = |id: u64| {
+        request(&daemon.socket, serde_json::json!({"id": id, "cmd": "list-workspaces"}))
+            .expect("list-workspaces");
+    };
+    ask(10);
+
+    let deadline = Instant::now() + LIMIT;
+    fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": true } }\n").unwrap();
+    let on = Instant::now() + ON;
+    let mut id = 11;
+    while Instant::now() < on {
+        std::thread::sleep(Duration::from_millis(100));
+        ask(id);
+        id += 1;
+    }
+    fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": false } }\n").unwrap();
+    while files.commands() == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "the running daemon did not count commands after the setting went on, or did not \
+             write them when it went off"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    // The file is there, so the daemon read the off setting. The commands
+    // from here on are not counted: the write at the stop has nothing to add.
+    let counted = files.commands();
+    for _ in 0..5 {
+        ask(id);
+        id += 1;
+    }
+    // SAFETY: the pid is this test's own daemon, still running.
+    unsafe { libc::kill(daemon.child.id() as libc::pid_t, libc::SIGTERM) };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while daemon.child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(files.commands(), counted, "the daemon counted commands after the setting went off");
+}
+
+/// A daemon that counts usage patterns has no thread that runs in every
+/// window, and its timed write happens: counting is on from the start, the
+/// writer writes the counts of the start `FLUSH_EVERY` later, inside the
+/// windows, and the file is on disk after them.
+///
+/// Not shown here: a writer that would wake each `FLUSH_EVERY` with nothing
+/// to write. That is one wake in the 3 windows, which the median allows.
+#[test]
+fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
+    // The timed write is due before the last window ends.
+    const {
+        assert!(
+            cmux_usage_patterns::FLUSH_EVERY.as_secs()
+                < SETTLE.as_secs() + WINDOW.as_secs() * WINDOWS as u64
+        );
+    }
+    let files = UsageFiles::new("idle");
+    let daemon = Daemon::start_with_env(
+        "usage-idle",
+        Path::new("cmux-next.json"),
+        &[
+            ("CMUX_USAGE_PATTERNS", std::ffi::OsStr::new("1")),
+            ("CMUX_USAGE_PATTERNS_DIR", files.0.as_os_str()),
+        ],
+    );
+    assert_idle(&daemon, || {});
+    // Counting was on through the windows: the commands of the start are on
+    // disk (the timed write was due inside the windows).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while files.commands() == 0 {
+        assert!(Instant::now() < deadline, "the daemon wrote no usage patterns");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The daemon watches the folders its project sources read (~/.codex among
+/// them), and on a machine that runs Codex agents that folder is busy: Codex
+/// appends to its logs and other databases there several times a second. The
+/// daemon reads none of those files, so the writes must not wake it (a watch
+/// of the whole folder woke it for each write: about 230 context switches per
+/// window at 20 writes a second).
+#[test]
+fn cmux_next_daemon_idle_ignores_writes_to_unread_files_in_a_watched_project_folder() {
+    let daemon = Daemon::start("project-folder");
+    let codex = daemon.dir.join("home/.codex");
+    let unread = ["logs_2.sqlite", "logs_2.sqlite-wal", "goals_1.sqlite-wal", "history.jsonl"];
+    for name in unread {
+        fs::write(codex.join(name), "").unwrap();
+    }
+    assert_idle(&daemon, move || {
+        // About 20 writes a second through the windows, in place, as a
+        // database or log appends.
+        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
+        let mut round = 0usize;
+        while Instant::now() < end {
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(codex.join(unread[round % unread.len()]))
+                .unwrap();
+            file.write_all(format!("{round}\n").as_bytes()).unwrap();
+            round += 1;
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs

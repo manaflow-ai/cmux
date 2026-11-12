@@ -1629,6 +1629,31 @@ mkdir -p node_modules/.bin
         # than main's; pulling it must install that copy, not keep an old one.
         self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
 
+    def test_post_merge_keeps_legacy_masker_trust_without_copy_manifest(self):
+        """An older trusted branch may have no checks-copy-inputs, but its installer still copies the masker.
+        A dirty masker must stop the auto-install before the legacy trust path is dropped."""
+        hook = self.repo / "scripts/git-hooks/post-merge"
+        manifest = self.repo / "scripts/git-hooks/checks-copy-inputs"
+        manifest.unlink()
+        marker = self.root / "installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+        self.git("add", "-A")
+        self.git("-c", "user.name=Merge Test", "-c", "user.email=merge@example.invalid", "commit", "-qm",
+                 "legacy trusted branch")
+        trusted = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("remote", "add", "upstream", self.CANONICAL)
+        self.git("update-ref", "refs/remotes/upstream/main", trusted)
+        masker = self.repo / "scripts/swift_source_mask.py"
+        masker.write_bytes(masker.read_bytes() + b"\n# dirty candidate\n")
+
+        result = subprocess.run(["/bin/bash", str(hook)], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a dirty legacy masker")
+        self.assertIn("differ from trusted main", result.stderr)
+
     def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
         hook.unlink()
