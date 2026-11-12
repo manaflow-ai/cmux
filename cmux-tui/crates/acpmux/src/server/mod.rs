@@ -2433,8 +2433,8 @@ mod reply_size_tests;
 mod session_list_pages_tests;
 
 #[cfg(test)]
-#[path = "watch_delta_link_tests.rs"]
-mod watch_delta_link_tests;
+#[path = "list_follow_link_tests.rs"]
+mod list_follow_link_tests;
 
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]

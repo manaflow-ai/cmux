@@ -133,6 +133,13 @@ pub enum PeerNotice {
     Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`.
     Sessions(Vec<Value>),
+    /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
+    /// changed, and the peer's own ids of the rows that went. The rest stand as the peer last
+    /// listed them.
+    SessionsPatch {
+        rows: Vec<Value>,
+        gone: Vec<String>,
+    },
     SessionChanged {
         session: Value,
         kind: String,
@@ -428,12 +435,14 @@ pub struct Peer {
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,
-    /// Whether the peer answers a watch's `known` with a delta, and the rows the last list read
-    /// held (`watch_delta.rs`).
-    watch_delta: AtomicBool,
-    known: StdMutex<crate::watch_delta::Known>,
-    /// Whether the list `known` holds was read with tools: a delta is asked for the same way.
-    known_tools: AtomicBool,
+    /// Whether the peer follows its list from a cursor (`hub/row_log.rs` `CAPABILITY`), and the
+    /// position of its list the hub holds (`listEpoch`, `listSeq`): set once a whole list or a
+    /// follow is read, moved on by each `session_changed`. The next link asks for what changed
+    /// after it, not the list.
+    list_follow: AtomicBool,
+    list_cursor: StdMutex<Option<(String, u64)>>,
+    /// Whether the list the cursor is in was read with tools: a follow is asked for the same way.
+    cursor_tools: AtomicBool,
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
@@ -582,9 +591,9 @@ impl Peer {
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
             pipelines: AtomicBool::new(false),
-            watch_delta: AtomicBool::new(false),
-            known: StdMutex::new(crate::watch_delta::Known::default()),
-            known_tools: AtomicBool::new(false),
+            list_follow: AtomicBool::new(false),
+            list_cursor: StdMutex::new(None),
+            cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
         })
     }
@@ -2136,7 +2145,6 @@ impl Peer {
             set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
-            set(&me.watch_delta, crate::watch_delta::FEATURE);
             set(&me.pipelines, HANDSHAKE_PIPELINE_FEATURE);
             // The rest are read from the list (`lists`): attachments, uploads, upload status,
             // and holding a prompt for the owner.
@@ -2158,6 +2166,11 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let follows =
+                init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
+                    |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
+                );
+            me.list_follow.store(follows, Ordering::SeqCst);
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
             let mut sent = if kept {
@@ -2171,20 +2184,20 @@ impl Peer {
             // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
             // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
             // limit, and every link to it built and was refused one list before reading it
-            // again without them; without them 16.6 MB. A delta is asked for as the list it
-            // patches was read (`known_tools`).
+            // again without them; without them 16.6 MB. A follow is asked for as the list it
+            // patches was read (`cursor_tools`).
             let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
-            // A link that read the list before reads only what changed since (`watch_delta.rs`),
-            // with or without tools as that list was: a daemon serving it as a peer answers
-            // with a delta (`first_watch`). One too large to send is read as the whole list is.
+            // A link that read the list before reads only what changed since its cursor
+            // (`hub/row_log.rs`), with or without tools as that list was (`first_watch`). A peer
+            // that cannot follow it answers with the whole list, marked `reset`.
             let mut answered = None;
             if let Some((asked, tools)) =
-                me.first_watch(build.as_ref()).filter(|(asked, _)| asked.get("known").is_some())
+                me.first_watch(build.as_ref()).filter(|(asked, _)| asked.get("afterSeq").is_some())
             {
                 match me.watch_first(asked, link, sent.take()).await {
                     Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch delta is too large ({}); reading the whole list", e.message);
+                        tracing::warn!(peer = %me.name, "the watch follow is too large ({}); reading the whole list", e.message);
                     }
                     answer => answered = Some((answer?, tools)),
                 }
@@ -2216,9 +2229,9 @@ impl Peer {
             if let Some((first, tools)) = first {
                 me.watch_pages(first, tools, link).await?;
             }
-            // Read whole (its last page too, or the delta): the next delta is asked for as this
-            // list was read (`watch_delta.rs`).
-            me.known_tools.store(tools, Ordering::SeqCst);
+            // Read whole (its last page too, or the follow): the next follow is asked for as this
+            // list was read.
+            me.cursor_tools.store(tools, Ordering::SeqCst);
             me.recover_prompts(link).await?;
             let attached =
                 replayable(&me.cursors.lock_or_recover(), &me.baselined.lock_or_recover());
@@ -2367,6 +2380,8 @@ impl Peer {
         // meanwhile: published once the last page is in, the list first. A link that drops
         // before then publishes neither, so the hub keeps its last whole list.
         let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
+        // The position the watch list read so far is current to (`list_position`).
+        let mut list_at: Option<(String, u64)> = None;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -2387,20 +2402,12 @@ impl Peer {
                 if let (true, Ok(list)) = (watch, &reply) {
                     let (mut rows, held) = paged.take().unwrap_or_default();
                     rows.extend(watch_sessions(list));
-                    // The whole list a delta stands for; the rows of a whole list,
-                    // kept for the next link's delta (`watch_delta.rs`).
-                    let delta = crate::watch_delta::read_delta(list).map(|(_, removed)| removed);
-                    let last = matches!(page_cursor(list), Ok(None));
-                    match delta {
-                        Some(removed) => {
-                            rows = self
-                                .known
-                                .lock_or_recover()
-                                .patched(std::mem::take(&mut rows), &removed)
-                        }
-                        None if last => self.known.lock_or_recover().listed(&rows),
-                        None => {}
+                    // The position the list is current to comes with its first page (the watch's
+                    // reply); the hub holds it once the last page is applied (`hub/row_log.rs`).
+                    if let Some(at) = list_position(list) {
+                        list_at = Some(at);
                     }
+                    let follow = list.get("follow") == Some(&Value::Bool(true));
                     match page_cursor(list) {
                         // More pages: the handshake asks for them.
                         Ok(Some(_)) => {
@@ -2413,7 +2420,13 @@ impl Peer {
                         Err(_) => {}
                         Ok(None) => {
                             let mut stopped = false;
-                            for notice in std::iter::once(PeerNotice::Sessions(rows)).chain(held) {
+                            *self.list_cursor.lock_or_recover() = list_at.take();
+                            let list = if follow {
+                                PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
+                            } else {
+                                PeerNotice::Sessions(rows)
+                            };
+                            for notice in std::iter::once(list).chain(held) {
                                 if self
                                     .notices
                                     .send((self.name.clone(), self.generation, notice))
@@ -2691,6 +2704,13 @@ impl Peer {
                                 {
                                     continue;
                                 }
+                                // The hub's copy of the list is current to here (a held change
+                                // during a paged list moves no cursor: none is set yet).
+                                if let Some(seq) = p.get("listSeq").and_then(Value::as_u64)
+                                    && let Some((_, at)) = self.list_cursor.lock_or_recover().as_mut()
+                                {
+                                    *at = (*at).max(seq);
+                                }
                                 PeerNotice::SessionChanged {
                                     session,
                                     kind: p.get("kind").and_then(Value::as_str).unwrap_or("").to_owned(),
@@ -2837,6 +2857,21 @@ pub(crate) fn refuses_attach(e: &RpcError) -> bool {
     matches!(e.code, -32002 | -32601 | -32602)
 }
 
+/// The list position an `_acpmux/watch` reply is current to (`hub/row_log.rs`): its
+/// `listEpoch` and `listSeq`; None from a peer that keeps no row log.
+fn list_position(reply: &Value) -> Option<(String, u64)> {
+    let epoch = reply.get("listEpoch").and_then(Value::as_str)?;
+    Some((epoch.to_owned(), reply.get("listSeq").and_then(Value::as_u64)?))
+}
+
+/// The peer's own ids of the rows a follow says went, without the rows it mirrors.
+fn gone_ids(reply: &Value) -> Vec<String> {
+    let gone = reply.get("gone").and_then(Value::as_array).into_iter().flatten();
+    gone.filter(|row| row.get("peer").is_none_or(Value::is_null))
+        .filter_map(|row| row.get("sessionId").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
 /// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
 fn watch_sessions(reply: &Value) -> Vec<Value> {
     reply
@@ -2911,18 +2946,20 @@ impl Peer {
     /// names (a pre-#28182 peer refuses a list it would make wait more than 30 s). The
     /// handshake's deadline bounds the retries.
     /// The first `_acpmux/watch` a handshake asks for, and whether with tools, as the link knows
-    /// the peer now: a delta of the list the last link read when the peer serves this daemon as
-    /// a peer and answers with one, else the whole list without tools; None when the list is
-    /// read in pages of rows (`build` needed them last time).
+    /// the peer now: what changed after the cursor of the list the hub holds when the peer
+    /// serves this daemon as a peer and follows its list (`hub/row_log.rs`), else the whole list
+    /// without tools; None when the list is read in pages of rows (`build` needed them last
+    /// time).
     fn first_watch(&self, build: Option<&String>) -> Option<(Value, bool)> {
         let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
-        let delta =
-            self.watch_delta.load(Ordering::SeqCst) && self.served_as().as_deref() == Some("peer");
-        let known = delta.then(|| self.known.lock_or_recover().to_param());
-        if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty())) {
-            let tools = self.known_tools.load(Ordering::SeqCst);
+        let follows =
+            self.list_follow.load(Ordering::SeqCst) && self.served_as().as_deref() == Some("peer");
+        let cursor = follows.then(|| self.list_cursor.lock_or_recover().clone()).flatten();
+        if let Some((epoch, after)) = cursor {
+            let tools = self.cursor_tools.load(Ordering::SeqCst);
             let mut asked = watch(tools);
-            asked.set("known", known);
+            asked.set("afterSeq", json!(after));
+            asked.set("listEpoch", Value::String(epoch));
             return Some((asked, tools));
         }
         let row_pages = build.is_some() && self.row_pages_for.lock_or_recover().as_ref() == build;

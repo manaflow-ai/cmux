@@ -757,6 +757,26 @@ impl Hub {
         }
     }
 
+    /// Peer `peer`'s whole list after a follow (`PeerNotice::SessionsPatch`), as the peer would
+    /// list it: each row it last listed, in its live form, unless `gone` names it or `rows` holds
+    /// it anew.
+    fn patched_peer_list(&self, peer: &str, rows: Vec<Value>, gone: &[String]) -> Vec<Value> {
+        let id = |row: &Value| row.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+        let mut out: std::collections::HashSet<String> = gone.iter().cloned().collect();
+        out.extend(rows.iter().filter_map(id));
+        let held = self.remote_sessions.snapshot();
+        let mut list: Vec<Value> = held
+            .live_of_peer(peer)
+            .filter(|row| {
+                let mux = session_receipt(row).map(|r| r.mux_session_id);
+                mux.is_some_and(|mux| !out.contains(&mux))
+            })
+            .cloned()
+            .collect();
+        list.extend(rows);
+        list
+    }
+
     pub(super) fn apply_peer_notice(
         &self,
         peer: &str,
@@ -815,6 +835,13 @@ impl Hub {
                     let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
                     self.save_after_drop(&peer, generation, first);
                     self.mark_peer_unreachable(&peer, generation);
+                }
+                PeerNotice::SessionsPatch { rows, gone } => {
+                    // The peer's whole list: the rows it last listed (a stale row as it was
+                    // before its link dropped), with the patch's rows in place and its gone rows
+                    // out. Applied as any whole list is, so what differs is announced.
+                    let list = self.patched_peer_list(&peer, rows, &gone);
+                    self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(list));
                 }
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an

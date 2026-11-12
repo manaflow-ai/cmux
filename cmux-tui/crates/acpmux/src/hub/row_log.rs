@@ -201,6 +201,10 @@ impl Hub {
         }
         if !more {
             covered = since.head;
+        } else if own_only {
+            // A peer's link reads one reply in its handshake (`peer.rs` `first_watch`): changes
+            // past a page are read as the whole list, in its pages, as on a first link.
+            return None;
         }
         let removed = Value::Array(removed).to_string();
         let epoch = Value::String(self.events.list_epoch().to_owned()).to_string();
@@ -209,6 +213,28 @@ impl Hub {
             sessions.join(",")
         );
         Some(Follow { text })
+    }
+}
+
+impl Hub {
+    /// Sends a mux record of `kind` for `chat`, as a change of its row does.
+    #[cfg(test)]
+    pub(crate) fn row_changed_for_test(&self, chat: &str, kind: &str) {
+        let _ = self.events.send(HubEvent {
+            session_id: chat.to_owned(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: now_ms(),
+                dir: "mux".into(),
+                kind: kind.into(),
+                msg: json!({}),
+                host_seq: None,
+            }),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+        });
     }
 }
 

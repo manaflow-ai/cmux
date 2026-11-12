@@ -292,13 +292,6 @@ async fn watch_list(
 ) -> Result<Value, RpcError> {
     if conn.origin == super::Origin::Peer && whole(params) {
         let raw = conn.raw_text;
-        // What the link holds of this list already: it reads only what changed
-        // (`watch_delta.rs`).
-        let known = match params.get("known") {
-            None | Some(Value::Null) => None,
-            Some(Value::Object(known)) => Some(known),
-            Some(_) => return Err(RpcError::invalid_params("known must be an object")),
-        };
         let most = LIST_PAGE_BYTES;
         return reply(hub, conn, hub.list_guard.share_bytes(most), false, Some(cursor), |list| {
             let name = match (tools, raw) {
@@ -311,10 +304,8 @@ async fn watch_list(
                 let own = Snapshot::own_whole(hub, tools);
                 if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
             });
-            match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
-                Some(delta) if delta.len() <= most => return Ok(Arc::new(delta)),
-                _ if own.len() <= most => return Ok(own),
-                _ => {}
+            if own.len() <= most {
+                return Ok(own);
             }
             // Too large for one of this link's pages: the list's pages, whose cursor the link
             // follows (`peer.rs` `watch_pages`); it drops the rows mirrored from its peers on

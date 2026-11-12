@@ -900,16 +900,6 @@ pub struct SessionsResult {
     /// done. Absent without `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<Option<String>>,
-    /// A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
-    /// changed since, and the rest of the known rows stand.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delta: Option<bool>,
-    /// With `delta`: the known sessions no longer listed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub removed: Option<Vec<String>>,
-    /// With `delta`: how many listed rows were left out as unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unchanged: Option<u64>,
     /// A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after
     /// it reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the
     /// one held only when its position is not lower.

@@ -151,23 +151,8 @@ impl Client {
     }
 }
 
-/// Sends a record of `kind` for `chat` as the hub does.
 fn record(hub: &Hub, chat: &str, kind: &str) {
-    let _ = hub.events.send(HubEvent {
-        session_id: chat.to_owned(),
-        record: Arc::new(EventRecord {
-            seq: 0,
-            at: now_ms(),
-            dir: "mux".into(),
-            kind: kind.into(),
-            msg: json!({}),
-            host_seq: None,
-        }),
-        remote: None,
-        update_line: Default::default(),
-        row: Default::default(),
-        list_seq: 0,
-    });
+    hub.row_changed_for_test(chat, kind);
 }
 
 fn ids(rows: &Value) -> Vec<String> {
