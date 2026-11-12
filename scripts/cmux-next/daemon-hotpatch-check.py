@@ -209,13 +209,18 @@ def main() -> int:
     finally:
         if edit_path.read_text() != original:
             edit_path.write_text(original)
-        if proc is not None and proc.poll() is None:
-            # dx and the daemon it started run in this process group only.
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
+        if proc is not None:
+            # dx and the daemon it started run in this process group only. SIGKILL the group after the grace
+            # period whether or not dx exited: the daemon may ignore SIGTERM (cmux#41767 review F1).
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except (ProcessLookupError, PermissionError):
+                    break
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    pass
         out_dir = os.environ.get("FAST_CHECKS_OUT")
         if out_dir and log_path.exists():
             subprocess.run(["cp", str(log_path), str(Path(out_dir) / "dx.log")], check=False)

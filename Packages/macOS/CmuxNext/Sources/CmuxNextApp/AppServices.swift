@@ -360,8 +360,6 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
-    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).
-    let newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
@@ -534,7 +532,6 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
     private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
-    let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
     let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
@@ -575,7 +572,6 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
-        dialogs = OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess)
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))

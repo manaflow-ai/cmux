@@ -155,6 +155,18 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// The fixture's own `debug.home.drive` actions (nil: not one of them). `feed_row` shows one Feed
+    /// notice (``HomeFeedRow``, `source`/`title`; default "cmux updated to nightly 4295228") in the
+    /// shown conversation, as the app does for the default Chief.
+    public func debugDrive(_ action: String, _ params: [String: String]) -> [String: String]? {
+        guard action == "feed_row" else { return nil }
+        guard let shown else { return ["ok": "false", "error": "the fixture conversation is not shown yet"] }
+        store.setFeedRows([HomeFeedRow(id: "debug-feed-row", source: params["source"] ?? "cmux",
+                                       title: params["title"] ?? "cmux updated to nightly 4295228", url: nil, date: Date())],
+                          in: shown.conversation)
+        return ["ok": "true"]
+    }
+
     /// Posts one mock permission through the real Home store and renderer. It can only use
     /// this fixture's mock decider; a socket call cannot send a permission response.
     /// `result` is what a later native pointer click receives: answered, refused or expired.
