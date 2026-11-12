@@ -219,6 +219,106 @@ static LAST: Cached = Cached { at: 0 };
 mod tests {
     use super::Cached;
 }
+=== refused hub/watches.rs 11 no `static HOOK_TEST: Mutex<()>` :: `use crate::other::Lock` (an RwLock in another file) beside a local `type Lock` Mutex is no import of the local one (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+#[cfg(test)]
+mod tests {
+    use crate::other::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused lib.rs 5 unresolved :: `use crate::other::Cached` (which may hold a closure) beside a local plain `struct Cached` is unresolved, not the local one (review of cmux#41728 F1, the hook side)
+struct Cached { at: u64 }
+static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+mod hooks {
+    use crate::other::Cached;
+    static HELD: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+}
+=== refused hub/watches.rs 10 no `static HOOK_TEST: Mutex<()>` :: `use super::super::Lock` climbs out of the file, so it is no import of the file's `type Lock` (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+mod tests {
+    use super::super::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 11 no `static HOOK_TEST: Mutex<()>` :: `use self::other::Lock` into an out-of-line `mod other;` is no import of the file's `type Lock` (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+mod tests {
+    mod other;
+    use self::other::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 13 no `static HOOK_TEST: Mutex<()>` :: `use self::other::Lock` into an inline module whose `Lock` is an RwLock (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+mod tests {
+    mod other {
+        pub type Lock = std::sync::RwLock<()>;
+    }
+    use self::other::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== passes hub/watches.rs :: `use crate::hub::watches::Lock` is the file's own `type Lock` (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+#[cfg(test)]
+mod tests {
+    use crate::hub::watches::Lock;
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+#[cfg(test)]
+static HOOK_TEST: Lock = Lock::new(());
+=== passes hub/mod.rs :: `use crate::hub::Lock` in a mod.rs is the file's own `type Lock` (review of cmux#41728 F1)
+type Lock = std::sync::Mutex<()>;
+#[cfg(test)]
+mod tests {
+    use crate::hub::Lock;
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+#[cfg(test)]
+static HOOK_TEST: Lock = Lock::new(());
+=== passes lib.rs :: `use super::Lock` two modules down and `use self::inner::Lock` reach the file's own `type Lock`s (review of cmux#41728 F1)
+mod a {
+    type Lock = std::sync::Mutex<()>;
+    mod b {
+        use super::Lock;
+    }
+    #[cfg(test)]
+    static HOOK_TEST: Lock = Lock::new(());
+}
+mod inner {
+    pub type Lock = std::sync::Mutex<()>;
+}
+use self::inner::Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
