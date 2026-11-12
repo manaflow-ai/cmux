@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43155899306",
+  "recorded_at": "2026-11-12T04:45:12Z",
+  "reason": "cmux-tui 4743d98cb6c7 changes the image's cmux-tui (pinned 08b93ed2fb14)",
+  "dry_run": false,
+  "cmux_tui": "4743d98cb6c7d938f5815b9febb9d5c470e6f8f3",
+  "fixes": [
+    {
+      "sha": "4743d98cb6c7d938f5815b9febb9d5c470e6f8f3",
+      "mergedAt": "2026-11-11T20:22:52-08:00",
+      "subject": "cmux-tui: a slow Cloud create finishes, and its retry replays the same mutation_id (port of #41520, with F1 fixed) (#41689)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T04:45:12Z",
+    "snapshot_id": "sh-520eb5b4096d4488a64814620af5f17c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43155899306): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "79cbe348cd5d632ad0941c7df9caea9a9a891192",
+    "image": "cloud-native-auto-4743d98c-43155899306-1",
+    "revision": "ci-43155899306-1",
+    "at": "2026-11-12T04:45:12Z"
+  },
+  "rolled_back": false
+}
