@@ -83,8 +83,9 @@ fn split_tree(spec: &str) -> (&str, Vec<String>) {
     let parts: Vec<&str> = rest.trim_end_matches('/').split('/').collect();
     match parts.as_slice() {
         [_, _, _, tree, tail @ ..] if *tree == "tree" && !tail.is_empty() => {
-            let cut = spec.len() - rest.len() + parts[..3].join("/").len();
-            (&spec[..cut], tail.iter().map(|part| part.to_string()).collect())
+            let cut = spec.len() - rest.len()
+                + parts.iter().take(3).copied().collect::<Vec<_>>().join("/").len();
+            (spec.get(..cut).unwrap_or(spec), tail.iter().map(|part| part.to_string()).collect())
         }
         _ => (spec, Vec::new()),
     }
@@ -192,7 +193,7 @@ pub(super) fn fetch(
     if !dir.is_dir() || !inside {
         return Err(format!(
             "{url} at {} has no folder {}",
-            &commit[..commit.len().min(12)],
+            commit.get(..commit.len().min(12)).unwrap_or(&commit),
             subdir.as_deref().unwrap_or("/")
         ));
     }
@@ -212,7 +213,7 @@ pub(super) fn resolve(
         return Some((commit, None, None));
     }
     (1..=tail.len()).find_map(|cut| {
-        let reference = tail[..cut].join("/");
+        let reference = tail.get(..cut)?.join("/");
         let commit = [
             format!("refs/remotes/origin/{reference}"),
             format!("refs/tags/{reference}"),
@@ -220,7 +221,7 @@ pub(super) fn resolve(
         ]
         .iter()
         .find_map(|name| commit_of(name))?;
-        let rest = (cut < tail.len()).then(|| tail[cut..].join("/"));
+        let rest = (cut < tail.len()).then(|| tail.get(cut..).map(|rest| rest.join("/"))).flatten();
         Some((commit, Some(reference), rest))
     })
 }

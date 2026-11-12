@@ -174,7 +174,7 @@ pub(super) fn report(
             "\nadded {} from {} at {}",
             outcome.app.as_deref().unwrap_or("the extension"),
             origin.field("url").as_str().unwrap_or(""),
-            &commit[..commit.len().min(12)]
+            commit.get(..commit.len().min(12)).unwrap_or(commit)
         ));
     }
     if !outcome.scene.is_empty() {
