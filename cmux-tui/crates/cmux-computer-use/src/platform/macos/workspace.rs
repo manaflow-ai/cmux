@@ -778,6 +778,15 @@ fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
     Some(map)
 }
 
+/// A name answered from the blocked apps known before the index (the cold
+/// map): their ids, or none for any other name (never "unknown"). For word
+/// runs, so a run naming a blocked app is a real block even while the index
+/// loads.
+pub fn cold_blocked_answer(name: &str) -> Option<Vec<String>> {
+    let key = name.trim().to_lowercase();
+    Some(cold_blocked_names().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
+}
+
 /// The bundle id of the app LaunchServices finds by name, if any.
 fn launch_services_id(name: &str) -> Option<String> {
     autoreleasepool(|_| {

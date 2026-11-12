@@ -1408,3 +1408,67 @@ fn a_refusal_names_why_an_item_is_blocked() {
     assert_eq!(block_message(BlockReason::Loading, Some("Open in X")), APP_NAMES_LOADING);
     assert_eq!(block_message(BlockReason::Unreadable, None), UNREADABLE_ITEM_REFUSAL);
 }
+
+#[test]
+fn an_open_with_item_naming_an_allowed_app_is_allowed_once_the_index_is_built() {
+    use crate::menus::BlockReason;
+    // The default deny list is not empty (Terminal is on it).
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let open_with = vec!["Open With".to_string()];
+    let index = |n: &str| -> Option<Vec<String>> {
+        Some(match n.to_lowercase().as_str() {
+            "textedit" => vec!["com.apple.TextEdit".into()],
+            "terminal" => vec!["com.apple.Terminal".into()],
+            _ => vec![],
+        })
+    };
+    let cold = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
+    let reason = |t: &str, ready| opened_reason(&guard, t, Some(&open_with), ready, &cold, &index);
+    assert_eq!(reason("TextEdit", true), None);
+    assert_eq!(reason("Terminal", true), Some(BlockReason::Denied));
+    // An Open With item the index does not know: blocked (launch list).
+    assert_eq!(reason("Some Document", true), Some(BlockReason::Denied));
+    // While the index loads, an index-only block says Loading.
+    let loading = |_: &str| -> Option<Vec<String>> { None };
+    assert_eq!(
+        opened_reason(&guard, "TextEdit", Some(&open_with), false, &cold, &loading),
+        Some(BlockReason::Loading)
+    );
+}
+
+#[test]
+fn the_name_free_rules_do_not_block_a_launch_list_item() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let open_with = vec!["Open With".to_string()];
+    // A launch list needs names: the name-free pass leaves it alone.
+    assert!(!opened_rules_name_free(&guard, "TextEdit", Some(&open_with)));
+    // An unreadable path while something is denied: blocked.
+    assert!(opened_rules_name_free(&guard, "TextEdit", None));
+    // A `name:` deny entry is matched by the name alone.
+    let by_name = PolicyGuard(crate::policy::PolicyConfig {
+        denied_apps: vec!["name:Diary".into()],
+        ..Default::default()
+    });
+    assert!(opened_rules_name_free(&by_name, "Write in Diary", Some(&[])));
+}
+
+#[test]
+fn a_word_run_naming_a_blocked_app_known_before_the_index_is_denied_not_loading() {
+    use crate::menus::BlockReason;
+    let guard = PolicyGuard(crate::policy::PolicyConfig {
+        denied_apps: vec!["com.agilebits.*".into()],
+        ..Default::default()
+    });
+    let cold = |n: &str| -> Option<Vec<String>> {
+        Some(if n.eq_ignore_ascii_case("1Password") {
+            vec!["com.agilebits.onepassword7".into()]
+        } else {
+            vec![]
+        })
+    };
+    let loading = |_: &str| -> Option<Vec<String>> { None };
+    assert_eq!(
+        opened_reason(&guard, "Open in 1Password", Some(&[]), false, &cold, &loading),
+        Some(BlockReason::Denied)
+    );
+}

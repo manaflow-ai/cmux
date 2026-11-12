@@ -107,17 +107,14 @@ impl MacDesktop {
             roles::ItemCheck::Allowed => {}
         }
         let path = menus::item_path_checked(item);
-        // What blocks with no names at all is a real block (a `name:` entry,
-        // a protected name, an unreadable path, a launch list).
-        let no_names = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
-        if opened_rules(&*guard, &title, path.as_deref(), &no_names) {
-            return Some(BlockReason::Denied);
-        }
-        // The rest reads the built index alone: while it loads, a block may
-        // only mean a name is not known yet.
-        opened_rules(&*guard, &title, path.as_deref(), &workspace::apps_named_indexed).then(|| {
-            if workspace::app_names_ready() { BlockReason::Denied } else { BlockReason::Loading }
-        })
+        opened_reason(
+            &*guard,
+            &title,
+            path.as_deref(),
+            workspace::app_names_ready(),
+            &workspace::cold_blocked_answer,
+            &workspace::apps_named_indexed,
+        )
     }
 
     /// Whether a menu item a walk or a menu listing reached is hidden and
@@ -175,6 +172,51 @@ fn opened_rules(
     std::iter::once(title)
         .chain(path.unwrap_or_default().iter().map(String::as_str))
         .any(|t| crate::menus::title_names_blocked_app(guard, t, resolve))
+}
+
+/// The rules of [`opened_rules`] that need no app names: a word run of the
+/// title or the path above it that the guard blocks by name (a `name:`
+/// entry, a protected app's name), and, while something is denied, a path
+/// that could not be read. A block here is real, loading or not.
+pub(super) fn opened_rules_name_free(
+    guard: &dyn MenuGuard,
+    title: &str,
+    path: Option<&[String]>,
+) -> bool {
+    if path.is_none() && guard.denies_any() {
+        return true;
+    }
+    let no_names = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
+    std::iter::once(title)
+        .chain(path.unwrap_or_default().iter().map(String::as_str))
+        .any(|t| crate::menus::title_names_blocked_app(guard, t, &no_names))
+}
+
+/// Why an opened-menu item past the menu-bar rule is hidden and refused,
+/// and how to say it: a name-free block, or a word run that names a
+/// blocked app known before the index (`cold`), is Denied; the full rules
+/// on the index (`indexed`) block as Denied once it is built and as
+/// Loading while it loads (a name may only be unknown yet). Pure, for tests.
+pub(super) fn opened_reason(
+    guard: &dyn MenuGuard,
+    title: &str,
+    path: Option<&[String]>,
+    names_ready: bool,
+    cold: &dyn Fn(&str) -> Option<Vec<String>>,
+    indexed: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> Option<crate::menus::BlockReason> {
+    use crate::menus::BlockReason;
+    if opened_rules_name_free(guard, title, path) {
+        return Some(BlockReason::Denied);
+    }
+    let cold_hit = std::iter::once(title)
+        .chain(path.unwrap_or_default().iter().map(String::as_str))
+        .any(|t| crate::menus::title_names_blocked_app(guard, t, cold));
+    if cold_hit {
+        return Some(BlockReason::Denied);
+    }
+    let reason = if names_ready { BlockReason::Denied } else { BlockReason::Loading };
+    opened_rules(guard, title, path, indexed).then_some(reason)
 }
 
 /// A resolved window: the window server's entry and its app's identity.
