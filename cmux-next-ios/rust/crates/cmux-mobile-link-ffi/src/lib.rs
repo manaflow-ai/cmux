@@ -15,10 +15,12 @@ use tokio::runtime::Runtime;
 mod browser;
 mod classic_leftovers;
 mod terminal_prediction;
+mod terminal_projection;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 
 uniffi::setup_scaffolding!();
 

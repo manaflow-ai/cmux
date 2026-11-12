@@ -214,7 +214,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         )
         model.reconnect = { [weak self, weak session] in
             self?.reconnect?(workspace.macID)
-            (session as? DaemonTerminalSession)?.reconnect()
+            (session?.underlyingSession as? DaemonTerminalSession)?.reconnect()
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
@@ -519,7 +519,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
         // A Mac terminal: who shows it, the size each asks for, and the Mac's sizing policy.
-        if let live = model.session as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
+        if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
         return actions + [

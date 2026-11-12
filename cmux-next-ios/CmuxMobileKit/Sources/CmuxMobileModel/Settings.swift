@@ -153,6 +153,8 @@ public final class SettingsStore {
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
+    public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key; Rust turns ultra
     /// mode on only while the network is cellular. Off by default.
     public var ultraOnCellular: Bool { didSet { save(ultraOnCellular, "ultraOnCellular") } }
@@ -197,6 +199,7 @@ public final class SettingsStore {
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
         predictiveEcho = bool("predictiveEcho", true)
+        terminalFitToPhone = bool("terminalFitToPhone", false)
         ultraOnCellular = bool("ultraOnCellular", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))

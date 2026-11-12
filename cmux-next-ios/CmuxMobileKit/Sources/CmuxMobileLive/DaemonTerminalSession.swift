@@ -395,6 +395,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
+    /// The phone projects this terminal (``TerminalProjectingSession``).
+    private var projectsLocally = false
+
+    public func setProjectsLocally(_ projects: Bool) {
+        projectsLocally = projects
+    }
+
     public func setClaimsSize(_ claims: Bool) {
         guard claims != claimsSize else { return }
         claimsSize = claims
@@ -934,7 +941,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
         let wasHolding = reclaimHold.isHolding
-        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        // Projected, the primary screen shows the Mac's own grid re-wrapped:
+        // nothing to hold back. A hidden full-screen app still waits for the
+        // phone's grid, so a return never shows it stretched.
+        let claims = claimsSize || (projectsLocally && !isAlternateScreen)
+        let events = reclaimHold.take(event, claims: claims, phoneGrid: phoneGrid, alternate: isAlternateScreen)
         if wasHolding != reclaimHold.isHolding {
             log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
             if wasHolding {

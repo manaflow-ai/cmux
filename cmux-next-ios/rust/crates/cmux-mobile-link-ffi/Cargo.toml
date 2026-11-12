@@ -26,6 +26,7 @@ cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-proto.workspace = true
 cmux-terminal-prediction.workspace = true
+cmux-terminal-projection.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

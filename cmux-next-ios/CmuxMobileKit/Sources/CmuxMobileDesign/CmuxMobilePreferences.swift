@@ -10,6 +10,9 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
+        /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
+        /// the phone (as before); off, the phone re-wraps it at its own width.
+        public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
@@ -30,6 +33,7 @@ public enum CmuxMobilePreferences {
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
+    public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     public static let defaultDismissKeyboardAfterSend = true
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
@@ -59,6 +63,14 @@ public enum CmuxMobilePreferences {
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
+    }
+
+    /// The Mac's terminal resizes to the phone (on), or keeps its size while
+    /// the phone re-wraps it at its own width (off, the default;
+    /// `TerminalProjectingSession`). Read when a terminal page opens.
+    public static func terminalFitToPhone(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalFitToPhone) == nil
+            ? defaultTerminalFitToPhone : defaults.bool(forKey: Key.terminalFitToPhone)
     }
 
     public static func dismissKeyboardAfterSend(_ defaults: UserDefaults = .standard) -> Bool {

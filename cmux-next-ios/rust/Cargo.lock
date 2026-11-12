@@ -551,6 +551,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-rd-proto",
  "cmux-terminal-prediction",
+ "cmux-terminal-projection",
  "serde_json",
  "sha2",
  "tempfile",
@@ -606,6 +607,13 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-terminal-projection"
+version = "0.1.0"
+dependencies = [
+ "unicode-width",
+]
 
 [[package]]
 name = "cmux-transport"

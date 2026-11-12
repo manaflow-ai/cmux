@@ -2068,6 +2068,13 @@ name = "cmux-terminal-prediction"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-terminal-projection"
+version = "0.1.0"
+dependencies = [
+ "unicode-width",
+]
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [

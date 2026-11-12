@@ -1001,6 +1001,20 @@ TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path a
 
 ## Terminal size claims
 
+**Projection (2026-11-12, the default).** The phone keeps a VT model of the
+Mac terminal at the Mac's grid, fed the attach stream's bytes
+(`cmux-terminal-projection`, `TerminalProjectingSession`), and re-wraps its
+primary screen (a shell, an inline TUI such as Claude Code) at the phone's
+own width. On the primary screen the phone claims no size: it attaches
+without one and never sends `resize-surface`, so attach, an app switch, a
+lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
+re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
+it claims as below, only while the page claims, and releases when the
+program leaves the alternate screen. Cursor position (`CSI 6n`) and text area
+(`CSI 18t`) reports are answered by the projection in the Mac's cells.
+Settings → Terminal → Fit to Phone turns projection off: the rest of this
+section then applies to every screen.
+
 When the phone shows a Mac terminal, the shared PTY is sized for the phone too
 (cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
 shows the phone's grid. The phone's size counts only while the person is
