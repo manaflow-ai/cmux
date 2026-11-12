@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "scripts/cmux-next/bundle-size.py"
 REAL_BUDGET = ROOT / "scripts/cmux-next/bundle-size-budget.json"
+NIGHTLY_WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 CEF = "Contents/Frameworks/Chromium Embedded Framework.framework"
 
 
@@ -95,6 +97,19 @@ def test_dmg_cap_without_dmg_fails(tmp: Path) -> None:
     r = run("check", str(app), "--budget", str(b), "--variant", "arm64")
     assert r.returncode == 1
     assert "no --dmg" in r.stderr
+
+
+def test_nightly_bundle_budget_step_is_blocking(tmp: Path) -> None:
+    del tmp
+    text = NIGHTLY_WORKFLOW.read_text()
+    match = re.search(
+        r"(?ms)^      - name: Bundle size budget\n(?P<body>.*?)(?=^      - name: )",
+        text,
+    )
+    assert match, "nightly.yml must keep the named bundle budget step"
+    body = match.group("body")
+    assert "continue-on-error:" not in body, "the bundle budget must block a nightly publish"
+    assert "verify-final-dmg-bundle-size-budget.sh" in body
 
 
 def test_unknown_variant_fails(tmp: Path) -> None:
