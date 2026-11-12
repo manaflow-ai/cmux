@@ -304,7 +304,7 @@ jobs:
               echo "::error::met takes build=tagged, agent=claude and no cleanup_machine, matrix, from_folder or paused_capture"
               exit 1
             fi
-            # Only an ephemeral macOS runner: never an owned Mac (Leo's, huge-blue, big-red or a fleet mini).
+            # Only an ephemeral macOS runner: never an owned Mac.
             case "$RUNNER_POOL" in
               blacksmith|hosted) echo "met runs on an ephemeral $RUNNER_POOL runner ($RUNNER_NAME)" ;;
               *) echo "::error::met runs only on an ephemeral macOS runner; this is '$RUNNER_NAME' ($RUNNER_POOL)"; exit 1 ;;
