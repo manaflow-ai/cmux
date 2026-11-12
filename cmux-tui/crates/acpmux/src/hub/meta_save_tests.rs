@@ -8,6 +8,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// How long a test waits for a writer to reach its hold before it fails instead of hanging.
+const ARRIVE: Duration = Duration::from_secs(30);
+
 /// The value the "metadata" holds now, and every copy written, in order.
 #[derive(Default)]
 struct Disk {
@@ -58,7 +61,7 @@ fn a_change_that_races_a_running_commit_is_answered_after_a_commit_that_holds_it
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     // B: changes the value to 2 while A's copy (1) waits to be written, and commits.
     let b = {
         let (writer, disk) = (writer.clone(), disk.clone());
@@ -138,7 +141,7 @@ fn a_change_nobody_waits_for_is_committed_by_the_writer_at_work() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -171,7 +174,7 @@ fn a_change_that_came_during_a_failed_commit_is_still_committed() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -263,7 +266,7 @@ fn hold_next_write(
     *session.meta_writer.hold.lock().unwrap() = Some((arrived_tx, release_rx));
     let (hub, session) = (hub.clone(), session.clone());
     let writer = std::thread::spawn(move || hub.save_meta(&session));
-    arrived.recv().unwrap();
+    arrived.recv_timeout(ARRIVE).expect("the chat's next write never reached its hold");
     (release, writer)
 }
 
@@ -398,7 +401,7 @@ fn a_writer_that_panics_still_commits_a_newer_change() {
             }))
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -434,7 +437,7 @@ fn the_writer_answers_its_own_request_after_its_first_commit() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     let b = {
         let (writer, log, value) = (writer.clone(), log.clone(), value.clone());
         std::thread::spawn(move || {

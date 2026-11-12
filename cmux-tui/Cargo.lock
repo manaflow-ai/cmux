@@ -43,6 +43,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-source-scan",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -105,6 +106,15 @@ dependencies = [
  "x25519-dalek",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "acpmux-book"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -1975,6 +1985,17 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-source-scan"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]

@@ -5,8 +5,9 @@
 // Only one of the two shows at a time (Leo, 2026-11-12: the two stacked are "maybe a bit extra?"):
 // the variants park the reader mid-chat, scrolled up, where Jump to latest shows over real prose; the
 // `-up` variants leave them at the latest message under an unread "New" line far above, where Jump up
-// shows; `frosted-image` over a wallpaper. `pair` and `up` pin no arm, so View Compare arms draws them
-// once per look side by side; the other variants pin one look each. Light and dark:
+// shows; `single` pins the look that draws no Jump up at all; `frosted-image` over a wallpaper. `pair`
+// and `up` pin no arm, so View Compare arms draws them once per look side by side; the other variants
+// pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -65,9 +66,14 @@ const park: Play = async (ctx) => {
   await ctx.waitFor(() => shown(ctx, LATEST) && !shown(ctx, UP));
 };
 
-/// At the latest message, the unread line far above: Jump up shows, alone.
+/// At the latest message, the unread line far above: Jump up shows, alone. The single look draws no
+/// Jump up, so there neither button shows.
 const atLatest: Play = async (ctx) => {
   await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  if (ctx.document.querySelector(`${LATEST}[data-look="single"]`)) {
+    await ctx.waitFor(() => !shown(ctx, LATEST));
+    return;
+  }
   await ctx.waitFor(() => shown(ctx, UP) && !shown(ctx, LATEST));
 };
 
@@ -131,6 +137,12 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("stacked"),
+    },
+    single: {
+      note: 'Single: the frosted disc alone, no Jump up over it (Leo, 2026-11-12: "maybe a bit extra?").',
+      snapshot,
+      play: park,
+      ...look("single"),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",

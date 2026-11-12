@@ -80,7 +80,7 @@ async fn hub_of(chats: usize, title: usize, status: &str) -> Arc<crate::hub::Hub
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
     let row = json!({"sessionId": MIRRORED, "name": "lane", "status": "idle", "updatedAt": 5});
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(vec![row]), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(vec![row]), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
