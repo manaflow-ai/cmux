@@ -30,6 +30,11 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          delete sealed segments in place for --in-place-dwell seconds. The row: the registry
          lock by site (server-stats `locks`: acquisitions and hold times) and the times of an
          identify request each 0.5 s and a rename-workspace request each second.
+  kill-hold  (not in the default list) kill -9 BETWEEN TWO HOLDS of the delete in place of
+         one segment: as the in-place arm, and this script reads counts from the file each few
+         milliseconds and kills the owner when the oldest sealed segment is at or below the
+         floor with a part of its rows gone. The start after it must end that delete: the
+         segment and each row at or below its end gone, the counts and the served answer equal.
   in-place-kept  the delete in place of each day: a RELEASE owner on a clone of the state
          AFTER the swap, with the kept file of that swap beside it (no rebuild for 7 days and 3
          starts), after synth_registry appended --kept-records sealed records. The row: the
@@ -1267,6 +1272,7 @@ def kill_hold_arm(args, state, before, report):
         most[end] = max(most.get(end, 0), total)
         if through >= end and 0 < total < most[end]:
             owner.kill9()
+            owner.child.wait()
             hit = end
             break
         time.sleep(0.002)

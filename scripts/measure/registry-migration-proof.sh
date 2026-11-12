@@ -40,6 +40,9 @@
 # arms= can also name in-place-kept-nowatch and in-place-kept-quiet: the in-place-kept arm with no
 # read of the registry file by the script while the owner runs, and (quiet) with no probe request.
 # Each in-place row and the base-sample row has `wal`: the owner's own WAL counters.
+# arms= can also name kill-hold (not in the default list): kill -9 between two holds of the
+# delete in place of one segment (a part of its rows gone, its row and content there), then
+# a start that must end that delete with the counts and the served answer equal.
 # base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
 # in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
 # arm have a row that shows what the size of the file and the host cost with no delete.
