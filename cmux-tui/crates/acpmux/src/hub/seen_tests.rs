@@ -215,3 +215,121 @@ async fn coming_back_from_idle_mid_turn_counts_what_the_running_turn_wrote() {
     let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
     assert_eq!(back.map(|b| b.since), Some(last_input), "the output written while away is new");
 }
+
+// The seen cursor (`read_through`, Leo, 2026-11-12: "when you restart the update, all of a sudden
+// it's just, like, you know, it's there and it's noisy").
+
+const ALICE: &str = "tailnet:alice@example.com";
+
+/// A hub on a store in `root` (one that keeps `session.json`), or in memory.
+fn hub_at(root: Option<&std::path::Path>) -> Arc<Hub> {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = if root.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    let store =
+        crate::store::open(&cfg.store, root.unwrap_or(std::path::Path::new("/nonexistent")))
+            .unwrap();
+    Hub::new(cfg, store)
+}
+
+fn notes(hub: &Hub, s: &Session, n: usize) -> u64 {
+    for _ in 0..n {
+        hub.append(s, "mux", "note", json!({"row": true}));
+    }
+    s.seq.load(Ordering::SeqCst)
+}
+
+#[tokio::test]
+async fn seen_moves_the_cursor_forward_only_and_never_past_the_log() {
+    let (hub, s) = chat().await;
+    assert_eq!(hub.read_through(&s, OWNER_READER), None, "nothing seen yet");
+    let mid = notes(&hub, &s, 3);
+    let end = notes(&hub, &s, 3);
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, mid), mid);
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, mid - 2), mid, "never back");
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(mid));
+    assert_eq!(
+        hub.mark_read_through(&s, OWNER_READER, end + 50),
+        end,
+        "clamped to the newest record"
+    );
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(end));
+}
+
+#[tokio::test]
+async fn attach_view_reconnect_notices_and_mux_records_never_move_it() {
+    let (hub, s) = chat().await;
+    let seen = notes(&hub, &s, 2);
+    hub.mark_read_through(&s, OWNER_READER, seen);
+    // An attach that shows the chat, a view change, idle and back, a reconnect.
+    hub.attach_count(&s, 1, true);
+    hub.look_changed(&s, Look::Attending, Look::Idle, None);
+    hub.look_changed(&s, Look::Idle, Look::Attending, None);
+    hub.set_visible(&s, false);
+    hub.set_visible(&s, true);
+    hub.attach_count(&s, -1, true);
+    hub.attach_count(&s, 1, true);
+    // A notice, a status, the read status a return logs, a turn end.
+    hub.append(&s, "mux", "notice", json!({"text": "restarted"}));
+    hub.append(&s, "mux", "status", json!({"status": "idle", "read": true}));
+    hub.note_turn_end(&s);
+    hub.mark_unread(&s);
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(seen), "only _acpmux/seen moves it");
+    assert!(s.seq.load(Ordering::SeqCst) > seen, "records did land after it");
+}
+
+#[tokio::test]
+async fn each_person_has_their_own_cursor() {
+    let (hub, s) = chat().await;
+    let early = notes(&hub, &s, 2);
+    let late = notes(&hub, &s, 2);
+    hub.mark_read_through(&s, OWNER_READER, late);
+    hub.mark_read_through(&s, ALICE, early);
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(late));
+    assert_eq!(hub.read_through(&s, ALICE), Some(early));
+    assert_eq!(hub.read_through(&s, "tailnet:bob@example.com"), None);
+    // Alice reading on moves only hers.
+    hub.mark_read_through(&s, ALICE, late);
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(late));
+    assert_eq!(hub.read_through(&s, ALICE), Some(late));
+}
+
+#[tokio::test]
+async fn mark_unread_with_a_seq_moves_it_back_only() {
+    let (hub, s) = chat().await;
+    let early = notes(&hub, &s, 2);
+    let late = notes(&hub, &s, 2);
+    hub.mark_read_through(&s, OWNER_READER, late);
+    assert_eq!(hub.mark_read_back(&s, OWNER_READER, early), early);
+    assert_eq!(hub.mark_read_back(&s, OWNER_READER, late), early, "never forward");
+    assert_eq!(hub.read_through(&s, OWNER_READER), Some(early));
+}
+
+#[tokio::test]
+async fn the_cursor_survives_a_restart_of_the_daemon() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-read-through");
+    let hub = hub_at(Some(dir.path()));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let seen = notes(&hub, &s, 3);
+    hub.mark_read_through(&s, OWNER_READER, seen);
+    hub.mark_read_through(&s, ALICE, seen - 1);
+    notes(&hub, &s, 2);
+    let id = s.id.clone();
+    drop(s);
+    hub.store.flush_session(&id).unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+
+    let restarted = hub_at(Some(dir.path()));
+    let kept = restarted.store.load(&id).unwrap().unwrap();
+    assert_eq!(kept.read_through.get(OWNER_READER), Some(&seen), "kept in session.json");
+    let s = restarted.resolve(&id).unwrap();
+    // Coming back after the restart (an attach that shows it) moves nothing.
+    restarted.attach_count(&s, 1, true);
+    assert_eq!(restarted.read_through(&s, OWNER_READER), Some(seen));
+    assert_eq!(restarted.read_through(&s, ALICE), Some(seen - 1));
+    restarted.shutdown_all().await;
+}

@@ -50,6 +50,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        // The newest row seq on screen while the person attends (acpmux hub/seen.rs `read_through`).
+        "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -134,7 +136,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
         "_acpmux/bg/stop": (["sessionId", "id"], []),
-        "_acpmux/markUnread": (["sessionId"], []),
+        "_acpmux/markUnread": (["sessionId", "readThrough"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
         "_acpmux/resolve": (["query"], []),

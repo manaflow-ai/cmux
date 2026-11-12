@@ -23,8 +23,27 @@
 //! person is away from a chat left on screen are unread, and coming back is a return with
 //! "New since you looked" where they stopped attending (`seenSeq`, which may be earlier than the
 //! moment the client noticed: the seq it had at the person's last input).
+//!
+//! What the person has seen, row by row (Leo, 2026-11-12: "it doesn't actually keep track of,
+//! like, when the things ... when you restart the update, all of a sudden it's just, like, you
+//! know, it's there and it's noisy"): one cursor per chat per person, `read_through`, the newest
+//! log seq that was on their screen while they attended it. Only `_acpmux/seen` moves it, and
+//! only forward, never past the chat's own seq. A restart, an update, a reconnect, an attach, a
+//! re-subscribe, `_acpmux/view`, a notice and every `mux` record leave it where it is, so a chat
+//! with nothing new after a restart has nothing unseen. `_acpmux/markUnread` with `readThrough`
+//! may move it back. Kept in `session.json` (`SessionMeta::read_through`); it changes once per
+//! advance the pane sends (throttled there), never per record. The dot above (`unread`) is apart.
 
 use super::*;
+
+/// The owner's key in `SessionMeta::read_through`: a request with no `_meta.acpmux.author` is the
+/// owner's. No author id is this (they are `tailnet:…`, `user_…` or `guest:…`, `author.rs`).
+pub const OWNER_READER: &str = "owner";
+
+/// Whose seen cursor a request moves: its author's, the owner's when it names none.
+pub fn reader_of(author: Option<&crate::author::Author>) -> &str {
+    author.map_or(OWNER_READER, |a| a.id.as_str())
+}
 
 /// How one client holds a chat: not showing it, showing it while its person is away, or showing it
 /// to a person who attends (`server/view.rs`).
@@ -260,6 +279,43 @@ impl Hub {
                 "turns": turns,
             }),
         );
+    }
+}
+
+impl Hub {
+    /// `reader`'s seen cursor on the chat: the newest log seq they saw. None until they first
+    /// saw a row (or on a chat from before it was kept).
+    pub fn read_through(&self, session: &Session, reader: &str) -> Option<u64> {
+        session.read_meta(|m| m.read_through.get(reader).copied())
+    }
+
+    /// `_acpmux/seen`: `reader` saw the chat through `seq`. Moves their cursor forward only, never
+    /// past the chat's newest record; saved only when it moved. Returns the cursor after.
+    pub fn mark_read_through(&self, session: &Session, reader: &str, seq: u64) -> u64 {
+        let seq = seq.min(session.seq.load(Ordering::SeqCst));
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let before = meta.read_through.get(reader).copied();
+        if before.is_some_and(|b| b >= seq) {
+            return before.unwrap_or(seq);
+        }
+        meta.read_through.insert(reader.to_owned(), seq);
+        drop(meta);
+        self.save_meta(session);
+        seq
+    }
+
+    /// `_acpmux/markUnread` with `readThrough`: the person marks the rows after `seq` unseen
+    /// again. Moves their cursor back only; returns it after.
+    pub fn mark_read_back(&self, session: &Session, reader: &str, seq: u64) -> u64 {
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let before = meta.read_through.get(reader).copied();
+        if before.is_some_and(|b| b <= seq) {
+            return before.unwrap_or(seq);
+        }
+        meta.read_through.insert(reader.to_owned(), seq);
+        drop(meta);
+        self.save_meta(session);
+        seq
     }
 }
 

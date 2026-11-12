@@ -219,11 +219,38 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
     Ok(json!({}))
 }
 
-/// `_acpmux/markUnread {sessionId}` (cx-ncc.78): the person marks a chat unread; it stays so until
-/// a client shows it again after hiding it (`hub/seen.rs`).
+/// `_acpmux/markUnread {sessionId, readThrough?}` (cx-ncc.78): the person marks a chat unread; it
+/// stays so until a client shows it again after hiding it (`hub/seen.rs`). With `readThrough`, the
+/// person's seen cursor also moves back to it (never forward), so the rows after it are unseen.
 pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
-    hub.mark_unread_answered(&*hub.resolve(session_key(params)?)?)?;
+    let s = hub.resolve(session_key(params)?)?;
+    let back = match params.get("readThrough") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(
+            v.as_u64().ok_or_else(|| RpcError::invalid_params("readThrough must be a log seq"))?,
+        ),
+    };
+    if let Some(seq) = back {
+        let author = crate::author::author(params)?;
+        hub.mark_read_back(&s, crate::hub::reader_of(author.as_ref()), seq);
+    }
+    hub.mark_unread_answered(&s)?;
     Ok(json!({}))
+}
+
+/// `_acpmux/seen {sessionId, seq}`: the person (`_meta.acpmux.author`, the owner when none) had
+/// the chat's rows through `seq` on screen while attending it. Moves their seen cursor forward
+/// only, clamped to the chat's newest record (`hub/seen.rs` `mark_read_through`). Answers
+/// `{readThrough}`, the cursor after. The only request that moves it forward.
+pub(super) fn seen(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    let seq = params
+        .get("seq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("seq must be a log seq"))?;
+    let author = crate::author::author(params)?;
+    let through = hub.mark_read_through(&s, crate::hub::reader_of(author.as_ref()), seq);
+    Ok(json!({"readThrough": through}))
 }
 
 /// The connection closed: every attachment it held ends with it.
@@ -244,3 +271,7 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "view_seen_tests.rs"]
+mod seen_tests;

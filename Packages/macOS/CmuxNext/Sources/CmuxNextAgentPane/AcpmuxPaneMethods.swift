@@ -22,6 +22,9 @@ nonisolated enum AcpmuxPaneMethods {
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
         "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
+        // The person's seen cursor (direct.ts sendSeen; acpmux hub/seen.rs `read_through`): the
+        // newest row seq on screen while they attend the chat. Forward only, theirs only.
+        "_acpmux/seen",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
