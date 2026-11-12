@@ -531,6 +531,53 @@ test("App still starts diff rendering when statusMessage is an empty string", as
   expect(fetchCount).toBe(1);
 });
 
+test("files header shows the total additions and deletions", async () => {
+  dom = createDom();
+  const patch = [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1,2 +1,3 @@",
+    "-old",
+    "+new",
+    "+more",
+    " same",
+    "diff --git a/b.txt b/b.txt",
+    "--- a/b.txt",
+    "+++ b/b.txt",
+    "@@ -1,2 +1 @@",
+    "-gone",
+    " kept",
+    "",
+  ].join("\n");
+  installDomGlobals(dom, () => new Response(patch, { status: 200 }));
+  // The real code view and file tree read DOM classes unqualified; jsdom lacks ResizeObserver.
+  const domOnlyGlobals = [...Object.getOwnPropertyNames(dom.window).filter((key) => !(key in globalThis)), "ResizeObserver"];
+  for (const key of domOnlyGlobals) {
+    (globalThis as any)[key] = (dom.window as any)[key];
+  }
+  (globalThis as any).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+  try {
+    renderApp(
+      <App
+        config={{ payload: { patchURL: "/patch.diff", statusMessage: "", title: "Diff" } }}
+        initialStatus={createDiffViewerStatus("", { loading: true })}
+      />,
+    );
+
+    const doc = dom.window.document;
+    await waitFor(() => doc.getElementById("files-count")?.textContent === "2");
+    expect(doc.getElementById("files-added-lines")?.textContent).toBe("+2");
+    expect(doc.getElementById("files-deleted-lines")?.textContent).toBe("-2");
+  } finally {
+    flushSync(() => root?.unmount());
+    root = null;
+    for (const key of domOnlyGlobals) {
+      delete (globalThis as any)[key];
+    }
+  }
+});
+
 test("App reports copy failure without replacing the current status screen", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
