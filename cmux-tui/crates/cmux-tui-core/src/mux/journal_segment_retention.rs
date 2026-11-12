@@ -220,7 +220,9 @@ impl Mux {
     /// long-lived registry the delete in place of all of it is hours of
     /// ticks and tens of gigabytes of WAL frames, and it leaves the file at
     /// its size. A run that is not worth a rebuild has no bound: the pass
-    /// deletes it as it does each day.
+    /// deletes it as it does each day. That is also the rest of a run that
+    /// the bounded deletes brought below that count, so one start deletes
+    /// fewer than two times the records one rebuild is worth, never more.
     fn next_segment_in_place(
         &self,
         registry: &crate::workspace_registry::WorkspaceRegistry,
