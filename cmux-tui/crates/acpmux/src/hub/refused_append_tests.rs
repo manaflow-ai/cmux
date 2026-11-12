@@ -3,7 +3,7 @@
 //! the log contradicted.
 
 use crate::config::{Config, StoreMode};
-use crate::store::REFUSE_APPENDS;
+use crate::store::{COPY_FORKS, REFUSE_APPENDS};
 use serde_json::json;
 
 #[tokio::test]
@@ -71,9 +71,12 @@ async fn a_fork_whose_copy_the_store_refused_fails() {
     }
     let chats = hub.sessions.lock().unwrap().len();
 
+    // A fork that copies the chat's records, each refused.
+    COPY_FORKS.with(|c| c.set(true));
     REFUSE_APPENDS.with(|r| r.set(true));
     let fork = hub.fork(&parent, None, None, Default::default(), None, None, true).await;
     REFUSE_APPENDS.with(|r| r.set(false));
+    COPY_FORKS.with(|c| c.set(false));
     let err = fork.err().expect("a fork with refused copies fails");
     assert_eq!(err.data.as_ref().and_then(|d| d["reason"].as_str()), Some("fork.incomplete"));
     // The failed fork is purged (`CreationGuard`, on its own task).
