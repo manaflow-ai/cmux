@@ -12541,7 +12541,8 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
     both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
     those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
 
-    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml",
+             "cmux-41790-checks": ".github/workflows/cmux-next.yml"}
     FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
              "seconds with 1 issue.")
     # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
@@ -12667,6 +12668,81 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         self.not_job_error()
         with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+    # cmux#41790's "cmux-next checks" (head: run 43192236591, job 131108244808 at f2f5e3a9; base: feat-cmux-next run
+    # 43196103785, job 131107474882 at 38651ff1), both on Blacksmith runners whose "Set up runner" and "Complete
+    # runner" job hooks each print RUNNER_HOOK_NOTICE before their `Run '/...sh'` header. The base's notice is stamped
+    # 10:04:42.0000405 after its checkout post step ended at 10:04:41, so _aligned_starts found no fit and every PR's
+    # red of that job was refused with "does not map one to one onto its steps". Trimmed to each step's header, its
+    # first and last stamped line, every `##[error]` line and the notices, as served.
+    CHECKS = "cmux-41790-checks"
+    CHECKS_FAILED = {"Scrollbars thin, one style": "errored",
+                     "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)": "errored",
+                     "Fail on any red check": "failed"}
+    COMPLETED_NOTICE = "A job completed hook has been configured by the self-hosted runner administrator"
+
+    def checks_view(self, side, log=None):
+        github = self.github(self.CHECKS, self.fixture(self.CHECKS, "head"), self.fixture(self.CHECKS, "base"))
+        job = copy.deepcopy(github.jobs[1 if side == "head" else 2])
+        names = excuse.workflow_step_names(REPO, job, self.PATHS[self.CHECKS], github, {})
+        self.assertIsNotNone(getattr(names, "headers", None))
+        return excuse.failed_view(job, github.logs[1 if side == "head" else 2] if log is None else log,
+                                  step_names=names, base=side == "base")
+
+    def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
+        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
+        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
+        for side, sections in (("head", self.CHECKS_FAILED),
+                               ("base", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"})):
+            with self.subTest(side=side):
+                view = self.checks_view(side)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, sections)
+
+    def test_cmux_41790_a_base_check_its_rollup_does_not_name_is_no_evidence(self):
+        # The same base log with its rollup's list taken away (no `red check:` line, so rollup_log_reds parses none):
+        # the continue-on-error check's ERRORED section is shown, never evidence, as before.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        red = "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"
+        self.assertIn(red, base_log)
+        view = self.checks_view("base", base_log.replace(red, "red check list withheld"))
+        self.assertIsNot(view, excuse.UNPLACED)
+        self.assertEqual({str(view.steps[k]["name"]) for k, _, _ in view.sections}, {"Fail on any red check"})
+
+    def test_cmux_41790_only_the_runners_own_notice_is_untimed(self):
+        # The same line with any other text, at the same stamp past the post step's end, still places nothing: the
+        # untimed line is the runner's fixed notice alone, never a step's output out of its times.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        self.assertIn(self.COMPLETED_NOTICE, base_log)
+        for other in ("A job completed hook has been configured", "ok", "##[error]red check: Type scale"):
+            with self.subTest(other=other):
+                self.assertIs(self.checks_view("base", base_log.replace(self.COMPLETED_NOTICE, other)),
+                              excuse.UNPLACED)
+
+    def test_cmux_41790_the_bases_red_check_is_excused(self):
+        said = self.judge(self.github(self.CHECKS, self.fixture(self.CHECKS, "head"),
+                                      self.fixture(self.CHECKS, "base")))
+        self.assertIn("excused 'cmux-next checks (god files, concurrency, crash safety, l10n)'", said)
+        self.assertNotIn("does not map one to one", said)
+
+    def test_cmux_41790_a_red_check_the_head_adds_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)",
+                           "##[error]red check: Type scale")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("Type scale", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41790_an_error_the_head_adds_in_the_rolled_up_check_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]bash scripts/cmux-next/tests/generated-ownership.test.sh",
+                           "##[error]bash scripts/cmux-next/tests/pin-cmux-tui.test.sh")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("pin-cmux-tui.test.sh", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
 
 
 def one_step_flood(headers, steps):
