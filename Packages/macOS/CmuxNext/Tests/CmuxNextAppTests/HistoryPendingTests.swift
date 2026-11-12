@@ -207,6 +207,58 @@ import Testing
         #expect(reads.count == 1)
     }
 
+    /// Waits until `model` shows `count` rows: main-actor turns and the search in flight, no real time.
+    static func shows(_ count: Int, in model: PaletteModel) async {
+        for _ in 0..<1_000 where model.rows.count != count {
+            await model.settle()
+            await Task.yield()
+        }
+    }
+
+    /// The palette filters a list's rows by the typed text itself. The still-loading row is about the list,
+    /// not a result: it stays for every typed text, so a text that finds nothing in a list that is not
+    /// complete never reads as "No Results". (Search shows its History sections only for a typed text.)
+    @Test(.timeLimit(.minutes(1))) func aTypedTextKeepsTheStillLoadingRow() async throws {
+        let clock = ManualClock()
+        let reads = Reads([HistoryRead(entries: [HistoryPendingReadTests.closed], pending: [.agent])])
+        let model = PaletteModel(persistence: nil)
+        defer { model.send(.close) }
+        model.reset(to: PalettePageSpec(id: "history.agents", title: "Agent Sessions", placeholder: "",
+                                        providers: [Self.provider(reads, clock: clock)]))
+        try await clock.waitForSleeper()
+        await Self.shows(2, in: model)
+        #expect(Set(model.rows.map(\.id)) == [HistoryPendingReadTests.closed.id, "history.status.pending"])
+
+        model.send(.setQuery("zzz"))
+        await model.settle()
+        #expect(model.rows.map(\.id) == ["history.status.pending"], "a text that finds nothing reads as No Results while the list is not complete")
+        // A text that finds a row: the row, then the sign. The row's title is its id.
+        model.send(.setQuery("closed_1"))
+        await model.settle()
+        #expect(model.rows.map(\.id) == [HistoryPendingReadTests.closed.id, "history.status.pending"])
+        // The sign's own words find it one time, not two.
+        model.send(.setQuery("still loading"))
+        await model.settle()
+        #expect(model.rows.map(\.id) == ["history.status.pending"])
+    }
+
+    /// A complete list has no sign: a text that finds nothing shows no row, as before.
+    @Test(.timeLimit(.minutes(1))) func aTypedTextInACompleteListFindsOnlyItsRows() async {
+        let reads = Reads([HistoryRead(entries: [HistoryPendingReadTests.closed])])
+        let model = PaletteModel(persistence: nil)
+        defer { model.send(.close) }
+        model.reset(to: PalettePageSpec(id: "history.agents", title: "Agent Sessions", placeholder: "",
+                                        providers: [Self.provider(reads, clock: ManualClock())]))
+        await Self.shows(1, in: model)
+        #expect(model.rows.map(\.id) == [HistoryPendingReadTests.closed.id])
+        model.send(.setQuery("zzz"))
+        await model.settle()
+        #expect(model.rows.isEmpty)
+        model.send(.setQuery("closed_1"))
+        await model.settle()
+        #expect(model.rows.map(\.id) == [HistoryPendingReadTests.closed.id])
+    }
+
     /// Search lists History through its own wrapper: it must pass each list on as it comes, else Search
     /// would show nothing until the list is complete.
     @Test(.timeLimit(.minutes(1))) func searchShowsEachListOfAHistoryKindAsItComes() async throws {
