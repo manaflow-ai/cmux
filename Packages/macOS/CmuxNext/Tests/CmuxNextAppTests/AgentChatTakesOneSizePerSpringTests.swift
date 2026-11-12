@@ -12,10 +12,14 @@ import Testing
 
 /// The rule of an agent chat in a pane spring (#36677, Leo 2026-11-05: "the main pane waits for the right pane to shift
 /// before it shifts. Like, why are you waiting?"): in a split beside it, the close of the pane beside it, a zoom and the
-/// unzoom, the chat takes its REST size in the spring's first frame and keeps it to the landing. Its page lays out
-/// once per spring. A page that gets a size per frame lays out per frame, and one layout of a long chat takes longer
-/// than the spring: on a film of #41411, which gave the chat its pane's size in every frame, the final wrap of a
+/// unzoom, the chat takes its REST size in the spring's first frame and keeps it to the landing, so that its page
+/// lays out once per spring. A page that gets a size per frame lays out per frame, and one layout of a long chat takes
+/// longer than the spring: on a film of #41411, which gave the chat its pane's size in every frame, the final wrap of a
 /// 150-row chat came 90 to 190 ms later in each of these four motions.
+///
+/// What the test measures: the SIZES of the pane's view (what the layout sizes) and of the chat's view in it, read in
+/// each frame of the spring and from their frame notices. It does not count page layouts and it does not measure the
+/// film's times: a page lays out when its view takes a new size, and that is the part the layout decides.
 ///
 /// The app's own answer decides here: a real `WorkspaceContentController` on an offline store, whose
 /// `holdsContentInMotion(for:)` reads the content its pane shows. The other tests of the held size
@@ -83,7 +87,9 @@ struct AgentChatTakesOneSizePerSpringTests {
         window.contentView = content.contentView
         window.orderFrontRegardless()
         let root = content.layoutView
-        root.context.reduceMotionOverride = false // the pane springs are on, whatever the shared settings say
+        // Reduce Motion is off for this layout. The process-wide motion switches (`Motion.panes`: the animation
+        // settings) stay the test host's: with them off no spring runs, and the test fails at "did not spring".
+        root.context.reduceMotionOverride = false
         let landing = Kinds.Landing()
         root.context.afterCommit = { [landing] in landing.work.append($0) }
         root.driver.isManual = true
@@ -93,6 +99,7 @@ struct AgentChatTakesOneSizePerSpringTests {
         content.contentView.layoutSubtreeIfNeeded()
         var settling = 0
         while settling < 600, root.advanceFrame(Self.dt) { settling += 1 }
+        try #require(settling < 600, "fixture: the layout did not come to rest in 600 frames")
 
         // The pane shows its tab (the app draws nothing for that tab's kind), then the chat, which goes where the
         // pane's controller reads what it shows (`PaneController.currentContent`): the workspace's answer comes from there.
@@ -123,7 +130,9 @@ struct AgentChatTakesOneSizePerSpringTests {
 
         /// Runs `turn` (a key's turn) and the spring it starts, to the landing's frame and what the landing leaves for
         /// after its commit. From the turn to there, the pane's view (what the layout sizes) and the chat in it each
-        /// take ONE new size, in the spring's first frame, and that size is the size at the landing.
+        /// take ONE new size, in the spring's first frame, and that size is the size at the landing. The sizes are read
+        /// in each frame too: on a zoom the layout holds the zooming pane's frame notices until the landing
+        /// (`ScreenContentView`, `paneFrameNotices`), so the notices alone show one size there whatever each frame had.
         func takesOneSize(_ name: String, _ turn: () throws -> Void) throws {
             let start = paneRect()
             let paneSizes = Kinds.Sizes(of: pane.view), chatSizes = Kinds.Sizes(of: view)
@@ -131,13 +140,17 @@ struct AgentChatTakesOneSizePerSpringTests {
             var widths: Set<CGFloat> = []
             var frames = 0
             var afterTheFirstFrame: (pane: CGSize, chat: CGSize)?
+            var inFrames: (pane: [CGSize], chat: [CGSize]) = ([], [])
             while frames < 600, root.advanceFrame(Self.dt) {
                 content.contentView.layoutSubtreeIfNeeded()
                 frames += 1
                 widths.insert(paneRect().width)
                 if afterTheFirstFrame == nil { afterTheFirstFrame = (pane.view.frame.size, view.frame.size) }
+                if inFrames.pane.last != pane.view.frame.size { inFrames.pane.append(pane.view.frame.size) }
+                if inFrames.chat.last != view.frame.size { inFrames.chat.append(view.frame.size) }
             }
             try #require(frames > 3, "\(name) did not spring (\(frames) frames)")
+            try #require(frames < 600, "\(name): the spring did not land in 600 frames")
             try #require(widths.count > 3 && abs(paneRect().width - start.width) > 100,
                          "the pane did not move on the spring of \(name): widths \(widths.sorted()), from \(start.width) to \(paneRect().width)")
             content.contentView.layoutSubtreeIfNeeded()
@@ -155,6 +168,11 @@ struct AgentChatTakesOneSizePerSpringTests {
                     "\(name): the pane's view took \(paneSizes.taken.count) sizes in \(frames) frames, not one: \(paneSizes.taken.prefix(6))")
             #expect(chatSizes.taken.count == 1,
                     "\(name): the chat took \(chatSizes.taken.count) sizes in \(frames) frames, not one: \(chatSizes.taken.prefix(6))")
+            #expect(inFrames.pane.count == 1 && inFrames.chat.count == 1,
+                    """
+                    \(name): read in each of \(frames) frames, the pane's view had \(inFrames.pane.count) sizes and the chat \
+                    \(inFrames.chat.count), not one each: \(inFrames.pane.prefix(6)) and \(inFrames.chat.prefix(6))
+                    """)
         }
 
         switch change {
