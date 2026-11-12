@@ -106,7 +106,7 @@ public final class AgentPageRetirer {
         view.releaseHeldPrompts { [weak self, measure] retired in
             measure("agentPane.close") { retired.close() }
             guard let self, !self.retiring.isEmpty else { return }
-            self.timer.schedule(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.flush() }
+            self.timer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.flush() }
         }
     }
 }
@@ -115,13 +115,36 @@ public final class AgentPageRetirer {
 /// production path's O(1) pop explicit and gives the scale test a seam without constructing AppKit
 /// views.
 struct AgentPageRetirementQueue<Element> {
-    private var items: [Element] = []
+    private final class Node {
+        let element: Element
+        var next: Node?
 
-    var isEmpty: Bool { items.isEmpty }
+        init(_ element: Element) { self.element = element }
+        nonisolated deinit {}
+    }
 
-    mutating func append(_ item: Element) { items.append(item) }
+    private var head: Node?
+    private var tail: Node?
 
-    mutating func takeNext() -> Element? { items.popLast() }
+    var isEmpty: Bool { head == nil }
+
+    mutating func append(_ item: Element) {
+        let node = Node(item)
+        if let tail {
+            tail.next = node
+        } else {
+            head = node
+        }
+        tail = node
+    }
+
+    mutating func takeNext() -> Element? {
+        guard let node = head else { return nil }
+        head = node.next
+        node.next = nil
+        if head == nil { tail = nil }
+        return node.element
+    }
 }
 
 extension AgentPaneView {

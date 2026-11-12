@@ -1,4 +1,6 @@
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -6,6 +8,16 @@ import Testing
 /// retirer drained every page in one main-actor turn; the regression test keeps that turn bounded
 /// to one page even when a workspace closes a large batch.
 @Suite struct AgentPageRetirementQueueTests {
+    @Test func retirementPreservesCloseOrder() {
+        var queue = AgentPageRetirementQueue<Int>()
+        for page in 0..<4 { queue.append(page) }
+
+        var retired: [Int] = []
+        while let page = queue.takeNext() { retired.append(page) }
+
+        #expect(retired == [0, 1, 2, 3])
+    }
+
     @Test func aLargeRetirementBatchTakesOnePagePerTurn() {
         let count = 10_000
         var queue = AgentPageRetirementQueue<Int>()
@@ -37,5 +49,25 @@ import Testing
         }
         let elapsed = start.duration(to: ContinuousClock.now)
         print("agent-page-retire bench: queued=\(count) turns=\(turns) max_items_per_turn=1 elapsed=\(elapsed)")
+    }
+
+    @Test func continuationDoesNotReplaceQuietTimer() async throws {
+        actor Events {
+            var values: [String] = []
+            func append(_ value: String) { values.append(value) }
+        }
+
+        let clock = ManualClock()
+        let timer = DemandTimer(owner: "AgentPageRetirementQueueTests", clock: clock)
+        let events = Events()
+        timer.schedule(after: .milliseconds(500)) { await events.append("quiet") }
+        try await clock.waitForSleeper()
+
+        timer.scheduleIfIdle(after: .milliseconds(1)) { await events.append("continuation") }
+        #expect(clock.sleeperDeadlines.map(\.offset) == [.milliseconds(500)])
+
+        clock.advance(by: .milliseconds(500))
+        await Task.yield()
+        #expect(await events.values == ["quiet"])
     }
 }
