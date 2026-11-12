@@ -78,9 +78,32 @@
     "current",
     "write",
     "--text",
-    "printf 'Retried rows by area, last 24 hours:\\n\\n| Area | File | Owner | State | Opened | Rows | p50 | p99 | Retries | Why |\\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\\n| Sidebar | webviews/src/agent-session/acpmux/sidebar/SidebarRowSnapshotList.tsx | Leo | open | Nov 3 | 4,120 | 12 ms | 88 ms | 3 | rows re-render on every typed key in the composer |\\n| Markdown | webviews/src/pages/markdown/tables.ts | Ana | fixed | Nov 5 | 980 | 8 ms | 41 ms | 0 | a wide table was cut hard at the right edge |\\n| Terminal | cmux-tui/crates/acpmux/src/scrollback/restore_journal.rs | Sam | review | Nov 6 | 15,300 | 3 ms | 19 ms | 1 | scrollback restore drops the last prompt line |\\n| Chat | webviews/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx | Kim | open | Nov 7 | 2,240 | 21 ms | 130 ms | 5 | streamed replies reflow the row under them |\\n' > /tmp/cmux-table-motion.md; clear\r"
+    "printf 'Retried rows by area, last 24 hours:\\n\\n| Area | File | Owner | State | Opened | Rows | p50 | p99 | Retries | Why |\\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\\n| Sidebar | webviews/src/agent-session/acpmux/sidebar/SidebarRowSnapshotList.tsx | Leo | open | Nov 3 | 4,120 | 12 ms | 88 ms | 3 | rows re-render on every typed key in the composer |\\n| Markdown | webviews/src/pages/markdown/tables.ts | Ana | fixed | Nov 5 | 980 | 8 ms | 41 ms | 0 | a wide table was cut hard at the right edge |\\n| Terminal | cmux-tui/crates/acpmux/src/scrollback/restore_journal.rs | Sam | review | Nov 6 | 15,300 | 3 ms | 19 ms | 1 | scrollback restore drops the last prompt line |\\n| Chat | webviews/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx | Kim | open | Nov 7 | 2,240 | 21 ms | 130 ms | 5 | streamed replies reflow the row under them |\\n' > /tmp/cmux-table-motion.md && echo cmux-table-$((1+1))-written\r"
    ],
-   "wait": 2,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "The file is written (the shell printed the marker after the write): a fresh terminal's shell can start after any fixed wait, and the viewer then opened a missing file and stayed blank",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Table",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "screen",
+    "wait",
+    "--pattern",
+    "^cmux-table-2-written$",
+    "--timeout-ms",
+    "30000"
+   ],
    "shot": false
   },
   {

@@ -43,13 +43,18 @@ public final class PaneContentAreaView: NSView {
     /// The ground the area shows under its content: its pane's (the window's color where panes paint it), else none.
     public var restingGround: CGColor? { didSet { paintGround() } }
 
+    /// A page sharing the tab row paints its own ground below it; the area's fill would cover the chrome behind the tabs.
+    public var paintsRestingGround = true {
+        didSet { if paintsRestingGround != oldValue { paintGround() } }
+    }
+
     /// The ground of content that comes next but is not made yet (SPLIT NEW PANE GROUND, m81: a split's stand-in terminal
     /// waits for its surface until after its key's frame): it shows instead of ``restingGround`` until then, so the new
     /// pane has its terminal's ground from the key's frame, never the window's color.
     public var waitingGround: CGColor? { didSet { paintGround() } }
 
     private func paintGround() {
-        let ground = waitingGround ?? restingGround
+        let ground = waitingGround ?? (paintsRestingGround ? restingGround : nil)
         if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
     }
 
@@ -114,8 +119,15 @@ public final class PaneContentAreaView: NSView {
     /// Whether `view` keeps its size through this hold: the exception a kind states (``PaneKeyResizeHeld``; the Home). The
     /// area puts it on the hold's edges in each frame (``follow(handing:)``, an origin write, no layout) and gives it its
     /// bounds once, when the hold ends (``release()``); its owner leaves its frame alone until then.
-    public func keepsSizeInHold(_ view: NSView) -> Bool {
-        heldSize != nil && fillsArea(view) && (view as? any PaneKeyResizeHeld)?.holdsInKeyResize == true
+    public func keepsSizeInHold(_ view: NSView) -> Bool { fillsArea(view) && keepsOutOfTabRowInHold(view) }
+
+    /// Whether `view` states the exception (``PaneKeyResizeHeld``; the Home) while this hold is on: its pane gives it no
+    /// tab row until the hold ends. Also before the view fills the area (a parked Home shown by a tab change inside the
+    /// hold comes in at the frame it was parked at, ``keepsSizeInHold(_:)`` false in its first layout): it takes the
+    /// area's size under the strip once, then keeps it. With the row it took the pane's whole size in that layout and
+    /// kept it while the area went back under the strip, its tools in a band under the strip until the landing.
+    public func keepsOutOfTabRowInHold(_ view: NSView) -> Bool {
+        heldSize != nil && (view as? any PaneKeyResizeHeld)?.holdsInKeyResize == true
     }
 
     /// The area that a key hold of the pane that shows `content` uses: this one. Nil (the pane's host holds the whole

@@ -27,6 +27,10 @@ SPEC = importlib.util.spec_from_file_location("dev_fleet_warm_slot", HELPER)
 assert SPEC and SPEC.loader
 warm_slot = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(warm_slot)
+# tests/process_gone.py by path, for the same reason.
+_PROCESS_GONE_SPEC = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_PROCESS_GONE_SPEC)
+_PROCESS_GONE_SPEC.loader.exec_module(process_gone)
 
 TOOLCHAIN_A = {"available": True, "platform": "darwin", "arch": "arm64", "xcode": "Xcode A", "swift": "Swift A", "sdk": "A"}
 TOOLCHAIN_B = {"available": True, "platform": "darwin", "arch": "arm64", "xcode": "Xcode B", "swift": "Swift B", "sdk": "B"}
@@ -1136,13 +1140,7 @@ class WarmSlotTest(unittest.TestCase):
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.05)
+        self.assertTrue(process_gone.group_died(pgid, within=5), f"process group {pgid} outlived its SIGKILL")
 
         planned = self.call("plan", *self.common(), "--target", self.base)
         self.assertEqual(planned["reason"], "recovery_required")

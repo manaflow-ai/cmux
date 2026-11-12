@@ -65,6 +65,9 @@ mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
+#[cfg(test)]
+mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
@@ -134,6 +137,7 @@ mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use list_guard::{RequestHold, RequestStage};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
@@ -169,6 +173,8 @@ mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+#[cfg(test)]
+mod fork_retarget_tests;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -239,6 +245,10 @@ mod start_retry;
 mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+
+/// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
+type WithdrawsInFlight =
+    HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
 pub(super) use session::{newest_first, prompt_text, short_text};
 pub(crate) mod shell_readonly;
 mod shutdown;
@@ -269,6 +279,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
@@ -487,6 +498,15 @@ pub struct RemoteRef {
     pub summary: Value,
 }
 
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
+}
+
 /// A session that lives on a peer daemon.
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
@@ -685,6 +705,19 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
+    /// its `agent_message_chunk` records, until a new message or a prompt (a steer) ends it.
+    pub(super) reply_segment: Option<String>,
+    /// Reply segments started in this turn, which numbers the next one.
+    pub(super) reply_segments: u32,
+    /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
+    pub(super) segment_turn: Option<String>,
+    pub(super) segment_message: Option<String>,
+    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
+    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
+    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
+    pub(super) plan_turn: Option<String>,
+    pub(super) plan_shown: bool,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
@@ -717,6 +750,8 @@ pub struct Hub {
     pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
+    pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
@@ -738,6 +773,9 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Client requests every connection serves now, each holding its work slot
+    /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
+    pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
@@ -791,6 +829,9 @@ pub struct Hub {
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Peer rows `visit_remote_sessions` copied out (`peer_notice_cost_tests.rs`).
+    #[cfg(test)]
+    pub(super) remote_rows_copied: AtomicU64,
     /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
     #[cfg(test)]
     pub(super) cache_test_bytes: AtomicU64,
@@ -963,6 +1004,9 @@ pub struct Hub {
     /// The fence of an ancestor's answer, by permission id, for the write that delivers it
     /// (`subsession_answer.rs`).
     pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
+    /// Withdraws whose retraction notice is on its way, by session and prompt id: a second
+    /// withdraw of the same message answers as the first (`withdraw.rs`).
+    pub(super) withdraws: StdMutex<WithdrawsInFlight>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -1197,6 +1241,7 @@ impl Hub {
             closed_summary_cache: StdMutex::new(Default::default()),
             closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
+            rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
@@ -1208,6 +1253,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            requests_in_flight: Default::default(),
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1229,6 +1275,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            remote_rows_copied: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
@@ -1313,6 +1361,7 @@ impl Hub {
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
             answer_fences: StdMutex::new(HashMap::new()),
+            withdraws: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
@@ -1410,7 +1459,7 @@ impl Hub {
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
-                hub.bg_notify_resume();
+                hub.bg_notify_resume_in_background();
             }
             hub.watch_titles();
             hub.watch_recaps();
@@ -1737,6 +1786,7 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
@@ -2269,6 +2319,10 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
+        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
+        if dir == "mux" && kind == "user_message" {
+            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
+        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
