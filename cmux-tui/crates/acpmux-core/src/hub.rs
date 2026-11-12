@@ -134,6 +134,25 @@ fn pending_bytes(item: &PendingItem) -> usize {
     }
 }
 
+fn pending_seq(item: &PendingItem) -> u64 {
+    match item {
+        PendingItem::Summary(event) => event.seq,
+        PendingItem::Gone { seq, .. } => *seq,
+    }
+}
+
+fn retain_pending_after(state: &mut SubscriberState, cursor: u64) {
+    let mut bytes = 0usize;
+    state.pending.retain(|_, item| {
+        let keep = pending_seq(item) > cursor;
+        if keep {
+            bytes = bytes.saturating_add(pending_bytes(item));
+        }
+        keep
+    });
+    state.bytes = bytes;
+}
+
 fn enqueue_item(state: &mut SubscriberState, item: ListItem) {
     let (chat_id, pending) = match item {
         ListItem::Summary(event) => (event.summary.chat_id.clone(), PendingItem::Summary(event)),
@@ -144,14 +163,8 @@ fn enqueue_item(state: &mut SubscriberState, item: ListItem) {
         }
     };
     if let Some(old) = state.pending.get(&chat_id) {
-        let old_seq = match old {
-            PendingItem::Summary(event) => event.seq,
-            PendingItem::Gone { seq, .. } => *seq,
-        };
-        let new_seq = match &pending {
-            PendingItem::Summary(event) => event.seq,
-            PendingItem::Gone { seq, .. } => *seq,
-        };
+        let old_seq = pending_seq(old);
+        let new_seq = pending_seq(&pending);
         if old_seq >= new_seq {
             return;
         }
@@ -319,7 +332,7 @@ impl Hub {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
-        let subscriber = Arc::new(Subscriber::new(cursor));
+        let subscriber = Arc::new(Subscriber::new(0));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         let index = self.snapshot();
         let resume_cursor = if sub.cursor.is_some() && cursor <= index.seq() {
@@ -337,6 +350,8 @@ impl Hub {
             if sub.cursor.is_some() {
                 let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
                 if resume_cursor == cursor {
+                    retain_pending_after(&mut state, cursor);
+                    state.cursor = cursor;
                     for item in history
                         .iter()
                         .filter(|item| item_seq(item) > cursor && item_seq(item) <= index.seq())
@@ -344,9 +359,11 @@ impl Hub {
                         enqueue_item(&mut state, item.clone());
                     }
                 } else {
+                    retain_pending_after(&mut state, index.seq());
                     state.cursor = index.seq();
                 }
             } else {
+                retain_pending_after(&mut state, index.seq());
                 state.cursor = index.seq();
             }
         }
@@ -580,12 +597,15 @@ mod tests {
     }
 
     fn gate(name: &str, small: u128, god: u128) {
-        let Ok(path) = std::env::var("V2_GATE_OUT") else { return };
-        let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else { return };
-        let _ = writeln!(
-            file,
+        let line = format!(
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"ns\"}}"
         );
+        eprintln!("{line}");
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+                let _ = writeln!(file, "{line}");
+            }
+        }
     }
 
     fn populated_index(prefix: &str, count: usize) -> SummaryIndex {
@@ -610,8 +630,8 @@ mod tests {
         let task = tokio::spawn(writer.run());
         let mut rounds = Vec::with_capacity(5);
         for round in 0..5 {
-            let mut samples = Vec::with_capacity(5);
-            for sample in 0..5 {
+            let mut samples = Vec::with_capacity(200);
+            for sample in 0..200 {
                 let start = Instant::now();
                 let mut sub = Sub::new(format!("{sid}-{round}-{sample}"), Stream::from("list"));
                 sub.window = Some(20);
@@ -630,9 +650,11 @@ mod tests {
     fn measure_summary_changes(index: &SummaryIndex, chat_id: &str) -> Vec<Vec<u128>> {
         let mut rounds = Vec::with_capacity(5);
         for round in 0..5 {
-            let (_, mut writer) = Hub::new(index.clone());
-            let mut samples = Vec::with_capacity(5);
-            for sample in 0..5 {
+            let (hub, mut writer) = Hub::new(index.clone());
+            let _subscription =
+                hub.subscribe(&Sub::new(format!("change-{round}"), Stream::from("list"))).unwrap();
+            let mut samples = Vec::with_capacity(200);
+            for sample in 0..200 {
                 let start = Instant::now();
                 writer.apply(summary(chat_id, (round * 5 + sample + 1) as u64)).unwrap();
                 samples.push(start.elapsed().as_nanos().max(1));
@@ -670,6 +692,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    #[ignore = "timing gate; run in release with --ignored --nocapture"]
     async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
         let small_rounds = measure_first_windows(populated_index("s", 20), "small").await;
         let god_rounds = measure_first_windows(populated_index("g", 11_000), "god").await;
@@ -692,6 +715,17 @@ mod tests {
         let god_changes = measure_summary_changes(&god_index, "g0");
         let small_change_p95 = best_p95(&small_changes);
         let god_change_p95 = best_p95(&god_changes);
+        let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();
+        assert!(
+            god_change_p95 <= small_change_p95.saturating_mul(12) / 10,
+            "summary change p95 grew beyond 1.2x: small={small_change_p95}ns god={god_change_p95}ns"
+        );
+        assert!(
+            all_god_change_samples
+                .iter()
+                .all(|sample| *sample <= small_change_p95.saturating_mul(2)),
+            "summary change sample exceeded 2x small p95: small={small_change_p95}ns samples={all_god_change_samples:?}"
+        );
         gate("v2.pr05.summary_change", small_change_p95, god_change_p95);
     }
 
