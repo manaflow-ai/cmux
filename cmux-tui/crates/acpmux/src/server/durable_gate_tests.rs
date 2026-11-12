@@ -518,3 +518,46 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
         "a replay during another catch-up left out the tail (it {stopped} while the first catch-up counted)"
     );
 }
+
+/// `daemon status` counts what the gate holds for the journal and what the transport past it has
+/// not read (`queue_gauge.rs`): the connection's own queue is only the gate's input.
+#[tokio::test]
+async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_read() {
+    use std::sync::atomic::AtomicU64;
+    let (durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (_written_tx, written) = tokio::sync::watch::channel(0);
+    let durability = crate::store::Durability {
+        acked: Arc::new(AtomicU64::new(1)),
+        durable,
+        kept: Arc::new(AtomicU64::new(0)),
+        written,
+        stalled: Arc::new(|_: Duration| false),
+    };
+    let (transport, mut reader) = mpsc::channel(8);
+    let (lines, gate) = super::install(Some(durability), transport);
+    let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
+    let backlog = |want: (usize, usize)| {
+        let gate = Arc::clone(&gate);
+        async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while gate.backlog() != want {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("backlog {:?}, want {want:?}", gate.backlog()))
+        }
+    };
+    // Both lines may show LSN 1, not durable yet: the gate holds them.
+    gate.raise();
+    for line in ["one", "three"] {
+        lines.send(line.to_owned()).await.unwrap_or_else(|e| panic!("send: {e}"));
+    }
+    backlog((2, 8)).await;
+    // Durable: they move to the transport, still unread.
+    durable_tx.send(1).unwrap_or_else(|e| panic!("durable: {e}"));
+    assert_eq!(reader.recv().await.as_deref(), Some("one"));
+    backlog((1, 5)).await;
+    assert_eq!(reader.recv().await.as_deref(), Some("three"));
+    backlog((0, 0)).await;
+}
