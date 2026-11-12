@@ -539,13 +539,12 @@ impl State {
             out.body(row.id, BodyField::Images, false, images);
         }
         if steer && !already_read && !prompt_key.is_empty() {
-            if self.prompts.len() == 32 {
-                if let Some(old) =
+            if self.prompts.len() == 32
+                && let Some(old) =
                     self.prompts.iter().min_by_key(|(_, p)| p.row.id).map(|(hash, _)| *hash)
-                {
-                    self.settle_prompt(old, false, out);
-                    self.forced_steers = self.forced_steers.saturating_add(1);
-                }
+            {
+                self.settle_prompt(old, false, out);
+                self.forced_steers = self.forced_steers.saturating_add(1);
             }
             self.prompts.insert(hash, Prompt { row, has_body: body.is_some(), read: false });
         } else {
