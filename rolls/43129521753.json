@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43129521753",
+  "recorded_at": "2026-11-12T00:53:11Z",
+  "reason": "cmux-tui f6c4a05d742b changes the image's cmux-tui (pinned 538a758feb57)",
+  "dry_run": false,
+  "cmux_tui": "f6c4a05d742b0a288137be84cebc473fbee50d18",
+  "fixes": [
+    {
+      "sha": "f6c4a05d742b0a288137be84cebc473fbee50d18",
+      "mergedAt": "2026-11-12T00:31:18Z",
+      "subject": "cmux-tui spec: the CLI action request fixture has cloud move-to-machine (tip red since #40090) (#40643)"
+    },
+    {
+      "sha": "e6e4215bfa96e745b50c3234df7ce1554fee50af",
+      "mergedAt": "2026-11-12T00:19:29Z",
+      "subject": "acpmux: a shadow never ends before a cancel to it is written (#41489)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T00:53:11Z",
+    "snapshot_id": "sh-39178972256b4720a166af43333b1302",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43129521753): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ede95efda2ff2170eafb178d9fee2f90d9a18ed3",
+    "image": "cloud-native-auto-f6c4a05d-43129521753-1",
+    "revision": "ci-43129521753-1",
+    "at": "2026-11-12T00:53:11Z"
+  },
+  "rolled_back": false
+}
