@@ -221,7 +221,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
-        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
+        // The placeholder's page carries over only through the frame gate: a
+        // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
+        var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
         if live != nil, let frameStore, let key {
@@ -316,9 +318,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
         // The page as it is now (not only a grid-card snapshot, which a tab never
         // shown in the grid lacks): its next host shows it at once while it attaches.
-        if let key, let frame = host.model.frameForSaving() ?? host.model.snapshot {
+        // A tab cooled before it drew the Mac's output keeps the cached frame it
+        // had; its blank page never goes over it, in memory or on disk.
+        if let key, let frame = host.model.frameToKeep() {
             lastFrames[key] = frame
-            if let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
+            if host.model.drewLiveOutput, let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
         }
         slots[id] = nil
         cardViews[id] = nil

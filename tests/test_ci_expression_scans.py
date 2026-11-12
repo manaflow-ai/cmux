@@ -165,5 +165,75 @@ class NoRegexScans(unittest.TestCase):
                 self.assertFalse(any(GENERIC.search(body) for body in SCAN.findall(source)))
 
 
+_SUB_CALLS = {"sub", "subn"}
+
+
+def _holds_open(node: ast.AST) -> bool:
+    return any(isinstance(n, ast.Constant) and isinstance(n.value, str) and OPEN in n.value for n in ast.walk(node))
+
+
+def _substitutions_in(source: str, guards: bool) -> list[int]:
+    """Lines that rewrite `${{ ... }}` text by regex (`re.sub` with a `${{` pattern, or `.sub` on a name compiled
+    from one), or, in a guard script (`guards`), by `str.replace` of a `${{` string. Either one rewrites text inside
+    another expression's string literal too (cmux#41768 follow-up F1)."""
+    tree = ast.parse(source)
+    compiled = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "compile"
+                and node.value.args and _holds_open(node.value.args[0])):
+            compiled.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    lines = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        owner, name = node.func.value, node.func.attr
+        if name in _SUB_CALLS and isinstance(owner, ast.Name) and owner.id == "re" and node.args and _holds_open(node.args[0]):
+            lines.append(node.lineno)
+        elif name in _SUB_CALLS and isinstance(owner, ast.Name) and owner.id in compiled:
+            lines.append(node.lineno)
+        elif guards and name == "replace" and node.args and isinstance(node.args[0], ast.Constant) \
+                and isinstance(node.args[0].value, str) and "${{" in node.args[0].value:
+            lines.append(node.lineno)
+    return lines
+
+
+def _regex_substitutions() -> list[str]:
+    found = []
+    for base in ("scripts", "tests"):
+        for path in sorted((ROOT / base).rglob("*.py")):
+            if path.resolve() == Path(__file__).resolve():
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+                lines = _substitutions_in(source, guards=base == "scripts" or path.name == "workflow_jobs.py")
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            found += [f"{path.relative_to(ROOT)}:{line}" for line in lines]
+    return found
+
+
+class NoTextSubstitutions(unittest.TestCase):
+    """cmux#41768 follow-up F1: expand_matrix replaced `${{ matrix.KEY }}` with re.sub, so a copy of it inside
+    another expression's string literal was rewritten too; a value with `' }}` then ended that expression early and
+    hid a computed matrix read. Replace whole expressions through gh_expressions (EXPRESSION.sub), never by text."""
+
+    def test_no_regex_rewrites_an_expression(self) -> None:
+        self.assertEqual(_regex_substitutions(), [],
+                         "rewrite `${{ }}` with gh_expressions.EXPRESSION.sub on whole spans, not re.sub or str.replace")
+
+    def test_the_detector_names_the_old_rewrite(self) -> None:
+        # Built from parts so this file holds no rewrite itself.
+        old = ("import re\nexpanded = re.sub(r'" + OPEN + r"\s*matrix\s*\.\s*' + re.escape(key) + r'\s*"
+               + CLOSE + "', value, expanded)\n")
+        self.assertEqual(_substitutions_in(old, guards=False), [2])
+        compiled = "import re\nWHOLE = re.compile(r'" + OPEN + r"\s*inputs\.x\s*" + CLOSE + "')\nWHOLE.sub('v', text)\n"
+        self.assertEqual(_substitutions_in(compiled, guards=False), [3])
+        replaced = "text.replace('$" + "{{ runner.temp }}', 'tmp')\n"
+        self.assertEqual(_substitutions_in(replaced, guards=True), [1])
+        self.assertEqual(_substitutions_in(replaced, guards=False), [])
+        self.assertEqual(_substitutions_in("import re\nre.sub(r'x', 'y', text)\n", guards=True), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
