@@ -298,6 +298,9 @@ REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinit
 REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
 REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
 REDEFINITION_LINE = re.compile(r"^(?P<path>[^:]+):\d+: (?P<what>.+?) redefines line \d+")
+# A file the checker could not parse, so never read: no verdict on it, whatever the exit (an installed copy older than
+# its exit 2 for this said 1, a verdict, and the file passed with whatever it held).
+REDEFINITION_UNPARSED = re.compile(r"^[^:]+:\d+: does not parse: ", re.M)
 REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
                      "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
                      "the two did into the one that stays, then push.")
@@ -886,7 +889,8 @@ class NoVerdict(str):
 
 
 # Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
-NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: ", re.M)
+NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: |"
+                        r"^(?:SwiftFormat|SwiftLint|rustfmt) gave no verdict: ", re.M)
 
 
 def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
@@ -959,16 +963,38 @@ def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
     return False
 
 
+def ast_grep_shape_fault(matches) -> str | None:
+    """Why MATCHES (ast-grep's parsed `--json=compact` output) is not a list of matches, or None when it is: each a dict
+    with a str `file`, an int `range.start.line`, and str `ruleId` and `message`. Valid JSON of another shape (an
+    `{"error": ...}` object) made the reads below raise and crash the gate instead of refusing (#41827 review, F1)."""
+    if not isinstance(matches, list):
+        return f"a {type(matches).__name__}, not a list"
+    for index, m in enumerate(matches):
+        start = m.get("range", {}).get("start", {}) if isinstance(m, dict) and isinstance(m.get("range"), dict) else None
+        if (not isinstance(m, dict) or not isinstance(m.get("file"), str) or not isinstance(start, dict)
+                or not isinstance(start.get("line"), int) or isinstance(start.get("line"), bool)
+                or not isinstance(m.get("ruleId"), str) or not isinstance(m.get("message"), str)):
+            return f"match {index} has no file, range.start.line, ruleId and message"
+    return None
+
+
 def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
     result = subprocess.run([str(binary), "scan", "-c", str(config), "--json=compact", *present],
                             cwd=tree, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    # Its verdicts exit 0 (no error-level match) or 1 (one, and the list holds it). A config error exits 1 with no
+    # list, a crash otherwise; `stdout or "[]"` read either as "no matches" and passed the push.
+    if result.returncode not in (0, 1) or (result.returncode != 0 and not result.stdout.strip()):
+        return f"ast-grep failed: exit {result.returncode}: {result.stderr.strip()[-300:] or 'no output'}"
     try:
-        matches = json.loads(result.stdout or "[]")
+        matches = json.loads(result.stdout)
     except json.JSONDecodeError:
         return f"ast-grep failed: {result.stderr.strip()}"
+    fault = ast_grep_shape_fault(matches)
+    if fault:
+        return f"ast-grep failed: printed JSON of the wrong shape ({fault}): {result.stdout.strip()[:200]}"
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
@@ -991,7 +1017,11 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
     # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
     # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    # Its verdicts exit 0 (clean) or 1 (findings). A file it cannot parse, a bad config or a crash exits otherwise
+    # (70), and keeping only the finding lines of that run passed a push it never read.
+    if code not in (0, 1):
+        return f"SwiftFormat gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
     return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
@@ -1065,7 +1095,10 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         source = (tree / path).read_bytes()
         try:
             done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as error:
+        except subprocess.TimeoutExpired:
+            # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
+            return f"rustfmt gave no verdict: timed out after 60s on {path}"
+        except OSError as error:
             log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
             return ""
         if done.returncode != 0:
@@ -1085,8 +1118,12 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    _, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
-                  *present], tree)
+    code, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
+                     *present], tree)
+    # Its verdicts exit 0, 2 (serious violations) or 3 (strict warnings). A config it cannot read or a crash exits 1
+    # or a signal, and keeping only the located lines of that run passed a push it never read.
+    if code not in (0, 2, 3):
+        return f"SwiftLint gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
     return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
 
 
@@ -1522,6 +1559,11 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     if code == 124:
         log(f"prepush-gate: Cargo.lock check skipped: {out}")
         return []
+    # A traceback is the checker crashing, not cargo answering: no verdict on any lock, so it refuses (its own
+    # handled failures, no cargo or an uncached index, print no traceback and still let the push through).
+    if NO_VERDICT.search(out) and code != 0:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} crashed instead of judging the locks, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300]}")]
     return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
 
 
@@ -1562,7 +1604,8 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
     BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
 
     The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
-    verdict (a crash, a timeout, an exit other than 0 or 1) refuses."""
+    verdict (a crash, a timeout, an exit other than 0 or 1, a file it could not parse) refuses, and its refusal is a
+    NoVerdict, so gate_own never takes it off against an upstream range that failed alike."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
                             "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
     if restrict is not None:
@@ -1595,11 +1638,15 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
             if not files:
                 return [], None
             code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
-            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], no_verdict(code, out, (0, 1))
+            unparsed = REDEFINITION_UNPARSED.search(out)
+            stopped = (f"could not parse {out[unparsed.start():].splitlines()[0]}" if unparsed
+                       else no_verdict(code, out, (0, 1)))
+            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], stopped
 
         head_lines, stopped = findings(head)
         if stopped:
-            return [f"{REDEFINITION_SCRIPT} {stopped}; no verdict, so the push is refused"]
+            return [NoVerdict(f"{REDEFINITION_SCRIPT} {stopped} at the pushed head instead of judging it, so the "
+                              "push is refused")]
         base_lines, base_stopped = findings(base)
 
     def key(line: str) -> tuple[str, str]:
@@ -1883,7 +1930,9 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
 
     The validator is the release-notary test's (HIGHLIGHTS_CODE): for the hook (TRUSTED_SCRIPTS) the one at this
     clone's origin/feat-cmux-next, so a pushed edit to it cannot pass its own highlight; for a plain run the head's.
-    It fails open: no validator at that ref, or one that does not run, prints a warning and refuses nothing."""
+    No validator at that ref (a clone without the base, a validator older than the rules) prints a warning and refuses
+    nothing: CI's release-notary test still judges it. A validator that ran and crashed, exited non-zero or wrote no
+    result gave no verdict on the highlight, and refuses (a NoVerdict): a highlight that crashes it passed before."""
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
                 HIGHLIGHTS_DIR).decode()
     files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
@@ -1908,11 +1957,20 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
             result = work / "result.json"
             code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
                             timeout=60)
-            # The exit code and the result file are the answer; the output is only for the warning below.
-            if code != 0 or not result.is_file():
-                raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
-            problems = json.loads(result.read_text(encoding="utf-8"))
-    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
+            # The exit code and the result file are the answer; the output is only for the refusal below.
+            try:
+                problems = json.loads(result.read_text(encoding="utf-8")) if code == 0 else None
+            except (OSError, ValueError):
+                problems = None
+            # A dict of highlight name to a list of problem strings; any other shape (a value that is not a list, a
+            # problem that is not a string) raised in the loop below and crashed the gate (#41827 review).
+            if not isinstance(problems, dict) or not all(
+                    isinstance(v, list) and all(isinstance(x, str) for x in v) for v in problems.values()):
+                tail = out.strip().splitlines()[-1] if out.strip() else "no output"
+                shape = "" if problems is None else ", wrote a result of the wrong shape"
+                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
+                                  f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py")]
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
             "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
         return []
@@ -2409,9 +2467,11 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
                  highlights_layer=highlights_layer)
     if not own.before or not found:
         return found
-    changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    changed |= {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head, "--",
-                               HIGHLIGHTS_DIR).decode().split("\0") if p}
+    # Every path the own range changes, added or deleted, in any folder: each restricted layer keeps only its own
+    # files from it. A list cut to SCOPES left tests/ and .github/ out, so the upstream runs of the redefinition and
+    # workflow layers read nothing, subtracted nothing, and blamed the push for upstream's debt (#41818 review, F1).
+    changed = {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head)
+               .decode("utf-8", "surrogateescape").split("\0") if p}
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
                         highlights_layer=highlights_layer))
               for b, a in own.before]

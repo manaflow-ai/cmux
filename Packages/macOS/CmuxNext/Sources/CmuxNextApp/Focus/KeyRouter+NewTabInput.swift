@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -88,18 +89,6 @@ final class NewTabInputCoordinator {
 
     init(router: KeyRouter) { self.router = router }
 
-    /// Whether a hold's `window` may take the key window to give its field the keys: only from a
-    /// window it owns (its Chromium page window), or when no window is key.
-    static func mayTakeKey(_ window: NSWindow, keyWindow: NSWindow?) -> Bool {
-        guard let keyWindow else { return true }
-        var current: NSWindow? = keyWindow
-        while let candidate = current {
-            if candidate === window { return true }
-            current = candidate.sheetParent ?? candidate.parent
-        }
-        return false
-    }
-
     /// A New Window hold is waiting: it takes every window's keys until its page shows.
     var followsNewWindow: Bool { buffers.values.contains { $0.incoming?.followsNewWindow == true } }
 
@@ -131,7 +120,7 @@ final class NewTabInputCoordinator {
             // A Chromium page's own grant moves the keys to its page window: the shell does not take
             // them first (one key-window change, #24913).
             if !window.isKeyWindow, NSApp.isActive {
-                guard Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) else { return false }
+                guard window.mayTakeKey(from: NSApp.keyWindow) else { return false }
                 if view.chromiumPage == nil { window.makeKey() }
             }
             // The window refuses a page's web view outside an input event and the focus model's own

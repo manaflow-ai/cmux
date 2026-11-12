@@ -60,6 +60,20 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host, pageGeneration: generation), nil) }
             return
         }
+        // A chat's unsent prompts (``AgentPaneUnsentPrompts``): the chat's, kept across relaunches,
+        // never the model's and never logged (they are the person's text).
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentPaneUnsentPrompts.handles(method: method) {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            // task-owner: one trusted page request, completed by its reply handler
+            Task {
+                switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+                case .success(let value): replyHandler(AgentPaneReply.success(value.foundationObject), nil)
+                case .failure(let error): replyHandler(AgentPaneReply.failure(code: error.code, message: error.message), nil)
+                }
+            }
+            return
+        }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
            let json = JSONValue(foundation: value), let view {

@@ -1380,10 +1380,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       // The tray is the header, then the fold (trayMotion.tsx) with the list in it: the pinned header
-      // is outside the scroller, and nothing (no View all) follows the list.
+      // is outside the scroller, and nothing (no View all) follows the list. The rim's resize band
+      // (trayResize.ts) sits over the hat's top edge, out of the column's flow.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
         "acpmux-running-tray__fold",
+        "acpmux-running-tray__rim",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
       expect(list.querySelectorAll("li").length).toBe(118);
