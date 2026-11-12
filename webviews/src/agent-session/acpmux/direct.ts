@@ -1230,6 +1230,31 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
   );
 }
 
+/// What a sent prompt carries and how its row draws it before acpmux's echo: its blocks, its placed
+/// parts (`inlinePrompt`), and the bubble's text with each paste's range, as the echo will have them.
+/// A send and a lost prompt's recovered row (`drawLostPrompt`) draw the same prompt the same way.
+function sentPromptShape(input: string, carried: ComposerAttachment[], options: { dropped: (id: string) => boolean }) {
+  const blocks = promptBlocks(input, carried, options);
+  const inline = inlinePrompt(input, carried);
+  const isFrame = frameTextOf(imageNames(blocks));
+  const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
+  const { text, pasted } = inline
+    ? blocks.reduce(
+        (shown, block) => {
+          // A video's frames note is the agent's; the bubble draws the video's tile.
+          if (block.type !== "text" || isFrame(block.text)) return shown;
+          if (shown.text) shown.text += "\n";
+          const start = shown.text.length;
+          shown.text += block.text;
+          if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
+          return shown;
+        },
+        { text: "", pasted: [] as { start: number; end: number }[] },
+      )
+    : shownPrompt(promptText(input, carried, options), carried);
+  return { blocks, inline, fileDisplay, text, pasted };
+}
+
 export function settleOptimisticPrompt(
   rows: Map<string, AcpmuxRow>,
   promptRows: Map<string, string>,
@@ -7241,6 +7266,8 @@ export class AcpmuxDirectClient {
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
         this.optimisticPromptTexts.delete(id);
         this.queuedSends.add(id);
+        // A row that had failed waiting for it (`failLostPrompt`) is the queue row's now.
+        this.setDelivery(id, { state: "delivered", acceptedAt: event.at });
         this.promptAccepts.get(id)?.();
       }
     } else if (event.kind === "queue_approved") {
@@ -9888,24 +9915,7 @@ export class AcpmuxDirectClient {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
-    const blocks = promptBlocks(input, carried, options);
-    const inline = inlinePrompt(input, carried);
-    const isFrame = frameTextOf(imageNames(blocks));
-    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
-    const { text, pasted } = inline
-      ? blocks.reduce(
-          (shown, block) => {
-            // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFrame(block.text)) return shown;
-            if (shown.text) shown.text += "\n";
-            const start = shown.text.length;
-            shown.text += block.text;
-            if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
-            return shown;
-          },
-          { text: "", pasted: [] as { start: number; end: number }[] },
-        )
-      : shownPrompt(promptText(input, carried, options), carried);
+    const { blocks, inline, fileDisplay, text, pasted } = sentPromptShape(input, carried, options);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.promptRowKeys.set(promptId, rowId);
@@ -10264,7 +10274,10 @@ export class AcpmuxDirectClient {
     const entry = this.deliveries.get(promptId);
     if (!entry) return false;
     const { delivery } = entry;
-    const timedOut = delivery.state === "failed" && delivery.code === "timeout";
+    // A failure that only meant no answer came in time (the send's deadline, or a lost prompt whose
+    // connection went: `failLostPrompt`) gives way to acpmux's late word that it has the prompt.
+    const timedOut =
+      delivery.state === "failed" && (delivery.code === "timeout" || delivery.code === "native.timed_out");
     if (patch.state && patch.state !== "failed") {
       if (delivery.state === "failed" && !timedOut) return false;
       if (!timedOut && DELIVERY_RANK[patch.state] < DELIVERY_RANK[delivery.state]) return false;
@@ -12169,16 +12182,22 @@ export class AcpmuxDirectClient {
     const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
     this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    // Drawn as its send drew it (`sentPromptShape`): a paste is the bubble's text, never a token.
+    const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
     this.promptRowKeys.set(promptId, rowId);
     this.optimisticPromptRows.set(promptId, rowId);
-    this.optimisticPromptTexts.set(promptId, input);
+    this.optimisticPromptTexts.set(promptId, text);
+    this.optimisticPromptInputs.set(promptId, input);
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
+    if (inline) this.optimisticPromptParts.set(promptId, inline.parts);
     this.rows.set(rowId, {
       id: rowId,
       version: 1,
       at,
       kind: "user",
-      text: input,
+      text,
+      ...(pasted.length ? { pasted } : {}),
+      ...(inline ? { inlineParts: inline.parts } : {}),
       ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
       pending: true,
       delivery,
@@ -12193,11 +12212,10 @@ export class AcpmuxDirectClient {
     const entry = this.deliveries.get(promptId);
     const row = entry ? this.rows.get(entry.rowId) : undefined;
     if (!entry || !row || entry.delivery.state !== "sending") return false;
-    const input = this.optimisticPromptTexts.get(promptId) ?? row.text ?? "";
+    const input = this.optimisticPromptInputs.get(promptId) ?? row.text ?? "";
     const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
-    this.optimisticPromptRows.delete(promptId);
-    this.optimisticPromptTexts.delete(promptId);
-    this.optimisticPromptAttachments.delete(promptId);
+    // The mapping stays until the row settles: acpmux's record may still come (the prompt waited
+    // behind the turn), and it lands on this row, which then is the sent one, never a failed copy.
     const code = (error as { code?: unknown } | null)?.code;
     this.rows.set(entry.rowId, {
       ...row,
@@ -12247,7 +12265,11 @@ export class AcpmuxDirectClient {
         this.resendWaits.delete(gone);
         resolve(landed);
       };
-      const accept = () => done(true);
+      // acpmux took it (`_acpmux/prompt_accepted`) before its echo: the row says so now.
+      const accept = () => {
+        if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
+        done(true);
+      };
       const gone = () => done(false);
       const timer = setTimeout(() => done(shown()), timeoutMs);
       this.promptAccepts.set(promptId, accept);

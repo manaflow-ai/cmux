@@ -195,3 +195,116 @@ test("a lost prompt that never shows fails on its own row, and Retry sends it un
     two.close?.();
   }
 });
+
+// Review of #41513, F1: the host's replay is acknowledged (`_acpmux/prompt_accepted`) and its echo
+// has not come yet. The wait ends as shown, so the row must say acpmux took it, never stay on its way.
+test("a replay acpmux acknowledged before its echo leaves the row delivered, not sending", async () => {
+  const { clientWaiter, keepLostPrompt } = await import("./lostPrompt");
+  const { error, promptId, sessionId, one } = await loseSteer("ack only");
+  const { two, daemon, view } = await nextConnection(sessionId);
+  const clients = clientWaiter<typeof two>();
+  try {
+    clients.connected(two);
+    const outcome = keepLostPrompt(
+      error,
+      clients,
+      one as unknown as typeof two,
+      { input: "ack only", attachments: [] },
+      1_000,
+      2_000,
+    );
+    await settle(() => view.rows.some((row) => row.kind === "user" && row.text === "ack only"));
+    daemon.deliver({ jsonrpc: "2.0", method: "_acpmux/prompt_accepted", params: { sessionId, promptId } });
+    expect(await outcome).toBe("shown");
+    await settle(() =>
+      view.rows.some((row) => row.kind === "user" && row.text === "ack only" && row.delivery?.state !== "sending"),
+    );
+    const row = view.rows.find((candidate) => candidate.kind === "user" && candidate.text === "ack only");
+    // As any send acpmux took before its echo: delivered (the unread check), no longer on its way.
+    expect(row?.delivery?.state).toBe("delivered");
+  } finally {
+    two.close?.();
+  }
+});
+
+// Review of #41513, F2: the wait gave up and the row failed; then acpmux's record of the prompt comes
+// after all (it waited behind the turn). The failed row gives way to it: never a failed copy beside it.
+for (const late of ["queued", "user_message"] as const)
+  test(`a ${late} record that comes after the lost row failed settles that row, with no failed copy left`, async () => {
+    const { clientWaiter, keepLostPrompt } = await import("./lostPrompt");
+    const { error, promptId, sessionId, one } = await loseSteer("late one");
+    const { two, daemon, view } = await nextConnection(sessionId);
+    const clients = clientWaiter<typeof two>();
+    try {
+      clients.connected(two);
+      const outcome = await keepLostPrompt(
+        error,
+        clients,
+        one as unknown as typeof two,
+        { input: "late one", attachments: [] },
+        1_000,
+        50,
+      );
+      expect(outcome).toBe("failed");
+      const seq = Number((two as unknown as { lastSeq: number }).lastSeq) + 1;
+      daemon.deliver({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: {
+          seq,
+          sessionId,
+          at: Date.now(),
+          dir: "mux",
+          kind: late,
+          msg: { text: "late one", prompt: "late one", promptId, turnId: "t-late", client: "cmux-react-agent-pane#x" },
+        },
+      });
+      await settle(() => !view.rows.some((row) => row.kind === "user" && row.text === "late one" && row.failed));
+      const copies = view.rows.filter((row) => row.kind === "user" && row.text === "late one");
+      expect(copies.every((row) => !row.failed)).toBe(true);
+      expect(copies.length).toBe(late === "queued" ? 0 : 1);
+      if (late === "user_message") expect(copies[0]!.delivery?.state ?? "settled").not.toBe("sending");
+    } finally {
+      two.close?.();
+    }
+  });
+
+// Review of #41513, F3: the recovered row draws the prompt as its send drew it: a paste is the
+// bubble's text with its range, never the composer's raw token.
+test("a recovered prompt with a paste draws its paste, not the composer's token", async () => {
+  const { clientWaiter, keepLostPrompt } = await import("./lostPrompt");
+  const { inlineToken } = await import("./attachments");
+  const { error, sessionId, one } = await loseSteer("see below");
+  const { two, view } = await nextConnection(sessionId);
+  const clients = clientWaiter<typeof two>();
+  const paste = {
+    id: "paste-1",
+    kind: "pasted" as const,
+    name: "Pasted text",
+    mimeType: "text/plain",
+    size: 18,
+    text: "the pasted body",
+  };
+  try {
+    clients.connected(two);
+    void keepLostPrompt(
+      error,
+      clients,
+      one as unknown as typeof two,
+      { input: `see below ${inlineToken("paste-1")}`, attachments: [paste] },
+      1_000,
+      2_000,
+    );
+    await settle(() => view.rows.some((row) => row.kind === "user" && (row.text ?? "").startsWith("see below")));
+    const row = view.rows.find(
+      (candidate) => candidate.kind === "user" && (candidate.text ?? "").startsWith("see below"),
+    ) as Row & {
+      inlineParts?: { kind: string; text?: string }[];
+    };
+    expect(row.text).toContain("the pasted body");
+    expect(row.text).not.toContain("paste-1");
+    expect(row.text).not.toContain("￼");
+  } finally {
+    two.close?.();
+  }
+});
