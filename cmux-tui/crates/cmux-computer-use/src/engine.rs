@@ -727,15 +727,28 @@ impl Engine {
                         return Err(ToolOutput::refused(&Refusal::NeverAllowed, Some(&candidate)));
                     }
                 }
+                // Where launch_app takes an identity (macOS: a bundle id), a
+                // name that resolved to several apps is refused before anyone
+                // is asked, so no approval names an app that will not run; one
+                // identity is launched as is, the one policy just checked
+                // (resolving the name again could find another after an index
+                // rebuild). Identities that are not ids to launch by (Windows'
+                // cmd -> cmd.exe) keep the name.
+                let by_identity = self.desktop.launches_by_identity();
+                if by_identity && identities.len() > 1 {
+                    return Err(ToolOutput::error(
+                        "unsupported",
+                        format!(
+                            "{id:?} names several apps ({}); launch one by its bundle id",
+                            identities.join(", ")
+                        ),
+                    ));
+                }
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
-                // A name resolved to one bundle id launches that id, the one
-                // policy just checked (resolving the name again could find
-                // another after an index rebuild). Identities that are not
-                // ids to launch by (Windows' cmd -> cmd.exe) keep the name.
                 let launch = match identities.as_slice() {
-                    [only] if self.desktop.launches_by_identity() => only.as_str(),
+                    [only] if by_identity => only.as_str(),
                     _ => id,
                 };
                 let started =

@@ -247,17 +247,6 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
     Ok(rx)
 }
 
-/// The bundle ids of every installed app known by `name` (case-insensitive):
-/// its localized display name in the person's language ("Systemeinstellungen"
-/// on a German Mac), its bundle name, and its file name, across the app
-/// folders (and one level of subfolders: Setapp, Adobe, Chrome Apps), plus
-/// the app LaunchServices finds by that name when the index has none.
-/// Several ids for a shared name; none for an unknown one.
-///
-/// The index is built on a background thread and rebuilt when an app
-/// folder changes; while the first build runs, `None` (the caller refuses,
-/// fail-closed). Answers that needed LaunchServices are kept per name for
-/// ANSWER_TTL and tagged with the index generation they came from.
 /// Whether an app with this bundle id is installed (LaunchServices knows it).
 pub fn bundle_installed(bundle_id: &str) -> bool {
     autoreleasepool(|_| {
@@ -293,6 +282,17 @@ pub fn launch_targets(app: &str) -> Vec<String> {
     }
 }
 
+/// The bundle ids of every installed app known by `name` (case-insensitive):
+/// its localized display name in the person's language ("Systemeinstellungen"
+/// on a German Mac), its bundle name, and its file name, across the app
+/// folders (and one level of subfolders: Setapp, Adobe, Chrome Apps), plus
+/// the app LaunchServices finds by that name when the index has none.
+/// Several ids for a shared name; none for an unknown one.
+///
+/// The index is built on a background thread and rebuilt when an app
+/// folder changes; while the first build runs, `None` (the caller refuses,
+/// fail-closed). Answers that needed LaunchServices are kept per name for
+/// ANSWER_TTL and tagged with the index generation they came from.
 pub fn apps_named(name: &str) -> Option<Vec<String>> {
     let key = name.trim().to_lowercase();
     if key.is_empty() {
