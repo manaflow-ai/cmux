@@ -198,12 +198,12 @@ final class TerminalProjectionView: UIView, UIScrollViewDelegate {
             setSurface(gridSize(columns: mac.0, rows: mac.1))
             if content == .shell {
                 caption("B · Reflow. The Mac keeps \(mac.0)×\(mac.1). The phone parses it in its own VT at \(mac.0) columns and re-wraps each line at \(phoneColumns). The programs still format for \(mac.0). Font \(font) pt.")
-                surface.feed(frame.bytes) { [weak self] in
+                surface.feed(frame.bytes, completion: { [weak self] in
                     guard let self else { return }
                     // The local VT re-wraps its lines at the phone's width.
                     self.setSurface(self.gridSize(columns: self.phoneColumns, rows: phoneRows))
                     self.showIndicator("reflowed from \(mac.0) to \(self.phoneColumns) cols")
-                }
+                })
             } else {
                 caption("B · Reflow, alt screen. A full-screen app cannot be re-wrapped: it is shown at the Mac's \(mac.0)×\(mac.1), native \(font) pt font, panned sideways (indicator). Normal-screen output re-wraps.")
                 surface.feed(frame.bytes)
@@ -222,10 +222,10 @@ final class TerminalProjectionView: UIView, UIScrollViewDelegate {
             let effective = String(format: "%.1f pt", CGFloat(font) * fit)
             let effectiveCell = String(format: "%.1f×%.1f pt", cell.width * fit, cell.height * fit)
             caption("C · Scaled. The Mac's \(mac.0)×\(mac.1) grid scaled ×\(String(format: "%.2f", fit)) to fit: cell \(effectiveCell), font ≈ \(effective) (drawn at \(font) pt). Pinch to zoom and pan; double-tap zooms on a spot.")
-            surface.feed(frame.bytes) { [weak self] in
+            surface.feed(frame.bytes, completion: { [weak self] in
                 guard let self, self.startZoomed else { return }
                 self.zoom(onRow: self.focus.row, column: self.focus.column, animated: false)
-            }
+            })
             updateZoomIndicator()
         }
     }
