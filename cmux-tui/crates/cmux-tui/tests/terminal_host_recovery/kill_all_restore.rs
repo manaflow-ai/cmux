@@ -1018,7 +1018,7 @@ fn quit_then_reboot_matrix(
         .iter()
         .zip(before)
         .zip(restored)
-        .map(|(((case, _, _, _), at_quit), restored)| MatrixRow { case: *case, at_quit, restored })
+        .map(|((&(case, _, _, _), at_quit), restored)| MatrixRow { case, at_quit, restored })
         .collect()
 }
 
