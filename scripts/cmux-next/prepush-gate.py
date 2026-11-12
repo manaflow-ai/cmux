@@ -2827,8 +2827,11 @@ def main(argv: list[str] | None = None) -> int:
             pushed_lines = sys.stdin.read().splitlines()
             ranges, errors = push_range.pushed_ranges(repo, pushed_lines, args.remote)
         else:
+            # A run by hand fetches the shared base first, as a push does (push_range.manual_range); an installed
+            # copy older than it has only own_range.
+            manual = getattr(push_range, "manual_range", None) or push_range.own_range
             ranges, errors = [push_range.given_range(repo, args.base, args.head) if args.base
-                              else push_range.own_range(repo, args.head)], []
+                              else manual(repo, args.head)], []
     except ValueError as error:  # a git call failed (a commit gone between two reads)
         ranges, errors = [], [str(error)]
     if errors:
