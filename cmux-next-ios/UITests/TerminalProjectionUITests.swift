@@ -127,6 +127,14 @@ final class TerminalProjectionUITests: XCTestCase {
             print("projection ui: \(name): \(counts)")
             XCTContext.runActivity(named: "\(name): \(counts)") { _ in }
         }
+        // The counts as an attachment too: its name reaches the step's
+        // attachment manifest (the PR's table reads it from there).
+        let table = rows.map { "projection ui: \($0.0): \($0.1)" }.joined(separator: "\n")
+        let attachment = XCTAttachment(string: table)
+        attachment.name = "projection-ui " + rows.map { "\($0.0)=mac\($0.1.mac).wide\($0.1.wide).rs\($0.1.resets).ret\($0.1.returnMs)" }
+            .joined(separator: " | ")
+        attachment.lifetime = .keepAlways
+        add(attachment)
         for (name, counts) in rows {
             XCTAssertEqual(counts.mac, 0, "\(name) resized the Mac's PTY (\(counts))")
             XCTAssertEqual(counts.wide, 0, "\(name) drew the Mac's wide grid on the phone (\(counts))")
