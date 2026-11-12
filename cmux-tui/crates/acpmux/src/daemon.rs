@@ -528,6 +528,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    // The Unix listener is useful before the remaining durable setup: status and list requests
+    // observe the startup gate while forum, outbox, peers and chat logs finish independently.
+    hub.begin_startup(login_env);
+    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    #[cfg(unix)]
+    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
+    #[cfg(unix)]
+    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    #[cfg(not(unix))]
+    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
+    gauges.mark("socket ready");
+    // Debug builds only: hold the listener after it is serving, so the lifecycle test proves
+    // socket readiness does not wait for durable setup. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_AFTER_SOCKET_READY_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
+    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
@@ -640,7 +660,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
-    hub.begin_startup(login_env);
     // Pairing tickets and paired machines, hashes only (`crate::pairing`).
     hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
@@ -717,13 +736,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
-    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
-    #[cfg(unix)]
-    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
-    #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
-    #[cfg(not(unix))]
-    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;

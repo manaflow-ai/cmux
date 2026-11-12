@@ -165,6 +165,60 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The Unix listener answers while the durable setup after `Hub::new` is held. This is the
+/// boundary the god-home benchmark calls "socket ready"; chat logs and the store remain gated.
+#[tokio::test]
+async fn socket_answers_before_post_hub_setup_finishes() {
+    let dir = scratch("socket-ready");
+    std::fs::write(dir.join("config.json"), "{}").unwrap();
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::Deny, &[])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_TEST_DELAY_AFTER_SOCKET_READY_MS", "1500")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            let line = line.unwrap();
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["ready"] == true
+            {
+                return v;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !socket.exists() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("socket was bound");
+    assert!(!ready.is_finished(), "the public ready line escaped the setup hold");
+    let status = tokio::time::timeout(Duration::from_millis(500), async {
+        let mut rpc = Rpc::connect(&socket).await;
+        rpc.call("_acpmux/status", json!({})).await
+    })
+    .await
+    .expect("socket answered during the setup hold");
+    assert_eq!(status["ready"], false, "chat startup is still gated");
+
+    let ready = tokio::time::timeout(Duration::from_secs(5), ready).await.unwrap().unwrap();
+    assert_eq!(ready["pid"], pid);
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+    let status = tokio::time::timeout(Duration::from_secs(8), child.wait()).await.unwrap().unwrap();
+    assert!(status.success(), "{status:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A login shell whose output ends after the environment but before the read's end marker (the
 /// shell was killed or crashed, or its output was cut). What it printed may be cut in the middle
 /// of a value, so none of it is taken: the agent starts with the daemon's own environment, no
