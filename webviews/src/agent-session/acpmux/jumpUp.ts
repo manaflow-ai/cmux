@@ -194,10 +194,10 @@ export function pressJumpUp(held: JumpBack | undefined, now: JumpBack): JumpUpPr
   return held ? { kind: "back", back: held } : { kind: "go", back: now };
 }
 
-/// The button's state: up (go to the place) or back (return), and whether it shows.
-/// It shows while the place is off screen, and while a return is held (so the second press is there).
-export function jumpUpShown(offScreen: boolean, held: JumpBack | undefined): boolean {
-  return offScreen || held !== undefined;
+/// Whether the button shows: while the place is off screen, and while a return is `held` (so the
+/// second press is there).
+export function jumpUpShown(offScreen: boolean, held: boolean): boolean {
+  return offScreen || held;
 }
 
 /// Whether a row is a prompt the reader sent by hand: not another agent's message, a task's result,
@@ -237,4 +237,83 @@ export function lastOwnPrompt(
   }
   scan.current = { me, length: rows.length, lastId: rows[rows.length - 1]?.id, found };
   return found;
+}
+
+/// How long a changed idle stretch waits before it is kept (`keepIdle`): a hand scroll changes it on
+/// every step.
+export const IDLE_KEEP_MS = 400;
+
+/// One transcript's idle stretch across its chats (VirtualTranscript.tsx): the chat it is for, the
+/// stretch, and its keeping for the next load. A plain object the transcript holds for its life, so
+/// the render reads it without refs and the reader's acts (handlers) change it. Keeping is debounced
+/// by IDLE_KEEP_MS; a switch to another chat or `keepNow` writes what is waiting at once, a change no
+/// render read yet included.
+export class IdleTracker {
+  private sessionId: string | undefined;
+  private opened = false;
+  private enabled = false;
+  private current: IdleMark = {};
+  private kept: string | undefined;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  /// The place row's index where it was last found (`settle`'s lookup hint).
+  readonly hint = { current: -1 };
+
+  constructor(private readonly store: () => IdleStore | undefined = () => globalThis.localStorage) {}
+
+  /// The stretch for chat `sessionId`: the last chat's is kept first, and this one's loads.
+  open(sessionId: string | undefined, enabled: boolean): void {
+    if (this.opened && sessionId === this.sessionId && enabled === this.enabled) return;
+    if (this.opened) this.keepNow();
+    this.opened = true;
+    this.sessionId = sessionId;
+    this.enabled = enabled;
+    this.current = enabled ? loadIdle(this.store(), sessionId) : {};
+    this.kept = JSON.stringify(keptIdle(this.current));
+    this.hint.current = -1;
+  }
+
+  get state(): IdleMark {
+    return this.current;
+  }
+
+  /// The reader scrolled by hand to `place` (`readerScrolled`).
+  scrolled(place: TranscriptPlace | undefined): void {
+    if (!this.enabled) return;
+    this.current = readerScrolled(this.current, place);
+    this.keepSoon();
+  }
+
+  /// The reader sent a prompt (`readerSent`); `newest` is their newest own prompt seen.
+  sent(newest: { id: string; at: number } | undefined): void {
+    if (!this.enabled) return;
+    this.current = readerSent(this.current, newest, Date.now());
+    this.keepSoon();
+  }
+
+  /// The stretch read against the layout (`settleIdle`, `now` its clock). Keeping is the caller's
+  /// (`keepSoon` after the render that read it).
+  settle(layout: Omit<IdleLayout, "now">): IdleMark {
+    if (!this.enabled) return this.current;
+    this.current = settleIdle(this.current, { ...layout, now: Date.now() });
+    return this.current;
+  }
+
+  /// Keeps the stretch after IDLE_KEEP_MS when what is kept changed since the last write.
+  keepSoon(): void {
+    if (!this.enabled || !this.sessionId) return;
+    if (JSON.stringify(keptIdle(this.current)) === this.kept) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.keepNow(), IDLE_KEEP_MS);
+  }
+
+  /// Keeps the stretch now when what is kept changed, and drops the write waiting.
+  keepNow(): void {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (!this.enabled || !this.sessionId) return;
+    const key = JSON.stringify(keptIdle(this.current));
+    if (key === this.kept) return;
+    this.kept = key;
+    keepIdle(this.store(), this.sessionId, this.current);
+  }
 }

@@ -78,9 +78,9 @@ test("Jump up shows only while its place is off screen, and while it holds a way
   // The header covers the view's top: a place under it is off screen.
   expect(placeOffScreen(210, 200, 400, 24)).toBe(true);
   expect(placeOffScreen(undefined, 0, 400)).toBe(false);
-  expect(jumpUpShown(false, undefined)).toBe(false);
-  expect(jumpUpShown(true, undefined)).toBe(true);
-  expect(jumpUpShown(false, { top: 900, atLatest: true })).toBe(true);
+  expect(jumpUpShown(false, false)).toBe(false);
+  expect(jumpUpShown(true, false)).toBe(true);
+  expect(jumpUpShown(false, true)).toBe(true);
 });
 
 test("Jump up reads a place where its row draws: a prompt in sight at the chat's top is on screen", () => {

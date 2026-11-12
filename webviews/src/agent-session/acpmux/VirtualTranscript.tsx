@@ -175,16 +175,10 @@ import { readUnread, subscribeUnread, unreadPending } from "./conversation/unrea
 import {
   jumpUpShown,
   jumpUpTarget,
-  keepIdle,
-  keptIdle,
+  IdleTracker,
   lastOwnPrompt,
-  loadIdle,
   placeOffView,
   pressJumpUp,
-  readerScrolled,
-  readerSent,
-  settleIdle,
-  type IdleMark,
   type JumpBack,
   type PromptScan,
 } from "./jumpUp";
@@ -848,11 +842,6 @@ const WARM_STEP_VIEWPORTS = 0.5;
 
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
-/// How long a changed Jump up idle stretch waits before it is kept for the next load (jumpUp.ts
-/// `keepIdle`): a hand scroll changes it on every step.
-const IDLE_KEEP_MS = 400;
-/// No chat's id: the Jump up idle stretch before its chat's is loaded.
-const IDLE_UNREAD = "\u0000unread";
 
 /// How long a scroll event can be attributed to the reader's most recent input. Expiring this
 /// window never changes the reader's follow choice; it only distinguishes subsequent events.
@@ -1471,34 +1460,9 @@ function TranscriptView({
   /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
-  const idle = useRef<{ sessionId?: string; state: IdleMark }>({ sessionId: IDLE_UNREAD, state: {} });
-  /// What was last kept of it (its `keptIdle`), and the write waiting to go.
-  const idleKept = useRef<string | undefined>(undefined);
-  const idleHint = useRef({ current: -1 });
-  const idleWrite = useRef<{ sessionId?: string; state: IdleMark; timer: ReturnType<typeof setTimeout> } | undefined>(
-    undefined,
-  );
-  /// Keeps the chat's stretch as it is now, at once: the write waiting goes, and a change no render
-  /// has read yet (a hand scroll that mounted no new rows) goes with it. Refs only, so stable.
-  const keepIdleNow = useCallback(() => {
-    const pending = idleWrite.current;
-    if (pending) {
-      idleWrite.current = undefined;
-      clearTimeout(pending.timer);
-    }
-    const { sessionId: id, state } = idle.current;
-    if (!id || id === IDLE_UNREAD) return;
-    const key = JSON.stringify(keptIdle(state));
-    if (key === idleKept.current && !pending) return;
-    idleKept.current = key;
-    keepIdle(globalThis.localStorage, id, state);
-  }, []);
-  if (idle.current.sessionId !== sessionId) {
-    // The last chat's stretch is kept first, so coming straight back reads it.
-    keepIdleNow();
-    idle.current = { sessionId, state: jumpButton ? loadIdle(globalThis.localStorage, sessionId) : {} };
-    idleKept.current = JSON.stringify(keptIdle(idle.current.state));
-  }
+  const [idle] = useState(() => new IdleTracker());
+  // This chat's stretch (the last chat's is kept first, so coming straight back reads it).
+  idle.open(sessionId, jumpButton);
 
   const jumpBack = useRef<JumpBack | undefined>(undefined);
   const [jumpBackHeld, setJumpBackHeld] = useState(false);
@@ -4615,8 +4579,7 @@ function TranscriptView({
     renderRate.sent(performance.now());
     // The reader acted: the pinned Jump up mark goes, and an idle stretch starts at the prompt's row
     // once it comes (jumpUp.ts).
-    if (jumpButton)
-      idle.current = { sessionId, state: readerSent(idle.current.state, promptScan.current.found, Date.now()) };
+    if (jumpButton) idle.sent(promptScan.current.found);
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
@@ -4871,14 +4834,7 @@ function TranscriptView({
     placedTop.current = undefined;
     const byHand = !programmatic && userScrollIntent(node).scrolledByHand();
     if (byHand && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
-      if (jumpButton)
-        idle.current = {
-          sessionId,
-          state: readerScrolled(
-            idle.current.state,
-            restingAnchor(layoutScrollTop(node) + node.clientHeight / 3, false, layout, rows) ?? undefined,
-          ),
-        };
+      idle.scrolled(restingAnchor(layoutScrollTop(node) + node.clientHeight / 3, false, layout, rows) ?? undefined);
       if (jumpBack.current) {
         jumpBack.current = undefined;
         setJumpBackHeld(false);
@@ -4929,15 +4885,9 @@ function TranscriptView({
     // Jump up never comes up just because they pressed this (Leo, 2026-11-12: "after clicking the
     // jump to bottom button, this appears... maybe a bit extra?").
     // Jump up's own way back (Esc after a press) is the press's return, not a new act: the mark stays.
-    if (jumpButton && path !== "jump-back") {
+    if (path !== "jump-back") {
       const { layout: placed, rows: shown } = latestLayout.current;
-      idle.current = {
-        sessionId,
-        state: readerScrolled(
-          idle.current.state,
-          restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined,
-        ),
-      };
+      idle.scrolled(restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined);
     }
     stopJump();
     rideToLatest(node, target, reduce, true);
@@ -5546,63 +5496,43 @@ function TranscriptView({
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
-  if (jumpButton) {
-    const was = idle.current.state;
-    // The stretch's place row, read each render: its hint keeps the lookup O(1) while rows append.
-    const state = settleIdle(was, {
-      topOf: (place) => {
-        const index = indexOfRow(rows, place.rowId, idleHint.current);
-        return index >= 0 ? layout.geometry.topAt(index) + place.offset : undefined;
-      },
-      totalHeight: layout.totalHeight,
-      viewHeight: height,
-      lastPrompt: ownPrompt?.id,
-      now: Date.now(),
-    });
-    if (state !== was) idle.current = { sessionId, state };
-  }
-  const idleNow = idle.current.state;
+  // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
+  const idleNow = idle.settle({
+    topOf: (place) => {
+      const index = indexOfRow(rows, place.rowId, idle.hint);
+      return index >= 0 ? layout.geometry.topAt(index) + place.offset : undefined;
+    },
+    totalHeight: layout.totalHeight,
+    viewHeight: height,
+    lastPrompt: ownPrompt?.id,
+  });
   const upTarget = jumpButton
     ? jumpUpTarget(sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined, idleNow.mark)
     : undefined;
   // The stretch's place and mark are kept for the chat's next load (a reload, an update, a restart),
-  // written only when they change.
-  // A hand scroll starts a stretch on each of its steps, so the write waits for the steps to settle;
-  // one waiting for another chat, or for the pane going, goes at once.
-  const idleKey = jumpButton && sessionId ? JSON.stringify(keptIdle(idleNow)) : undefined;
-  const flushIdle = useCallback(() => {
-    const write = idleWrite.current;
-    if (!write) return;
-    idleWrite.current = undefined;
-    clearTimeout(write.timer);
-    keepIdle(globalThis.localStorage, write.sessionId, write.state);
-  }, []);
-  useEffect(() => {
-    if (idleKey === undefined || idleKey === idleKept.current) return;
-    idleKept.current = idleKey;
-    const waiting = idleWrite.current;
-    if (!waiting || waiting.sessionId !== sessionId) flushIdle();
-    else clearTimeout(waiting.timer);
-    idleWrite.current = { sessionId, state: idleNow, timer: setTimeout(flushIdle, IDLE_KEEP_MS) };
-    // Written when what is kept changes, not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idleKey]);
-  // The pane going keeps what it has, read by a render or not.
-  useEffect(() => keepIdleNow, [keepIdleNow]);
+  // written when they change, after a hand scroll's steps settle (IdleTracker.keepSoon), and at once
+  // when the pane goes.
+  useEffect(() => idle.keepSoon());
+  useEffect(() => () => idle.keepNow(), [idle]);
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
   const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   // One control at a time: while Jump to latest shows, Jump up waits (Leo, 2026-11-12: the two
   // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
   const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
-  const upShown = jumpButton && !latestShown && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
+  const upShown = jumpButton && !latestShown && jumpUpShown(upOff, jumpBackHeld);
+  // What a press reads (`pressUp`), as of the last commit.
   const upTopRef = useRef({ top: upTop, place: upTarget });
-  upTopRef.current = { top: upTop, place: upTarget };
+  useLayoutEffect(() => {
+    upTopRef.current = { top: upTop, place: upTarget };
+  });
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
   const jumpVisible = latestShown;
   const jumpShownReport = useRef(onJumpShownChange);
-  jumpShownReport.current = onJumpShownChange;
+  useLayoutEffect(() => {
+    jumpShownReport.current = onJumpShownChange;
+  });
   useLayoutEffect(() => {
     jumpShownReport.current?.(jumpVisible);
   }, [jumpVisible]);

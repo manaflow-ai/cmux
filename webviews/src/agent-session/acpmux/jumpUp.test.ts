@@ -3,9 +3,11 @@
 // another agent's message, a task's result, the Chief's message to a subagent, or another person's
 // prompt in a shared chat (Leo, 2026-11-10: "jumping up since like the last time you interacted
 // manually").
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import type { AcpmuxRow } from "./model";
 import {
+  IDLE_KEEP_MS,
+  IdleTracker,
   keepIdle,
   keptIdle,
   lastOwnPrompt,
@@ -209,4 +211,39 @@ test("the stretch is kept per chat and read back; bad or missing storage keeps n
     },
   };
   expect(() => keepIdle(full, "chat-a", { mark: mark5 })).not.toThrow();
+});
+
+test("the tracker keeps a chat's stretch after its steps settle, at once on a switch or keepNow, never its measure", () => {
+  jest.useFakeTimers();
+  const data = new Map<string, string>();
+  const store = {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+  };
+  try {
+    const tracker = new IdleTracker(() => store);
+    tracker.open("a", true);
+    tracker.scrolled({ rowId: "r1", offset: 0 });
+    expect(loadIdle(store, "a").read).toBeUndefined();
+    jest.advanceTimersByTime(IDLE_KEEP_MS);
+    expect(loadIdle(store, "a").read?.place.rowId).toBe("r1");
+    // A change no render read yet goes with a switch, at once.
+    tracker.scrolled({ rowId: "r2", offset: 0 });
+    tracker.open("b", true);
+    expect(loadIdle(store, "a").read?.place.rowId).toBe("r2");
+    expect(tracker.state).toEqual({});
+    tracker.scrolled({ rowId: "b1", offset: 0 });
+    tracker.keepNow();
+    expect(loadIdle(store, "b").read?.place.rowId).toBe("b1");
+    // Reopening reads back what was kept; a disabled tracker keeps and changes nothing.
+    tracker.open("a", true);
+    expect(tracker.state.read?.place.rowId).toBe("r2");
+    const off = new IdleTracker(() => store);
+    off.open("c", false);
+    off.scrolled({ rowId: "c1", offset: 0 });
+    off.keepNow();
+    expect(loadIdle(store, "c")).toEqual({});
+  } finally {
+    jest.useRealTimers();
+  }
 });
