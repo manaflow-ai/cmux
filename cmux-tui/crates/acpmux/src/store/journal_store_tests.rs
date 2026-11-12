@@ -2306,7 +2306,8 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// The file a `#[path = "..."]` attribute names.
+/// The file a `#[path = ...]` attribute names: its string literal's value as rustc reads it,
+/// raw (`r"..."`, `r#"..."#`) or with escapes (#42023 review F2).
 fn path_attr(attr: &proc_macro2::Group) -> Option<String> {
     let tts: Vec<TokenTree> = attr.stream().into_iter().collect();
     let [TokenTree::Ident(key), TokenTree::Punct(eq), TokenTree::Literal(lit)] = &tts[..] else {
@@ -2315,8 +2316,10 @@ fn path_attr(attr: &proc_macro2::Group) -> Option<String> {
     if key != "path" || eq.as_char() != '=' {
         return None;
     }
-    let lit = lit.to_string();
-    Some(lit.strip_prefix('"')?.strip_suffix('"')?.to_owned())
+    match syn::Lit::new(lit.clone()) {
+        syn::Lit::Str(path) => Some(path.value()),
+        _ => None,
+    }
 }
 
 fn is_cfg_test(attr: &proc_macro2::Group) -> bool {
@@ -2340,6 +2343,62 @@ fn group(tt: Option<&TokenTree>, delimiter: Delimiter) -> Option<&proc_macro2::G
         Some(TokenTree::Group(g)) if g.delimiter() == delimiter => Some(g),
         _ => None,
     }
+}
+
+/// Whether a `::` starts at `k`.
+fn path_sep(tts: &[TokenTree], k: usize) -> bool {
+    matches!(tts.get(k), Some(TokenTree::Punct(p)) if p.as_char() == ':' && p.spacing() == Spacing::Joint)
+        && punct(tts.get(k + 1), ':')
+}
+
+/// Whether the `>` at `k` ends a `->`.
+fn arrow(tts: &[TokenTree], k: usize) -> bool {
+    k > 0
+        && matches!(&tts[k - 1], TokenTree::Punct(p) if p.as_char() == '-' && p.spacing() == Spacing::Joint)
+}
+
+/// The arguments of a call to `std::mem::drop` that starts at `k`, however the path is written:
+/// `drop`, `mem::drop` (under `use std::mem;`), `std::mem::drop`, `core::mem::drop`, with a
+/// leading `::` or a turbofish (`drop::<Sender<u8>>`) (#42023 review F1). Another module's
+/// `drop` (`other::drop(tx)`) is not it.
+fn drop_call_at(tts: &[TokenTree], k: usize) -> Option<&proc_macro2::Group> {
+    const PATHS: &[&[&str]] =
+        &[&["drop"], &["mem", "drop"], &["std", "mem", "drop"], &["core", "mem", "drop"]];
+    let mut at = if path_sep(tts, k) { k + 2 } else { k };
+    let mut segments = Vec::new();
+    loop {
+        let Some(TokenTree::Ident(name)) = tts.get(at) else { return None };
+        segments.push(name.to_string());
+        at += 1;
+        if !path_sep(tts, at) || !matches!(tts.get(at + 2), Some(TokenTree::Ident(_))) {
+            break;
+        }
+        at += 2;
+    }
+    if !PATHS.iter().any(|path| path.iter().copied().eq(segments.iter().map(String::as_str))) {
+        return None;
+    }
+    // A turbofish: `::<` up to its matching `>`.
+    if path_sep(tts, at) && punct(tts.get(at + 2), '<') {
+        let mut depth = 0usize;
+        at += 2;
+        loop {
+            match tts.get(at) {
+                Some(TokenTree::Punct(p)) if p.as_char() == '<' => depth += 1,
+                // `->` in a `Fn() -> T` closes nothing.
+                Some(TokenTree::Punct(p)) if p.as_char() == '>' && !arrow(tts, at) => {
+                    depth = depth.checked_sub(1)?;
+                }
+                Some(_) => {}
+                None => return None,
+            }
+            at += 1;
+            if depth == 0 {
+                break;
+            }
+        }
+    }
+    group(tts.get(at), Delimiter::Parenthesis)
 }
 
 /// The scan of one source, read as Rust tokens: strings, comments and macro bodies are what
@@ -2509,8 +2568,8 @@ fn is_fn_body(tts: &[TokenTree], j: usize) -> bool {
 /// Whether the channel `receiver` reads has ended before the `while let` that drains it starts.
 /// `path` is what runs first, in order: for each enclosing block of the loop's function, its
 /// tokens before the block the loop is in, then the loop's own block up to the loop. On that
-/// path the pair `let (sender, receiver)` is made, and then a statement drops the sender or
-/// closes the receiver. A drop in the loop, after it, in a block beside it or in a closure ends
+/// path the pair `let (sender, receiver)` is made, and then a statement drops the sender
+/// (`drop(tx)`, `std::mem::drop(tx)`: [`drop_call_at`]) or closes the receiver. A drop in the loop, after it, in a block beside it or in a closure ends
 /// nothing the loop can count on (#41961 review F1).
 fn ended_before(path: &[&[TokenTree]], receiver: &str) -> bool {
     let names = |pair: &proc_macro2::Group| -> Vec<String> {
@@ -2549,9 +2608,7 @@ fn ended_before(path: &[&[TokenTree]], receiver: &str) -> bool {
             if !statement(level, k) {
                 continue;
             }
-            let dropped = word(level.get(k), "drop")
-                && group(level.get(k + 1), Delimiter::Parenthesis)
-                    .is_some_and(|args| names(args) == [tx.clone()]);
+            let dropped = drop_call_at(level, k).is_some_and(|args| names(args) == [tx.clone()]);
             let closed = word(level.get(k), receiver)
                 && punct(level.get(k + 1), '.')
                 && word(level.get(k + 2), "close");
