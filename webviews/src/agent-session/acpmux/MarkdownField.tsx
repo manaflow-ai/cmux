@@ -376,13 +376,23 @@ function insertPlain(view: EditorView, text: string) {
   view.dispatch(tr.scrollIntoView());
 }
 
-/** A paste's plain text inserted as `insertPlain` does, a space after a cmux deeplink it ends in
- * (`spacedAfterDeeplink`) so the next key typed does not run into the link's chip. Not in code,
- * where a link draws as text. */
+/** After a paste, a space at the caret when the text before it ends in a cmux deeplink
+ * (`spacedAfterDeeplink`), so the next key typed does not run into the link's chip. Read from the
+ * draft, not the paste, so a paste read as Markdown gets it too. Not in code, where a link draws
+ * as text; an attachment after the caret is no space, a line break is. */
+function spaceAfterPastedLink(view: EditorView) {
+  const { empty, $head } = view.state.selection;
+  if (!empty || $head.parent.type.spec.code) return;
+  const before = $head.parent.textBetween(0, $head.parentOffset, undefined, "￼");
+  const after = $head.nodeAfter;
+  const next = after?.isText ? after.text!.charAt(0) : after?.type.name === "hardbreak" ? "\n" : "";
+  if (spacedAfterDeeplink(before, next) !== before) view.dispatch(view.state.tr.insertText(" ").scrollIntoView());
+}
+
+/** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
 function insertPasted(view: EditorView, text: string) {
-  const { to, $to } = view.state.selection;
-  const next = view.state.doc.textBetween(to, Math.min(to + 1, $to.end()), "\n", "\n");
-  insertPlain(view, $to.parent.type.spec.code ? text : spacedAfterDeeplink(text, next));
+  insertPlain(view, text);
+  spaceAfterPastedLink(view);
 }
 
 /** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
@@ -1197,6 +1207,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // The surface sees the text as copied first (a huge paste is the composer's chip).
                   if (beforeInput(editorView, data?.getData("text/plain") || markdown, true)) return true;
                   if (insertMarkdown(editorView, markdown)) {
+                    spaceAfterPastedLink(editorView);
                     showPastedEnd(editorView.state);
                     return true;
                   }
