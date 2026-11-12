@@ -266,6 +266,26 @@ mod tests {
         assert_eq!(ssh_carrier_command(&root), None, "ssh logs in as the work user only");
     }
 
+    /// The Cloud session host names its terminal cmux: `TERM_PROGRAM=cmux`
+    /// and no Ghostty `TERM_PROGRAM_VERSION` (the daemon stamps cmux's own
+    /// version on every terminal child, `cmux_pty::TERMINAL_IDENTITY`).
+    #[test]
+    fn the_session_host_names_its_terminal_cmux() {
+        let entry = RemoteEntry::Enrolled { bind: "127.0.0.1:1337".parse::<SocketAddr>().unwrap() };
+        let spec = daemon_spec(&user_layout(), "1.3.2", &entry, Path::new("/run/cmux/bound"));
+        assert!(
+            spec.set_env.contains(&("TERM_PROGRAM".into(), "cmux".into())),
+            "{:?}",
+            spec.set_env
+        );
+        assert!(
+            spec.set_env.iter().all(|(k, _)| k != "TERM_PROGRAM_VERSION"),
+            "{:?}",
+            spec.set_env
+        );
+        assert!(spec.set_env.contains(&("TERM".into(), "xterm-256color".into())));
+    }
+
     /// The session host derives [`session_socket`] and the default remote
     /// state (`$HOME/.local/state/cmux/remote`, where its link socket lives)
     /// only while nothing overrides them: no socket or remote state flag, and
