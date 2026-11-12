@@ -39,6 +39,7 @@ const TMP_SUBDIR: &str = "t";
 
 /// The per-user directory's one Node compile cache ([`compile_cache_env`]).
 const COMPILE_CACHE_SUBDIR: &str = "node-compile-cache";
+#[cfg(unix)]
 const COMPILE_CACHE_ENV: &str = "NODE_COMPILE_CACHE";
 
 /// Past this a starting daemon removes the shared compile cache ([`stale`]);
