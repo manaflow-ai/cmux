@@ -143,13 +143,16 @@ import Testing
 
     /// The quit's steps with `save` as its one save step `name` (limit 400 ms) and every other step
     /// recorded in `order`.
-    static func quit(_ limiter: QuitStepLimiter, timeLeft: TimeLeft, step name: String = "agent_composers",
+    /// With `handsOff`, the quit is a Restart to Update that hands acpmux off (`acpmux_handoff`).
+    static func quit(_ limiter: QuitStepLimiter, timeLeft: TimeLeft, step name: String = "agent_composers", handsOff: Bool = false,
                      order: @escaping @MainActor (String) -> Void, save: @escaping @MainActor () async -> Void) -> QuitSteps {
-        QuitSteps(
+        let handOff: @MainActor () async -> Void = { order("acpmux_handoff") }
+        return QuitSteps(
             prepareWindows: { await limiter.run(name, limit: .milliseconds(400), save) },
             endLocalSessions: { order("end_sessions"); return [] },
             confirmFailures: { _ in .quitAnyway },
             endLocalAgents: { order("end_agents"); return [] },
+            handOffAcpmux: handsOff ? handOff : nil,
             stopBrowserEngines: { order("engines_stopped") },
             limiter: limiter,
             timeLeft: { timeLeft.value }
@@ -187,6 +190,62 @@ import Testing
         releaser.finish()
         await quit.value
         #expect(order == ["written", "engines_stopped", "replied"], "the late save did not come first: \(order)")
+    }
+
+    /// Leo, 2026-11-11: "when restarting ALL MY ... UNSENT ... GOT DELETED". Restart to Update
+    /// handed acpmux to the new build as soon as the composer step passed its 400 ms limit, while
+    /// the chat pages' last draft writes (up to 500 ms each, the 1 s quit ask) were still on their
+    /// way: acpmux stopped under them. A late composer save now lands before acpmux is handed off.
+    @Test func restartToUpdateHandsOffAcpmuxOnlyAfterALateDraftSave() async throws {
+        let clock = ManualClock()
+        let marks = Marks()
+        let limiter = QuitStepLimiter(mark: { marks.record($0) }, clock: clock)
+        var order: [String] = []
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, timeLeft: TimeLeft(.seconds(3)), handsOff: true, order: { order.append($0) }, save: {
+                for await _ in release { break }
+                order.append("drafts_written")
+            }).run(ends: false)
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        #expect(await marks.nextLimit() == "quit.agent_composers.limit")
+        try await clock.waitForSleeper()
+        #expect(order.isEmpty, "acpmux was handed off under a late draft save: \(order)")
+        releaser.yield()
+        releaser.finish()
+        await quit.value
+        #expect(order == ["drafts_written", "acpmux_handoff", "engines_stopped"], "\(order)")
+    }
+
+    /// The handoff's wait is bounded too: a composer save that never ends holds it for
+    /// `QuitSteps.handoffSaveWait`, then acpmux goes to the new build.
+    @Test func aHungDraftSaveHoldsTheHandoffOnlyForItsWait() async throws {
+        let clock = ManualClock()
+        let marks = Marks()
+        let limiter = QuitStepLimiter(mark: { marks.record($0) }, clock: clock)
+        var order: [String] = []
+        let timeLeft = TimeLeft(.seconds(3))
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, timeLeft: timeLeft, handsOff: true, order: { order.append($0) },
+                            save: { for await _ in release { break } }).run(ends: false)
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        #expect(await marks.nextLimit() == "quit.agent_composers.limit")
+        try await clock.waitForSleeper()
+        clock.advance(by: QuitSteps.handoffSaveWait)
+        #expect(await marks.nextLimit() == "quit.overruns.limit")
+        // The handoff ran; the quit now waits for the hung save before the engines stop.
+        try await clock.waitForSleeper()
+        #expect(order == ["acpmux_handoff"], "\(order)")
+        timeLeft.value = .zero
+        clock.advance(by: .seconds(3))
+        await quit.value
+        #expect(order == ["acpmux_handoff", "engines_stopped"], "\(order)")
+        releaser.finish()
     }
 
     /// The wait for a late step is bounded: a step that never ends holds the quit only for what is
