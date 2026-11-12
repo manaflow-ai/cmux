@@ -190,6 +190,30 @@ struct ContributedAnswersTests {
         #expect(ran.ids == ["chat:flaw"], "Return ran \(ran.ids)")
     }
 
+    /// A notice row (`PaletteItem.showsForEveryQuery`: a History list that is not complete) is on screen for
+    /// every typed text, but it is not a result. A text that finds no ranked row still waits for the chats:
+    /// a Return before acpmux answers is not used up on the notice, it runs the best chat.
+    @Test func aNoticeRowDoesNotEndTheWaitForTheChats() async {
+        let chats = Chats(), ran = Ran()
+        let notice = PaletteItem(id: "history.status.pending", title: "Still loading history", isEnabled: false, showsForEveryQuery: true,
+                                 primary: PaletteCommand(id: "retry", title: "Try Again", symbol: "arrow.clockwise", effect: .performKeepingOpen {}))
+        let (palette, registry) = Self.palette(chats: chats, ran: ran, extraHistory: [notice])
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("zqxjw"))
+        await palette.model.settle()
+        await Self.until { palette.model.rows.contains { $0.id == notice.id } }
+        #expect(palette.model.rows.contains { $0.id == notice.id }, "the notice shows for a text that finds no row")
+        palette.model.send(.activate(nil))
+        await palette.model.settle()
+        await Self.until { chats.streams["zqxjw"] != nil }
+        #expect(ran.ids.isEmpty, "Return ran \(ran.ids) before acpmux answered")
+        await chats.answer("zqxjw", [Self.item("chat:flaw", "Zqxjw parser flaw", ran: ran)])
+        await Self.until { !ran.ids.isEmpty }
+        #expect(ran.ids == ["chat:flaw"], "Return ran \(ran.ids): the notice row ended the wait for the chats")
+    }
+
     /// Review 3 F1: acpmux gives no answer for the new query (disconnected or refused): the old query's chats
     /// leave the screen, they do not stay under later queries.
     @Test func noAnswerClearsTheOldQuerysChats() async {
