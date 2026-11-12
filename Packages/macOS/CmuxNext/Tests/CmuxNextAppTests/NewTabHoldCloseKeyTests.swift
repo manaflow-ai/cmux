@@ -39,16 +39,23 @@ struct NewTabHoldCloseKeyTests {
         override func keyDown(with event: NSEvent) { typed += event.characters ?? "" }
     }
 
-    /// One workspace with one pane, or with two side by side; each pane has one tab.
-    private static func tree(panes: Int) -> DaemonTree {
+    /// One workspace with one pane, or with two side by side; each pane has one tab. `secondWorkspace`: one more
+    /// workspace with one pane, for a second window.
+    private static func tree(panes: Int, secondWorkspace: Bool = false) -> DaemonTree {
         let all = (1...panes).map { PaneSnapshot(id: PaneID(rawValue: UInt64($0)), tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64($0)), title: "~")]) }
         let layout: LayoutNode = panes == 1 ? .leaf(all[0].id)
             : .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(all[0].id), b: .leaf(all[1].id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: all)
-        var tree = DaemonTree(registryID: "s-local", workspaces: [
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "hold-close-ws"), name: "hold", screens: [screen]),
-        ])
-        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "hold-close-ws"), index: 0)])
+        var workspaces = [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "hold-close-ws"), name: "hold", screens: [screen])]
+        var personal = [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "hold-close-ws"), index: 0)]
+        if secondWorkspace {
+            let pane = PaneSnapshot(id: PaneID(rawValue: 11), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 11), title: "~")])
+            let second = ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(pane.id), panes: [pane])
+            workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "hold-close-ws-b"), name: "other", screens: [second]))
+            personal.append(PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "hold-close-ws-b"), index: 1))
+        }
+        var tree = DaemonTree(registryID: "s-local", workspaces: workspaces)
+        tree.personal = PersonalState(workspaces: personal)
         return tree
     }
 
@@ -73,6 +80,8 @@ struct NewTabHoldCloseKeyTests {
         let probe: KeyProbe
         /// The hold's token.
         let token: String
+        /// With `newWindowHold`: a second window of the app, its pane, and the probe that has the keyboard there.
+        var other: (window: NSWindow, pane: PaneController, probe: KeyProbe)?
         var input: NewTabInputCoordinator { services.keyRouter.newTabInputCoordinator }
 
         /// A view that takes the keyboard after the opening (the new page's or the new terminal's). It is in the
@@ -96,7 +105,9 @@ struct NewTabHoldCloseKeyTests {
     /// (`incoming`: of Cmd-N's new workspace) with the line `ls` and Return in it, and the probe with the
     /// keyboard. With `besideTheFocusedPane` the page is in the second of two panes and the focus model names
     /// the first, as after a click on the + of a pane that is not the focused one. `body` ends the hold.
-    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, byScript: Bool = false, thenAScriptOpens: Bool = false, _ body: (Held) throws -> Void) async throws {
+    /// `newWindowHold`: the hold is Cmd-Shift-N's (it takes the keys of every window), and the app has a second
+    /// window whose pane has a probe with the keyboard.
+    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, byScript: Bool = false, thenAScriptOpens: Bool = false, newWindowHold: Bool = false, _ body: (Held) throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -106,11 +117,14 @@ struct NewTabHoldCloseKeyTests {
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
         let count = besideTheFocusedPane ? 2 : 1
-        store.apply(snapshot: tree(panes: count))
+        store.apply(snapshot: tree(panes: count, secondWorkspace: newWindowHold))
         let controller = try #require(services.windows.openWindow(workspaces: ["hold-close-ws"], frame: CGRect(x: 200, y: 200, width: 1100, height: 720)))
         let directory = FileManager.default.temporaryDirectory.appending(path: "new-tab-hold-close-\(UUID().uuidString)")
         var pageKey: String?
+        var otherController: WindowController?
         defer {
+            otherController?.teardown()
+            otherController?.window?.close()
             if let pageKey {
                 services.agentTabs.views[pageKey] = nil
                 services.agentTabs.newTabPages[pageKey] = nil
@@ -147,6 +161,27 @@ struct NewTabHoldCloseKeyTests {
                                                NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
         try #require(page.window === window && !page.isHiddenOrHasHiddenAncestor, "the page is not shown in the window")
 
+        // The second window: one pane, which has focus there, and a probe in it with that window's keyboard.
+        var other: (window: NSWindow, pane: PaneController, probe: KeyProbe)?
+        if newWindowHold {
+            let second = try #require(services.windows.openWindow(workspaces: ["hold-close-ws-b"], frame: CGRect(x: 260, y: 240, width: 900, height: 600)), "the second window did not open")
+            otherController = second
+            for _ in 0..<200 where second.workspaceContent?.panes.count != 1 { try await Task.sleep(for: .milliseconds(10)) }
+            let secondContent = try #require(second.workspaceContent, "the second window shows no workspace")
+            try #require(secondContent.panes.count == 1, "the second window never showed its pane")
+            secondContent.contentView.layoutSubtreeIfNeeded()
+            let secondWindow = try #require(second.window)
+            try #require(secondWindow !== window, "the second workspace opened in the first window")
+            let firstPanes = store.workspaces.compactMap { $0.screens.first?.panes.first }
+            let secondPane = try #require(firstPanes.compactMap { secondContent.paneController(key: $0.id) }.first, "the second window has no pane controller")
+            try #require(secondPane !== focused && secondPane !== pane && secondPane.view.window === secondWindow, "the second window's pane is not its own")
+            second.focus.send(.focusPane(secondPane.paneKey, source: .programmatic))
+            let secondProbe = KeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
+            secondPane.view.addSubview(secondProbe)
+            try #require(secondWindow.makeFirstResponder(secondProbe) && secondWindow.firstResponder === secondProbe, "the second window's probe did not get the keyboard (first responder \(String(describing: secondWindow.firstResponder)))")
+            other = (window: secondWindow, pane: secondPane, probe: secondProbe)
+        }
+
         // The focus model names the first pane, and the view that had the keyboard before the opening still has it.
         controller.focus.send(.focusPane(focused.paneKey, source: .programmatic))
         try #require(controller.focus.state.pane == focused.paneKey, "the first pane does not have focus")
@@ -163,8 +198,8 @@ struct NewTabHoldCloseKeyTests {
         input.incomingHoldLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in Task {} }
         // `byScript`: the opening is a run of the CLI that may not change the view, as `ActionRegistry` binds it.
-        var token = try #require(ActionRunScope.$current.withValue(byScript ? scriptRun : nil) { incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
-        if !incoming { input.didShow(in: window) }
+        var token = try #require(ActionRunScope.$current.withValue(byScript ? scriptRun : nil) { newWindowHold ? input.beginIncoming(in: window, followsNewWindow: true) : incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
+        if !incoming, !newWindowHold { input.didShow(in: window) }
         // `thenAScriptOpens`: a script's opening in the same window replaces the hold before the first key.
         if thenAScriptOpens { token = try #require(ActionRunScope.$current.withValue(scriptRun) { input.begin(for: pane) }, "the script's opening began no hold") }
         let line = [try keyDown("l", keyCode: 37, in: window), try keyDown("s", keyCode: 1, in: window), try keyDown("\r", keyCode: 36, in: window)]
@@ -172,7 +207,7 @@ struct NewTabHoldCloseKeyTests {
         try #require(input.isHolding(in: window) && probe.typed.isEmpty, "the line is not held: probe \"\(probe.typed)\", \(input.log)")
         try #require(window.firstResponder === probe, "the keyboard left the probe before the hold ended (first responder \(String(describing: window.firstResponder)))")
 
-        try body(Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token))
+        try body(Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token, other: other))
     }
 
     /// What every test here needs from the end of a hold: it is over, and the old view got no key.
@@ -339,6 +374,26 @@ struct NewTabHoldCloseKeyTests {
             held.passTheLimit()
             #expect(page.typed == "ls\r", "the line for the person's page, which took the keyboard before a script's opening, did not reach it: \"\(page.typed)\" (hold log \(held.input.log))")
             Self.expectNoKeyReachedTheOldView(held, "the limit of a script's hold that replaced the person's hold after the page took the keyboard")
+        }
+    }
+
+    /// The person presses Cmd-Shift-N in one window and types a line. The New Window hold takes the keys of EVERY
+    /// window, so a script's opening in another window finds that hold and replaces it there. The line was typed in
+    /// the first window for the new window's page: in the other window it reaches nothing. (What had the keyboard
+    /// at the person's opening is a view of the first window. The keys of the newer hold run in the other window,
+    /// so the owner there is what has the keyboard in that window.)
+    @Test func aLineHeldForANewWindowsPageReachesNothingInAnotherWindowWhereAScriptOpensAPage() async throws {
+        try await Self.withAHeldLine(newWindowHold: true) { held in
+            let other = try #require(held.other, "the fixture made no second window")
+            try #require(other.window.firstResponder === other.probe, "the keyboard left the second window's probe before the script's opening (first responder \(String(describing: other.window.firstResponder)))")
+            _ = try #require(ActionRunScope.$current.withValue(Self.scriptRun) { held.input.begin(for: other.pane) }, "the script's opening in the other window began no hold")
+            try #require(held.input.isHolding(in: other.window) && !held.input.isHolding(in: held.window), "the script's opening did not replace the New Window hold: \(held.input.log)")
+            #expect(held.probe.typed.isEmpty && other.probe.typed.isEmpty, "the replacement gave the line on: first window \"\(held.probe.typed)\", other window \"\(other.probe.typed)\" (hold log \(held.input.log))")
+            held.input.now = { ContinuousClock.now + .seconds(601) }
+            held.input.flush(in: other.window)
+            #expect(!held.input.isHolding(in: other.window), "the script's hold did not end at its limit: \(held.input.log)")
+            #expect(other.probe.typed.isEmpty, "the line typed in the first window ran in the other window, where a script opened a page: \"\(other.probe.typed)\" (hold log \(held.input.log))")
+            #expect(held.probe.typed.isEmpty, "the line typed for the new window's page went to the view that had the keyboard at the opening: \"\(held.probe.typed)\" (hold log \(held.input.log))")
         }
     }
 
