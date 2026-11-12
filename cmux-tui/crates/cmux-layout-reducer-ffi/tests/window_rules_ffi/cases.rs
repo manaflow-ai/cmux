@@ -28,13 +28,13 @@ fn call_json(operation: &CStr, request: &Value) -> (i32, Value) {
 }
 
 #[test]
-fn close_toast_asks_an_idle_terminal() {
+fn close_toast_skips_an_idle_terminal() {
     let (code, body) = call_json(
         c"window_close_toast",
         &json!({"tabs": [{"kind": "browser", "url": "about:blank"}, {"kind": "pty"}]}),
     );
     assert_eq!(code, OK);
-    assert_eq!(body, json!({"decision": "askTerminals", "terminals": [1]}));
+    assert_eq!(body, json!({"decision": "skip"}));
 }
 
 #[test]
