@@ -473,6 +473,10 @@ public final class MessagesLabHomeView: NSView {
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
+
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
     ///

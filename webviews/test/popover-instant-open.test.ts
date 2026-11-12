@@ -1,18 +1,22 @@
-// Popovers and menus open in one frame and fade only as they close (Leo 2026-10-24: "When you open
-// it up, no animation. When you close it, animation for closing. That's it, right? ... No fade in.
-// Just boom. It's instant. Fade out, yes. No fade in ever for any of these." He was clicking the
-// agent chat header's vertical ellipsis, a Base UI Menu: header/ChatHeaderTools.tsx ChatMenu).
-// Panels that slide in from an edge, browser and pane motion, dialogs and tooltips are not popovers
-// and keep their own motion.
-// - Every lane: no stylesheet under webviews/src starts an animation on a popup or menu surface, or
-//   draws a starting style for one to enter from (outside its exit state). A popup surface is one of
-//   the listed classes, any class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`,
-//   `-picker`, `-listbox`), or an ARIA menu or listbox.
+// Popovers, menus, tooltips and hover cards open and close in one frame (Leo 2026-10-24: "When
+// you open it up, no animation... No fade in. Just boom. It's instant." He was clicking the agent
+// chat header's vertical ellipsis, a Base UI Menu: header/ChatHeaderTools.tsx ChatMenu. Leo
+// 2026-11-11, of the context window card over the composer: "the whole fade-out animation, like the
+// fade-in, the fade-out, is just so stupid... It just looks so bad when it's so slow like this.
+// It's just sluggish."). Panels that slide in from an edge, browser and pane motion and dialogs are
+// not popovers and keep their own motion.
+// - Every lane: no stylesheet under webviews/src starts an animation on a popup, menu, tooltip or
+//   hover card, draws a starting style for one to enter from, or transitions its opacity, place or
+//   size, in or out (its exit state included). A popup surface is one of the listed classes, any
+//   class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`, `-picker`, `-listbox`), or
+//   an ARIA menu or listbox; a tooltip surface is `.ui-tooltip`, `.ui-title-tooltip`, `.ui-card`,
+//   `.ui-hint` or a class ending in `-tooltip` or `-hovercard`.
 // - Every `data-enter` entrance (ENTRANCES) and every Web Animations call (WEB_ANIMATIONS) under
 //   webviews/src is a listed non-popup surface, so a menu cannot enter from script.
 // - Palettes are exempt (Leo: "Command palette gets a pass"): the quick-open and jump palettes keep
 //   their entrance, and each is named in PALETTES.
-// popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium.
+// popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium, and
+// popover-close-trace.test.ts reads the pixels a closing card, menu and tooltip leave behind.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -45,6 +49,9 @@ const POPUP = new RegExp(
     `|\\.[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])` +
     `|\\[\\s*role\\s*[~|^$*]?=\\s*["']?(menu|listbox)["']?(\\s+[is])?\\s*\\]`,
 );
+/// A tooltip or hover card surface: the shared ones (ui/Tooltip.tsx, ui/titleTooltips.ts, a toolbar
+/// hint, AnchoredCard's `.ui-card`) and any class named like one.
+const TOOLTIP = /\.(ui-tooltip|ui-title-tooltip|ui-card|ui-hint)(?![\w-])|\.[\w-]+-(tooltip|hovercard)(?![\w-])/;
 /// Palettes keep their entrance (Leo 2026-10-24: "Command palette gets a pass"). Each is a
 /// keyboard-summoned, centered quick-open surface, not a menu a control drops down.
 const PALETTES = [
@@ -131,6 +138,52 @@ function popupEntrances(source: string): string[] {
       );
       if (moves) found.push(`${where} draws a starting style to enter from`);
     }
+  }
+  return found;
+}
+
+/// The selectors in a rule whose subject is a popup, menu, tooltip or hover card, exit states included.
+function surfaceSubjects(selector: string): string[] {
+  return splitTop(selector, /,/).filter((one) => {
+    const subject = splitTop(one, /[\s>+~]/).at(-1) ?? "";
+    return (POPUP.test(subject) || TOOLTIP.test(subject)) && !PALETTE.test(subject);
+  });
+}
+
+/// The properties whose motion is a surface fading, rising or growing in or out.
+const SHOWING = /^(opacity|visibility|translate|transform|scale|filter|all)$/;
+const seconds = (value: string) => (value.endsWith("ms") ? Number.parseFloat(value) / 1000 : Number.parseFloat(value));
+
+/// What a rule does to a popup, menu, tooltip or hover card as it opens or closes, as `line why`: a
+/// transition of its opacity, place or size longer than 0 (a `var()` duration counts: a token can
+/// be any length), or a finite animation.
+function surfaceMotions(source: string): string[] {
+  const found: string[] = [];
+  for (const rule of cssRules(source)) {
+    const subjects = surfaceSubjects(rule.selector);
+    if (!subjects.length) continue;
+    const where = `${rule.line} \`${subjects.join(", ")}\``;
+    const values = (...names: string[]) => rule.decls.filter(([name]) => names.includes(name)).map(([, v]) => v);
+    for (const value of values("transition").flatMap((one) => splitTop(one, /,/))) {
+      const parts = splitTop(value, /\s/);
+      const property = parts.find((part) => /^[a-z-]+$/.test(part) && !/^(ease|linear|step)/.test(part)) ?? "all";
+      const time = parts.find((part) => /^(var\(|[\d.]+m?s$)/.test(part));
+      if (SHOWING.test(property) && time && (time.startsWith("var(") || seconds(time) > 0))
+        found.push(`${where} transitions \`${value}\``);
+    }
+    const properties = values("transition-property").flatMap((one) => splitTop(one, /,/));
+    const durations = values("transition-duration").flatMap((one) => splitTop(one, /,/));
+    if (
+      properties.some((one) => SHOWING.test(one)) &&
+      durations.some((one) => one.startsWith("var(") || seconds(one) > 0)
+    )
+      found.push(`${where} transitions \`${properties.join(", ")}\` over \`${durations.join(", ")}\``);
+    const counts = values("animation-iteration-count").flatMap((value) => splitTop(value, /,/));
+    const loops = (index: number) => counts.length > 0 && /infinite/.test(counts[index % counts.length]);
+    const animation = values("animation", "animation-name")
+      .flatMap((value) => splitTop(value, /,/))
+      .find((value, index) => !/^none\b/.test(value) && !/\binfinite\b/.test(value) && !loops(index));
+    if (animation) found.push(`${where} starts \`animation: ${animation}\``);
   }
   return found;
 }
@@ -273,7 +326,7 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
 /// How many times a script drives the Web Animations API.
 const webAnimationCalls = (source: string) => source.match(/\.animate\s*\(|\bnew\s+KeyframeEffect\s*\(/g)?.length ?? 0;
 
-describe("popovers and menus open in one frame", () => {
+describe("popovers, menus, tooltips and hover cards open and close in one frame", () => {
   // The effort track is the model menu's slider (EffortPicker), and stands on its own in the gallery:
   // it keeps its entrance there, and opens with the menu, at once, inside a popup.
   test("the effort track enters on its own but not inside a popup", () => {
@@ -360,6 +413,36 @@ describe("popovers and menus open in one frame", () => {
       .map((file) => readFileSync(file, "utf8"))
       .join("\n");
     expect(PALETTES.filter((name) => !new RegExp(`\\.${name}(?![\\w-])`).test(css))).toEqual([]);
+  });
+
+  test("the close scan catches a fade, rise or grow on a popup, tooltip or hover card, in or out", () => {
+    expect(
+      surfaceMotions(`
+        :where(.ui-popup) { transition: opacity var(--ui-popup-close) ease-in }
+        .ui-tooltip, .ui-title-tooltip { transition: opacity 120ms ease-out, translate 120ms ease-out }
+        :is(.ui-tooltip, .ui-title-tooltip)[data-ending-style] { opacity: 0; transition: opacity 80ms ease-in }
+        .ui-popup[data-ending-style] { animation: out 80ms }
+        .x-hovercard { transition-property: opacity; transition-duration: 0.1s }
+        .ui-popup { transition: background-color 80ms ease-out }
+        .ui-tooltip { transition: opacity 0s }
+        .ui-menu .ui-menu-item { transition: opacity 80ms }
+        .acpmux-file-search { transition: opacity 80ms }`),
+    ).toEqual([
+      "2 `:where(.ui-popup)` transitions `opacity var(--ui-popup-close) ease-in`",
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `opacity 120ms ease-out`",
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `translate 120ms ease-out`",
+      "4 `:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style]` transitions `opacity 80ms ease-in`",
+      "5 `.ui-popup[data-ending-style]` starts `animation: out 80ms`",
+      "6 `.x-hovercard` transitions `opacity` over `0.1s`",
+    ]);
+  });
+
+  test("no stylesheet fades, rises or grows a popup, menu, tooltip or hover card, in or out", () => {
+    const found: string[] = [];
+    for (const file of stylesheets(path.join(WEBVIEWS, "src")))
+      for (const motion of surfaceMotions(readFileSync(file, "utf8")))
+        found.push(`${path.relative(WEBVIEWS, file)}:${motion}`);
+    expect(found).toEqual([]);
   });
 
   test("no stylesheet animates a popup or menu in", () => {
