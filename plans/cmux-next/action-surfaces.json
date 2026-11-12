@@ -30118,37 +30118,6 @@
       "args" : [
 
       ],
-      "cli" : "guiOnly",
-      "cli_name" : "agent toggle-terminal-chat",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.toggleTerminalChat",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Toggle Terminal and Chat",
-      "title_key" : "action.palette.toggleTerminalChat",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
       "cli" : "offered",
       "cli_name" : "agent launch-claude-teams",
       "context_menu" : "noObject",

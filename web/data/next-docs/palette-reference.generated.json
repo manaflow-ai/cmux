@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1392,
+    "entries": 1391,
     "shortcuts": 190
   },
   "sections": [
@@ -6860,12 +6860,6 @@
           "title": "Toggle Tabs Beside Chat",
           "shortcut": null,
           "command": "cmux agent toggle-side-tabs"
-        },
-        {
-          "id": "palette.toggleTerminalChat",
-          "title": "Toggle Terminal and Chat",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "agentPane.toggleDisplaySettings",
