@@ -120,3 +120,12 @@ fn a_long_menu_lists_its_first_items_and_counts_the_rest() {
     let v = serde_json::to_value(&r).unwrap();
     assert_eq!(v["more"], 1800);
 }
+
+#[test]
+fn a_mode_is_read_in_any_case_and_an_unknown_one_refuses() {
+    let read = |v: serde_json::Value| serde_json::from_value::<MenuMode>(v).unwrap();
+    assert_eq!(read(serde_json::json!("open")), MenuMode::Open);
+    assert_eq!(read(serde_json::json!("Refuse")), MenuMode::Refuse);
+    assert_eq!(read(serde_json::json!("OPEN")), MenuMode::Open);
+    assert_eq!(read(serde_json::json!("sometimes")), MenuMode::Refuse);
+}

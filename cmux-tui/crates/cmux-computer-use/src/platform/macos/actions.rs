@@ -281,6 +281,7 @@ impl MacDesktop {
             let Some(current) = el else { break };
             found_item |= current.string("AXRole").as_deref() == Some("AXMenuItem");
             self.refuse_denied_item(&current)?;
+            self.refuse_submenu_open(&current)?;
             el = current.element("AXParent");
         }
         if on_menu.is_some() && !found_item && self.denies_any() {
@@ -362,6 +363,9 @@ fn click_menu_item(
             }
             PointerTarget::Element { element_id, .. } => {
                 let el = d.element(t, element_id)?;
+                if roles::is_menu_bar(&el.string("AXRole").unwrap_or_default()) {
+                    return Err(DesktopError::Unsupported(menus::MENU_BAR_REFUSAL.into()));
+                }
                 if el.actions().iter().any(|a| a == "AXShowMenu") {
                     d.element_menu_pick(t, &el, value)
                 } else {
@@ -441,6 +445,9 @@ pub(super) fn click(
             PointerTarget::Point { point, .. } => d.context_menu_at(&t, d.point_in(&t, *point)?),
             PointerTarget::Element { element_id, .. } => {
                 let el = d.element(&t, element_id)?;
+                if roles::is_menu_bar(&el.string("AXRole").unwrap_or_default()) {
+                    return Err(DesktopError::Unsupported(menus::MENU_BAR_REFUSAL.into()));
+                }
                 if el.actions().iter().any(|a| a == "AXShowMenu") {
                     d.open_and_list(&t, &el, "AXShowMenu")
                 } else {
@@ -454,6 +461,7 @@ pub(super) fn click(
         PointerTarget::Element { element_id, .. } => element_id,
     };
     let el = d.element(&t, element_id)?;
+    d.refuse_submenu_open(&el)?;
     if spec.delivery == Delivery::Background {
         d.refuse_denied_item(&el)?;
         if d.menu_gate(&el)?.is_some() {
@@ -583,6 +591,12 @@ pub(super) fn type_text(
                 ));
             }
         }
+        // Typed keys would type-select (and with a newline, run) an item of a
+        // menu left open in this app, a hidden one too: refused before the
+        // element is focused.
+        if d.menu_open_in(t.window.pid) {
+            return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
+        }
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
         if element_id.is_some()
@@ -591,8 +605,6 @@ pub(super) fn type_text(
             el.set("AXFocused", &yes).map_err(|e| ax_error(e, "focusing the element"))?;
         }
     }
-    // Typed keys would type-select (and with a newline, run) an item of a
-    // menu left open in this app, a hidden one too.
     if d.menu_open_in(t.window.pid) {
         return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
     }
@@ -644,7 +656,9 @@ pub(super) fn press_keys(
                 return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
             }
             // Arrows could park the highlight on a hidden item.
-            roles::OpenMenuKey::Post if d.open_menu_hides_items(t.window.pid) => {
+            roles::OpenMenuKey::Post
+                if d.open_menu_hides_items(t.window.pid) || d.held_menu_guards_keys() =>
+            {
                 return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
             }
             roles::OpenMenuKey::Post => {}
@@ -987,6 +1001,7 @@ pub(super) fn perform_action(
 ) -> DResult<ActionOutcome> {
     let t = d.target(window_id)?;
     let el = d.element(&t, element_id)?;
+    d.refuse_submenu_open(&el)?;
     let available = el.actions();
     let Some(ax_action) = roles::resolve_action(action, &available) else {
         if let Some((attr, value)) = roles::attribute_action(action.trim()) {

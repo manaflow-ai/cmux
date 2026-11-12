@@ -110,6 +110,11 @@ pub(super) struct Opened {
     /// It has items the deny list hides: arrows could park the highlight
     /// on one, so they are refused too.
     pub has_hidden: bool,
+    /// It holds the person's keyboard (the handoff did not arm, or it could
+    /// not be closed): while anything is denied, bare arrows and opening a
+    /// submenu are refused, since a submenu's hidden items could get the
+    /// highlight and the person's Return would run it.
+    pub keyboard_held: bool,
 }
 
 /// The menu windows on screen now, any owner.
@@ -189,6 +194,11 @@ fn menu_windows_of(menu: &Ax, new: &[cgwindows::CgWindow], target: i32) -> Vec<u
         .map(|w| w.id)
         .collect();
     if holding.is_empty() { new.iter().take(1).map(|w| w.id).collect() } else { holding }
+}
+
+/// Whether two rects share any area.
+pub(super) fn overlaps(a: &Rect, b: &Rect) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
 /// Whether any of `windows` still shows.
@@ -456,6 +466,10 @@ impl MacDesktop {
                 .filter(|w| {
                     !before.contains(&w.id)
                         && may_be_targets_menu(w.pid, t.window.pid, guard.as_deref())
+                        // A helper's menu counts only over the target's
+                        // window (a System Settings pane's pop-up): another
+                        // app's status menu elsewhere is never adopted.
+                        && (w.pid == t.window.pid || overlaps(&w.frame, &t.window.frame))
                 })
                 .collect();
             // The target's own menu windows first.
@@ -493,6 +507,7 @@ impl MacDesktop {
                     escape_to,
                     // Unread: its items cannot be told apart.
                     has_hidden: true,
+                    keyboard_held: true,
                 });
                 return Err(DesktopError::Failed(menus::MENU_UNREAD_OPEN.into()));
             }
@@ -554,6 +569,7 @@ impl MacDesktop {
             escape_to: escape_route(t, windows),
             // Kept only because it would not close: arrows stay refused.
             has_hidden: true,
+            keyboard_held: true,
         });
         false
     }
@@ -615,6 +631,37 @@ impl MacDesktop {
         opened.as_ref().is_some_and(|o| o.pid == pid && o.has_hidden && showing(&o.windows))
     }
 
+    /// Whether a menu left open (any app) holds the person's keyboard while
+    /// something is denied: arrows and opening submenus are refused then.
+    pub(super) fn held_menu_guards_keys(&self) -> bool {
+        let held = {
+            let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
+            opened.as_ref().is_some_and(|o| o.keyboard_held && showing(&o.windows))
+        };
+        held && self.denies_any()
+    }
+
+    /// Refuses pressing or clicking a menu item that opens a submenu while a
+    /// menu holding the person's keyboard is open and something is denied:
+    /// the submenu's hidden items could get the highlight, and the person's
+    /// Return would run one. Items are pressed by element; `click` with
+    /// `menu_item` picks in one call.
+    pub(super) fn refuse_submenu_open(&self, el: &Ax) -> DResult<()> {
+        if !self.held_menu_guards_keys() {
+            return Ok(());
+        }
+        let role = el.attr("AXRole").map(|r| r.and_then(|r| r.as_string()));
+        let item = match role {
+            Ok(r) => r.as_deref() == Some("AXMenuItem"),
+            Err(_) => true,
+        };
+        if item && el.attr("AXChildren").map_or(true, |c| c.is_some_and(|c| !c.items().is_empty()))
+        {
+            return Err(DesktopError::Unsupported(menus::SUBMENU_HELD_REFUSAL.into()));
+        }
+        Ok(())
+    }
+
     /// The pid and windows of the recorded menu, while it shows.
     pub(super) fn recorded_menu(&self) -> Option<(i32, Vec<u32>)> {
         let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
@@ -666,6 +713,7 @@ impl MacDesktop {
         menu: Ax,
         windows: Vec<u32>,
         all: Vec<Item>,
+        keyboard_held: bool,
         route: &str,
     ) -> ActionOutcome {
         let hidden = all.iter().filter(|i| i.denied).count();
@@ -676,6 +724,7 @@ impl MacDesktop {
             escape_to: escape_route(t, &windows),
             windows,
             has_hidden: hidden > 0,
+            keyboard_held,
         });
         let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
         let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
@@ -712,10 +761,15 @@ impl MacDesktop {
         }
         let all = items(self, &menu);
         if !guard.armed() && self.denies_any() && all.iter().any(|i| i.denied) {
-            let refused = DesktopError::Unsupported(menus::HIDDEN_ITEMS_HELD_REFUSAL.into());
+            let why = if workspace::app_names_ready() {
+                menus::HIDDEN_ITEMS_HELD_REFUSAL
+            } else {
+                menus::APP_NAMES_LOADING
+            };
+            let refused = DesktopError::Unsupported(why.into());
             return Err(self.close_and_fail(t, &menu, &windows, refused));
         }
-        let mut out = self.leave_open(t, menu, windows, all, route);
+        let mut out = self.leave_open(t, menu, windows, all, !guard.armed(), route);
         if let Some(report) = out.menu.as_mut() {
             report.keyboard = keyboard;
         }

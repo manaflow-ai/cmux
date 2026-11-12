@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::desktop::MenuGuard;
 
 /// `computerUse.menus`.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum MenuMode {
     /// Background calls may open a target app's menus (Codex parity).
@@ -29,6 +29,16 @@ pub enum MenuMode {
     Open,
     /// Nothing that opens a menu runs in the background.
     Refuse,
+}
+
+/// Read leniently, so one bad value never drops a whole policy file (and its
+/// deny list) on the floor: any case, and a value that is not a mode keeps
+/// menus closed.
+impl<'de> Deserialize<'de> for MenuMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(MenuMode::parse(&text.trim().to_ascii_lowercase()).unwrap_or(MenuMode::Refuse))
+    }
 }
 
 impl MenuMode {
@@ -258,6 +268,10 @@ pub const OTHER_MENU_KEYS_REFUSAL: &str = "a menu left open in another app did n
 /// Why a menu is not left open: it hides items and would hold the
 /// person's keyboard while open.
 pub const HIDDEN_ITEMS_HELD_REFUSAL: &str = "this menu has items Computer Use hides (they lead to an app it may not use), and left open it would hold the person's keyboard, so their typing could reach a hidden item; it was closed again. Choose the item in one call: click with menu_item (right click or a pop-up), or set_value on a pop-up";
+
+/// Why a submenu is not opened (or arrows sent) into a menu holding the
+/// person's keyboard.
+pub const SUBMENU_HELD_REFUSAL: &str = "this open menu holds the person's keyboard, so a submenu (or arrows) could put the highlight on an item Computer Use hides and their Return would run it; press the item you want by element, or choose it in one call with click and menu_item";
 
 /// How a wanted title picks among a menu's items, the visible ones first.
 #[derive(Clone, Debug, PartialEq, Eq)]

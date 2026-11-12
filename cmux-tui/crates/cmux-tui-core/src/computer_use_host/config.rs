@@ -214,6 +214,13 @@ mod tests {
         // The owner file and the app push use the camelCase key.
         let owner: PolicyConfig = serde_json::from_value(json!({"menus": "refuse"})).unwrap();
         assert_eq!(owner.menus, MenuMode::Refuse);
+        // A value in another case, or a typo, keeps the rest of the owner
+        // policy (its deny list) and keeps menus closed.
+        let owner: PolicyConfig =
+            serde_json::from_value(json!({"menus": "Refsue", "deniedApps": ["com.example.x"]}))
+                .unwrap();
+        assert_eq!(owner.menus, MenuMode::Refuse);
+        assert_eq!(owner.denied_apps, vec!["com.example.x".to_string()]);
     }
 
     #[test]

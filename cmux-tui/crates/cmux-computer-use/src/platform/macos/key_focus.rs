@@ -77,8 +77,6 @@ unsafe extern "C" {
         order: isize,
     ) -> *mut c_void;
     fn CFMachPortInvalidate(port: *mut c_void);
-    fn CFRunLoopGetCurrent() -> *mut c_void;
-    fn CFRunLoopAddSource(rl: *mut c_void, source: *mut c_void, mode: *const c_void);
     fn CFRunLoopRun();
     fn CFRunLoopStop(rl: *mut c_void);
     fn CFRelease(cf: *const c_void);
@@ -417,8 +415,9 @@ fn spawn_tap(pid: i32, callback: TapCallback) -> Option<Tap> {
                 let _ = tx.send(None);
                 return;
             }
-            let run_loop = CFRunLoopGetCurrent();
-            CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
+            // sys.rs declares these two for the whole crate.
+            let run_loop = super::sys::CFRunLoopGetCurrent() as *mut c_void;
+            super::sys::CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
             CGEventTapEnable(port, true);
             // Retained for the Tap that holds it; released in stop_tap.
             CFRetain(run_loop);

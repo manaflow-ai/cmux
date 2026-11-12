@@ -1155,3 +1155,15 @@ fn an_app_is_launched_by_its_name_as_well_as_its_bundle_id() {
     assert!(workspace::launch_targets("cmux-no-such-app").is_empty());
     assert!(workspace::launch_targets("  ").is_empty());
 }
+
+#[test]
+fn a_helper_s_menu_window_counts_only_over_the_target_s_window() {
+    let win = Rect { x: 100.0, y: 100.0, width: 400.0, height: 300.0 };
+    let over = Rect { x: 450.0, y: 200.0, width: 200.0, height: 300.0 };
+    let elsewhere = Rect { x: 1200.0, y: 0.0, width: 200.0, height: 300.0 };
+    assert!(menus::overlaps(&over, &win));
+    assert!(!menus::overlaps(&elsewhere, &win));
+    // Touching edges share no area.
+    let touching = Rect { x: 500.0, y: 100.0, width: 50.0, height: 50.0 };
+    assert!(!menus::overlaps(&touching, &win));
+}
