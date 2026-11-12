@@ -1,0 +1,4 @@
+module CCmuxHealthFFI {
+    header "cmux_health.h"
+    export *
+}

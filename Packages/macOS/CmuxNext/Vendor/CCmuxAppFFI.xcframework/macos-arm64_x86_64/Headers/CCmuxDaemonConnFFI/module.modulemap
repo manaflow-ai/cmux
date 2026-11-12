@@ -1,0 +1,4 @@
+module CCmuxDaemonConnFFI {
+    header "cmux_daemon_conn.h"
+    export *
+}

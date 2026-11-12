@@ -1,0 +1,4 @@
+module CCmuxAgentPanePolicyFFI {
+    header "cmux_agent_pane_policy.h"
+    export *
+}

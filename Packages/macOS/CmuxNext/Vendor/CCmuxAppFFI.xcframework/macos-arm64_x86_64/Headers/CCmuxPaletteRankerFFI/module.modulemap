@@ -1,0 +1,4 @@
+module CCmuxPaletteRankerFFI {
+    header "cmux_palette_ranker.h"
+    export *
+}

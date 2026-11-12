@@ -1,0 +1,4 @@
+module CCmuxCookieSyncFFI {
+    header "cmux_cookie_sync.h"
+    export *
+}

@@ -1,0 +1,4 @@
+module CCmuxMotionFFI {
+    header "cmux_motion_ffi.h"
+    export *
+}

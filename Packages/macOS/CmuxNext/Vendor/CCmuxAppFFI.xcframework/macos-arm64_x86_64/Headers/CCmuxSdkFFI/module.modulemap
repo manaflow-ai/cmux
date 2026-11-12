@@ -1,0 +1,4 @@
+module CCmuxSdkFFI {
+    header "cmux_sdk_ffi.h"
+    export *
+}

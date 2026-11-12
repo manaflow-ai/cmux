@@ -1,0 +1,4 @@
+module CCmuxRdFFI {
+    header "cmux_rd_ffi.h"
+    export *
+}

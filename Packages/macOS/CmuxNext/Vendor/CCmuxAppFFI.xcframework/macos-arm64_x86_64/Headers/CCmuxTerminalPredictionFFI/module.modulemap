@@ -1,0 +1,4 @@
+module CCmuxTerminalPredictionFFI {
+    header "cmux_terminal_prediction.h"
+    export *
+}

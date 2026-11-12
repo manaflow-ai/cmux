@@ -1,0 +1,4 @@
+module CCmuxActionCatalogFFI {
+    header "cmux_action_catalog.h"
+    export *
+}
