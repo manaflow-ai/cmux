@@ -200,7 +200,9 @@ fn an_existing_megabyte_blob_encodes_without_loading_its_body()
     let mut read = Vec::new();
     let mut ranges = Vec::new();
     log.fill(&[saved], &mut read, &mut ranges)?;
-    assert_eq!(read, out);
+    assert_eq!(ranges.len(), 1);
+    let range = ranges.first().ok_or("settled row range missing")?;
+    assert_eq!(read.get(range.clone()).ok_or("settled row range invalid")?, out);
     assert!(read.capacity() <= MAX_ROW_TEXT);
     assert!(std::str::from_utf8(&out)?.contains("\"bytes\":1048578"));
     Ok(())
