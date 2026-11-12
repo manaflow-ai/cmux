@@ -69,9 +69,13 @@ fn target(key: &str, id: bool) -> Value {
 /// The policy a start names when `--policy` is left out: the starter's effective one, from its
 /// `_acpmux/info` (`info`). `enforcement.policy` is the policy it runs, capped to ask while full
 /// access is off on its machine (`hub/views.rs` `enforcement`); the stored `policy` is read only
-/// from an info that has no `enforcement`. A mode that skips every approval (`hub/start_mode.rs`
-/// `FULL_ACCESS_MODES`) is approve-all, unless full access is off there or the policy denies
-/// (deny-all, review): then the stricter one is sent. `None` when `info` names none.
+/// from an info that has no `enforcement`. A starter with a policy of its own (`policy` set) sends
+/// that policy whatever its mode: the policy gate holds it in a full-access mode too, so ask,
+/// approve-reads or approve-edits under `bypassPermissions` stays that restriction. Only a starter
+/// that follows the daemon default (`policy` null) in a mode that skips every approval
+/// (`hub/start_mode.rs` `FULL_ACCESS_MODES`) sends approve-all, unless full access is off there or
+/// the policy denies (deny-all, review): then the stricter one is sent. `None` when `info` names
+/// none.
 ///
 /// `effective` says the daemon lists [`crate::hub::views::EFFECTIVE_POLICY_FEATURE`]. An older
 /// daemon reports a stored approve-all uncapped while it enforces ask, so from it nothing looser
@@ -96,8 +100,11 @@ pub(crate) fn starter_policy(info: &Value, effective: bool) -> Option<String> {
     let mode = info.get("currentModeId").and_then(Value::as_str);
     let full_access_mode =
         mode.is_some_and(|m| crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m));
+    // A policy of its own (`policy`, null while it follows the daemon default) is a restriction
+    // the policy gate holds even in a full-access mode (#38809), so it is copied as it is.
+    let follows_default = info.get("policy").is_none_or(Value::is_null);
     let denies = matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
-    if full_access_mode && !full_access_off && !denies {
+    if full_access_mode && follows_default && !full_access_off && !denies {
         return Some(PermissionPolicy::ApproveAll.to_string());
     }
     policy.map(|p| p.to_string())
