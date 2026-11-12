@@ -1435,6 +1435,7 @@ name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cmux-json",
  "icu_normalizer",
  "serde",
  "serde_json",
