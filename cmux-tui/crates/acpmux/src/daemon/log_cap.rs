@@ -38,7 +38,7 @@ pub(super) fn rotate_at_start(log: &Path, cap: u64) -> anyhow::Result<bool> {
         return Ok(false);
     }
     let out = same(libc::STDOUT_FILENO);
-    crate::home_fs::rename(log, &previous(log))?;
+    crate::home_fs::rename(log, previous(log))?;
     let fresh = crate::config::private_state_append(log)?;
     for (fd, take) in [(libc::STDERR_FILENO, true), (libc::STDOUT_FILENO, out)] {
         // SAFETY: both descriptors are open; `dup2` swaps the target atomically.

@@ -47,8 +47,10 @@
 }
 
 .content {
+  --content-pad-start: var(--grid-gap-block);
+  --content-pad-inline: var(--page-edge);
   --content-pad-end: calc(var(--grid-row) * 2);
-  padding: var(--grid-gap-block) var(--page-edge) var(--content-pad-end);
+  padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end);
 }
 
 .column {
@@ -74,30 +76,9 @@
   padding-bottom: var(--ds-space-1);
 }
 
-/* The filter sits on the search field's line at the field's height: icon and count centered on one
-   line (no superscript count). */
-.filter-button {
-  position: relative;
-  flex: none;
-  align-self: stretch;
-  align-items: center;
-  justify-content: center;
-  gap: var(--ds-space-1);
-  min-width: var(--ds-control-row);
-  border-radius: var(--ds-radius-lg);
-  padding: 0 var(--ds-space-2);
-}
-
-.filter-button[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
-
-.filter-count {
-  font-size: var(--text-caption);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+/* Esc clears the query; the field draws no clear button of its own. */
+.search .search-input::-webkit-search-cancel-button {
+  display: none;
 }
 
 .section-link {
@@ -133,6 +114,197 @@
   font-size: var(--text-body);
   margin: 0 0 var(--ds-space-2);
   color: var(--muted-text);
+}
+
+/* The jump bar (JumpBar): a page's cards as one row of buttons, pinned to the top of the content on
+   liquid glass. The content scrolls under it, blurred (--surface-blur; Reduce Transparency turns
+   the blur off and the fill opaque). It is one row that scrolls sideways when a page has many
+   cards, never a second line. Its radius is the glass chrome's; each button's is that less the
+   bar's inset, so the two are concentric. A jump lands each card below it (scroll-margin-top). */
+.settings {
+  --jump-bar-inset: var(--ds-space-1);
+  --jump-bar-radius: var(--ds-glass-chrome-radius);
+  --jump-bar-clearance: calc(var(--ds-control-primary) + var(--ds-space-6));
+  /* The bar's glass: the popup surface over the blur, at the least fill a surface that carries
+     text keeps (--surface-text-min), so the cards scrolling under it never show through its labels. */
+  --surface-glass: color-mix(in srgb, var(--surface-popup) var(--surface-text-min), transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .settings {
+    --surface-glass: var(--surface-popup);
+  }
+}
+
+.jump-bar {
+  position: sticky;
+  top: var(--ds-space-2);
+  z-index: var(--layer-sticky);
+  display: flex;
+  gap: var(--ds-space-1);
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 var(--ds-space-5);
+  padding: var(--jump-bar-inset);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-radius: var(--jump-bar-radius);
+  background: var(--surface-glass);
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
+  box-shadow: var(--ui-popup-shadow);
+}
+
+/* The scroll edge (SettingsApp), as a macOS 26 soft scroll edge, on a page with a floating jump
+   bar (Personalization; every page with one): once the page scrolls, what passes under the top of
+   the pane, the bar and the gap just below it softens and fades into the page, across the pane's
+   full width, so the bar's labels stay clear of the content behind them. It is a strip pinned at
+   the top that takes no room, from the pane's top edge to where a jump lands a card.
+   - The blur is progressive: four layers, each twice the blur of the one below it and each
+     reaching less far down, so the blur grows toward the top in small steps. One strong blur
+     faded out by a mask shows the sharp and the blurred page at once (a ghost) where it fades.
+   - The tint (::after) is the page's own background, strong at the top and easing out, so the
+     content dissolves into the page instead of only going soft.
+   It shows only once the content moves (a scroll-driven fade), so the page title at rest stays
+   sharp. Without scroll-driven animations it is not drawn: the pane's own edge fade (styles.css
+   .content) stays. Reduce Transparency keeps the tint and drops the blur. */
+.scroll-edge {
+  display: none;
+}
+
+@supports (animation-timeline: scroll()) {
+  .content:has([data-jump-bar]) > .scroll-edge {
+    --scroll-edge-height: calc(var(--content-pad-start) + var(--jump-bar-clearance));
+    /* The page's own background: the host theme's, or the browser canvas the page shows without one. */
+    --scroll-edge-color: var(--cmux-surface-background, Canvas);
+    --scroll-edge-tint: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--scroll-edge-color) 88%, transparent),
+      color-mix(in srgb, var(--scroll-edge-color) 72%, transparent) 30%,
+      color-mix(in srgb, var(--scroll-edge-color) 44%, transparent) 55%,
+      color-mix(in srgb, var(--scroll-edge-color) 16%, transparent) 80%,
+      transparent
+    );
+    position: sticky;
+    top: calc(var(--content-pad-start) * -1);
+    z-index: var(--layer-sticky);
+    display: block;
+    height: var(--scroll-edge-height);
+    /* Up into the top padding and out over the side padding; the bottom margin gives back its
+       height less that padding, so the page starts where it did. */
+    margin: calc(var(--content-pad-start) * -1) calc(var(--content-pad-inline) * -1)
+      calc((var(--scroll-edge-height) - var(--content-pad-start)) * -1);
+    pointer-events: none;
+  }
+
+  /* The edge itself takes no opacity, mask or filter: any of those would make it the backdrop
+     its layers blur, and they would blur nothing. Each layer fades in on its own. */
+  .scroll-edge > span,
+  .scroll-edge::after {
+    position: absolute;
+    inset: 0;
+    animation: scroll-edge-in linear both;
+    animation-timeline: scroll(nearest block);
+    animation-range: 0 var(--ds-space-6);
+  }
+
+  .scroll-edge::after {
+    content: "";
+    background: var(--scroll-edge-tint);
+  }
+
+  .scroll-edge > span:nth-child(1) {
+    backdrop-filter: blur(1px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(1px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    mask-image: linear-gradient(to bottom, black 75%, transparent);
+  }
+
+  .scroll-edge > span:nth-child(2) {
+    backdrop-filter: blur(2px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(2px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    mask-image: linear-gradient(to bottom, black 60%, transparent 85%);
+  }
+
+  .scroll-edge > span:nth-child(3) {
+    backdrop-filter: blur(4px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(4px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    mask-image: linear-gradient(to bottom, black 45%, transparent 70%);
+  }
+
+  .scroll-edge > span:nth-child(4) {
+    backdrop-filter: blur(8px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    -webkit-backdrop-filter: blur(8px); /* glass-raw-blur-allow: a scroll edge's progressive fade, not a glass surface */
+    mask-image: linear-gradient(to bottom, black 30%, transparent 55%);
+  }
+}
+
+@keyframes scroll-edge-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .scroll-edge > span {
+    display: none;
+  }
+}
+
+/* A page with a jump bar keeps room under its last card (useCurrentCard's makeTailRoom), so that
+   card scrolls up under the bar like the others. */
+.section,
+.personalization {
+  padding-bottom: var(--jump-tail, 0px);
+}
+
+/* The edge that hides more buttons fades out (JumpBar sets data-more-start and data-more-end). */
+.jump-bar[data-more-end] {
+  mask-image: linear-gradient(to right, black calc(100% - var(--ds-space-6)), transparent);
+}
+
+.jump-bar[data-more-start] {
+  mask-image: linear-gradient(to left, black calc(100% - var(--ds-space-6)), transparent);
+}
+
+.jump-bar[data-more-start][data-more-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--ds-space-6),
+    black calc(100% - var(--ds-space-6)),
+    transparent
+  );
+}
+
+.jump-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.jump-bar .jump-link {
+  flex: none;
+  min-height: calc(var(--ds-control-primary) - var(--jump-bar-inset) * 2);
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  border-radius: calc(var(--jump-bar-radius) - var(--jump-bar-inset));
+  white-space: nowrap;
+  color: var(--muted-text);
+}
+
+.jump-bar .jump-link:hover {
+  color: var(--text);
+}
+
+.jump-bar .jump-link[aria-current] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.group {
+  scroll-margin-top: var(--jump-bar-clearance);
 }
 
 .group {
@@ -827,29 +999,6 @@
   color: var(--muted-text);
 }
 
-/* The Reset slot: every row reserves it, so the control fades in place. */
-.reset-slot {
-  display: inline-flex;
-  flex: none;
-  width: var(--ds-control-compact);
-  height: var(--ds-control-compact);
-}
-
-.reset-slot:not([data-shown]) .reset-button {
-  opacity: 0;
-}
-
-.reset-slot .reset-button {
-  transition:
-    opacity var(--motion-out) var(--motion-ease),
-    background var(--motion-hover);
-}
-
-.reset-slot[data-shown] .reset-button {
-  opacity: 1;
-  transition-duration: var(--motion-in), var(--motion-hover);
-}
-
 /* A category fades in when it opens; a transform never moves anything else. */
 @keyframes settings-enter {
   from {
@@ -864,17 +1013,18 @@
   }
 }
 
+/* Backwards, not both: a held end transform would make each section a stacking context, and the
+   jump bar's z-index would then count only inside its section, under the scroll edge. */
 .section,
 .host-form,
 .domain-panel {
-  animation: settings-enter var(--motion-in) var(--motion-ease) both;
+  animation: settings-enter var(--motion-in) var(--motion-ease) backwards;
 }
 
-/* Inline override notes, MDM locks, section badges and the changed count arrive, not appear. */
+/* Inline override notes, MDM locks and section badges arrive, not appear. */
 .row-note,
 .row-managed,
-.badge,
-.filter-count {
+.badge {
   animation: settings-pop var(--motion-in) var(--motion-ease) both;
 }
 

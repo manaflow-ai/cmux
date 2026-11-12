@@ -85,6 +85,7 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
@@ -161,6 +162,7 @@ import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
+import { reportInputReadyWhenFocused } from "./inputReady";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -689,16 +691,6 @@ export function NewTabScreen(props: Props) {
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
   useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = environment
-    ? environment.kind === "local"
-      ? environment.folder
-      : undefined
-    : none
-      ? undefined
-      : project && project !== props.cwd
-        ? project
-        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -709,6 +701,12 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
+  // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
+  // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
+  // refuses ("This folder is outside the folders this pane may use", cmux#40938). No folder sends
+  // none, and the host starts the chat in its own start folder.
+  const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
   const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
@@ -761,6 +759,14 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  // A refusal is about the send it answered: another mode or folder is a new pick, so it goes
+  // (it stayed over every folder and team Leo then picked, 2026-11-10).
+  const refusalPick = `${props.runMode?.mode ?? ""}\u0000${envFolder ?? ""}`;
+  const [refusedPick, setRefusedPick] = useState(refusalPick);
+  if (refusedPick !== refusalPick) {
+    setRefusedPick(refusalPick);
+    setSandboxRefusal(undefined);
+  }
   const [startError, setStartError] = useState<NewTabStartFailure>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
@@ -1046,18 +1052,21 @@ export function NewTabScreen(props: Props) {
       profilePick
         ? profileRows(typed, profilePick.url, profiles ?? [])
         : touched && !shell && !commandTyping
-          ? screenRows(typed, {
-              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
-              home,
-              create: creates,
-              ...(ask ? { ask } : {}),
-              createNames: {
-                terminal: nt("create.terminal"),
-                browser: nt("create.browser"),
-                chat: nt("create.chat"),
-              },
-              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-            })
+          ? searchWords(
+              screenRows(typed, {
+                omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+                home,
+                create: creates,
+                ...(ask ? { ask } : {}),
+                createNames: {
+                  terminal: nt("create.terminal"),
+                  browser: nt("create.browser"),
+                  chat: nt("create.chat"),
+                },
+                ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+              }),
+              (words) => withoutInlineTokens(words),
+            )
           : [],
     [
       profilePick,
@@ -1283,11 +1292,16 @@ export function NewTabScreen(props: Props) {
       else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
-    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      onInputReady.current?.(inputToken);
-    }
     const view = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T into the page at this readiness: it waits until
+    // the page has focus, or a page not focused yet loses them (reportInputReadyWhenFocused).
+    let cancelReady = () => {};
+    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(view, () => {
+        inputReadyReported.current = inputToken;
+        onInputReady.current?.(inputToken);
+      });
+    }
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
@@ -1308,6 +1322,7 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
+      cancelReady();
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
       doc?.removeEventListener("keydown", tab);

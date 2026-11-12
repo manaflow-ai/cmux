@@ -22,6 +22,7 @@
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // daemon (as agent-pane-stream-row-overlap.test.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
@@ -337,12 +338,16 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
       [busy, every] as const,
     );
 
-  async function open(name: string, look: string) {
+  async function open(name: string, look: string, followArm?: string) {
     history();
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     await page.addInitScript(
-      (look) => localStorage.setItem("cmux.experiments", JSON.stringify({ "composer-dock-motion": look })),
-      look,
+      ([look, followArm]) =>
+        localStorage.setItem(
+          "cmux.experiments",
+          JSON.stringify({ "composer-dock-motion": look, ...(followArm ? { "follow-motion": followArm } : {}) }),
+        ),
+      [look, followArm] as const,
     );
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -570,6 +575,90 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
         expect(scrolled).toBeGreaterThan(100);
         expect(result.frames).toBeGreaterThan(20);
         expect(result.rowMovedFrames).toBe(0);
+      });
+
+  // (a''') What the wheel froze of the rise is held on the follow chase (followChase `carry`). Scrolled
+  // back to the latest row, it goes home in every follow-motion arm: the thread's translate returns to
+  // 0 and stays there (review of #41478 F1, F2: `follow` and `queueScroll` resume the chase in every
+  // arm). With CMUX_MOTION_STILLS=<dir> it writes whole-window stills: frozen after the wheel, and back
+  // at the latest row.
+  for (const [name] of engines)
+    for (const arm of ["eased", "instant", "blocks"])
+      test(`${name}, overlay, follow ${arm}: scrolling back to the latest row releases the frozen rise`, async () => {
+        const page = await open(name, "overlay", arm);
+        const stills = process.env.CMUX_MOTION_STILLS;
+        const still = async (label: string) => {
+          if (!stills) return;
+          const dir = path.join(stills, "composer-rise-release", name, arm);
+          mkdirSync(dir, { recursive: true });
+          await page.screenshot({ path: path.join(dir, `${label}.png`) });
+        };
+        const field = page.locator(".acpmux-composer-box .ProseMirror").first();
+        await field.click();
+        await page.keyboard.type(LINES[0]!, { delay: 8 });
+        // fixed-wait: the first line's growth (if any) plays out before the one under test.
+        await page.waitForTimeout(400);
+        const scroller = page.locator(".acpmux-scroll").first();
+        const box = (await scroller.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+        const drawnY = () =>
+          page.evaluate(() => {
+            const thread = document.querySelector<HTMLElement>(".acpmux-thread")!;
+            const value = getComputedStyle(thread).translate;
+            return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+          });
+        await page.evaluate(() => {
+          const w = window as unknown as { __midGrowth: boolean | undefined; __carried: number };
+          w.__midGrowth = undefined;
+          w.__carried = 0;
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread")!;
+          window.addEventListener(
+            "wheel",
+            () => {
+              w.__midGrowth ??= thread.getAnimations().some((animation) => animation.playState === "running");
+              // After the reader's handlers (a microtask would run before them, right after this
+              // listener): what the chase now holds of the rise.
+              setTimeout(() => {
+                const value = thread.style.translate;
+                const px = value ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+                w.__carried = Math.max(w.__carried, Math.abs(px));
+              }, 0);
+            },
+            { capture: true },
+          );
+        });
+        // A new line starts a growth that raises the rows; the wheel comes while it plays.
+        await page.keyboard.press("Shift+Enter");
+        await page.mouse.wheel(0, -320);
+        // The wheel's scroll comes to rest inside the reader's input window, so the quiet fold of a held
+        // chase into the offset has not run and the resume paths take it home.
+        // fixed-wait: the wheel's scroll comes to rest, inside the reader's input window
+        await page.waitForTimeout(450);
+        const held = await drawnY();
+        await still("1-frozen-after-wheel");
+        const midGrowth = await page.evaluate(() => (window as unknown as { __midGrowth?: boolean }).__midGrowth);
+        const carried = await page.evaluate(() => (window as unknown as { __carried: number }).__carried);
+        // Back to the latest row with the wheel.
+        await page.mouse.wheel(0, 4000);
+        // fixed-wait: the scroll back comes to rest and the chase's spring goes home (180 ms step).
+        await page.waitForTimeout(1500);
+        const after = await drawnY();
+        const scrolled = await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
+        await still("2-back-at-latest");
+        // fixed-wait: and it stays home (no later pass draws it off again).
+        await page.waitForTimeout(600);
+        const later = await drawnY();
+        console.log(
+          `DOCK_RELEASE_REPORT ${JSON.stringify({ engine: name, arm, midGrowth, carried, held, after, later, scrolled })}`,
+        );
+        await page.close();
+        // The wheel came while the growth raised the rows, and the chase took over part of the rise.
+        expect(midGrowth).toBe(true);
+        expect(carried).toBeGreaterThan(0.5);
+        // Back at the latest row, the thread rests on its layout.
+        expect(scrolled).toBeLessThan(2);
+        expect(Math.abs(after)).toBeLessThan(0.5);
+        expect(Math.abs(later)).toBeLessThan(0.5);
       });
 
   // (c) The hat's pull tab (or the hat, untucked) rides the composer's top edge in the frame the edge

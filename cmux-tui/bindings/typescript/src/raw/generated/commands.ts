@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5. */
+/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
 
 
 import type * as T from "./types.js";
@@ -1085,6 +1085,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
+  /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+  "create_workspace"?: boolean;
   "cwd"?: (string) | null;
   "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
@@ -1099,6 +1101,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
+  /** The name of the workspace create_workspace makes. */
+  "workspace_name"?: (string) | null;
 }
 export type CreateTerminalResult = T.TerminalPlacement;
 

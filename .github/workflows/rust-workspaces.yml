@@ -31,7 +31,8 @@ jobs:
   plan:
     name: plan (changed Cargo workspaces)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 10
+    # Room for the lock check's serial network pass and retries on a cold, busy runner (cmux#41586).
+    timeout-minutes: 20
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
@@ -44,19 +45,6 @@ jobs:
 
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
-
-      # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
-      # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
-      # dependency; eb4f3eb1d94 (a direct push) did that to cmux-app-ffi, and every pull request went red on
-      # its --locked build. On a feat-cmux-next push the base autofix rewrites the stale locks
-      # (cmux-next-base-autofix.yml, base-autofix.sh --locks); the pre-push gate runs the same check.
-      # --strict: CI is the backstop, so a workspace cargo could not judge (a registry error, a timeout) is red
-      # here, never a silent pass; the pre-push gate stays lenient.
-      - name: Set up pinned Rust (lock check)
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Every Cargo.lock matches its manifests
-        run: python3 scripts/cmux-next/cargo-locks.py check --strict || { echo "::error::a Cargo.lock no longer matches its manifests; run scripts/cmux-next/cargo-locks.py fix and commit the locks"; exit 1; }
 
       # Pull requests compare with the base their merge commit was made on (its first
       # parent), pushes with the commit before them; with none (a new branch or a
@@ -77,6 +65,31 @@ jobs:
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; planning every workspace"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
+      # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
+      # dependency; eb4f3eb1d94 (a direct push) did that to cmux-app-ffi, and every pull request went red on
+      # its --locked build. On a feat-cmux-next push the base autofix rewrites the stale locks
+      # (cmux-next-base-autofix.yml, base-autofix.sh --locks); the pre-push gate runs the same check.
+      # --strict: CI is the backstop, so a workspace cargo could not judge (a registry error) is red here, never a
+      # silent pass; the pre-push gate stays lenient. A timeout is the runner's, not the change's: it is retried
+      # with a longer limit, and fails only in a workspace the change touches (--base); elsewhere it warns
+      # (cmux#41586: 0 stale, 5 timed out on a cold 2-vCPU runner, red on a change with no Rust in it).
+      - name: Set up pinned Rust (lock check)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Every Cargo.lock matches its manifests
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          status=0
+          python3 scripts/cmux-next/cargo-locks.py check --strict --base "$BASE_SHA" || status=$?
+          if [[ $status == 1 ]]; then
+            echo "::error::a Cargo.lock no longer matches its manifests; run scripts/cmux-next/cargo-locks.py fix and commit the locks"
+          elif [[ $status != 0 ]]; then
+            echo "::error::a workspace this change touches could not be checked (the unchecked: lines above say why)"
+          fi
+          exit "$status"
 
       - name: Plan the workspaces this change reaches
         id: plan

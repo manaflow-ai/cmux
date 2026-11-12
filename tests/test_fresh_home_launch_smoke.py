@@ -206,11 +206,10 @@ def make_app(parent: Path, mode: str) -> Path:
 
 def gate_verdicts():
     """The publish gate's verdict helper (scripts/ci/nightly_next_launch_smoke.py)."""
-    spec = importlib.util.spec_from_file_location("nightly_next_launch_smoke",
-                                                  ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts" / "ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    return importlib.import_module("nightly_next_launch_smoke")
 
 
 class FreshHomeLaunchSmokeTest(unittest.TestCase):
