@@ -18,12 +18,11 @@ freeze = importlib.util.module_from_spec(spec)
 sys.modules["merge_freeze"] = freeze  # dataclasses looks the module up by name
 spec.loader.exec_module(freeze)
 
-# What the lane-gh broker lets a graphql query select. Copied from cmuxterm-hq
-# tools/lane-gh-broker/parts/44-calls-graphql.py (read at d4f9e7ac3f, 2026-11-11): GRAPHQL_ROOT_FIELDS (line 18),
-# GRAPHQL_FIELDS (line 26), GRAPHQL_CHECK_SUITE_FIELDS, the keys of GRAPHQL_SCOPED_FIELDS and the fields it allows
-# under `issues`. The broker hardcodes them in that Python file (no file it loads, nothing it serves), so this is a
-# copy and drifts when the broker's list changes: refresh it from there. The check below holds field names only,
-# not where in the tree the broker accepts one (its scoped parents), so it is a floor, not the broker's full rule.
+# What the lane broker lets a graphql query select. Copied on 2026-11-11 from the broker's GRAPHQL_ROOT_FIELDS,
+# GRAPHQL_FIELDS, GRAPHQL_CHECK_SUITE_FIELDS, the keys of its GRAPHQL_SCOPED_FIELDS and the fields it allows under
+# `issues`. The broker keeps them in its own source, so this is a copy: refresh it when the broker's list changes
+# (a check on the broker's side compares it to this file). The check below holds field names only, not where in
+# the tree the broker accepts one (its scoped parents), so it is a floor, not the broker's full rule.
 BROKER_ROOT_FIELDS = frozenset({
     "__typename", "rateLimit", "repository", "search",
 })
