@@ -13,7 +13,8 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `browser_workspace`, New Browser
+`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `header_terminal`, an agent chat's
+header Terminal button with nothing on the chat's right (the app opens the chat in the pane first), `browser_workspace`, New Browser
 Workspace (`chrome_ms`: its browser in the pane; a terminal shown first makes it later than `visible_ms`), `github_right`, a github.com
 pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
 pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
@@ -215,7 +216,7 @@ def undo(command, window, before_panes):
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
-    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+    if command in ("link_home", "header_terminal"):  # the new pane's tab has the focus: its close leaves Home's dock (the chat's pane) alone again
         rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
         wait(lambda: len(panes()) <= before_panes, 10)
         return
@@ -233,6 +234,8 @@ def home_dock():
 
 def ready(command, settle=True):
     """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    if command == "header_terminal" and len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True  # the chat the app opened for the first press (DebugInstantCreateBench) is shown, alone
     return home_dock() if command == "link_home" else ensure_terminal(settle)
 
 
