@@ -4731,9 +4731,9 @@ class GuardScopeAndRebindingTests(unittest.TestCase):
                 self.assertEqual(
                     self._misses(self.block("scripts/ci/defer.py"), more=more),
                     [
-                        f"{self.PREFIX}scripts/ci/defer.py imports scripts/ci/helper.py, not in its sparse checkout",
                         f"{self.PREFIX}scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse "
                         "checkout (via scripts/ci/defer.py)",
+                        f"{self.PREFIX}scripts/ci/defer.py imports scripts/ci/helper.py, not in its sparse checkout",
                     ],
                 )
                 # Real Python agrees: without helper.py the call raises outside the guard.
@@ -4761,7 +4761,8 @@ class GuardScopeAndRebindingTests(unittest.TestCase):
 
     REBOUND = (
         ("import importlib\nimportlib.import_module = lambda name: None\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
-        ("from importlib import import_module as load\nload = print\nmod = load('helper')\n", "load('helper')"),
+        # The diagnostic names the call by what its alias was imported as.
+        ("from importlib import import_module as load\nload = print\nmod = load('helper')\n", "importlib.import_module('helper')"),
         ("def __import__(name):\n    return None\nmod = __import__('helper')\n", "__import__('helper')"),
         ("import builtins\nbuiltins.__import__ = lambda *a: None\nmod = __import__('helper')\n", "__import__('helper')"),
         ("import importlib\nsetattr(importlib, 'import_module', print)\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
