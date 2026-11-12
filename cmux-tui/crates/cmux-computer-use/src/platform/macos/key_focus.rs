@@ -1,4 +1,9 @@
-//! The person's keyboard while a background app's menu is open.
+//! The person's keyboard while a background app's menu is open: an
+//! EXPERIMENTAL handoff, off unless `CMUX_CU_KEY_HANDOFF=1` is in the
+//! worker's environment, and only on macOS 12 through 26. Off (the default),
+//! nothing here runs: an open menu holds the person's keyboard while it shows,
+//! as Codex Computer Use's does, and the engine lists and closes a menu that
+//! hides items or has submenus.
 //!
 //! An app that is not active and opens a menu (a pop-up, a menu button, a
 //! context menu) takes key focus for it: AppKit's menu tracking calls
@@ -7,8 +12,7 @@
 //! keyboard to the menu until it closes. No app is activated and no window
 //! moves, yet the person's typing goes to the menu (measured in a guest: a key
 //! typed into the frontmost TextEdit while a System Settings pop-up was open
-//! never arrived). Codex Computer Use keeps the person's typing in their app
-//! with the menu open (same guest, same pop-up), so this guard does too.
+//! never arrived).
 //!
 //! While a call opens a menu, a per-process event tap
 //! (`CGEventTapCreateForPid`, public) sits on the person's app. When that app

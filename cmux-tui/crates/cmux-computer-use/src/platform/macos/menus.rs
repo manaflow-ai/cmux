@@ -517,6 +517,7 @@ impl MacDesktop {
         &self,
         t: &Target,
         before: &[u32],
+        armed: bool,
         mut press_failed: impl FnMut() -> Option<DesktopError>,
         mut find: impl FnMut() -> Option<Ax>,
     ) -> DResult<(Ax, Vec<u32>)> {
@@ -560,8 +561,11 @@ impl MacDesktop {
             return Err(e);
         }
         if let Some(found) = found {
-            // The menu is up: a target theft still waiting goes back now.
-            key_focus::menu_opened();
+            // The menu is up: when this call armed the handoff, its target
+            // theft still waiting goes back now.
+            if armed {
+                key_focus::menu_opened();
+            }
             return Ok(found);
         }
         // A menu window of the app showed, but no menu element in time: it
@@ -610,6 +614,7 @@ impl MacDesktop {
         let opened = self.await_menu(
             t,
             &before,
+            guard.armed(),
             || match rx.try_recv() {
                 Ok(Err(e)) if e != AX_CANNOT_COMPLETE => Some(ax_error(e, "opening the menu")),
                 _ => None,
@@ -848,8 +853,11 @@ impl MacDesktop {
         // "Terminal"). So while anything is denied it is left open only
         // when it hides nothing and has no submenu at all; else it is
         // closed and its titles listed, for a one-call pick with a path.
+        // An item the deny list or the protected apps cover never sits under
+        // the person's keys, even with nothing denied.
+        let any_denied = all.iter().any(|i| i.denied);
         let nested_hidden =
-            held && self.denies_any() && all.iter().any(|i| i.denied || i.info.submenu);
+            held && (any_denied || (self.denies_any() && all.iter().any(|i| i.info.submenu)));
         if nested_hidden || kept {
             if self.denies_any() && !workspace::app_names_ready() {
                 let refused = DesktopError::Unsupported(menus::APP_NAMES_LOADING.into());
@@ -1061,7 +1069,7 @@ impl MacDesktop {
                 .filter(is_menu)
                 .or_else(|| app.elements("AXChildren").into_iter().find(is_menu))
         };
-        match self.await_menu(t, &before, || None, find) {
+        match self.await_menu(t, &before, guard.armed(), || None, find) {
             Ok((menu, windows)) => Ok(Some((menu, windows, start, guard))),
             // The click was delivered and showed no menu (nothing there has one).
             Err(DesktopError::Failed(m)) if m == MENU_DID_NOT_OPEN => Ok(None),

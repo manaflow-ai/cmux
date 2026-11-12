@@ -135,6 +135,21 @@ Prevention, in the desktop (macOS):
     item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a
     pop-up. A pick holds the keyboard while it picks (about 0.5 to 1.5 s),
     as Codex's does.
+  - Any menu with an item the deny list or the protected apps cover is
+    listed and closed too, even with nothing denied, so such an item never
+    sits under the person's keys.
+  - Display screenshots show a menu the agent opened as it is on screen,
+    hidden items' titles included (only the windows of blocked apps are
+    redacted; a window screenshot leaves menus out). Codex Computer Use
+    shows them too; the items stay refused.
+  - Known limit: a menu that ignores both `AXCancel` and Escape stays open
+    and keeps the person's keys until it closes; the call says so
+    (MENU_DID_NOT_CLOSE, `keyboard: menu`). With the handoff off, the
+    person's window shows inactive meanwhile; with it on, after a missed
+    release, their window can look active while their keys go to the menu.
+    Either way the menu stays recorded, so the agent's keys, typing and
+    drags into that app are refused, and the next call tries to close it
+    again.
 - Keyboard handoff (experimental, off): with `CMUX_CU_KEY_HANDOFF=1` in the
   Computer Use worker's environment, on macOS 12 through 26 only, a call
   that opens a menu of an app other than the person's places an event tap on
@@ -152,15 +167,6 @@ Prevention, in the desktop (macOS):
     miss, when another app took the keyboard from the menu's owner since or
     the tap on it could not be placed; each call is numbered, so a release
     of an earlier or ended call gives nothing back.
-  - Display screenshots show a menu the agent opened as it is on screen,
-    hidden items' titles included (only the windows of blocked apps are
-    redacted; a window screenshot leaves menus out). Codex Computer Use
-    shows them too; the items stay refused.
-  - Known limit (handoff on): if the release misses and the menu also
-    ignores both `AXCancel` and Escape, the person's window can look active
-    while their keys go to the menu until it closes. The menu stays recorded, so the
-    agent's keys, typing and drags into that app are refused meanwhile, and
-    the next call tries to close it again.
 - Menu bar menus (`AXMenuBarItem`, menu extras) never open in the background:
   the menu bar is the frontmost app's.
 - The deny list holds inside menus through one rule, the same as the menu
