@@ -29,9 +29,10 @@ public final class DeviceHub {
     public private(set) var devicesListed = false
     /// Why the last device-list read failed; nil once a read succeeds.
     public private(set) var devicesListError: DeviceHubError?
-    /// No device list was read within ``devicesListDeadline`` of a start or a retry (a hub that
-    /// never answered registration, or a socket that never connected, which is when the list is
-    /// read): Your Devices shows its error with Try Again, never loading forever. A read clears it.
+    /// No device list was read within ``devicesListDeadline`` of the hub's creation, a start or a
+    /// retry (a hub never started, one that never answered registration, or a socket that never
+    /// connected, which is when the list is read): Your Devices shows its error with Try Again,
+    /// never loading forever. A read clears it.
     public private(set) var devicesListTimedOut = false
     /// How long a start or a retry waits for the device list before ``devicesListTimedOut``.
     public static let devicesListDeadline: Duration = .seconds(10)
@@ -87,6 +88,10 @@ public final class DeviceHub {
         self.platform = platform
         self.renewIdentity = renewIdentity
         self.now = now
+        // A hub that is never started (its start lost, or never made) is past the same deadline:
+        // Your Devices ends in its error with Try Again, which starts it, never loading forever.
+        // `start()` replaces this deadline with its own; `stop()` drops it.
+        armListDeadline(generation)
     }
 
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`

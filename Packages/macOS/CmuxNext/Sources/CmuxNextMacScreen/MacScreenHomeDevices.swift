@@ -121,15 +121,15 @@ struct MacScreenHomeSnapshot: Equatable {
     /// other devices share Mac Screen" only once the hub is registered and the list was read; a
     /// hub not started yet (`idle`) or starting is loading; a hub that failed to start, or a list
     /// read that failed with nothing read, is an error with Try Again, never loading forever. So is
-    /// a start or a list read past its deadline (`DeviceHub.devicesListTimedOut`): a registration
-    /// that never answered, or a socket that never connected.
+    /// a hub never started, a start or a list read past its deadline (`DeviceHub.devicesListTimedOut`):
+    /// a registration that never answered, or a socket that never connected.
     static func noDevicesShown(status: DeviceHub.Status, listed: Bool, listFailed: Bool) -> Devices {
         switch status {
         case .failed:
             return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
         case .ready where listed:
             return .note(L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac."))
-        case .starting where listFailed, .ready where listFailed:
+        case .idle where listFailed, .starting where listFailed, .ready where listFailed:
             return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
         case .idle, .starting, .ready:
             return .note(L.t("macScreen.home.devicesLoading", "Loading your devices…"))

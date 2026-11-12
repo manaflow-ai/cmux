@@ -48,6 +48,8 @@ final class HomeTranscriptLoadStateView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// Space at each side of the label.
+    static let sideInset: CGFloat = 24
     /// Space between the top of this view and the chip over drawn rows, and under the chip.
     static let bandInset: CGFloat = 12
     /// Padding inside the chip around the label and Try Again.
@@ -61,10 +63,27 @@ final class HomeTranscriptLoadStateView: NSView {
         return Self.bandInset + contentHeight + 2 * Self.chipPadding.height + Self.bandInset
     }
 
-    /// The label and Try Again stacked, at the label's current wrap width.
+    /// The label and Try Again stacked, as ``layout()`` places them at the current width.
     private var contentHeight: CGFloat {
         let retryHeight = retry.isHidden ? 0 : ceil(retry.intrinsicContentSize.height) + 6
-        return ceil(label.intrinsicContentSize.height) + retryHeight
+        return labelFrameSize(maxWidth: maxLabelWidth).height + retryHeight
+    }
+
+    /// The widest the label's frame may be: the view less its side insets (and the chip's padding
+    /// over drawn rows).
+    private var maxLabelWidth: CGFloat {
+        let pad = overRows ? Self.chipPadding : .zero
+        return max(0, bounds.width - 2 * Self.sideInset - 2 * pad.width)
+    }
+
+    /// The label's frame for its whole text, padding included. Over drawn rows it is as wide as the
+    /// text on one line (so the chip hugs it), up to `maxWidth`, where it wraps; centered it takes
+    /// `maxWidth`. The height is the text's at that width, every line of it. (`intrinsicContentSize`
+    /// is the text's own size without the label's 2 pt side padding: a frame that wide wrapped the
+    /// last word onto a second line the frame cut off, so "Loading messages…" read "Loading".)
+    func labelFrameSize(maxWidth: CGFloat) -> NSSize {
+        let width = overRows ? min(maxWidth, ceil(label.naturalSize.width)) : maxWidth
+        return NSSize(width: width, height: ceil(label.size(forWidth: width).height))
     }
 
     /// Shows the first page's state: `.loading` or `.failed`; nil or `.loaded` hides it. `overRows`
@@ -114,21 +133,20 @@ final class HomeTranscriptLoadStateView: NSView {
 
     override func layout() {
         super.layout()
-        let inset: CGFloat = 24
         let pad = overRows ? Self.chipPadding : .zero
-        let width = max(0, bounds.width - 2 * inset - 2 * pad.width)
-        label.preferredMaxLayoutWidth = width
-        let labelHeight = ceil(label.intrinsicContentSize.height)
+        let width = maxLabelWidth
+        label.preferredMaxLayoutWidth = 0
+        let labelSize = labelFrameSize(maxWidth: width)
+        let labelHeight = labelSize.height
         let retrySize = retry.isHidden ? .zero : retry.intrinsicContentSize
         let gap: CGFloat = retry.isHidden ? 0 : 6
         let total = labelHeight + gap + ceil(retrySize.height)
         // Over drawn rows: on its chip, in the band at the top. Otherwise centered.
         let top = overRows ? Self.bandInset + pad.height : max(0, (bounds.height - total) / 2)
-        // The label is as wide as its text over rows, so the chip hugs it.
-        let textWidth = overRows ? min(width, ceil(label.intrinsicContentSize.width)) : width
+        let textWidth = labelSize.width
         let retryWidth = min(width, ceil(retrySize.width))
         let contentWidth = max(textWidth, retryWidth)
-        label.frame = CGRect(x: overRows ? ((bounds.width - textWidth) / 2).rounded() : inset + pad.width, y: top,
+        label.frame = CGRect(x: overRows ? ((bounds.width - textWidth) / 2).rounded() : Self.sideInset + pad.width, y: top,
                              width: textWidth, height: labelHeight)
         if !retry.isHidden {
             retry.frame = CGRect(x: ((bounds.width - retryWidth) / 2).rounded(), y: label.frame.maxY + gap,
