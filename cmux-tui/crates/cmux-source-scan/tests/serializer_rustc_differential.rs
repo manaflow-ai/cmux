@@ -13,9 +13,12 @@
 //!     it names no "no `static HOOK_TEST: Mutex<()>`" finding.
 //!
 //! Accepting a HOOK_TEST rustc says is no `Mutex<()>` always fails. Refusing one rustc says is a
-//! `Mutex<()>` fails too, unless the shape says why the check refuses it by design (a name the
-//! file binds two ways is a serializer only when every way is; another file's type is unresolved),
-//! and a shape that says so must show it in at least one of its crates.
+//! `Mutex<()>` fails too, unless an allowance of the shape names that slot combination and why
+//! the check refuses it by design (a name the file binds two ways is a serializer only when every
+//! way is; another file's type is unresolved). An allowance fails when it names no combination of
+//! its shape, when its reason does not fit its combination, or when the check refuses no Mutex
+//! there (review of cmux#41826 F1). The meta-tests at the end hand the judging a stub check to
+//! show an allowance hides nothing past its combination.
 //!
 //! It needs rustc, which every `cargo test` has: `$RUSTC`, else `rustc` on the PATH.
 
@@ -30,11 +33,43 @@ const HOOK: &str = "// test-hook-allow: serialized by HOOK_TEST, which every tes
 static SWAP_HOOK: ::std::sync::Mutex<Option<fn()>> = ::std::sync::Mutex::new(None);\n";
 const CHECK: &str = "let _: &::std::sync::Mutex<()> = &HOOK_TEST;";
 const REFUSED: &str = "no `static HOOK_TEST: Mutex<()>`";
-/// The reason the check refuses a serializer whose name the file binds two ways.
-const TWO_WAYS: &str = "the file binds `Lock` two ways, and a name bound two ways serializes only \
-                        when every way does (reviews of cmux#41693 F1 and cmux#41707 F1)";
-/// The reason the check refuses a serializer whose type sits in another file.
-const OTHER_FILE: &str = "the type is another file's, which the check does not read";
+/// Why the check refuses a HOOK_TEST rustc takes as a `Mutex<()>`, by design.
+#[derive(Clone, Copy)]
+enum Reason {
+    /// The file binds `Lock` two ways, one of them an RwLock, and a name bound two ways
+    /// serializes only when every way does (reviews of cmux#41693 F1 and cmux#41707 F1): it fits
+    /// a combination whose slots hold different cells.
+    TwoWays,
+    /// The Mutex rustc reads is in another file, which the check does not read: it fits a
+    /// combination that puts a Mutex in that file's slot.
+    OtherFile(&'static str),
+}
+
+impl Reason {
+    fn text(self) -> String {
+        match self {
+            Reason::TwoWays => "the file binds `Lock` two ways, one of them an RwLock".to_string(),
+            Reason::OtherFile(slot) => format!("{slot}'s Mutex is in another file"),
+        }
+    }
+
+    fn fits(self, case: &Case<'_>) -> bool {
+        match self {
+            Reason::TwoWays => {
+                case.cells.iter().any(|(_, a)| case.cells.iter().any(|(_, b)| a != b))
+            }
+            Reason::OtherFile(slot) => cell_of(case, slot) == "Mutex",
+        }
+    }
+}
+
+/// One slot combination of a shape (`@X@=RwLock,@Y@=Mutex`, as a case's label writes it) where
+/// the check refuses a HOOK_TEST rustc takes as a `Mutex<()>`, and why (review of cmux#41826 F1:
+/// an allowance once covered every combination of its shape).
+struct Allowance {
+    combo: &'static str,
+    reason: Reason,
+}
 
 struct Shape {
     name: &'static str,
@@ -43,8 +78,9 @@ struct Shape {
     /// The crate's files, from its folder: `src/lib.rs` first. `@HOOK@` is the marked hook,
     /// `@CHECK@` the type check, `@X@` and `@Y@` the slots.
     files: &'static [(&'static str, &'static str)],
-    /// Why the check refuses some HOOK_TEST rustc takes as a `Mutex<()>`, or None.
-    may_refuse_valid: Option<&'static str>,
+    /// The combinations where the check refuses a HOOK_TEST rustc takes as a `Mutex<()>`: each
+    /// must be one, and its reason must fit it.
+    allowed: &'static [Allowance],
 }
 
 const SHAPES: &[Shape] = &[
@@ -70,7 +106,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "absolute_type_path_skips_a_module_binding",
@@ -90,7 +126,7 @@ fn check() {
 }
 ",
         )],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "body_import_of_its_own_name",
@@ -106,7 +142,7 @@ fn local() {
 }
 ",
         )],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "crate_import_beside_an_own_definition",
@@ -128,7 +164,10 @@ mod tests {
 ",
             ),
         ],
-        may_refuse_valid: Some(OTHER_FILE),
+        allowed: &[
+            Allowance { combo: "@X@=Mutex,@Y@=Mutex", reason: Reason::OtherFile("@Y@") },
+            Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::OtherFile("@Y@") },
+        ],
     },
     Shape {
         name: "crate_import_of_the_own_definition",
@@ -149,7 +188,7 @@ mod tests {
 ",
             ),
         ],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "bare_import_through_a_glob",
@@ -170,7 +209,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "own_module_shadows_the_glob",
@@ -194,7 +233,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: Some(TWO_WAYS),
+        allowed: &[Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::TwoWays }],
     },
     Shape {
         name: "chained_path_modules",
@@ -216,7 +255,7 @@ mod tests {
 ",
             ),
         ],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "block_local_import_is_no_module_name",
@@ -240,7 +279,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: None,
+        allowed: &[],
     },
     Shape {
         name: "body_rebinding_to_another_file",
@@ -266,7 +305,10 @@ mod tests {
 ",
             ),
         ],
-        may_refuse_valid: Some(OTHER_FILE),
+        allowed: &[
+            Allowance { combo: "@X@=Mutex,@Y@=Mutex", reason: Reason::OtherFile("@Y@") },
+            Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::OtherFile("@Y@") },
+        ],
     },
     Shape {
         name: "body_rebinding_in_the_file",
@@ -291,7 +333,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: Some(TWO_WAYS),
+        allowed: &[Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::TwoWays }],
     },
     Shape {
         name: "body_rebinding_written_after_its_use",
@@ -316,7 +358,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: Some(TWO_WAYS),
+        allowed: &[Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::TwoWays }],
     },
     Shape {
         name: "body_rebinding_reaches_an_inner_block",
@@ -343,7 +385,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: Some(TWO_WAYS),
+        allowed: &[Allowance { combo: "@X@=RwLock,@Y@=Mutex", reason: Reason::TwoWays }],
     },
     Shape {
         name: "block_rebinding_stays_in_its_block",
@@ -372,7 +414,7 @@ mod tests {
 }
 ",
         )],
-        may_refuse_valid: Some(TWO_WAYS),
+        allowed: &[Allowance { combo: "@X@=Mutex,@Y@=RwLock", reason: Reason::TwoWays }],
     },
 ];
 
@@ -383,10 +425,15 @@ struct Case<'a> {
 }
 
 impl Case<'_> {
-    fn label(&self) -> String {
+    /// Its slot combination: `@X@=RwLock,@Y@=Mutex`.
+    fn combo(&self) -> String {
         let cells: Vec<String> =
             self.cells.iter().map(|(slot, cell)| format!("{slot}={cell}")).collect();
-        format!("{}[{}] ({})", self.shape.name, cells.join(","), self.shape.from)
+        cells.join(",")
+    }
+
+    fn label(&self) -> String {
+        format!("{}[{}] ({})", self.shape.name, self.combo(), self.shape.from)
     }
 
     fn expand(&self, text: &str) -> String {
@@ -485,10 +532,11 @@ struct Outcome<'a> {
 }
 
 /// Every way `outcomes` disagree with rustc, and every refusal allowance of their shapes that
-/// none of them used.
+/// names no crate of its shape, whose reason does not fit its combination, or that no crate used
+/// (the check refuses no Mutex there).
 fn disagreements(outcomes: &[Outcome<'_>]) -> Vec<String> {
     let mut failed: Vec<String> = Vec::new();
-    let mut allowance_used: Vec<&str> = Vec::new();
+    let mut used: Vec<(&str, String)> = Vec::new();
     for Outcome { case, truth, verdict, shown } in outcomes {
         let truth = match truth {
             Ok(truth) => *truth,
@@ -504,13 +552,14 @@ fn disagreements(outcomes: &[Outcome<'_>]) -> Vec<String> {
                  (E0308)\n{shown}",
                 case.label()
             )),
-            (true, false) => match case.shape.may_refuse_valid {
-                Some(_) => allowance_used.push(case.shape.name),
-                None => failed.push(format!(
-                    "{}: the check refuses HOOK_TEST; rustc takes it as a Mutex<()>\n{shown}",
-                    case.label()
-                )),
-            },
+            (true, false) if case.shape.allowed.iter().any(|a| a.combo == case.combo()) => {
+                used.push((case.shape.name, case.combo()));
+            }
+            (true, false) => failed.push(format!(
+                "{}: the check refuses HOOK_TEST; rustc takes it as a Mutex<()>, and no allowance \
+                 names this combination\n{shown}",
+                case.label()
+            )),
         }
     }
     let mut shapes: Vec<&Shape> = Vec::new();
@@ -519,15 +568,30 @@ fn disagreements(outcomes: &[Outcome<'_>]) -> Vec<String> {
             shapes.push(outcome.case.shape);
         }
     }
-    for shape in shapes.into_iter().filter(|s| s.may_refuse_valid.is_some()) {
-        if !allowance_used.contains(&shape.name) {
-            failed.push(format!(
-                "{} ({}): the shape says the check refuses a valid serializer ({}), but it refused \
-                 none: drop its may_refuse_valid",
-                shape.name,
-                shape.from,
-                shape.may_refuse_valid.unwrap_or_default()
-            ));
+    for shape in shapes {
+        for allowance in shape.allowed {
+            let at = format!("{}[{}] ({})", shape.name, allowance.combo, shape.from);
+            let case = outcomes
+                .iter()
+                .map(|o| o.case)
+                .find(|c| c.shape.name == shape.name && c.combo() == allowance.combo);
+            let Some(case) = case else {
+                failed.push(format!("{at}: an allowance names no combination of the shape"));
+                continue;
+            };
+            if !allowance.reason.fits(case) {
+                failed.push(format!(
+                    "{at}: the allowance's reason ({}) does not fit this combination",
+                    allowance.reason.text()
+                ));
+            }
+            if !used.iter().any(|(name, combo)| *name == shape.name && combo == allowance.combo) {
+                failed.push(format!(
+                    "{at}: allowed ({}), but the check does not refuse a Mutex rustc accepts \
+                     here: drop the allowance",
+                    allowance.reason.text()
+                ));
+            }
         }
     }
     failed
@@ -620,5 +684,35 @@ fn an_allowance_does_not_hide_a_shape_refused_whole() {
             .iter()
             .any(|f| f.contains("block_rebinding_stays_in_its_block[@X@=Mutex,@Y@=Mutex]")),
         "a check refusing the whole shape went unnamed: {failed:#?}"
+    );
+}
+
+/// The same review: an allowance must name a combination of its shape and fit its reason. A
+/// shape that allows its all-Mutex crate "two ways" (both bindings are Mutexes, so its reason
+/// does not hold) and a combination it has no slot for must both be named.
+#[test]
+fn an_allowance_must_fit_its_reason_and_name_a_combination() {
+    const MISFIT: Shape = Shape {
+        name: "misfit",
+        from: "a meta-test",
+        files: &[("src/lib.rs", "@X@ @Y@")],
+        allowed: &[
+            Allowance { combo: "@X@=Mutex,@Y@=Mutex", reason: Reason::TwoWays },
+            Allowance { combo: "@X@=Mutex,@Z@=Mutex", reason: Reason::TwoWays },
+        ],
+    };
+    let case = Case { shape: &MISFIT, cells: vec![("@X@", "Mutex"), ("@Y@", "Mutex")] };
+    let outcomes = [Outcome { case: &case, truth: Ok(true), verdict: false, shown: String::new() }];
+    let failed = disagreements(&outcomes);
+    assert!(
+        failed.iter().any(|f| f.contains("misfit[@X@=Mutex,@Y@=Mutex]")
+            && f.contains("does not fit this combination")),
+        "a reason that does not fit went unnamed: {failed:#?}"
+    );
+    assert!(
+        failed.iter().any(
+            |f| f.contains("misfit[@X@=Mutex,@Z@=Mutex]") && f.contains("names no combination")
+        ),
+        "an allowance of no combination went unnamed: {failed:#?}"
     );
 }
