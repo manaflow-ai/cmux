@@ -157,10 +157,13 @@ class Script:
 
 
 class _Parser:
-    def __init__(self, s: str, origin: list[int], comments: list, level: list[int]):
+    def __init__(self, s: str, origin: list[int], comments: list, level: list[int], string: bool = False):
         self.s, self.n, self.o = s, len(s), origin  # o[i]: the offset in parse()'s text of s[i]; o[n] the end
         # Shared with the parsers of nested backticks: (start, end) of each comment; [how deep the parse is].
         self.comments, self.level = comments, level
+        # S is text bash runs as a string of its own (an eval's, a -c string's or a trap's text, a backtick body): a
+        # backslash that ends it has nothing to escape, and bash keeps it as a character (`eval 'c1\'` runs c1\).
+        self.string = string
 
     def nested(self, read, *args):
         """READ(*ARGS) one substitution or expansion deeper; Unparsed past MAX_DEPTH."""
@@ -312,7 +315,7 @@ class _Parser:
         is read through its wrappers as resolve() reads it: what runs is a suffix of its own words."""
         s, argv, values = self.s, [], []
         for w, (a, b) in zip(cmd.words, spans):
-            got = _unquote(s[a:b]) if all(isinstance(p, Lit) for p in w.parts) else None
+            got = _unquote(w.text) if all(isinstance(p, Lit) for p in w.parts) else None
             values.append(got)  # whether the word decodes, apart from the X= unwrap() reads an assignment as
             argv.append("X=" if ASSIGNMENT.match(s, a) else "\0" if got is None else got[0])
         names = frozenset(k for k, (a, _) in enumerate(spans) if not ASSIGNMENT.match(s, a))
@@ -339,7 +342,7 @@ class _Parser:
         body, origin, prev = "", [], 0
         for j in picks:
             a, b = spans[j]
-            text, at = _unquote(s[a:b])
+            text, at = values[j]
             if body:  # the space between two arguments: at the end of the one before it
                 body += " "
                 origin.append(self.o[prev])
@@ -349,7 +352,7 @@ class _Parser:
         origin.append(self.o[spans[picks[-1]][1]])
         level = self.level[0]
         try:  # comments in the string are not the text's: code() must never cut them out of it
-            script, _ = self.nested(_Parser(body, origin, [], self.level).script, 0, None)
+            script, _ = self.nested(_Parser(body, origin, [], self.level, True).script, 0, None)
         except Unparsed:
             self.level[0] = level
             return
@@ -481,7 +484,10 @@ class _Parser:
         while i < self.n and (self.s[i] not in WORD_END or self.s.startswith(("<(", ">("), i)):
             got, i = self.piece(i, WORD_END)
             parts += got
-        return Word(self.o[start], self.o[i], parts, self.s[start:i]), i
+        text = self.s[start:i]
+        if self.string and i == self.n and (len(text) - len(text.rstrip("\\"))) % 2:
+            text += "\\"  # the string's last character, an unescaped backslash, is one: the word's text says \\
+        return Word(self.o[start], self.o[i], parts, text), i
 
     def parts(self, i: int, stop: int, quotes: str) -> tuple[list, int]:
         """Parts of s[i:stop] read as double-quoted text (a here-document's body); the index after."""
@@ -617,7 +623,7 @@ class _Parser:
         if j >= n:
             raise Unparsed(s)
         origin.append(self.o[j])
-        inner = _Parser("".join(body), origin, self.comments, self.level)
+        inner = _Parser("".join(body), origin, self.comments, self.level, True)
         script, _ = self.nested(inner.script, 0, None)
         return Sub(self.o[i], self.o[j + 1], "`", script), j + 1
 
