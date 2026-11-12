@@ -2234,6 +2234,9 @@ mod journal_write_back_tests;
 #[cfg(test)]
 mod torn_append_tests;
 
+#[cfg(test)]
+mod held_home_reads_tests;
+
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
     fn scan_lines(
