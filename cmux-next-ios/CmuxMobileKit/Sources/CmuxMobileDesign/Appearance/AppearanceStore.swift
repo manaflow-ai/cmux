@@ -89,6 +89,12 @@ public final class CmuxMobileAppearance: @unchecked Sendable {
     /// not "Match my Mac", else the snapshot of the Mac most recently
     /// connected. Synchronous: it runs before the first frame.
     public func storedLook() -> (CmuxMobileResolvedAppearance?, Source) {
+        let choice = disk.personalization
+        if choice.mode == .phone {
+            guard let snapshot = choice.snapshot() else { return (nil, .phone) }
+            let url = choice.background.flatMap { disk.phoneImageURL(sha256: $0) }
+            return (CmuxMobileAppearanceResolver.resolve(snapshot, backgroundURL: url), .phone)
+        }
         if let macID = disk.lastMacID, let snapshot = disk.snapshot(macID: macID) {
             let url = snapshot.background.flatMap { disk.assetURL(sha256: $0.sha256) }
             if let look = CmuxMobileAppearanceResolver.resolve(snapshot, backgroundURL: url) {
@@ -114,11 +120,23 @@ public final class CmuxMobileAppearance: @unchecked Sendable {
         log.info("appearance at launch: \(String(describing: source), privacy: .public) in \(ms, format: .fixed(precision: 1)) ms")
     }
 
+    /// The phone's own Personalization choice; applied at once (it overrides
+    /// every Mac's look until it is "Match my Mac" again).
+    @MainActor
+    public var personalization: CmuxMobilePersonalization {
+        get { disk.personalization }
+        set {
+            disk.personalization = newValue
+            let (look, source) = storedLook()
+            apply(look, source: source)
+        }
+    }
+
     /// A Mac's snapshot was stored: the look applies when that Mac is the
     /// one the phone matches.
     @MainActor
     public func macSnapshotChanged(macID: String) {
-        guard disk.lastMacID == macID else { return }
+        guard disk.lastMacID == macID, disk.personalization.mode == .matchMac else { return }
         let (look, source) = storedLook()
         apply(look, source: source)
     }

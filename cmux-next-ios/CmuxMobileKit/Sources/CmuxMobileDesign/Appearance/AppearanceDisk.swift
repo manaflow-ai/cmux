@@ -71,6 +71,38 @@ public final class CmuxMobileAppearanceDisk: @unchecked Sendable {
         }
     }
 
+    /// The phone's own Personalization choice.
+    public var personalization: CmuxMobilePersonalization {
+        get { CmuxMobilePersonalization.load(defaults) }
+        set { newValue.save(defaults) }
+    }
+
+    // MARK: - The phone's own picture
+
+    private var phoneImages: URL { root.appendingPathComponent("phone", isDirectory: true) }
+
+    /// Keeps `data` (a JPEG the phone made from a Photos pick) as the phone's
+    /// own background, replacing the one before; answers its hash. Never
+    /// counted in, or dropped by, the Macs' image cache.
+    public func storePhoneImage(_ data: Data) -> String? {
+        let sha = Self.sha256(data)
+        return lock.withLock {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: phoneImages, withIntermediateDirectories: true)
+            for old in (try? fm.contentsOfDirectory(at: phoneImages, includingPropertiesForKeys: nil)) ?? [] {
+                try? fm.removeItem(at: old)
+            }
+            return (try? data.write(to: phoneImages.appendingPathComponent("\(sha).jpg"), options: .atomic)) != nil ? sha : nil
+        }
+    }
+
+    /// The phone's own background with `sha256`, if it holds it.
+    public func phoneImageURL(sha256: String) -> URL? {
+        guard Self.isHash(sha256) else { return nil }
+        let url = phoneImages.appendingPathComponent("\(sha256).jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     // MARK: - Images
 
     func assetFile(sha256: String) -> URL { assets.appendingPathComponent("\(sha256).jpg") }

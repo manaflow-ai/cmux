@@ -151,7 +151,7 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "compact-list-on", args: ["-cmux-mobile-tab", "settings", "-cmuxMobile.settings.compactWorkspaceList", "YES"]),
         ]
         let pages = ["account", "team", "transport", "devices", "terminal", "terminalSizing", "composer", "notifications",
-                     "acknowledgements", "chiefCalls", "screenSharing", "accentColor", "automations", "longPressMenus"]
+                     "acknowledgements", "chiefCalls", "screenSharing", "personalization", "automations", "longPressMenus"]
         for page in pages {
             scenes.append(Scene(group: g, id: "page-\(page)", args: ["-cmux-mobile-settings-page", page], settle: 3.5))
         }
@@ -175,10 +175,10 @@ final class AllUIStatesShellCaptureUITests: UIStateCaptureCase {
                     { app.typeText("sk-demo-0000000000000000"); return nil },
                 ])
             },
-            Scene(group: g, id: "accent-picked", args: ["-cmux-mobile-settings-page", "accentColor"], settle: 3.5) { app in
-                let cells = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.accentColor.'"))
-                guard cells.count > 2 else { return "no accent choices" }
-                cells.element(boundBy: 2).tap()
+            Scene(group: g, id: "personalization-this-iphone", args: ["-cmux-mobile-settings-page", "personalization"], settle: 3.5) { app in
+                let mode = app.segmentedControls["personalization.mode"]
+                guard mode.waitForExistence(timeout: 3) else { return "no Match my Mac / This iPhone control" }
+                mode.buttons.element(boundBy: 1).tap()
                 return nil
             },
             Scene(group: g, id: "team-editor-from-settings", args: ["-cmux-mobile-settings-page", "team"], settle: 3.5) { app in
