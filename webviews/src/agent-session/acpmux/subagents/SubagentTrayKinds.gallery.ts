@@ -182,23 +182,25 @@ export default agentPaneEntry({
   },
   variants: {
     "leo-tray": {
-      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command · 1 subagent done", its commands counted by what they do.',
+      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command", its commands counted by what they do; the finished subagent is the list\'s "1 finished" line.',
       play: async (ctx) => {
-        await open(ctx, 5);
+        await open(ctx, 4);
         columns(ctx);
-        if (title(ctx) !== "1 build · 2 waits · 1 command · 1 subagent done")
-          throw new Error(`unexpected header: ${title(ctx)}`);
+        if (title(ctx) !== "1 build · 2 waits · 1 command") throw new Error(`unexpected header: ${title(ctx)}`);
       },
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one failed, in red. The columns hold on every line.",
+      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one failed: the failure counted in red before the commands, both ended ones on the list's \"1 finished · 1 failed\" line. The columns hold on every line.",
       play: async (ctx) => {
-        await open(ctx, 7);
+        await open(ctx, 5);
         columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done")
+        if (title(ctx) !== "2 subagents running · 1 session · 1 failed · 1 test run · 1 server")
           throw new Error(`unexpected header: ${title(ctx)}`);
-        if (ctx.find({ selector: ".acpmux-running-tray__failed" }).textContent?.trim() !== "· 1 failed")
+        if (
+          ctx.find({ selector: ".acpmux-running-tray__head .acpmux-running-tray__failed" }).textContent?.trim() !==
+          "· 1 failed"
+        )
           throw new Error("the failure count reads after the counts");
         // The Codex mark is one of the header's stacked marks, or after the counts.
         if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))

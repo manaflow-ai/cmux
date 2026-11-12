@@ -52,7 +52,7 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
         if ((await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")) !== "true")
           await page.click(".acpmux-running-tray__head");
         await page.waitForFunction(
-          () => document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === 5,
+          () => document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === 4,
         );
         await page.evaluate(() => {
           for (const animation of document.getAnimations())
@@ -79,7 +79,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
             })),
           };
         });
-        expect(geometry.title).toBe("1 build · 2 waits · 1 command · 1 subagent done");
+        // The finished subagent is the list's "1 finished" line, not a count in the header (Leo,
+        // 2026-11-12: "why are there ellipses going so fast?").
+        expect(geometry.title).toBe("1 build · 2 waits · 1 command");
         // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow too: a line
         // stays one row there (Leo, 2026-11-04: "how Claude code just has one lines too").
         expect(geometry.overflow).toBeLessThanOrEqual(0);
