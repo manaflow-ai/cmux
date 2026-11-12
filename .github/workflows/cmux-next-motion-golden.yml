@@ -31,7 +31,6 @@ on:
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripDebug.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabMotion.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabLayoutEngine.swift
-      - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Spring.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView*.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShellWindow*.swift
