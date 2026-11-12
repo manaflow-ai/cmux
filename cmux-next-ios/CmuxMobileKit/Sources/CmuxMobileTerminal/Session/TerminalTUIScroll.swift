@@ -151,8 +151,9 @@ public struct TerminalTUITapClick: Equatable, Sendable {
 
     /// A touch that lands this soon after a wheel (seconds) is still scrolling.
     public static let quietAfterScroll: TimeInterval = 0.5
-    /// A tap held longer than this (seconds) is a resting thumb, not a click.
-    public static let maximumHold: TimeInterval = 0.3
+    /// A tap held longer than this (seconds) is a resting thumb, not a click
+    /// (under the 0.5 s long press that selects).
+    public static let maximumHold: TimeInterval = 0.45
     /// A tap that moved farther than this (points) is a short flick.
     public static let maximumMovement: CGFloat = 6
 
