@@ -8,14 +8,15 @@
 //!   `git.status` of a shown view, a liveness `ping`, a list) are read and
 //!   answered;
 //! - the whole daemon runs at most [`GIT_RUNS`] git reads at one time;
-//! - equal reads that wait share one run;
+//! - equal reads that wait share one run, [`SHARED_READS`] and the first at most;
 //! - a mutation keeps its place in its connection's order;
 //! - a git that passes its limit is ended, its request gets an error and its
 //!   place is free again;
 //! - a client that ends its writes still gets its replies;
 //! - a request that waits when the shutdown begins is refused and does not
 //!   run, and a broken connection's waiting mutation still runs;
-//! - the copies of a shared reply do not fill the connection's reply queue;
+//! - the copies of a shared reply do not fill the connection's reply queue,
+//!   and their wait for room holds no place of the lane;
 //! - at most [`MUTATION_RUNS`] mutations run at one time, and a connection
 //!   may have [`WAITING_RUNS`] runs that wait.
 //!
@@ -48,6 +49,9 @@ const MUTATION_RUNS: usize = 2;
 
 /// The git runs of one connection that may wait: `git_lane::QUEUED_PER_CLIENT`.
 const WAITING_RUNS: usize = 512;
+
+/// The equal reads that join one that waits: `git_lane::SHARED_READS`.
+const SHARED_READS: usize = 64;
 
 /// The longest a step of a test waits for something that must come.
 const LONG: Duration = Duration::from_secs(60);
@@ -565,6 +569,40 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
     );
     assert!(results.iter().all(|result| result == &results[0]), "{results:?}");
     assert_eq!(gate.runs_of("status"), 1, "git status runs for 5 equal reads that waited");
+}
+
+/// One run takes a bounded count of equal reads: [`SHARED_READS`] join the
+/// first, and the next equal read is a run of its own.
+#[test]
+fn git_lane_equal_reads_above_the_bound_of_one_run_get_a_second_run() {
+    const EQUAL: usize = SHARED_READS + 2;
+    let (busy, busy_gate) = repository("busy");
+    let (repo, gate) = repository("many");
+    let mut app = Connection::open(&daemon());
+
+    // The lane is full: later reads wait.
+    busy_gate.hold("hold-all");
+    let fill = fill_the_read_places(&mut app, &busy, &busy_gate);
+    for number in 0..EQUAL {
+        app.send(&format!("s{number}"), "git.status", json!({"path": repo}));
+    }
+    app.ping(9);
+    app.reply(&json!(9));
+
+    busy_gate.release("hold-all");
+    let (replies, closed) = app.replies(fill.len() + EQUAL, LONG);
+    let answered = replies
+        .iter()
+        .filter(|reply| reply["id"].as_str().is_some_and(|id| id.starts_with('s')))
+        .filter(|reply| reply["ok"] == true)
+        .count();
+    let runs = gate.runs_of("status");
+    eprintln!(
+        "git-lane: {EQUAL} equal git.status that waited: {answered} answered, {runs} git status \
+         runs, closed by the daemon: {closed}"
+    );
+    assert_eq!(answered, EQUAL, "equal git.status that got their answer");
+    assert_eq!(runs, 2, "git status runs: one for the first {} reads, one more", SHARED_READS + 1);
 }
 
 /// A mutation keeps its place in its connection's order: it starts after the
