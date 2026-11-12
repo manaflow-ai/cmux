@@ -1557,12 +1557,22 @@ function ComposerFrame({
     } finally {
       recovering.current = false;
     }
+    // A send that came while this look-up was out (it served other places) looks up its own now:
+    // the places still with no chip, read from the text and the chips held right now.
+    if (queuedSend.current && shownChat.current === chat) {
+      const still = (field.current?.inlineIds() ?? []).filter((id) => !attachmentId(id));
+      if (still.some((id) => !ids.includes(id))) void recoverLostNow.current(still);
+    }
   };
+  const recoverLostNow = useRef(recoverLost);
+  recoverLostNow.current = recoverLost;
   /// The places already looked up in the host's kept chips for this chat (`recoverLost`).
   const triedLost = useRef(new Set<string>());
   useEffect(() => {
     triedLost.current.clear();
-    // A send waiting for its chips is the chat's it was typed in: another chat never runs it.
+    // A send waiting for its chips is the chat's it was typed in: another chat never runs it. Its
+    // prompt stays, and the composer says to send it again.
+    if (queuedSend.current) setAttachError(t("composer.attachmentsUnread"));
     queuedSend.current = undefined;
   }, [sessionId]);
   // A draft that comes back with places whose chips the composer does not hold (a reconnect, a
