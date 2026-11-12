@@ -368,7 +368,7 @@ const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine
 
 /// A command still running, its output streaming in, in its own row: its stretch ended with its
 /// summary while it ran on, and the turn went on past it (a lone running call reads only on the
-/// turn's live line, and under the shipped live-turn-work `line` the stretch still running draws no
+/// turn's live line, and under the live-turn-work `line` the stretch still running draws no
 /// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
@@ -612,7 +612,7 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
 
 /// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
 /// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
-/// with its summary: under the shipped live-turn-work `line` a running stretch draws none of its
+/// with its summary: under the live-turn-work `line` a running stretch draws none of its
 /// finished work, only the live line, so a finished thought's row shows once its stretch ended
 /// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
@@ -860,7 +860,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  // The transcript's run gap is the inner gap (transcriptGrid.ts TRANSCRIPT_RUN_GAP, 12 since 2026-11-11).
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-inner)";
   doc.body.append(probe);
   const runGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
@@ -1127,7 +1128,7 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
-      // The stretch above ended with its summary: under the shipped live-turn-work `line` only an
+      // The stretch above ended with its summary: under the live-turn-work `line` only an
       // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
       // is the live line's.
       summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
@@ -2251,6 +2252,8 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
@@ -2276,6 +2279,8 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
       snapshot: chat(
         [
@@ -2598,6 +2603,8 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-command-under-messages": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
@@ -2632,6 +2639,8 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
@@ -2827,7 +2836,7 @@ export default agentPaneEntry({
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
         // would hold the last finished call instead. The stretch ended with its summary while the
-        // chat works on: under the shipped live-turn-work `line` only an ended stretch draws its
+        // chat works on: under the live-turn-work `line` only an ended stretch draws its
         // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),

@@ -11,6 +11,7 @@ import sharedCases from "../../../../../cmux-tui/crates/acpmux/src/agent_text_ca
 import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
 import { PastedText, PromptText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 const MINE = "Merge and deploy whenever you want.";
@@ -178,9 +179,10 @@ function render(text: string, node?: React.ReactNode): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
