@@ -30,7 +30,7 @@ use tokio::sync::{Notify, watch};
 pub(super) const OUTBOUND_BYTE_BOUND: usize = 64 << 20;
 
 /// Connections ended because their reader fell [`OUTBOUND_BYTE_BOUND`] behind, since the daemon
-/// started (`daemon status`, `outboundOverruns`).
+/// started (`daemon status`, `gauges.queues.overruns`).
 pub(crate) static OVERRUNS: AtomicU64 = AtomicU64::new(0);
 
 /// Why a connection's queue ended it.
@@ -219,10 +219,31 @@ impl Outbound {
     /// Bytes queued and not yet read.
     #[cfg(test)]
     pub(super) fn held(&self) -> usize {
+        self.gauge().bytes
+    }
+
+    /// What the queue holds now, for `daemon status` (`queue_gauge.rs`).
+    pub(super) fn gauge(&self) -> Gauge {
         let mut state = self.shared.lock();
         state.settle();
-        state.held
+        Gauge {
+            lines: state.queue.len() + state.sent.len(),
+            bytes: state.held,
+            bound: self.shared.bound,
+            overrun: state.overrun.is_some(),
+        }
     }
+}
+
+/// A connection's queue as `daemon status` shows it.
+pub(super) struct Gauge {
+    /// Lines queued or in the transport's channel (a line the pump holds is in `bytes` only).
+    pub(super) lines: usize,
+    /// Bytes queued and not yet read: what counts against `bound`.
+    pub(super) bytes: usize,
+    pub(super) bound: usize,
+    /// It fell past `bound` and its connection is ending.
+    pub(super) overrun: bool,
 }
 
 /// What moves a connection's lines to its transport: the plain pump, or the durable gate

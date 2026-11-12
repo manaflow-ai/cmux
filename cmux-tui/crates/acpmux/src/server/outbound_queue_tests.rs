@@ -133,3 +133,34 @@ async fn what_the_reader_took_leaves_the_count() {
     }
     assert_eq!(out.held(), 0);
 }
+
+/// `gauges.queues` in `daemon status` (`queue_gauge.rs`): the bytes a slow reader has not read,
+/// replies among them, and what it read leaves the gauge.
+#[tokio::test]
+async fn the_queue_gauge_counts_the_bytes_a_slow_reader_has_not_read() {
+    let scope = cmux_scope::Scope::new("outbound-test");
+    let (transport, mut rx) = mpsc::channel(64);
+    let (out, _) = start_bounded(&scope, None, transport, BOUND);
+    let reply = Message::ok(json!(1), json!({"answer": "x".repeat(100)})).to_line();
+    let lines = [note(0), reply, note(1)];
+    for line in &lines {
+        assert!(out.push(line.clone()));
+    }
+    let gauge = out.gauge();
+    assert_eq!(gauge.bytes, lines.iter().map(String::len).sum::<usize>());
+    assert_eq!(gauge.bound, BOUND);
+    assert!(!gauge.overrun);
+    next(&mut rx).await.expect("a line");
+    let after = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let gauge = out.gauge();
+            if gauge.bytes == lines[1].len() + lines[2].len() {
+                return gauge;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("what the reader took leaves the gauge");
+    assert_eq!(after.lines, 2);
+}
