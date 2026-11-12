@@ -3097,6 +3097,30 @@ class RustfmtLayerTests(unittest.TestCase):
             os.environ["PATH"] = saved
         self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
 
+    def test_a_dyld_loader_error_naming_the_toolchain_is_no_verdict(self):
+        # #41888 review (F1): a macOS loader failure names the rustfmt binary's own path under
+        # ~/.rustup/toolchains/..., so a match on "toolchain" anywhere in stderr read it as rustup's "not installed"
+        # and passed. Only rustup's own answer as the whole of stderr warns (#41945); this is a crash, no verdict.
+        # Self-contained (no fake_rustfmt helper) so it also runs against the gate at #41888's head.
+        folder = Path(self.tmp.name) / "dyld-bin"
+        folder.mkdir(exist_ok=True)
+        (folder / "stderr.txt").write_text(
+            "dyld[4242]: Library not loaded: @rpath/librustc_driver-5f3e0e1b6a2d.dylib\n"
+            "  Referenced from: <0D1F2E3A-4B5C-6D7E-8F90-A1B2C3D4E5F6> "
+            "/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/bin/rustfmt\n"
+            "  Reason: tried: '/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/lib/"
+            "librustc_driver-5f3e0e1b6a2d.dylib' (no such file)\n")
+        fake = folder / "rustfmt"
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit 134\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
     def test_rustups_answer_counts_only_as_the_whole_stderr(self):
         # #41888 review (F1): a rustfmt diagnostic that quotes `toolchain` passed as rustup's missing component. Rustup
         # answers alone: its error line first, then only its own help line. A rustup-shaped line after a rustfmt
