@@ -982,7 +982,9 @@ function rowsInView(
     if (index > first && at > top + height) break;
     held.push({ rowId: shown[index]!.id, offset: top - at });
   }
-  return held;
+  // The rows whose tops are in view come first: the reader's eye is on them, and a row cut at the
+  // view's top may still settle to another height above them, which would move them if it placed.
+  return [...held.filter((row) => row.offset <= 0), ...held.filter((row) => row.offset > 0)];
 }
 
 /// Where a view whose reader's place is held (`heldPlace`) goes in this pass: where the first held
