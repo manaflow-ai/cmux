@@ -157,7 +157,10 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
             const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight} ${mounted}`;
             alike = !moving && now === last ? alike + 1 : 0;
             last = now;
-            if (alike >= 3) {
+            // Scroll lead is released after 120 ms of no movement; keep observing long enough to
+            // see that release and the range it causes, rather than accepting the lead's stable
+            // interim range as the resting layout.
+            if (alike >= 10) {
               done();
               return false;
             }
