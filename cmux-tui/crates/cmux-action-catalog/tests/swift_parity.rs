@@ -29,6 +29,7 @@ const AWAITING_REPIN: &[&str] = &[
     "browserProfile.clearProxy",
     "notifications.allowDesktop",
     "billing.openPortal",
+    "palette.toggleTerminalChat",
 ];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
