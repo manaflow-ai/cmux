@@ -1113,7 +1113,7 @@ impl OutputStore {
     }
 
     /// Final write at quit, on the caller's thread: stop the writer, then
-    /// write every changed terminal once more.
+    /// make every terminal's unwritten bytes durable.
     pub(crate) fn shutdown(&self, mux: &Mux) {
         if self.directory.is_none() {
             return;
@@ -1122,15 +1122,21 @@ impl OutputStore {
         self.write_now(mux);
     }
 
-    /// Write every terminal's snapshot now when its content changed (a
-    /// journal checkpoint and quit): the screen a respawn after a reboot
-    /// gets is the screen at this point.
+    /// Store every terminal's output now (a journal checkpoint and quit):
+    /// the screen a respawn after a reboot gets is the screen at this point.
+    /// Only terminals with bytes not yet durable are visited (unwritten
+    /// bytes, an unsynced tail, or a pass they wait for): a quit with
+    /// hundreds of terminals does work for the ones that printed, not for
+    /// every terminal, while no daemon answers (quit_pass_tests.rs).
     pub(crate) fn write_now(&self, mux: &Mux) {
         if self.directory.is_none() {
             return;
         }
         for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
-            log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if !state.pending.is_empty() || state.tail_unsynced || state.force_snapshot {
+                state.dirty = true;
+            }
         }
         let policy = self.cached_policy().unwrap_or_else(|| {
             PersistencePolicy::resolve(

@@ -233,6 +233,7 @@ export function ThemePicker({
             onToggleFavorite(name);
           }}
           itemLabel={(row) => (row === CONFIG ? configLabel : label(rowTheme(row)))}
+          isItemCurrent={(row) => (row === CONFIG ? value === null : rowTheme(row) === value)}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"

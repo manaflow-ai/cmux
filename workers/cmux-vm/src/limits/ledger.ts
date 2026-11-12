@@ -127,6 +127,9 @@ const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
 const isLock = Schema.is(Lock);
+/** A mesh's apply coverage: `wanted` counts the changes that need an apply, `applied` is the highest one an apply has read. */
+const Coverage = Schema.Struct({ wanted: Schema.Number, applied: Schema.Number });
+const isCoverage = Schema.is(Coverage);
 
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
@@ -442,6 +445,39 @@ export class TenantLedger {
     if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
     await this.storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
     return true;
+  }
+
+  /**
+   * Takes lock `key` as `lock` does, unless coverage `coverageKey` has applied
+   * `need` already: then it answers "covered" and takes nothing, so a writer
+   * whose change another writer's apply already covered leaves the queue.
+   */
+  async lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered"> {
+    const coverage = checked(isCoverage, await this.storage.get(`coverage:${coverageKey}`));
+    if (coverage !== undefined && coverage.applied >= need) return "covered";
+    return (await this.lock(key, holder, leaseMs, nowMs)) ? "taken" : "busy";
+  }
+
+  /** Counts one more change that needs an apply; answers its number. */
+  async coverageWant(key: string): Promise<number> {
+    const storageKey = `coverage:${key}`;
+    const coverage = checked(isCoverage, await this.storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+    const wanted = coverage.wanted + 1;
+    await this.storage.put(storageKey, { ...coverage, wanted });
+    return wanted;
+  }
+
+  /** The number of the latest change: an apply that reads state after this answer covers every change up to it. */
+  async coverageWanted(key: string): Promise<number> {
+    return checked(isCoverage, await this.storage.get(`coverage:${key}`))?.wanted ?? 0;
+  }
+
+  /** Records that an apply covering every change up to `upTo` has landed; `applied` only grows. */
+  async coverageApplied(key: string, upTo: number): Promise<void> {
+    const storageKey = `coverage:${key}`;
+    const coverage = checked(isCoverage, await this.storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+    if (upTo <= coverage.applied) return;
+    await this.storage.put(storageKey, { wanted: Math.max(coverage.wanted, upTo), applied: upTo });
   }
 
   /** Releases the lock when `holder` still holds it. */

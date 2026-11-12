@@ -144,7 +144,7 @@ def crate_dir(root: Path, path: str) -> str | None:
 def classify_path(root: Path, path: str) -> tuple[str, str]:
     if not path.startswith(route_mod.CMUX_TUI):
         return "app", "outside cmux-tui: the app build's rules (cmux_next_route.py) place it"
-    if any(route_mod.matches(path, prefix) for prefix in route_mod.app_ffi_inputs(root)):
+    if route_mod.app_ffi_input(root, path):
         return "app", "a CCmuxAppFFI source: the Swift compiles link it"
     if any(route_mod.matches(path, prefix) for prefix in route_mod.scheme_phase_rust_inputs(root)):
         return "app", "an input of the app scheme's build phases (cmux.xcodeproj)"
