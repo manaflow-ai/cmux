@@ -746,7 +746,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var steer: Bool
         var resend: Bool
         var blocks: [JSONValue]
+        /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
+        /// When it began to wait for the link (its send, or the drop that lost it): its age.
+        var waitingSince: ContinuousClock.Instant? = nil
+        var waitStart: ContinuousClock.Instant { waitingSince ?? at }
     }
 
     /// Prompts the link lost or could not take (a blip), oldest first: they go again once
@@ -808,7 +812,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 // It may have run: sent again it is a resend (acpmux checks its log), aged
                 // from the drop, not from a send a long turn ago.
                 again.resend = true
-                again.at = now()
+                again.waitingSince = now()
             }
             hold(again)
             return
@@ -824,13 +828,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func hold(_ prompt: HeldPrompt) {
         let index = heldPrompts.firstIndex { $0.at > prompt.at } ?? heldPrompts.endIndex
         heldPrompts.insert(prompt, at: index)
-        // Written again by the next link's `linkUp` (never here: a link that looks up but
-        // just failed would be written to again at once).
         guard !expireHeldPrompts() else { return }
-        let wait = max(.zero, prompt.at + heldPromptWindow - now())
+        let wait = max(.zero, prompt.waitStart + heldPromptWindow - now())
         Task { [weak self] in
             try? await Task.sleep(for: wait)
             self?.expireHeldPrompts()
+        }
+        // The next link's `linkUp` writes them; a link that is up now gets them after a short
+        // pause (not at once: one that just failed would be written to again in a loop).
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.flushHeldPrompts()
         }
     }
 
@@ -841,7 +849,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func expireHeldPrompts() -> Bool {
         let window = heldPromptWindow
         let instant = self.now()
-        guard heldPrompts.contains(where: { instant - $0.at >= window }) else { return false }
+        guard heldPrompts.contains(where: { instant - $0.waitStart >= window }) else { return false }
         let dropped = heldPrompts
         heldPrompts = []
         let seconds = max(1, Int(window.components.seconds))
@@ -874,6 +882,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 }
             }
             self?.flushingHeld = false
+            // A send or a `linkUp` that came while this ran is not left waiting.
+            self?.flushHeldPrompts()
         }
     }
 

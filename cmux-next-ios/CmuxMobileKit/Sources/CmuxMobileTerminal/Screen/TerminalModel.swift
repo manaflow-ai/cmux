@@ -246,6 +246,9 @@ public final class TerminalModel {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
         }
+        // Attached again: a held composer send went out (or was dropped, which says so
+        // first); a later drop must never put already-sent text back.
+        if connection.isAttached { heldComposerSend = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).
