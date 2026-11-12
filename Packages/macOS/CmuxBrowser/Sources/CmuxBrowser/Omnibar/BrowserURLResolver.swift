@@ -261,11 +261,20 @@ public struct BrowserURLResolver: Sendable {
             host.contains(":")
         guard isHostLike else { return false }
 
-        // Judge the encoded components: an escape kept as written need not
-        // be UTF-8, and the decoded path, query or fragment is then empty.
-        let hasPathQueryOrFragment = !components.percentEncodedPath.isEmpty ||
-            components.percentEncodedQuery != nil ||
-            components.percentEncodedFragment != nil
+        // With raw Unicode, judge the encoded components: an escape kept as
+        // written need not be UTF-8, and the decoded path, query or fragment
+        // is then empty. All-ASCII text is judged as it always was, since the
+        // encoder leaves it unchanged.
+        let hasPathQueryOrFragment: Bool
+        if input.unicodeScalars.contains(where: { !$0.isASCII }) {
+            hasPathQueryOrFragment = !components.percentEncodedPath.isEmpty ||
+                components.percentEncodedQuery != nil ||
+                components.percentEncodedFragment != nil
+        } else {
+            hasPathQueryOrFragment = !components.path.isEmpty ||
+                components.query != nil ||
+                components.fragment != nil
+        }
         return hasPathQueryOrFragment || components.port != nil
     }
 
