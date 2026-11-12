@@ -13,6 +13,7 @@ import os
 final class AgentHistory {
     private unowned let services: AppServices
     var machines: [String: MachineAgentSessions] = [:] // per machine (tests fill one)
+    var isComplete: Bool { machines.values.allSatisfy(\.isComplete) } // false: a machine's list is not complete, a session not in `sessions` can still exist
     private var refreshing: Task<Void, Never>?
     /// Hidden by Clear History or Remove from History (the journal is
     /// append-only); the daemon history module writes the hides.

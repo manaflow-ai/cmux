@@ -6,7 +6,8 @@ import Foundation
 ///
 /// A daemon with `history-agent-sessions-v1` lists each session whole (`history.entries.list`). It keeps the
 /// fold of its journal with its cursor, so a session whose records journal retention deleted is still in its
-/// list, and the app never folds that daemon's journal. A daemon without the capability is older than
+/// list, and the app never folds that daemon's journal. While that fold is behind, the daemon's list is not
+/// complete (`isComplete`), and it takes no session away. A daemon without the capability is older than
 /// retention: its journal has every record, and the app folds it from the first one
 /// (`session.journal.subscribe`), then only the records after its cursor.
 public struct MachineAgentSessions: Sendable {
@@ -48,13 +49,22 @@ public struct MachineAgentSessions: Sendable {
         take(listed: list.sessions, complete: list.isComplete)
     }
 
-    /// Whether the list is the daemon's whole list (red commit: not read from the daemon's answer yet).
-    public var isComplete: Bool { true }
+    /// False while the daemon's list is not complete (`pending_kinds` names `agent`: its fold of the journal
+    /// is behind): a session that `sessions` does not have can still exist.
+    public private(set) var isComplete = true
 
-    /// The daemon's list replaces every session read before, a journal fold of the same daemon's older build too
-    /// (red commit: `complete` is not used yet).
+    /// The daemon's whole list replaces every session read before, a journal fold of the same daemon's older
+    /// build too. A list that is not complete (`complete` false) takes no session away: the daemon's fold
+    /// goes from the oldest record up, so that list is short, and a session read before that it does not have
+    /// stays as it was until the whole list comes.
     public mutating func take(listed sessions: [AgentSession], complete: Bool = true) {
-        listed = sessions
+        if complete {
+            listed = sessions
+        } else {
+            let read = Set(sessions.map(\.qualifiedID))
+            listed = sessions + self.sessions.filter { !read.contains($0.qualifiedID) }
+        }
+        isComplete = complete
         fold = AgentSessionFold(machine: machine)
         generation = nil
     }
@@ -72,6 +82,7 @@ public struct MachineAgentSessions: Sendable {
             fold.apply(result.records.compactMap { try? decoder.decode(AgentJournalRecord.self, from: $0) })
             if let read = result.generation { generation = read }
             listed = nil
+            isComplete = true
         } catch {
             fold = AgentSessionFold(machine: machine)
             generation = nil

@@ -34,11 +34,24 @@ package final class VaultListReads {
         isLoading = true
         await read(source, took)
         isLoading = false
-        // Red commit: one read, as before; a list that is not complete is not read again yet.
+        // One reload reads again at a time; a second one made its one read above.
+        guard isPartial, !isReadingAgain else { return }
+        isReadingAgain = true
+        defer { isReadingAgain = false }
+        var reads = 1
+        // wakeup-allow: each pass awaits the source's wait (the daemon client's Backoff sleep of 1 s to 8 s, because the daemon sends no event when a list becomes complete), then makes one read; it ends at a complete list, at readLimit reads, when no surface shows the list, and when the reader's task is cancelled
+        while isPartial, reads < Self.readLimit, isShown {
+            do { try await source.waitForPending(afterReads: reads) } catch { return }
+            // Another reload completed the list during the wait, or the last surface went away.
+            guard isPartial, isShown else { return }
+            await read(source, took)
+            reads += 1
+        }
     }
 
     private func read(_ source: any VaultSessionSource, _ took: () -> Void) async {
         await source.refresh()
         took()
+        isPartial = !source.isComplete
     }
 }

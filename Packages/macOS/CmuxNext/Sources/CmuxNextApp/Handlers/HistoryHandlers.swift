@@ -48,7 +48,10 @@ enum HistoryHandlers {
             }
             services.registry.track(Task { @MainActor in
                 await services.history.agents.refresh()
-                guard let session = services.history.agents.session(id: id) else { return ActionWorkFailure(HistoryAppStrings.noSession) }
+                guard let session = services.history.agents.session(id: id) else { // one read; only a complete list says "no session"
+                    return services.history.agents.isComplete ? ActionWorkFailure(HistoryAppStrings.noSession)
+                        : ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading)
+                }
                 HistoryRestorer(services: services).resume(session)
                 return nil
             })

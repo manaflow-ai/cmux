@@ -32,6 +32,7 @@ final class VaultHostView: NSView {
             hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityIdentifier("cmux.vault")
+        vault.reads.addSurface { [weak self] in self.map { $0.window?.isVisible == true && !$0.isHiddenOrHasHiddenAncestor } } // on screen
     }
 
     @available(*, unavailable)
