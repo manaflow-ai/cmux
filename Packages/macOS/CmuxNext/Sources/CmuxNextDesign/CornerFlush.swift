@@ -222,7 +222,8 @@ public final class CornerFlushChrome: NSView {
         defer { CATransaction.commit() }
         wedges.frame = bounds
         var card = drawn.card
-        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
+        let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+        card.size.height = max(0, card.height - stripHeight) // the top is maxY
         // A top pane hid its strip or its strip left the top (vertical tabs, a hidden tab bar, a canvas
         // pan): no whole tab row, so the card is the whole content, rounded on every corner, with no
         // wedges and no shade band over that pane's content.

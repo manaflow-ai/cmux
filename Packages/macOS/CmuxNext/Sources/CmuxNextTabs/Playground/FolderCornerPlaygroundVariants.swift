@@ -103,7 +103,7 @@ final class FolderCornerPlaygroundRow: NSView {
         let side = Self.sidebarWidth
         let minX = look.sidebarOnLeft ? side + gap : gap
         let maxX = look.sidebarOnLeft ? frame.maxX - gap : frame.maxX - side - gap
-        let stripHeight = Metrics.tabStripHeight
+        let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
         let whole = CGRect(x: minX, y: -radius, width: max(0, maxX - minX), height: frame.maxY - gap + radius)
         var card = whole
         card.size.height = max(0, whole.height - stripHeight)
