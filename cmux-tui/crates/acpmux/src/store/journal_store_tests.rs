@@ -1899,3 +1899,81 @@ fn a_retention_rewrite_of_a_replayed_chat_checkpoints_first() {
         kept_aside(home.path(), CHAT)
     );
 }
+
+/// #41627 F1, the class: a test that holds a thread the store owns (the checkpointer's
+/// `idle_hold` and `touch_hold`) releases it through `journal_store::Release` bound after the
+/// store, never a bare `send` on the hold's sender. A bare sender bound before the store outlives
+/// it on an unwind: a panic before the send (a `recv_timeout` that expired) drops the store first,
+/// and its drop waits on the held thread forever, so a timeout becomes a hang. Scans every source
+/// file of the crate.
+#[test]
+fn every_checkpointer_hold_is_released_by_a_guard_bound_after_the_store() {
+    fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
+        let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &mut files);
+    let installs = ["idle_hold = Some((", "touch_hold = Some(("];
+    let mut found = Vec::new();
+    let mut checked = 0;
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        // One test (or helper) per top-level `fn`: the text up to the next one.
+        for body in text.split("\nfn ").skip(1) {
+            let body = body.split("\n}\n").next().unwrap_or(body);
+            let held: Vec<&str> = installs
+                .iter()
+                .filter_map(|install| {
+                    let at = body.find(install)?;
+                    let pair = &body[at + install.len()..];
+                    let release = pair.split(&[',', ')'][..]).nth(1)?.trim();
+                    Some(release)
+                })
+                .collect();
+            for receiver in held {
+                checked += 1;
+                let name = body.split('(').next().unwrap_or("?");
+                // The sender that pairs with `receiver`: `let (sender, receiver) = ...channel()`.
+                let sender = body.lines().find_map(|line| {
+                    let pair = line.trim().strip_prefix("let (")?;
+                    let (sender, rest) = pair.split_once(',')?;
+                    let rest = rest.trim_start();
+                    rest.strip_prefix(receiver)
+                        .filter(|after| after.starts_with(')'))
+                        .map(|_| sender.trim())
+                });
+                let Some(sender) = sender else {
+                    found.push(format!(
+                        "{}: {name}: no `let ({{sender}}, {receiver})` pair",
+                        file.display()
+                    ));
+                    continue;
+                };
+                let guard = format!("Release::new({sender})");
+                let store = body.find("let store");
+                match (body.find(&guard), store) {
+                    (Some(at), Some(store)) if at > store => {}
+                    (Some(_), _) => found.push(format!(
+                        "{}: {name}: `{guard}` is bound before the store",
+                        file.display()
+                    )),
+                    (None, _) => found.push(format!(
+                        "{}: {name}: the release `{sender}` is not a `Release` guard",
+                        file.display()
+                    )),
+                }
+            }
+        }
+    }
+    assert!(checked >= 3, "the scan found {checked} checkpointer holds: it no longer sees them");
+    assert!(found.is_empty(), "a hold a panic can leave unreleased:\n{}", found.join("\n"));
+}
