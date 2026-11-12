@@ -332,6 +332,60 @@ pub fn harness(agent: Option<&str>) -> Option<&'static str> {
     }
 }
 
+// MARK: Toggle Terminal and Chat
+
+/// The focused tab, as Toggle Terminal and Chat reads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToggleFacts {
+    /// A terminal tab: `agent` and `session` are its agent's report.
+    pub terminal: bool,
+    /// An agent chat tab: `agent` and `session` are the outside session it resumes, if any.
+    pub chat: bool,
+    pub agent: Option<String>,
+    pub session: Option<String>,
+}
+
+/// What Toggle Terminal and Chat does: the same agent session swaps between
+/// its terminal and its chat view, both ways.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "route")]
+pub enum TerminalChatToggle {
+    /// Neither a terminal nor an agent chat.
+    NotAgentTab,
+    /// A terminal with no agent session, or a chat that resumes no terminal's session.
+    NoSession,
+    /// The terminal's agent is not one acpmux can resume (only Claude Code and Codex).
+    UnsupportedHarness,
+    /// The terminal's session shows as its chat (Open Terminal as Chat's adopt).
+    ToChat { harness: String, session: String },
+    /// The chat shows the terminal running the session it resumes.
+    ToTerminal { harness: String, session: String },
+}
+
+pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
+    let (agent, session) = (facts.agent.as_deref(), facts.session.as_deref());
+    if facts.terminal {
+        return match terminal_chat(agent, session) {
+            TerminalChat::NoSession => TerminalChatToggle::NoSession,
+            TerminalChat::UnsupportedHarness => TerminalChatToggle::UnsupportedHarness,
+            TerminalChat::Adopt { harness, session } => {
+                TerminalChatToggle::ToChat { harness, session }
+            }
+        };
+    }
+    if !facts.chat {
+        return TerminalChatToggle::NotAgentTab;
+    }
+    // A chat resumes only sessions acpmux adopts, so any other harness ran in no terminal.
+    match terminal_chat(agent, session) {
+        TerminalChat::Adopt { harness, session } => {
+            TerminalChatToggle::ToTerminal { harness, session }
+        }
+        TerminalChat::NoSession | TerminalChat::UnsupportedHarness => TerminalChatToggle::NoSession,
+    }
+}
+
 // MARK: Duplicate Tab
 
 /// The facts of one tab Duplicate Tab acts on.

@@ -331,6 +331,13 @@ extension AgentTabStore {
         return key
     }
 
+    /// The outside chat tab `key` resumes (``tab(resuming:)`` the other way round), if any.
+    func adoption(of key: String) -> AgentPaneAdopt? {
+        guard let entry = adoptions.first(where: { AgentTabKey(relaunchStorageKey: $0.value).key == key }),
+              let colon = entry.key.firstIndex(of: ":") else { return nil }
+        return AgentPaneAdopt(harness: String(entry.key[..<colon]), agentSessionId: String(entry.key[entry.key.index(after: colon)...]))
+    }
+
     /// "This chat runs on <machine>" for tab `key`, whose session another Mac's acpmux runs.
     func notice(for key: String) -> AgentTabElsewhereView? {
         let scoped = tabKey(key)

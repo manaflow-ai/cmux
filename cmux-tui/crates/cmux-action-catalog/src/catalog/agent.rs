@@ -607,6 +607,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.launchClaudeTeams",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.launchClaudeTeams", "Launch Claude Teams"),
