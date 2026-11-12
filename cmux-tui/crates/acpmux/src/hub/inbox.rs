@@ -127,6 +127,9 @@ use std::sync::atomic::Ordering;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
+
+/// What every notice's prompt id starts with (`deliver_notice`).
+const NOTICE_ID_PREFIX: &str = "inbox-notice-";
 /// On a chat's first work's provenance (module docs): set by acpmux only, as no client's
 /// provenance keeps a field it does not name (`prompt_provenance.rs`).
 pub const FIRST_WORK: &str = "firstWork";
@@ -1662,7 +1665,7 @@ impl Hub {
     /// Sends the notice of every new message, as a steer or (`steer` false) a turn of its own,
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
-        let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
+        let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
         let (text, whole, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
@@ -1836,6 +1839,65 @@ impl Hub {
             self.append(session, "mux", "inbox_answered", msg);
         }
         self.inbox_review(session);
+    }
+
+    /// A notice's own turn that a restart adopted ended (`hosts.rs` `recover_work`): the
+    /// messages it carried get the turn's answer, and the log says so (`inbox_answered`), as
+    /// `notice_done` writes it for a notice this daemon started. A sender's resend of one of them
+    /// is answered from that record (`logged_inbox_answer`); without it, the resend answered
+    /// "interrupted" for a message its agent had read and answered. Nothing for a turn that was
+    /// no notice's, or a notice answered already.
+    pub(super) fn recovered_notice_done(
+        &self,
+        session: &Arc<Session>,
+        notice_id: &str,
+        result: &super::queue::Answer,
+    ) {
+        // Every notice's prompt id has the prefix: another turn's end reads no log.
+        if !notice_id.starts_with(NOTICE_ID_PREFIX) {
+            return;
+        }
+        let (mut ids, mut answered) = (None::<Vec<String>>, false);
+        let kinds = ["inbox_noticed", "inbox_answered"];
+        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            if e.dir == "mux"
+                && e.msg.get("noticePromptId").and_then(Value::as_str) == Some(notice_id)
+            {
+                if e.kind == "inbox_answered" {
+                    answered = true;
+                } else {
+                    let carried = e.msg.get("promptIds").and_then(Value::as_array);
+                    let carried = carried.into_iter().flatten().filter_map(Value::as_str);
+                    ids = Some(carried.map(str::to_owned).collect());
+                }
+            }
+            true
+        });
+        let Some(ids) = ids.filter(|ids| scanned.is_ok() && !answered && !ids.is_empty()) else {
+            return;
+        };
+        let answer = if super::queue::closing(session) {
+            Err(super::queue::closing_error())
+        } else {
+            result.clone()
+        };
+        {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                item.answered = Some(answer.clone());
+            }
+            inbox.settled.notify_waiters();
+        }
+        let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
+        match answer {
+            Ok(answer) => {
+                msg.set("answer", answer);
+            }
+            Err(error) => {
+                msg.set("error", json!(error));
+            }
+        }
+        self.append(session, "mux", "inbox_answered", msg);
     }
 
     /// Ends notice `notice_id`, carrying `ids`, as one refused before its prompt was written.

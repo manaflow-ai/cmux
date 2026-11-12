@@ -236,9 +236,13 @@ const expandAway: Play = async (ctx) => {
   expect(after.scrollHeight > before.scrollHeight + 20, "away from the bottom nothing grew down", { before, after });
 };
 
+/// The running-chat scenes were checked under live-turn-work `line` (a stretch still running draws
+/// no run); they pin it so they keep that look whatever the default.
+const RUNNING_ARM = { "live-turn-work": "line" };
+
 /// A chat still working at the bottom, its first two commands done under "Ran 2 commands" (Leo,
 /// 2026-11-06, on a recording under load: "the entire tool call expansion apparatus is borked" and
-/// "way too discontinuous"). Their stretch ended with its summary: under the shipped live-turn-work
+/// "way too discontinuous"). Their stretch ended with its summary: under the live-turn-work
 /// `line` a stretch still running draws none of its runs, only the live line (turns.ts
 /// `codexRuns`), so the run the reader opens is an ended stretch's. Opening the group while the agent
 /// goes on: its next command lands mid-fold, on the live line. `cmuxGalleryArrive` (set by the play)
@@ -358,6 +362,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/conversation/foldAnchor.ts",
+    // An opened run draws in its scroll box (RunScroll.tsx); the tall group's play opens one.
+    "agent-session/acpmux/conversation/RunScroll.tsx#RunScroll",
   ],
   variants: {
     shipped: {
@@ -388,16 +394,19 @@ export default agentPaneEntry({
     "under-load": {
       note: "A working chat scrolled to the very bottom with an ended stretch's “Ran 2 commands” shut by the reader. Opened while the agent's next command lands on the live line: one motion, the bottom stays pinned, nothing overlaps.",
       snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
       play: armUnderLoad,
     },
     "slow-render-group": {
       note: "Play: a working chat's ended “Ran 2 commands” opened while the page takes 1.2 s to draw the click and the agent's next command lands on the live line: it opens in place, the header stays, the view stops following.",
       snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
       play: slowGroup,
     },
     "slow-render-command": {
       note: "Play: a command inside the open group opened during a 1.2 s render while the next snapshot lands: the command opens under its line and stays open; nothing above it moves.",
       snapshot: runningSnapshot,
+      experiments: RUNNING_ARM,
       play: slowCommandLine,
     },
     "slow-render-away": {

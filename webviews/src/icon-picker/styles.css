@@ -477,6 +477,10 @@
   color: var(--page-text-3);
 }
 
+/* The error line has its place before it has text: the drop area over it fills the rest of the
+   sheet, so a line that came in only with the error made that area shorter and moved the URL field
+   and the hint up. */
 .icon-asset-error {
+  min-height: 1lh;
   color: var(--page-text);
 }
