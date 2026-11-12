@@ -84,9 +84,52 @@ mod imp {
     use std::io;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::Stream;
+
+    /// Waits in poll() until a read of `stream` will not block, for at most
+    /// its read timeout (then `WouldBlock`, as the read would fail). On macOS
+    /// 26 and 27 a thread blocked in recv() can miss the wake of the peer's
+    /// shutdown (the daemon line reader with 8 clients at once: 1 in 7,000 to
+    /// 1 in 17,000); one waiting in poll() saw every one (opt-tools
+    /// probes/shutdown_wake.rs).
+    /// Every event returns (POLLIN, POLLHUP, POLLERR, POLLNVAL): the read then
+    /// takes the waiting bytes, the end or the error, so bytes sent before a
+    /// hang-up are still read. EINTR waits again for the time left.
+    fn wait_readable(stream: &UnixStream) -> io::Result<()> {
+        let deadline = stream.read_timeout()?.map(|timeout| Instant::now() + timeout);
+        let mut poll = libc::pollfd {
+            fd: std::os::fd::AsRawFd::as_raw_fd(stream),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        loop {
+            let timeout_ms = match deadline {
+                None => -1,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    // Rounded up: a 0 ms poll for the last 0.4 ms would spin.
+                    libc::c_int::try_from(left.as_micros().div_ceil(1000))
+                        .unwrap_or(libc::c_int::MAX)
+                }
+            };
+            poll.revents = 0;
+            // SAFETY: one pollfd for a descriptor `stream` owns while it is
+            // borrowed here.
+            let ready = unsafe { libc::poll(&mut poll, 1, timeout_ms) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 
     pub(super) struct Listener {
         inner: UnixListener,
@@ -151,6 +194,10 @@ mod imp {
 
         fn peer_gone(&self) -> bool {
             hung_up(self, libc::POLLOUT)
+        }
+
+        fn wait_readable(&self) -> io::Result<()> {
+            wait_readable(self)
         }
     }
 

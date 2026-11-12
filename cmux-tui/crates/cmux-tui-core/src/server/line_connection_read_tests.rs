@@ -8,7 +8,7 @@
 //! one (opt-tools probes/shutdown_wake.rs). `LineSocket` waits in poll()
 //! before each read.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
@@ -247,4 +247,63 @@ fn a_replayed_first_line_is_read_without_waiting_for_the_socket() {
         events.recv_timeout(Duration::from_secs(5)),
         Ok(Seen::Line(line)) if line == "{\"first\":1}\n"
     ));
+}
+
+extern "C" fn note_signal(_: libc::c_int) {}
+
+/// Reads once through a `LineSocket` while another thread sends SIGURG
+/// (caught, no `SA_RESTART`) to the reader every 10 ms for `signals_for`;
+/// then `client` sends `then_send`. Returns the read's result and its time.
+fn read_while_signalled(
+    read_timeout: Option<Duration>,
+    signals_for: Duration,
+    then_send: &[u8],
+) -> (Result<usize, std::io::ErrorKind>, Duration) {
+    // SAFETY: a handler that does nothing, installed for a signal whose
+    // default action is to ignore it; no other code of this test binary
+    // catches SIGURG.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = note_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+        libc::sigemptyset(&mut action.sa_mask);
+        assert_eq!(libc::sigaction(libc::SIGURG, &action, std::ptr::null_mut()), 0);
+    }
+    let (ours, client) = UnixStream::pair().unwrap();
+    ours.set_read_timeout(read_timeout).unwrap();
+    let (thread_id, reader_id) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        // SAFETY: pthread_self has no preconditions.
+        thread_id.send(unsafe { libc::pthread_self() } as usize).unwrap();
+        let mut socket = LineSocket::new(Box::new(ours));
+        let started = Instant::now();
+        let result = socket.read(&mut [0; 16]).map_err(|error| error.kind());
+        (result, started.elapsed())
+    });
+    let reader_id = reader_id.recv().unwrap();
+    let started = Instant::now();
+    while started.elapsed() < signals_for && !reader.is_finished() {
+        // SAFETY: the reader thread is not joined yet, so its id is valid.
+        unsafe { libc::pthread_kill(reader_id as libc::pthread_t, libc::SIGURG) };
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if !then_send.is_empty() {
+        (&client).write_all(then_send).unwrap();
+    }
+    reader.join().unwrap()
+}
+
+/// A signal during the wait does not end it: the wait polls again (EINTR),
+/// for the time left of the read timeout when the socket has one.
+#[test]
+fn a_signal_during_the_wait_does_not_end_the_read() {
+    let (result, _) = read_while_signalled(None, Duration::from_millis(200), b"x");
+    assert_eq!(result, Ok(1));
+
+    let timeout = Duration::from_millis(400);
+    let (result, took) = read_while_signalled(Some(timeout), Duration::from_millis(200), b"");
+    assert!(
+        matches!(result, Err(std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)),
+        "{result:?}"
+    );
+    assert!(took >= timeout, "the read ended after {took:?}, before its {timeout:?} timeout");
 }
