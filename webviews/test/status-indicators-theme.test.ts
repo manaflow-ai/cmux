@@ -3,6 +3,7 @@
 // stylesheets stop their loops under (static-status-loops.test.ts checks the rules).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
@@ -11,11 +12,8 @@ beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><html><body></body></html>");
   Object.assign(scope, { window, document: window.document });
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const theme = {

@@ -647,39 +647,79 @@ def git_commit(repo: str, ref: str) -> str | None:
                 pass
 
 
+def git_tree():
+    """scripts/ci/git_tree.py, the one reader of a commit's tree: imported by name, so one module object (and one
+    Unreadable) is shared with every other caller."""
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import git_tree as module
+    return module
+
+
+@once_per_judgement("git tree")
+def git_tree_entries(repo: str, commit: str) -> dict[str, tuple[str, str]] | None:
+    """Every entry of COMMIT's tree in git_cache(REPO) (GitTree.entries: one `ls-tree -r -t`, which the blob-less
+    fetch holds), or None when git cannot list it. Once per commit per judgement, however many paths are read."""
+    tree = git_tree().GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit)
+    try:
+        return tree.entries()
+    except git_tree().Unreadable:
+        return None
+    finally:
+        tree.close()
+
+
 @once_per_judgement("git")
 def git_text(repo: str, ref: str, path: str, *, missing=None):
     """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
     MISSING, when given, is returned instead when git fetched REF and its tree has no PATH: a definite absence.
 
-    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
-    and the one blob `git show` asks for, and no GitHub API quota at all."""
+    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch,
+    one tree listing (git_tree_entries) and the blobs `git show` asks for, and no GitHub API quota at all. What PATH
+    names is git_tree.GitTree's answer, the reader every other tree read uses (review of cmux#41314, F1, F2): a
+    symlink is followed inside the tree, a symlinked parent too; a directory, a submodule, a binary blob (through a
+    link or not), a link out of the tree and a loop are each Refused by name, never read as text or as absent."""
     commit = git_commit(repo, ref)
     if commit is None:
         return None
+    module = git_tree()
     try:
         git = git_cache(repo)
-        if git is None:
-            return None
-        # A symlink's blob is its target's name: follow it inside the repository (symlinked_path), by the entry's
-        # mode in its parent tree, which the blob-less fetch holds.
-        for hop in range(SYMLINK_HOPS + 1):
-            listed = git("ls-tree", "-z", commit, "--", path)
-            if listed.returncode:
-                return None
-            if not listed.stdout.strip(b"\0"):
-                # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
-                return missing if missing is not None and hop == 0 else None
-            mode = listed.stdout.split(b" ", 1)[0]
-            shown = git("show", f"{commit}:{path}")
-            if shown.returncode:
-                return None
-            if mode != b"120000":
-                return shown.stdout.decode()
-            path = symlinked_path(repo, ref, path, shown.stdout.decode())
-        raise Refused(f"{repo}@{ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        entries = git_tree_entries(repo, commit) if git is not None else None
+    except (OSError, subprocess.SubprocessError):
         return None
+    if entries is None:
+        return None
+    shown: dict[str, bytes] = {}
+
+    def read_blob(where: str, oid: str) -> bytes:
+        # The cache is a promisor clone: `git show` fetches the one blob it lacks (git_cache's partialclonefilter).
+        if oid not in shown:
+            try:
+                done = git("show", f"{commit}:{where}")
+            except (OSError, subprocess.SubprocessError) as why:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed: {why}") from None
+            if done.returncode:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed")
+            shown[oid] = done.stdout
+        return shown[oid]
+
+    tree = module.GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit, entries=entries,
+                          read_blob=read_blob)
+    try:
+        if tree.resolve(path) is None:
+            # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
+            parts = [part for part in path.strip("/").split("/") if part not in ("", ".")]
+            linked = any(entries.get("/".join(parts[:at]), ("",))[0] == module.SYMLINK
+                         for at in range(1, len(parts) + 1))
+            return missing if missing is not None and not linked else None
+        return tree.text(path)
+    except module.NeedsFullTree:
+        return None
+    except module.Unreadable as why:
+        raise Refused(f"{repo}@{ref}: {why}") from None
+    finally:
+        tree.close()
 
 
 @once_per_judgement("source", lambda repo, ref, path, github: (repo, ref, path))
@@ -3282,12 +3322,47 @@ def derived_status_line(repo: str, name: str, sha: str, parts: list[Part], audit
     return f"excused '{name}': fixed on base ({what})" if fixed else f"excused '{name}': its parts are excused ({what})"
 
 
+# One check at one head, named another way (2026-11-12, cmux#38644 at 8e957427, coord-deputy-2: "base_red_excuse says
+# 'Web tests (2/4)' 'has not run on exact head', but it did: job 131026209923"). A called workflow's job is the check
+# run '<caller job> / <its job>' ('web / Web tests (2/4)'), the checks page shows '<workflow> / <check>', and a caller
+# that names either other part was refused as if the check had not run. A name is read as the one Actions check run
+# at the head it is a ' / '-part of, either way: the check run's name ends in ' / NAME', or NAME ends in ' / ' and the
+# check run's name. A name as written still comes first (a check run, then a status, as before), a name two check runs
+# answer to stays refused (which one was meant is unknown), and a partial part ('tests (2/4)') matches nothing.
+# A head named by a short or upper-case sha is the same commit: GitHub answers its reads, and every job's head_sha is
+# the full lower-case one, so each "is this job at the exact head" compare refused (exact_sha).
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def spelled_check(latest: dict, name: str, sha: str) -> dict | None:
+    """The one check run in LATEST (latest_checks: name to check run) that NAME names another way (above), or None."""
+    found = {check["id"]: check for check_name, check in latest.items()
+             if check_name.endswith(f" / {name}") or name.endswith(f" / {check_name}")}
+    if len(found) > 1:
+        names = sorted(check["name"] for check in found.values())
+        raise Refused(f"{name}: names {len(found)} check runs at exact head {sha} ({', '.join(map(repr, names))[:300]}); "
+                      "which one is unknown, so none is judged: name it in full")
+    return next(iter(found.values()), None)
+
+
+def exact_sha(repo: str, sha: str, github) -> str:
+    """SHA as the full lower-case commit id its jobs carry: read from GitHub only when it is shorter."""
+    sha = sha.strip().lower()
+    if FULL_SHA.fullmatch(sha):
+        return sha
+    full = str((github.json(f"repos/{repo}/commits/{sha}") or {}).get("sha") or "").lower()
+    if not FULL_SHA.fullmatch(full) or not full.startswith(sha):
+        raise Refused(f"--sha {sha}: GitHub names no commit {sha} in {repo} (it answered {full[:40] or 'nothing'})")
+    return full
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None, suites: SuiteChecks | None = None,
               ignored: list[str] | None = None, seen: dict | None = None,
               evidence: "Evidence | None" = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED, and a cancelled
     job a newer run of its workflow passed adds its line to IGNORED (superseding_check)."""
+    sha = exact_sha(repo, sha, github)
     jobs: dict[int, dict] = {}
     contexts: dict[int, list[str]] = {}  # the status contexts each job was judged for (status_job)
     seen = {} if seen is None else seen
@@ -3358,17 +3433,23 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         aggregate_jobs = []
         aggregate_runs = []
         for name in checks:
-            if name not in latest:
+            check = latest.get(name)
+            if check is None:
                 if (job := status_job(repo, sha, name, github, base if excused is not None else None, suites,
-                                      evidence)) is None:
-                    raise Refused(f"{name}: has not run on exact head {sha}")
-                if isinstance(job, str):
-                    excused.append(job)
+                                      evidence)) is not None:
+                    if isinstance(job, str):
+                        excused.append(job)
+                        continue
+                    jobs[job["id"]] = job
+                    contexts.setdefault(job["id"], []).append(name)
                     continue
-                jobs[job["id"]] = job
-                contexts.setdefault(job["id"], []).append(name)
-                continue
-            job = job_for(repo, latest[name], sha, github)
+                if (check := spelled_check(latest, name, sha)) is None:
+                    raise Refused(f"{name}: has not run on exact head {sha}")
+                if excused is not None:
+                    excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
+                                   "the only check run at the head that name is a part of")
+                name = check["name"]
+            job = job_for(repo, check, sha, github)
             if is_aggregate(name, repo):
                 # The check-run can remain failed while its Actions job has
                 # been retried or replaced.  Never discard this exact job and
@@ -3896,7 +3977,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         if where in seen:
             continue
         seen.add(where)
-        if where.startswith(".."):
+        if where.startswith("..") or where.startswith("/"):
             raise Refused(f"a path crate of {lock} is outside the repository ({where})")
         found = manifest(where, True) or {}
         package = found.get("package")
@@ -3962,7 +4043,7 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
                           "read; it could reach a package outside the declared reads")
         for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
-            if path.startswith(".."):
+            if path.startswith("..") or path.startswith("/"):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
@@ -6251,6 +6332,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     if purpose is not None and purpose not in PURPOSES:
         raise Refused(f"purpose {purpose!r} is not one of {', '.join(PURPOSES)}; nothing was judged")
     github = rate_limit_aware(github)
+    sha = exact_sha(repo, sha, github)  # every compare below is with a job's full head_sha
     audit: list[str] = []
     base_jobs: dict[int, list[dict] | None] = {}
     job_reads: dict[int | str, int] = {}
@@ -6574,7 +6656,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.repo not in WS_CHECK_REPOS:
                 raise Refused(f"{args.repo} has no '{WS_CHECK}' status to judge")
             github = rate_limit_aware(GitHub())
-            audit = [json.dumps(ws_check_red(args.repo, args.base, args.sha, github,
+            audit = [json.dumps(ws_check_red(args.repo, args.base, exact_sha(args.repo, args.sha, github), github,
                                              evidence_source(args.repo, args.base, github, {})), sort_keys=True)]
         else:
             audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,

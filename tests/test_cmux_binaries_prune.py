@@ -15,6 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import cmux_binaries_prune as prune  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 11, 12, tzinfo=dt.timezone.utc)
 TRUNK = {f"{n:040x}" for n in range(1, prune.MIN_TRUNK_COMMITS + 1)}
@@ -242,7 +244,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {})
         job = workflow["jobs"]["prune"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
-        self.assertEqual(job["environment"]["name"], "artifacts")
+        self.assertEqual(workflow_jobs.resolve(job).environment["name"], "artifacts")
         run_step = next(step for step in job["steps"] if "cmux_binaries_prune.py" in str(step.get("run", "")))
         self.assertIn("--delete", run_step["run"])
         condition = run_step["env"]["PRUNE_DELETE"]

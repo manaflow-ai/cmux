@@ -214,6 +214,42 @@ fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
     mux.shutdown();
 }
 
+/// The route generations belong to one session: `cargo test` runs every test of the crate in one process, each with
+/// its own mux whose surface ids start at 1, so another mux's terminal with the same id is routed and closed while
+/// this client types. Before, the generations were one process-wide array keyed by surface id, and that write sent
+/// the person's next key back to this session's lock (the full --lib run's flake of the test above, 2026-11-11).
+#[cfg(unix)]
+#[test]
+fn another_sessions_terminal_with_the_same_id_keeps_the_key_off_the_session_lock() {
+    let mux = old_path_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    // Another session routes a terminal with the typing terminal's id, then closes it.
+    let other = old_path_mux();
+    let first = other.new_workspace(Some("other".into()), Some((80, 24))).unwrap();
+    let pane = other.with_state(|state| state.pane_of(first.id).unwrap());
+    let mut twin = first;
+    while twin.id < typing.id {
+        twin = other.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    }
+    assert_eq!(
+        twin.id, typing.id,
+        "the other session made no terminal with the typing terminal's id"
+    );
+    assert!(other.close_surface(twin.id).unwrap(), "the other session's terminal did not close");
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(
+        locks, 0,
+        "another session's terminal with the same id sent the person's next key to the session lock"
+    );
+    other.shutdown();
+    mux.shutdown();
+}
+
 /// TYPING FIX 2 (follow-up B of #31940): a workspace size default must not put the session lock back on the person's
 /// keys. A key notes its view's activity in the sizing engine; that re-expanded the host policy, which asks whether
 /// the terminal follows a workspace default, which looked the terminal's workspace up under the session lock (and

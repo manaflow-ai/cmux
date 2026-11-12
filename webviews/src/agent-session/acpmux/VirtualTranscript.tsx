@@ -185,6 +185,7 @@ import {
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
 import { experimentArm } from "../../experiments/experiment";
+import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
@@ -970,8 +971,10 @@ function warmAnchorTop(
 /// drawn for it (ui/glass/Fisheye.tsx).
 const JUMP_LATEST_SIZE = 32;
 
-/// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
+/// Jump to latest: a glass control centered above the composer, shown while the reader is scrolled up
+/// from the latest message (ChatGPT and Codex style). Its look is the `jump-pair-look` experiment
+/// (jumpPair.experiment.ts, jumpPair.css): a frosted disc by default (Leo 2026-11-12, of the fisheye
+/// disc: "a little bit strange-looking"); the `lens` arm keeps the fisheye that magnifies the
 /// transcript under it (Leo 2026-10-21: "I want more fisheye!"). Its mark is the `chat.jumpToBottom` theme slot:
 /// the default variant stays a static arrow while the agent works (the shared transcript spinner shows the work),
 /// and a theme's variant may move while `working`. It stays mounted while
@@ -993,15 +996,18 @@ export function JumpToLatest({
   onJump: (focused: boolean) => void;
 }) {
   const t = useT();
+  const [look] = useState(() => experimentArm(jumpPairLook));
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
+  const lens = look === "lens";
   return (
     <>
-      <FisheyeFilters size={JUMP_LATEST_SIZE} />
+      {lens && <FisheyeFilters size={JUMP_LATEST_SIZE} />}
       <button
         type="button"
         ref={leaveOnScreenRef}
-        className="ui-glass ui-glass-fisheye acpmux-jump-latest"
+        className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
+        data-look={look}
         data-shown={shown ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
         // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
@@ -1018,13 +1024,14 @@ export function JumpToLatest({
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
+        {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>
   );
 }
 
 /// Jump up (jumpUp.ts): Jump to latest's companion, stacked on it in the bottom-center zone
-/// (overlayLayout.ts, jumpPair.css): the same glass disc, size and fade, its arrow up. It goes to
+/// (overlayLayout.ts, jumpPair.css): the same glass, look, size and fade, its arrow up. It goes to
 /// where the reader left off (the unread "New" line, else their last prompt or where they last
 /// stopped scrolling) while that place is off screen; pressed, it points down and a second press or
 /// Esc goes back to where the view was.
@@ -1041,10 +1048,12 @@ export function JumpUp({
 }) {
   const t = useT();
   const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
+  const [look] = useState(() => experimentArm(jumpPairLook));
   return (
     <button
       type="button"
       className="ui-glass acpmux-jump-latest acpmux-jump-up"
+      data-look={look}
       data-shown={shown ? "" : undefined}
       data-back={back ? "" : undefined}
       data-focus-ring="none"
@@ -1057,6 +1066,7 @@ export function JumpUp({
       <span className="acpmux-jump-latest__arrow" aria-hidden="true">
         <ArrowDown size={14} />
       </span>
+      {look === "labeled" && <span className="acpmux-jump-latest__label">{label}</span>}
     </button>
   );
 }

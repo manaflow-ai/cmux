@@ -112,6 +112,67 @@ struct AgentPaneColdChatRevealTests {
         #expect(!Self.markShows(view), "the busy mark stayed while the page faded in")
     }
 
+    #if DEBUG
+    /// G (BrowserPaneMotionPointerAreasTests, feat tip 2026-11-12): a New Tab page keeps its loading cover hidden
+    /// (AgentTabStore.makeView), and the cover's delay still ran: 0.8 s after each such page was made, a timer woke
+    /// the main thread and put the busy mark in a cover nobody sees, and AppKit invalidates a view's cursor rects at
+    /// each `addSubview` (3 hidden covers did it inside one key resize, display step cff05190268c). A hidden cover
+    /// has no mark and no delay; shown, its delay starts.
+    @Test func aHiddenCoverHasNoMarkAndNoDelay() async throws {
+        let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
+        defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
+        view.showsLoadingState = false // as AgentTabStore.makeView does for a New Tab page
+        #expect(view.loadingView.superview != nil && view.loadingView.isHidden, "fixture: the cover is in the pane, hidden")
+        #expect(!view.loadingView.markIsPending, "a hidden cover's mark delay still runs: it will wake the main thread for a mark nobody sees")
+        // Past the delay in real time, as the app's timer runs: one-sided, a slow host only waits longer.
+        try await Task.sleep(for: AgentPaneLoadingView.markDelay + .milliseconds(200))
+        #expect(view.loadingView.indicator.superview == nil, "a hidden cover got a busy mark after the delay")
+
+        view.showsLoadingState = true
+        #expect(view.loadingView.markIsPending, "a cover that shows again never gets its busy mark")
+        try await Self.settle { Self.markShows(view) }
+        #expect(Self.markShows(view), "a cover shown after it was hidden showed no busy mark after the beat")
+    }
+
+    /// A picture comes to stand under a chat whose mark already shows (``AgentPaneView/standOverPicture()``): the
+    /// mark leaves with the cover, and no delay is left to put one back.
+    @Test func aCoverThatHidesTakesItsMarkOut() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
+        try await Self.settle { Self.markShows(view) }
+        try #require(Self.markShows(view), "fixture: the chat's mark never showed")
+        view.standOverPicture()
+        #expect(view.loadingView.isHidden, "fixture: the cover is hidden over the picture")
+        #expect(view.loadingView.indicator.superview == nil, "a cover hidden over a picture kept its busy mark")
+        #expect(!view.loadingView.markIsPending, "a cover hidden over a picture kept a mark delay")
+
+        view.pictureBelowWent()
+        #expect(!Self.markShows(view), "the busy mark popped up the moment the picture went")
+        try await Self.settle { Self.markShows(view) }
+        #expect(Self.markShows(view), "a chat still loading after its picture went showed no busy mark after the beat")
+    }
+    #endif
+
+    /// The mark's timer claims its fire off the main thread and then hops to the main actor. A cover that hid in
+    /// between (``AgentPaneView/standOverPicture()``) gets no mark from that fire, and neither does the cover when
+    /// it shows again: its own new delay puts the mark in.
+    @Test func aDelayThatEndedBeforeItsCoverHidPutsNoMarkIn() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        let claimed = view.loadingView.markTurn // the delay the pane started with its cover
+        view.standOverPicture()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(view.loadingView.indicator.superview == nil, "a fire claimed before the cover hid put a busy mark in the hidden cover")
+
+        view.pictureBelowWent()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(!Self.markShows(view), "a fire claimed before the cover hid put the busy mark in the moment the cover showed again")
+        view.loadingView.markDelayEnded(view.loadingView.markTurn)
+        #expect(Self.markShows(view), "the cover's own delay ended and no busy mark showed")
+    }
+
     /// cx-txnr: after a relaunch a page that never reported its first paint (WebKit holds an
     /// occluded window's animation frames) kept the pane on its loading state, a spinner over a
     /// clear page, for good. Seen unpainted at two checks in a row, the page counts as painted.
@@ -222,6 +283,59 @@ struct AgentPaneColdChatRevealTests {
         if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
             #expect(view.loadingView.superview == nil, "the chat's page faded in over rows already drawn")
         }
+    }
+
+    /// hq#9655 stage 1: the hold ends on "snapshot drawn", not on a timer. A `pane.painted` that
+    /// says its frame was the chat's settled view ends the loading state in that turn, in one step,
+    /// and disarms the give-up checks (``AgentPaneLoadingView/silentChecks``,
+    /// ``AgentPaneLoadingView/aliveChecks``), which stay only for a page that never reports.
+    @Test func aSettledPaintEndsTheHoldAtOnceAndCancelsTheGiveUp() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        #expect(view.showsLoadingState)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(view.loadingView.awaitsGiveUp, "the loading state never armed its give-up")
+        #endif
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]]))
+        #expect(view.loadingView.leftFading == false, "the settled view was faded in instead of shown at once")
+        #expect(view.loadingView.superview == nil, "the settled view did not end the hold in the same turn")
+        #expect(view.pageContent.alphaValue == 1)
+        #expect(view.model.pageReportedPaint, "the page's own report, not a timer, ended the hold")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(!view.loadingView.awaitsGiveUp, "the give-up stayed armed after the settled view showed")
+        #endif
+    }
+
+    /// A paint report without `settled` (an older page, a page's fallback path) keeps the hold's
+    /// existing behavior: a cold chat fades in, and the give-up is disarmed by its leaving as before.
+    @Test func aPaintWithoutSettledBehavesAsBefore() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": false]]))
+        #expect(!view.model.paintedSettled)
+        #expect(view.loadingView.leftFading == true, "a cold chat without the settled fact lost its fade")
+        #expect(await Self.revealed(view))
+        #expect(view.loadingView.superview == nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(!view.loadingView.awaitsGiveUp)
+        #endif
+    }
+
+    /// The page sends a second `pane.painted {settled: true}` when an earlier plain report (a kept
+    /// tail, the page's `CHAT_DRAW_HOLD_MS` fallback) already ended the hold. By then the cover is
+    /// gone: the late report must not bring it back, fade the page again, or rewrite the first frame.
+    @Test func aSettledPaintAfterAPlainOneChangesNothing() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]]))
+        #expect(view.loadingView.superview == nil)
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": false, "settled": true]]))
+        #expect(view.loadingView.superview == nil, "a late settled report brought the cover back")
+        #expect(view.loadingView.leftFading == false, "a late settled report changed how the page showed")
+        #expect(view.pageContent.alphaValue == 1)
+        #expect(!view.model.paintedSettled, "a later report rewrote what the first frame was")
     }
 
     /// The same report without the fact is a chat read cold, which keeps the fade it had.

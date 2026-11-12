@@ -60,6 +60,19 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
         return terminate(daemon)
     }
 
+    /// Finishes a stop the update's handoff already asked for (``AcpmuxVersionHandoff/handOffShutdown(_:pid:deadline:shutdown:finish:)``):
+    /// `_acpmux/shutdown` missed its deadline, so `environment`'s daemon gets SIGTERM, which acpmux
+    /// takes as a restart handoff (hosted agents keep running, the next daemon continues the turns it
+    /// cut). Not rule R5's restart of a slow daemon: the stop was decided and asked for, only the ask
+    /// went unanswered (Leo's restart, 2026-11-12 08:05Z: the ask missed its 2 s deadline and the old
+    /// build's daemon ran on for over a minute, refusing the new app as its peer). Only the process
+    /// `pid` names that passes every check above. True when SIGTERM went to it.
+    @concurrent func finishHandOff(_ environment: AcpmuxEnvironment, pid: Int32) async -> Bool {
+        guard let daemon = await daemon(environment), daemon.pid == pid else { return false }
+        Self.logger.error("acpmux \(pid) of home=\(environment.home.standardizedFileURL.path, privacy: .public) missed its handoff stop's deadline; sending SIGTERM")
+        return terminate(daemon)
+    }
+
     /// SIGTERM to the process `daemon` names, checked right before it with the exit watch already on
     /// that process. True when sent; false when that process is gone or could not be signalled.
     func terminate(_ daemon: Daemon) -> Bool {
