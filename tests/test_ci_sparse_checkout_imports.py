@@ -4597,5 +4597,84 @@ class LiteralImportsAndGuardedLoadsTests(unittest.TestCase):
                     self.assertEqual(checker_optional, python_optional, (absent.stderr[-300:], broken.stderr[-300:]))
 
 
+
+class GuardScopeAndRebindingTests(unittest.TestCase):
+    """Follow-up to #41625 (Codex review). The import analysis must track what code really loads.
+    F1: a `try:` around a def or lambda guards only what runs at def time (decorators, defaults); its
+    body runs when called, maybe outside the try, so an import there is required (as _guarded_nodes
+    rules for loads by path). F2: a call is an import by literal name only while the name it calls is
+    still the import function: rebound, monkeypatched or shadowed, it is a dynamic call again."""
+
+    _fixture = SparseCheckoutImportTests._fixture
+    _misses = SparseCheckoutImportTests._misses
+    block = SparseCheckoutImportTests.block
+    PREFIX = "w.yml run Check out: "
+    DEFERRED = (
+        "try:\n    def load():\n        return __import__('helper')\nexcept ImportError:\n    load = None\nload()\n",
+        "try:\n    def load():\n        import helper\nexcept ImportError:\n    load = None\nload()\n",
+        "try:\n    async def load():\n        import helper\nexcept ImportError:\n    load = None\nimport asyncio\nasyncio.run(load())\n",
+        "try:\n    load = lambda: __import__('helper')\nexcept ImportError:\n    load = None\nload()\n",
+        "import importlib\ntry:\n    class C:\n        def go(self):\n            return importlib.import_module('helper')\nexcept ImportError:\n    C = None\nC().go()\n",
+    )
+
+    def test_f1_a_guard_around_a_def_does_not_guard_its_body(self) -> None:
+        for source in self.DEFERRED:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                more = {"scripts/ci/defer.py": source}
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/defer.py"), more=more),
+                    [
+                        f"{self.PREFIX}scripts/ci/defer.py imports scripts/ci/helper.py, not in its sparse checkout",
+                        f"{self.PREFIX}scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse "
+                        "checkout (via scripts/ci/defer.py)",
+                    ],
+                )
+                # Real Python agrees: without helper.py the call raises outside the guard.
+                sparse = Path(tmp) / "scripts/ci"
+                sparse.mkdir(parents=True)
+                (sparse / "defer.py").write_text(source, encoding="utf-8")
+                run = subprocess.run([sys.executable, "-S", "scripts/ci/defer.py"], cwd=tmp, capture_output=True, text=True)
+                self.assertIn("ModuleNotFoundError", run.stderr)
+
+    def test_f1_what_a_def_runs_at_def_time_stays_guarded(self) -> None:
+        for source in (
+            "try:\n    def load(mod=__import__('helper')):\n        return mod\nexcept ImportError:\n    load = None\n",
+            "try:\n    @__import__('helper').wrap\n    def load():\n        pass\nexcept ImportError:\n    load = None\n",
+            "try:\n    class C:\n        import helper\nexcept ImportError:\n    C = None\n",
+        ):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                more = {"scripts/ci/defer.py": source}
+                self.assertEqual(self._misses(self.block("scripts/ci/defer.py"), more=more), [])
+                # Real Python agrees: without helper.py the guard catches the error and the script runs on.
+                sparse = Path(tmp) / "scripts/ci"
+                sparse.mkdir(parents=True)
+                (sparse / "defer.py").write_text(source, encoding="utf-8")
+                run = subprocess.run([sys.executable, "-S", "scripts/ci/defer.py"], cwd=tmp, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr[-300:])
+
+    REBOUND = (
+        ("import importlib\nimportlib.import_module = lambda name: None\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
+        ("from importlib import import_module as load\nload = print\nmod = load('helper')\n", "load('helper')"),
+        ("def __import__(name):\n    return None\nmod = __import__('helper')\n", "__import__('helper')"),
+        ("import builtins\nbuiltins.__import__ = lambda *a: None\nmod = __import__('helper')\n", "__import__('helper')"),
+        ("import importlib\nsetattr(importlib, 'import_module', print)\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
+        ("import importlib\nfrom unittest import mock\nmock.patch('importlib.import_module').start()\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
+        ("import importlib\ndef run(importlib):\n    return importlib.import_module('helper')\n", "importlib.import_module('helper')"),
+        ("import importlib\nimportlib = None\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
+    )
+
+    def test_f2_a_rebound_import_function_keeps_the_dynamic_diagnostic(self) -> None:
+        for source, text in self.REBOUND:
+            with self.subTest(source=source):
+                line = source.count("\n")
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/rebind.py"), more={"scripts/ci/rebind.py": source}),
+                    [
+                        f"{self.PREFIX}scripts/ci/rebind.py calls {text} (line {line}), which this check cannot follow; "
+                        "make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                    ],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
