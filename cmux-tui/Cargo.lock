@@ -1509,6 +1509,7 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "libc",
  "serde_json",
  "sha2 0.10.9",
