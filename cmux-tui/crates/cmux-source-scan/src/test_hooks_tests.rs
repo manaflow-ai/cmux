@@ -76,12 +76,13 @@ fn every_row_is_judged_as_it_says() {
 /// std or tokio `Mutex` (a serializer) or of something that is none (an RwLock, a plain struct).
 #[derive(Clone, Copy, Debug)]
 enum Binding {
-    Use(Lock),
-    Def(Lock),
+    Use(Kind),
+    Def(Kind),
 }
 
+/// What a binding of `Lock` is.
 #[derive(Clone, Copy, Debug)]
-enum Lock {
+enum Kind {
     StdMutex,
     TokioMutex,
     RwLock,
@@ -91,19 +92,19 @@ enum Lock {
 impl Binding {
     fn serializes(self) -> bool {
         let (Self::Use(lock) | Self::Def(lock)) = self;
-        matches!(lock, Lock::StdMutex | Lock::TokioMutex)
+        matches!(lock, Kind::StdMutex | Kind::TokioMutex)
     }
 
     fn item(self) -> &'static str {
         match self {
-            Self::Use(Lock::StdMutex) => "use std::sync::Mutex as Lock;",
-            Self::Use(Lock::TokioMutex) => "use tokio::sync::Mutex as Lock;",
-            Self::Use(Lock::RwLock) => "use std::sync::RwLock as Lock;",
-            Self::Use(Lock::Plain) => "use crate::plain::Plain as Lock;",
-            Self::Def(Lock::StdMutex) => "type Lock = std::sync::Mutex<()>;",
-            Self::Def(Lock::TokioMutex) => "type Lock = tokio::sync::Mutex<()>;",
-            Self::Def(Lock::RwLock) => "type Lock = std::sync::RwLock<()>;",
-            Self::Def(Lock::Plain) => "struct Lock;",
+            Self::Use(Kind::StdMutex) => "use std::sync::Mutex as Lock;",
+            Self::Use(Kind::TokioMutex) => "use tokio::sync::Mutex as Lock;",
+            Self::Use(Kind::RwLock) => "use std::sync::RwLock as Lock;",
+            Self::Use(Kind::Plain) => "use crate::plain::Plain as Lock;",
+            Self::Def(Kind::StdMutex) => "type Lock = std::sync::Mutex<()>;",
+            Self::Def(Kind::TokioMutex) => "type Lock = tokio::sync::Mutex<()>;",
+            Self::Def(Kind::RwLock) => "type Lock = std::sync::RwLock<()>;",
+            Self::Def(Kind::Plain) => "struct Lock;",
         }
     }
 
@@ -116,14 +117,17 @@ impl Binding {
     }
 }
 
+/// A shape: how the first and the second binding bind the name.
+type Shape = (fn(Kind) -> Binding, fn(Kind) -> Binding);
+
 /// The class of review of cmux#41693 F1 and cmux#41707 F1: a name the file binds two ways, in two
 /// modules, is a serializer if and only if every binding of it is one. Every shape (use+use,
 /// def+def, use+def, def+use), split two ways (the root and its `mod tests`, two sibling
 /// modules), with every pair of bindings; the serializer sits beside the first binding.
 #[test]
 fn a_name_bound_two_ways_serializes_iff_every_binding_does() {
-    let locks = [Lock::StdMutex, Lock::TokioMutex, Lock::RwLock, Lock::Plain];
-    let shapes: [(fn(Lock) -> Binding, fn(Lock) -> Binding); 4] = [
+    let locks = [Kind::StdMutex, Kind::TokioMutex, Kind::RwLock, Kind::Plain];
+    let shapes: [Shape; 4] = [
         (Binding::Use, Binding::Use),
         (Binding::Def, Binding::Def),
         (Binding::Use, Binding::Def),
