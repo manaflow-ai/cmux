@@ -160,10 +160,12 @@ fn timing_ratio_an_unreadable_cargo_toml_fails_naming_it() {
 }
 
 #[test]
-fn timing_ratio_an_unreadable_nextest_config_dir_fails_naming_it() {
+fn timing_ratio_an_unreadable_nextest_config_fails_naming_it() {
+    // Lock the file, not `.config`: a locked directory fails the source walk first, naming `.config` alone
+    // (cmux#42109 review F1). A locked file still stats, so this reaches the config read.
     let mut co = checkout("tr-nextest");
     co.write("cmux-tui/.config/nextest.toml", "[profile.default]\n");
-    if !co.lock("cmux-tui/.config") {
+    if !co.lock("cmux-tui/.config/nextest.toml") {
         return;
     }
     assert_fails_naming(&[Path::new("timing-ratio"), &co.root], ".config/nextest.toml");
