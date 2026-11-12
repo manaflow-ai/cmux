@@ -316,7 +316,7 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                     return row
                 if not started:
                     raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
-                row["agent_rc"] = next((w for w in said if w != "ran"), f"ssh {r.returncode} after the agent ran")
+                row["agent_rc"] = next((w for w in said if w not in ("ran", "started")), f"ssh {r.returncode} after the agent ran")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:
@@ -421,27 +421,27 @@ def cmd_report(args):
         print(f"{arm:10} {len(scored):6} {succ:8} {sum(r['score'] for r in scored)/max(1,len(scored)):6.3f} "
               f"{infra:6} {100*infra/max(1,len(rs)):5.1f}% {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
     # Paired: only (task, trial) pairs every arm scored, one row each (the
-    # latest), so infrastructure losses, which drop an attempt from one arm,
+    # first scored), so infrastructure losses, which drop an attempt from one arm,
     # cannot give either arm more tries or a smaller denominator.
     # The first scored row of each (task, trial, arm): a later re-run of one
     # arm's failures must not give it a second chance the other arm lacked.
-    latest = {}
+    first = {}
     reruns = 0
     for r in sorted(rows, key=lambda r: r.get("finished", 0)):
         if r.get("score") is not None:
             key = (r["task"], r.get("trial", 0), r["arm"])
-            if key in latest:
+            if key in first:
                 reruns += 1
             else:
-                latest[key] = r
+                first[key] = r
     if reruns:
         print(f"note: {reruns} later scored row(s) of the same (task, trial, arm) ignored (the first counts)")
     arms = sorted(by)
-    pairs = {(t, tr) for (t, tr, _) in latest}
-    paired = sorted(p for p in pairs if all((*p, a) in latest for a in arms))
+    pairs = {(t, tr) for (t, tr, _) in first}
+    paired = sorted(p for p in pairs if all((*p, a) in first for a in arms))
     print(f"paired over {len(paired)} (task, trial) pairs every arm scored:")
     for arm in arms:
-        ok = sum(1 for p in paired if latest[(*p, arm)]["score"] >= 1.0)
+        ok = sum(1 for p in paired if first[(*p, arm)]["score"] >= 1.0)
         print(f"  {arm:10} {ok:4} / {len(paired)}")
 
 
