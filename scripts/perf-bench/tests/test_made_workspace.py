@@ -27,6 +27,8 @@ finally:
         del sys.modules["procs"]
 # session_real.py: the one module object that test_session_real.py loads by path (its line 12). `import session_real`
 # here made a second object of that file, and a second load by path makes one too.
+# The known cost: this file imports the other test file (its import-time code runs here too), and with
+# SESSION_REAL_FILE set both files read that copy. Do not change this back to a load of its own in this file.
 from test_session_real import m as sr  # noqa: E402
 
 # The answer of a Release app of feat 3ee124bd63c2 on aws-m4pro-8 (2026-11-12), as the tool printed it: the tool
