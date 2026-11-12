@@ -1367,9 +1367,9 @@ impl Spawner {
     /// The person's settings document (cmux-next.json), read now.
     fn user_document(&self) -> Option<serde_json::Value> {
         match &self.user_settings {
-            Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {
-                serde_json::from_str(&crate::agent_memory::settings::strip_jsonc(&t)).ok()
-            }),
+            Some(path) => std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| crate::agent_memory::settings::parse(&t).ok()),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),
