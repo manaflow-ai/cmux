@@ -54,3 +54,58 @@ fn a_reused_pid_never_resolves_to_the_old_code() {
     let reused = token.with_pid_version_for_test(token.0[7].wrapping_add(1));
     assert!(crate::caller::macos::guest_for_test(&reused.0).is_err());
 }
+
+const OWN_EXECUTABLE_CHILD: &str = "CMUX_OWN_EXECUTABLE_TEST_OUT";
+
+// Only the parent test below opts into this fixture: it writes what this process reads as its
+// own executable and that executable's app bundle.
+#[cfg(unix)]
+#[test]
+fn own_executable_fixture_child() {
+    let Some(out) = std::env::var_os(OWN_EXECUTABLE_CHILD) else { return };
+    let exe = own_executable().expect("own executable");
+    let bundle = containing_bundle(&exe).map(|b| b.display().to_string()).unwrap_or_default();
+    std::fs::write(out, format!("{}\n{bundle}", exe.display())).unwrap();
+}
+
+/// A daemon started by a link into the app (launchd's `~/.local/bin/acpmux`, which links into
+/// `cmux NIGHTLY.app/Contents/Resources/bin`) reads the bundle the linked binary is in. Read
+/// from `current_exe` it named no bundle, so a Team-signed daemon refused every
+/// `person_enroll` ("this binary is not inside an app bundle") and the person's own composer
+/// prompts drew as "Unverified sender" (Leo, 2026-11-12: "STOP CALLING ME ... UNVERIFIED ...
+/// SENDER").
+#[cfg(unix)]
+#[test]
+fn a_binary_started_by_a_link_reads_the_bundle_it_is_in() {
+    let root = cmux_unix_socket::short_test_dir("ownexe");
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let bundle = root.join("cmux NIGHTLY.app");
+    let bin = bundle.join("Contents/Resources/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let inside = bin.join("acpmux");
+    std::fs::copy(std::env::current_exe().unwrap(), &inside).unwrap();
+    let local_bin = root.join("local-bin");
+    std::fs::create_dir_all(&local_bin).unwrap();
+    let link = local_bin.join("acpmux");
+    std::os::unix::fs::symlink(&inside, &link).unwrap();
+    // What the old read saw: the link names no bundle.
+    assert_eq!(containing_bundle(&link), None);
+
+    let out = root.join("out.txt");
+    let status = std::process::Command::new(&link)
+        .args([
+            "--exact",
+            "app_caller::tests::own_executable_fixture_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(OWN_EXECUTABLE_CHILD, &out)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .expect("run the linked test binary");
+    assert!(status.success());
+    let text = std::fs::read_to_string(&out).expect("the child wrote its reading");
+    let (exe, found) = text.split_once('\n').unwrap();
+    assert_eq!(Path::new(exe), inside);
+    assert_eq!(Path::new(found), bundle);
+}
