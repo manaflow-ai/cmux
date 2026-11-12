@@ -89,7 +89,7 @@ first; do not invent keys the schema does not list.
 - Notifications: `notifications.dockBadge`, `notifications.desktop`, `notifications.attention.*`.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.
 - Diff and files: `diff.layout` (`split | unified`), `diff.wordWrap`, `files.textEditor` (user-only).
-- Computer Use: `computerUse.mode` (`fullAccess` by default; `off`, `lookOnly`, `askEveryTime`, `approvedApps`), `computerUse.deniedApps`, `computerUse.allowOwnMachines`, `computerUse.pauseOnTakeover`, `computerUse.showCursor`, `computerUse.allowForeground`, `computerUse.livePreview`; all user-only. `computerUse.enabled` and `computerUse.driver` are retired.
+- Computer Use: `computerUse.mode` (`fullAccess` by default; `off`, `lookOnly`, `askEveryTime`, `approvedApps`), `computerUse.deniedApps`, `computerUse.allowOwnMachines`, `computerUse.pauseOnTakeover`, `computerUse.showCursor`, `computerUse.allowForeground`, `computerUse.livePreview`, `computerUse.menus` (`open` by default; `refuse`); all user-only. `computerUse.enabled` and `computerUse.driver` are retired.
 - Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 ## The bundled helper is classic-only

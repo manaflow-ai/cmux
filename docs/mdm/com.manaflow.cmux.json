@@ -2133,6 +2133,16 @@
       "title" : "Live Preview in Chat",
       "type" : "boolean"
     },
+    "computerUse.menus" : {
+      "default" : "open",
+      "description" : "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
+      "enum" : [
+        "open",
+        "refuse"
+      ],
+      "title" : "Menus in Background Apps",
+      "type" : "string"
+    },
     "computerUse.mode" : {
       "default" : "fullAccess",
       "description" : "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",

@@ -79,6 +79,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `computerUse.pauseOnTakeover` | boolean | `true` |  | Pause When I Use the Mouse or Keyboard. While you use the mouse or keyboard, agents wait before their next click or key press. |
 | `computerUse.showCursor` | boolean | `true` |  | Show Agent Cursor. A blue cursor shows wherever an agent clicks or types. |
 | `computerUse.livePreview` | boolean | `true` |  | Live Preview in Chat. While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity. |
+| `computerUse.menus` | string | `"open"` | `open`, `refuse` | Menus in Background Apps. Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background. |
 | `computerUse.allowForeground` | boolean | `false` |  | Allow Foreground Input. Advanced. Agents may bring an app to the front and move your pointer when it takes no background input. |
 | `freeModel.enabled` | boolean | `true` |  | Free AI Model Without Sign-In. Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits. |
 | `sessions.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake While Agents Work. Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep. |

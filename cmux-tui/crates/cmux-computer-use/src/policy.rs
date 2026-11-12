@@ -113,6 +113,9 @@ pub struct PolicyConfig {
     /// How acting calls wait before they report the window (a call's own
     /// `settle` argument wins).
     pub settle: SettleMode,
+    /// Whether background calls may open a target app's menus
+    /// (`computerUse.menus`, [`crate::menus`]).
+    pub menus: crate::menus::MenuMode,
 }
 
 impl Default for PolicyConfig {
@@ -126,6 +129,7 @@ impl Default for PolicyConfig {
             show_cursor: true,
             cloud_vm: false,
             settle: SettleMode::Adaptive,
+            menus: crate::menus::MenuMode::Open,
         }
     }
 }
@@ -143,6 +147,7 @@ impl PolicyConfig {
             show_cursor: true,
             cloud_vm: true,
             settle: SettleMode::Adaptive,
+            menus: crate::menus::MenuMode::Open,
         }
     }
 }

@@ -14,6 +14,8 @@
 //! - [`desktop`]: the platform trait. Every input is window-scoped and
 //!   background-first: no app is activated, the real pointer never moves, and
 //!   a route that cannot prove its target refuses instead of guessing.
+//! - [`menus`]: whether a background call may open an app's menu, item
+//!   matching, and the deny list inside menus.
 //! - [`frame`]: redaction of denied windows, downscale, change detection and
 //!   PNG encoding, the same on every platform.
 //! - [`platform`]: the macOS, Windows and Linux (X11, Wayland, headless)
@@ -24,6 +26,7 @@ pub mod desktop;
 pub mod engine;
 pub mod frame;
 pub mod keys;
+pub mod menus;
 pub mod policy;
 pub mod session;
 pub mod tools;

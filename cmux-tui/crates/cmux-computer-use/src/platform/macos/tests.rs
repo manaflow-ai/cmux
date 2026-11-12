@@ -92,7 +92,8 @@ fn action_names_round_trip() {
     assert!(roles::resolve_action("increment", &available).is_none());
     assert_eq!(roles::attribute_action("expand"), Some(("AXExpanded", true)));
     assert!(roles::is_foreground_action("AXRaise"));
-    assert!(roles::is_foreground_action("AXShowMenu"), "a menu takes the person's pointer");
+    // A context menu is computerUse.menus's call, not always refused.
+    assert!(!roles::is_foreground_action("AXShowMenu"));
     assert!(!roles::is_foreground_action("AXPress"));
 }
 
@@ -110,6 +111,22 @@ fn menu_opening_roles_are_refused_in_the_background() {
     assert!(!roles::opens_menu("AXPopUpButton", true, false));
     assert!(!roles::opens_menu("AXMenuButton", true, true));
     assert!(!roles::opens_menu("AXComboBox", true, false));
+}
+
+#[test]
+fn menu_bar_roles_and_the_open_action() {
+    assert!(roles::is_menu_bar("AXMenuBarItem") && roles::is_menu_bar("AXMenuExtra"));
+    assert!(!roles::is_menu_bar("AXPopUpButton") && !roles::is_menu_bar("AXMenuItem"));
+    let acts = |a: &[&str]| a.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+    assert_eq!(roles::open_action(&acts(&["AXShowMenu", "AXPress"])), Some("AXPress"));
+    assert_eq!(roles::open_action(&acts(&["AXShowMenu"])), Some("AXShowMenu"));
+    assert_eq!(roles::open_action(&acts(&["AXConfirm"])), None);
+}
+
+#[test]
+fn menu_refusals_name_the_setting() {
+    assert!(roles::menu_refusal("AXPopUpButton").contains("computerUse.menus"));
+    assert!(roles::CONTEXT_MENU_REFUSAL.contains("computerUse.menus"));
 }
 
 #[test]

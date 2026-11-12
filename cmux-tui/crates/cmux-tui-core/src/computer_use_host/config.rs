@@ -85,6 +85,13 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     {
         config.settle = settle;
     }
+    if let Some(menus) = section
+        .get("menus")
+        .and_then(Value::as_str)
+        .and_then(cmux_computer_use::menus::MenuMode::parse)
+    {
+        config.menus = menus;
+    }
     let flag = |key: &str| section.get(key).and_then(Value::as_bool);
     if let Some(value) = flag("allowOwnMachines") {
         config.allow_own_machines = value;
@@ -187,6 +194,21 @@ mod tests {
             from_settings(&json!({"computerUse": {"mode": "god"}}), PolicyConfig::default()).mode,
             Mode::FullAccess
         );
+    }
+
+    #[test]
+    fn menus_setting_maps_and_an_unknown_value_keeps_open() {
+        use cmux_computer_use::menus::MenuMode;
+        assert_eq!(PolicyConfig::default().menus, MenuMode::Open);
+        let menus = |v: Value| {
+            from_settings(&json!({"computerUse": {"menus": v}}), PolicyConfig::default()).menus
+        };
+        assert_eq!(menus(json!("refuse")), MenuMode::Refuse);
+        assert_eq!(menus(json!("open")), MenuMode::Open);
+        assert_eq!(menus(json!("sometimes")), MenuMode::Open);
+        // The owner file and the app push use the camelCase key.
+        let owner: PolicyConfig = serde_json::from_value(json!({"menus": "refuse"})).unwrap();
+        assert_eq!(owner.menus, MenuMode::Refuse);
     }
 
     #[test]

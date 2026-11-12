@@ -5,6 +5,22 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::keys::KeyCombo;
+use crate::menus::{self, ItemMatch, MenuItemInfo, MenuPolicy, MenuReport};
+
+/// A pop-up button of a fake window: what its menu holds and shows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FakePopup {
+    pub window: String,
+    pub element: String,
+    pub items: Vec<String>,
+    pub value: String,
+    /// Its menu is open (a click left it open).
+    pub open: bool,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -58,6 +74,13 @@ pub struct FakeDesktop {
     pub restore_works: bool,
     /// The menu guard the engine set ([`Desktop::set_menu_guard`]).
     pub menu_guard: Mutex<Option<std::sync::Arc<dyn MenuGuard>>>,
+    /// Pop-up buttons (their menus open and pick like the macOS desktop's).
+    pub popups: Mutex<Vec<FakePopup>>,
+    /// The menu policy the engine handed over last.
+    pub menu_policy: Mutex<Option<MenuPolicy>>,
+    /// Installed apps by display name (for menu items that name an app):
+    /// (name, bundle id). Running apps count too.
+    pub installed: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeDesktop {
@@ -119,6 +142,9 @@ impl FakeDesktop {
             restores: Mutex::new(vec![]),
             restore_works: true,
             menu_guard: Mutex::new(None),
+            popups: Mutex::new(vec![]),
+            menu_policy: Mutex::new(None),
+            installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
         }
     }
 
@@ -139,6 +165,124 @@ impl FakeDesktop {
         self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
+    /// The window's pop-ups as tree elements, an open one with its menu.
+    /// The bundle ids of the installed or running apps named `name`.
+    fn apps_named(&self, name: &str) -> Option<Vec<String>> {
+        let installed = lock(&self.installed);
+        Some(
+            installed
+                .iter()
+                .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+                .map(|(_, id)| id.clone())
+                .chain(
+                    self.apps
+                        .iter()
+                        .filter(|a| a.name.eq_ignore_ascii_case(name))
+                        .map(|a| a.id.clone()),
+                )
+                .collect(),
+        )
+    }
+
+    /// Whether the menu guard the engine set hides and refuses a menu item
+    /// with this title (as the macOS desktop decides it for an opened menu).
+    fn item_blocked(&self, title: &str) -> bool {
+        let guard = lock(&self.menu_guard).clone();
+        guard.is_some_and(|g| {
+            menus::title_names_blocked_app(&*g, title, &|n: &str| self.apps_named(n))
+        })
+    }
+
+    fn popup_elements(&self, window_id: &str) -> Vec<Element> {
+        let node = |id: &str, role: &str, name: &str, children: Vec<Element>| Element {
+            id: id.into(),
+            role: role.into(),
+            name: name.into(),
+            value: String::new(),
+            frame: None,
+            actions: vec![],
+            focused: false,
+            disabled: false,
+            children,
+        };
+        lock(&self.popups)
+            .iter()
+            .filter(|p| p.window == window_id)
+            .map(|p| {
+                let items = p
+                    .items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| !self.item_blocked(t))
+                    .map(|(i, t)| node(&format!("{}.{i}", p.element), "menu_item", t, vec![]))
+                    .collect();
+                let menu = p.open.then(|| node(&format!("{}.m", p.element), "menu", "", items));
+                let mut e = node(&p.element, "popup_button", "", menu.into_iter().collect());
+                e.value = p.value.clone();
+                e.actions = vec!["press".into()];
+                e
+            })
+            .collect()
+    }
+
+    pub fn popups(&self) -> Vec<FakePopup> {
+        lock(&self.popups).clone()
+    }
+
+    /// A call on a pop-up, decided as the macOS desktop decides it: refused
+    /// under `refuse`; with `pick`, the item is chosen and the menu closed in
+    /// one call (or cancelled with the items listed); without, the menu opens
+    /// and stays open with its items in the result. `None`: not a pop-up.
+    fn popup_call(
+        &self,
+        window_id: &str,
+        element_id: &str,
+        pick: Option<&str>,
+        event: Event,
+    ) -> Option<DResult<ActionOutcome>> {
+        let policy = lock(&self.menu_policy).clone().unwrap_or_default();
+        let mut popups = lock(&self.popups);
+        let p = popups.iter_mut().find(|p| p.window == window_id && p.element == element_id)?;
+        if !policy.opens() {
+            return Some(Err(DesktopError::Unsupported(menus::refused_by_setting(
+                "this popup_button",
+            ))));
+        }
+        let visible: Vec<String> =
+            p.items.iter().filter(|t| !self.item_blocked(t)).cloned().collect();
+        let hidden = p.items.len() - visible.len();
+        let Some(wanted) = pick else {
+            p.open = true;
+            drop(popups);
+            self.push(event);
+            let items =
+                visible.into_iter().map(|title| MenuItemInfo { title, ..Default::default() });
+            return Some(Ok(ActionOutcome {
+                menu: Some(MenuReport::open(items.collect(), hidden)),
+                ..ActionOutcome::delivered("fake_menu_open")
+            }));
+        };
+        if let ItemMatch::Found(i) = menus::match_item(&p.items, wanted)
+            && self.item_blocked(&p.items[i])
+        {
+            return Some(Err(DesktopError::Unsupported(menus::denied_item_refusal(&p.items[i]))));
+        }
+        let found = menus::match_item(&visible, wanted);
+        p.open = false;
+        let ItemMatch::Found(i) = found else {
+            return Some(Err(DesktopError::Unsupported(menus::not_found(
+                wanted, &found, &visible,
+            ))));
+        };
+        p.value = visible[i].clone();
+        drop(popups);
+        self.push(event);
+        Some(Ok(ActionOutcome {
+            menu: Some(MenuReport::picked(&visible[i], Some(1))),
+            ..ActionOutcome::confirmed("fake_menu_pick")
+        }))
+    }
+
     fn known(&self, window: &str) -> DResult<()> {
         if self.windows.iter().any(|w| w.id == window) {
             Ok(())
@@ -150,7 +294,7 @@ impl FakeDesktop {
 
 impl Desktop for FakeDesktop {
     fn set_menu_guard(&self, guard: std::sync::Arc<dyn MenuGuard>) {
-        *self.menu_guard.lock().unwrap() = Some(guard);
+        *lock(&self.menu_guard) = Some(guard);
     }
 
     fn info(&self) -> PlatformInfo {
@@ -271,7 +415,10 @@ impl Desktop for FakeDesktop {
                     focused: false,
                     disabled: false,
                     children: vec![],
-                }],
+                }]
+                .into_iter()
+                .chain(self.popup_elements(window_id))
+                .collect(),
             },
         })
     }
@@ -281,12 +428,24 @@ impl Desktop for FakeDesktop {
             PointerTarget::Point { point, .. } => (Some(*point), None),
             PointerTarget::Element { element_id, .. } => (None, Some(element_id.clone())),
         };
-        self.push(Event::Click {
+        let event = Event::Click {
             window: target.window_id().into(),
             point,
-            element,
+            element: element.clone(),
             count: spec.count,
-        });
+        };
+        if spec.delivery == Delivery::Background {
+            if let Some(id) = &element
+                && let Some(done) = self.popup_call(target.window_id(), id, None, event.clone())
+            {
+                return done;
+            }
+            let refuse = lock(&self.menu_policy).as_ref().is_some_and(|p| !p.opens());
+            if refuse && spec.button == Button::Right {
+                return Err(DesktopError::Unsupported(menus::refused_by_setting("a right click")));
+            }
+        }
+        self.push(event);
         Ok(ActionOutcome::delivered("fake"))
     }
     fn type_text(
@@ -329,11 +488,15 @@ impl Desktop for FakeDesktop {
     }
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::SetValue {
+        let event = Event::SetValue {
             window: window_id.into(),
             element: element_id.into(),
             value: value.into(),
-        });
+        };
+        if let Some(done) = self.popup_call(window_id, element_id, Some(value), event.clone()) {
+            return done;
+        }
+        self.push(event);
         Ok(ActionOutcome::confirmed("fake"))
     }
     fn perform_action(
@@ -343,11 +506,17 @@ impl Desktop for FakeDesktop {
         action: &str,
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::Action {
+        let event = Event::Action {
             window: window_id.into(),
             element: element_id.into(),
             action: action.into(),
-        });
+        };
+        if action == "press"
+            && let Some(done) = self.popup_call(window_id, element_id, None, event.clone())
+        {
+            return done;
+        }
+        self.push(event);
         Ok(ActionOutcome::confirmed("fake"))
     }
     /// Like Windows: a bare name launches `<name>.exe`, matched lowercased.
@@ -376,6 +545,10 @@ impl Desktop for FakeDesktop {
             *self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stolen);
         }
         self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn set_menu_policy(&self, policy: MenuPolicy) {
+        *lock(&self.menu_policy) = Some(policy);
     }
 
     fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {

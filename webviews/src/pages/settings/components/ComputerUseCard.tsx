@@ -19,6 +19,8 @@ import { RowFrame, RowStatus, SettingRow } from "./SettingRow";
 
 export const COMPUTER_USE_MODE = "computerUse.mode";
 export const COMPUTER_USE_DENIED_APPS = "computerUse.deniedApps";
+/** Whether agents may open menus of background apps (a choice row, drawn before the switches). */
+export const COMPUTER_USE_MENUS = "computerUse.menus";
 /** The switches, in the card's order; Allow Foreground Input (advanced) comes last. */
 export const COMPUTER_USE_SWITCHES = [
   "computerUse.allowOwnMachines",
@@ -32,6 +34,7 @@ export const COMPUTER_USE_SWITCHES = [
 export const COMPUTER_USE_ROWS: ReadonlySet<string> = new Set([
   COMPUTER_USE_MODE,
   COMPUTER_USE_DENIED_APPS,
+  COMPUTER_USE_MENUS,
   ...COMPUTER_USE_SWITCHES,
 ]);
 
@@ -377,6 +380,7 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
           run={run}
           disabled={locked || !mode.connected || mode.value === "off"}
         />
+        {row(COMPUTER_USE_MENUS)}
         {COMPUTER_USE_SWITCHES.map(row)}
       </div>
     </section>

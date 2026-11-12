@@ -1349,6 +1349,7 @@
               "computerUse.pauseOnTakeover",
               "computerUse.showCursor",
               "computerUse.livePreview",
+              "computerUse.menus",
               "computerUse.allowForeground"
             ],
             "title" : {
@@ -11533,6 +11534,158 @@
       "title" : {
         "key" : "settings.computerUse.livePreview",
         "text" : "Live Preview in Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "open",
+        "refuse"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.menus.open",
+            "text" : "Open Menus"
+          },
+          "value" : "open"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.menus.refuse",
+            "text" : "Never Open Menus"
+          },
+          "value" : "refuse"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "open",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.menus.help",
+        "text" : "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.menus",
+      "keywords" : [
+        "computer use",
+        "menu",
+        "pop-up",
+        "popup",
+        "context menu",
+        "right click",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "menus"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.menus.summary",
+        "text" : "Agents may open menus in background apps"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.menus"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.menus",
+        "text" : "Menus in Background Apps"
       },
       "validation" : "portable"
     },

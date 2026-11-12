@@ -735,6 +735,7 @@ impl Engine {
             "allow_foreground": config.allow_foreground,
             "cursor": config.show_cursor,
             "cloud_vm": config.cloud_vm,
+            "menus": config.menus.as_str(),
         }))
     }
 
@@ -870,6 +871,7 @@ impl Engine {
     ) -> Result<TargetApp, ToolOutput> {
         let app = self.app_of(window);
         self.authorize(config, ctx, Access::Act, Some(&app), delivery == Delivery::Foreground)?;
+        self.sync_menu_policy(config);
         // Background input meets the person's own only where theirs goes:
         // foreground input is system-wide; keys posted to an app reach its key
         // window (a sheet the person types in, too), so any window of the
@@ -1633,6 +1635,9 @@ fn rewrite_frames(e: &mut Element, g: &Geometry) {
 #[path = "engine_focus.rs"]
 mod focus;
 
+#[path = "engine_menus.rs"]
+mod menus_glue;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -1640,3 +1645,7 @@ mod tests;
 #[cfg(test)]
 #[path = "engine_focus_tests.rs"]
 mod focus_tests;
+
+#[cfg(test)]
+#[path = "engine_menus_tests.rs"]
+mod menus_tests;

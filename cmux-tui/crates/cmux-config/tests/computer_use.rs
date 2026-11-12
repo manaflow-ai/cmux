@@ -29,7 +29,8 @@ fn schema() -> Schema {
         "default": ["com.apple.Terminal", "com.1password.*"], "keywords": [], "agent_settable": false,
         "kept_on_reset_all": false, "validation": "portable", "accepts": [], "refuses": [],
     });
-    let document = json!({"version": 1, "sections": [], "page": {"categories": []}, "rows": [mode, denied]});
+    let document =
+        json!({"version": 1, "sections": [], "page": {"categories": []}, "rows": [mode, denied]});
     Schema::parse(&document.to_string()).expect("the Computer Use rows parse")
 }
 
@@ -44,17 +45,16 @@ fn every_engine_mode_is_accepted_and_nothing_else() {
     for mode in MODES {
         assert!(accepted("computerUse.mode", json!(mode)), "{mode}");
     }
-    for value in [json!("unrestricted"), json!("full_access"), json!(true), json!(null), json!(["off"])] {
+    for value in
+        [json!("unrestricted"), json!("full_access"), json!(true), json!(null), json!(["off"])]
+    {
         assert!(!accepted("computerUse.mode", value.clone()), "{value}");
     }
 }
 
 #[test]
 fn denied_apps_are_non_empty_matchers() {
-    for value in [
-        json!([]),
-        json!(["com.apple.Terminal", "com.1password.*", "name:Notes"]),
-    ] {
+    for value in [json!([]), json!(["com.apple.Terminal", "com.1password.*", "name:Notes"])] {
         assert!(accepted("computerUse.deniedApps", value.clone()), "{value}");
     }
     for value in [json!("com.apple.Terminal"), json!([""]), json!([1]), json!({})] {
@@ -66,7 +66,8 @@ fn denied_apps_are_non_empty_matchers() {
 fn the_old_switch_and_driver_are_retired() {
     for key in ["enabled", "driver"] {
         let path = vec!["computerUse".to_string(), key.to_string()];
-        let reason = retired_reason(&path).unwrap_or_else(|| panic!("computerUse.{key} is not retired"));
+        let reason =
+            retired_reason(&path).unwrap_or_else(|| panic!("computerUse.{key} is not retired"));
         assert!(!reason.is_empty());
     }
     assert!(retired_reason(&["computerUse".to_string(), "mode".to_string()]).is_none());

@@ -12,7 +12,7 @@ use crate::desktop::{DResult, DesktopError, Element, Rect, TreeOptions, UiTree};
 
 /// How long one AX message to an app may take before it fails with
 /// `cannot complete` (a hung app must not hang the worker).
-const MESSAGE_TIMEOUT_SECONDS: f32 = 1.5;
+pub(super) const MESSAGE_TIMEOUT_SECONDS: f32 = 1.5;
 /// The longest value text kept per element.
 const MAX_VALUE_CHARS: usize = 2000;
 /// Windows whose element cache is kept.
@@ -212,6 +212,13 @@ impl Ax {
         init();
         // SAFETY: returns a +1 element (or null).
         Cf::created(unsafe { AXUIElementCreateSystemWide() }).map(Ax)
+    }
+
+    /// How long messages to this element may take (a press that runs a
+    /// menu-tracking loop answers only when the menu closes).
+    pub fn set_timeout(&self, seconds: f32) {
+        // SAFETY: self is a live element.
+        unsafe { AXUIElementSetMessagingTimeout(self.ptr(), seconds) };
     }
 
     pub fn same(&self, other: &Ax) -> bool {
@@ -528,6 +535,49 @@ impl Walk {
         }
         Ok(element)
     }
+
+    /// [`Walk::node`] for a menu this desktop opened: a menu item `blocked`
+    /// says reaches a denied app is left out, with its submenu.
+    fn menu_node(
+        &mut self,
+        ax: Ax,
+        depth: usize,
+        blocked: &dyn Fn(&Ax) -> bool,
+    ) -> Result<Element, AXError> {
+        let index = self.elements.len();
+        self.elements.push(ax.clone());
+        let (mut element, children) = self.describe(&ax, index)?;
+        let children: Vec<Ax> = children
+            .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
+            .unwrap_or_default();
+        if children.is_empty() {
+            return Ok(element);
+        }
+        if depth + 1 >= self.options.max_depth {
+            self.truncated = true;
+            return Ok(element);
+        }
+        for child in children {
+            if self.elements.len() >= self.options.max_nodes {
+                self.truncated = true;
+                break;
+            }
+            // A role that cannot be read is checked like an item (fails closed).
+            let item = match child.attr("AXRole") {
+                Ok(role) => role.and_then(|r| r.as_string()).as_deref() == Some("AXMenuItem"),
+                Err(_) => true,
+            };
+            if item && blocked(&child) {
+                continue;
+            }
+            match self.menu_node(child, depth + 1, blocked) {
+                Ok(e) => element.children.push(e),
+                Err(AX_INVALID_ELEMENT) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(element)
+    }
 }
 
 /// The menu bar's own node budget in a tree, and its depth: bar, top menu,
@@ -603,12 +653,17 @@ impl ElementCache {
     /// menu's items while the menus stay closed, so an agent presses a menu
     /// item (click or perform_action) and it runs with no menu opening over
     /// the person's screen. `blocked` hides items that would reach a denied app.
+    /// `extra` elements outside the window that belong to it (a menu this
+    /// desktop opened for it) are walked as more children of the root, once;
+    /// their menu items `extra_blocked` says reach a denied app are left out.
     pub fn tree(
         &self,
         window_id: &str,
         window: Ax,
+        extra: Vec<Ax>,
         options: TreeOptions,
         blocked: &dyn Fn(&roles::MenuItemContext) -> bool,
+        extra_blocked: &dyn Fn(&Ax) -> bool,
     ) -> DResult<UiTree> {
         let names: Vec<Cf> = NODE_ATTRS.iter().filter_map(|n| Cf::string(n)).collect();
         let ptrs: Vec<CFTypeRef> = names.iter().map(Cf::ptr).collect();
@@ -637,6 +692,18 @@ impl ElementCache {
         };
         let mut root =
             walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
+        for more in extra {
+            if walk.elements.iter().any(|seen| seen.same(&more)) {
+                continue;
+            }
+            if walk.elements.len() >= walk.options.max_nodes {
+                walk.truncated = true;
+                break;
+            }
+            if let Ok(node) = walk.menu_node(more, 1, extra_blocked) {
+                root.children.push(node);
+            }
+        }
         if let Some(bar) = bar {
             let budget = max_nodes.saturating_sub(walk.elements.len()).min(MENU_NODES);
             if let Ok(menus) = walk.menu_bar(bar, budget, blocked) {

@@ -12,7 +12,9 @@ mod ax;
 mod capture;
 mod cgwindows;
 mod input;
+mod key_focus;
 mod keymap;
+mod menus;
 mod roles;
 mod sys;
 #[cfg(test)]
@@ -20,7 +22,7 @@ mod tests;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::desktop::*;
 use crate::keys::KeyCombo;
@@ -31,11 +33,21 @@ pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
     elements: ElementCache,
     menu_guard: std::sync::RwLock<Option<Arc<dyn MenuGuard>>>,
+    /// The engine's menu policy for the current call ([`crate::menus`]).
+    menu_policy: Mutex<crate::menus::MenuPolicy>,
+    /// The menu a call opened and left open, and its window.
+    opened: Mutex<Option<menus::Opened>>,
 }
 
 impl MacDesktop {
     pub fn new(host: Option<Arc<dyn HostServices>>) -> Self {
-        Self { host, elements: ElementCache::default(), menu_guard: std::sync::RwLock::new(None) }
+        Self {
+            host,
+            elements: ElementCache::default(),
+            menu_guard: std::sync::RwLock::new(None),
+            menu_policy: Mutex::new(crate::menus::MenuPolicy::default()),
+            opened: Mutex::new(None),
+        }
     }
 
     fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
@@ -72,6 +84,33 @@ impl MacDesktop {
 
     fn denies_any(&self) -> bool {
         self.guard().is_some_and(|g| g.denies_any())
+    }
+
+    /// Whether an item of a menu this desktop opened (a pop-up, a context
+    /// menu) is hidden and refused: the menu bar's rule, plus any run of
+    /// words in its title or in the items above it that names a denied or
+    /// protected app ("New Terminal at Folder", "Terminal > New Window").
+    /// A title that cannot be read is blocked while something is denied.
+    fn opened_item_blocked(&self, item: &Ax) -> bool {
+        let title = match item.attr("AXTitle") {
+            Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
+            Err(_) => return self.denies_any(),
+        };
+        self.opened_item_blocked_titled(item, &title)
+    }
+
+    fn opened_item_blocked_titled(&self, item: &Ax, title: &str) -> bool {
+        if self.menu_item_blocked_titled(item, title) {
+            return true;
+        }
+        let Some(guard) = self.guard() else { return false };
+        std::iter::once(title.to_string())
+            .chain(menus::item_path(item))
+            .any(|t| crate::menus::title_names_blocked_app(&*guard, &t, &workspace::apps_named))
+    }
+
+    fn menu_policy(&self) -> crate::menus::MenuPolicy {
+        self.menu_policy.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -357,7 +396,9 @@ impl Desktop for MacDesktop {
                 .as_ref()
                 .is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
         };
-        self.elements.tree(&t.id(), window, options, &blocked)
+        let extra = self.opened_menu_for(&t.id()).into_iter().collect();
+        self.elements
+            .tree(&t.id(), window, extra, options, &blocked, &|item| self.opened_item_blocked(item))
     }
 
     fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {
@@ -467,6 +508,10 @@ impl Desktop for MacDesktop {
             accepted &= window.perform("AXRaise").is_ok();
         }
         Ok(accepted)
+    }
+
+    fn set_menu_policy(&self, policy: crate::menus::MenuPolicy) {
+        *self.menu_policy.lock().unwrap_or_else(|e| e.into_inner()) = policy;
     }
 
     fn request_permission(&self, which: &str) -> DResult<()> {

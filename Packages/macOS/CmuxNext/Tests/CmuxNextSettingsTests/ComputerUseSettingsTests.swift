@@ -119,7 +119,7 @@ import Testing
         let keys = SettingsSchema.all.filter { $0.path.first == "computerUse" }
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
-                                         "computerUse.livePreview"])
+                                         "computerUse.livePreview", "computerUse.menus"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
@@ -140,11 +140,27 @@ import Testing
         settings.deniedApps = ["com.example.a"]
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
-        #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor", "cloudVm"])
+        #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor", "cloudVm", "menus"])
         #expect(object["mode"] as? String == "approvedApps")
         #expect(object["deniedApps"] as? [String] == ["com.example.a"])
         #expect(object["allowForeground"] as? Bool == true)
         #expect(object["cloudVm"] as? Bool == false)
+        #expect(object["menus"] as? String == "open")
+    }
+
+    /// `computerUse.menus` reads `open` or `refuse` (default `open`); another value keeps the default
+    /// with a diagnostic, and the engine gets the value as `menus`.
+    @Test func menusReadsOpenOrRefuse() throws {
+        #expect(computerUse(.object([:])).menus == .open)
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.menusPath)?.defaultValue == .string("open"))
+        let settings = computerUse(.object(["computerUse": .object(["menus": .string("refuse")])]))
+        #expect(settings.menus == .refuse)
+        let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
+        #expect(object["menus"] as? String == "refuse")
+        let odd = CmuxConfigSnapshot.parse(.object(["computerUse": .object(["menus": .string("sometimes")])]),
+                                           validDensities: [], validMetrics: [])
+        #expect(odd.computerUse.menus == .open)
+        #expect(odd.diagnostics.contains { $0.path == "computerUse.menus" })
     }
 
     @Test func remoteEnabledIsRetired() {
