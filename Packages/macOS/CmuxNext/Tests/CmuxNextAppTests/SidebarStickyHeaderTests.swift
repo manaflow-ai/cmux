@@ -48,8 +48,9 @@ struct SidebarStickyHeaderTests {
             }
             if let view { #expect(view.frame == place, "at its own place (y \(y))") }
             if y == 0 { #expect(place.intersects(bench.clip.bounds), "at the top the header is on screen") }
-            // Scrolled past: the view went up with its row. A stuck header would be at the visible top.
-            if step == 1 { #expect(!place.intersects(bench.clip.bounds) && view != nil, "just past the header, its view is above the visible rows") }
+            // Just past the header: its view went up with its row, out of the visible rows. A stuck header's view would be
+            // at the visible top.
+            if step == 1, let view { #expect(!view.frame.intersects(bench.clip.bounds), "just past the header, its view is above the visible rows") }
         }
         #expect(realized == 3 && away == 2, "a view at the top, just past it and back at the top; none at 400 and 2,000: realized \(realized), away \(away)")
     }
