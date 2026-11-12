@@ -128,6 +128,8 @@ def main() -> int:
     seconds, slow = deadline.env_settings()
     total = 0
     skipped = 0
+    # Every core test runs, so one run shows every red; the first red status is returned.
+    failed: list[tuple[str, str, int]] = []
     for binary in binaries:
         all_tests = tests_in(binary)
         ignored_tests = tests_in(binary, ignored=True)
@@ -149,10 +151,16 @@ def main() -> int:
             )
             if status != 0:
                 print(f"::error::{test_name} in {binary.name} exited {status}", file=sys.stderr)
-                return status
+                failed.append((binary.name, test_name, status))
+                continue
             total += 1
     print(f"Passed {total} isolated cmux-tui-core tests")
     print(f"Skipped {skipped} ignored/manual cmux-tui-core tests")
+    if failed:
+        print(f"Failed {len(failed)} isolated cmux-tui-core tests:", file=sys.stderr)
+        for binary_name, test_name, status in failed:
+            print(f"  {test_name} in {binary_name} exited {status}", file=sys.stderr)
+        return failed[0][2]
     return 0
 
 

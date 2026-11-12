@@ -238,6 +238,120 @@ def test_a_host_with_no_matching_test_passes_and_reports_its_count() -> None:
     assert code == 1
 
 
+def _run_full_step(workspace_red: bool, core_red: bool) -> tuple[int, str]:
+    """Run the test job's full-mode `cargo test` step with a fake cargo and a fake core binary.
+
+    The real wrapper, deadline runner and isolated core runner run (python3 is real). The
+    fake cargo fails the workspace call when WORKSPACE_RED, and reports one fake
+    cmux-tui-core test binary for `--no-run`; that binary fails `a_core_test` when
+    CORE_RED. Returns the exit code and the log of cargo calls and core tests run.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "calls.log"
+        work = root / "cmux-tui"
+        core_src = work / "crates" / "cmux-tui-core" / "src"
+        core_src.mkdir(parents=True)
+        core = root / "cmux_tui_core-fake"
+        core.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = --list ]; then [ "$2" = --ignored ] && exit 0; '
+            "printf 'a_core_test: test\\nb_core_test: test\\n'; exit 0; fi\n"
+            f'echo "core $1" >> "{log}"\n'
+            + ('[ "$1" = a_core_test ] && { echo "test $1 ... FAILED"; exit 101; }\n' if core_red else "")
+            + 'echo "test $1 ... ok"\n',
+            encoding="utf-8",
+        )
+        artifact = (
+            '{"reason":"compiler-artifact","profile":{"test":true},'
+            f'"target":{{"kind":["lib"],"src_path":"{core_src}/lib.rs"}},"executable":"{core}"}}'
+        )
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "cargo $*" >> "{log}"\n'
+            'case "$*" in\n'
+            + ('  *"--workspace --exclude cmux-tui-core"*) exit 101 ;;\n' if workspace_red else "")
+            + f"  *--no-run*) echo '{artifact}' ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        for fake in (core, cargo):
+            fake.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        # The step runs in cmux-tui/ and calls ../scripts and ../.github, as in the checkout.
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+        (root / ".github").symlink_to(ROOT / ".github", target_is_directory=True)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "MODE": "full",
+                "TEST_FILTER": "",
+                "CMUX_TEST_DEADLINE_SECONDS": "60",
+            },
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls + result.stdout + result.stderr
+
+
+def test_full_mode_runs_every_test_group_and_fails_with_the_first_red() -> None:
+    """A red workspace or a red core test must not skip the tests after it.
+
+    Under `bash -e` a red workspace ended the step before the cmux-tui-core tests (port
+    of feat #41233), and a red core test ended it before the core doc tests. Every group
+    must run, and the step must fail with the first red status.
+    """
+    doc = "cargo test -p cmux-tui-core --doc --locked"
+
+    code, log = _run_full_step(workspace_red=True, core_red=False)
+    assert code == 101, (code, log)
+    assert "core a_core_test" in log and "core b_core_test" in log, log
+    assert doc in log, log
+
+    code, log = _run_full_step(workspace_red=False, core_red=True)
+    assert code != 0, (code, log)
+    assert "core b_core_test" in log, log
+    assert doc in log, log
+
+    code, log = _run_full_step(workspace_red=False, core_red=False)
+    assert code == 0, (code, log)
+    assert doc in log, log
+
+
+def test_the_relay_filter_runs_every_relay_test_binary() -> None:
+    """The chatmux_relay focused path must not stop at its first red test binary."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        cargo = root / "cargo"
+        cargo.write_text(f'#!/usr/bin/env bash\necho "$*" >> "{log}"\n', encoding="utf-8")
+        cargo.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        work = root / "cmux-tui"
+        work.mkdir()
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), "MODE": "focused",
+                 "TEST_FILTER": "chatmux_relay", "HOST_OS": "linux"},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    assert result.returncode == 0, (result.returncode, calls, result.stderr)
+    assert "test -p chatmux-relay --locked --no-fail-fast" in calls, calls
+
+
 def _run_gate(**env_overrides: str) -> tuple[int, str]:
     """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
