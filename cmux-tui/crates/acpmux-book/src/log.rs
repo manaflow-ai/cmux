@@ -280,10 +280,25 @@ impl Log {
             }
         }
 
-        let last = last_segment(&rows_dir)?;
         let mut stats = Stats::default();
         let saved = fs::read(dir.join("checkpoint")).ok();
-        let saved = saved.as_deref().and_then(checkpoint::decode).filter(|(mark, _)| {
+        let saved = saved.as_deref().and_then(checkpoint::decode);
+        // With a checkpoint the last segment is found by stepping up from the checkpoint's (a
+        // name or two), not by listing every segment: an open costs the same at any length.
+        let last = match saved {
+            Some((mark, _)) if mark.seg >= 1 && segment_path(&rows_dir, mark.seg).exists() => {
+                let mut seg = mark.seg;
+                while let Some(next) = seg.checked_add(1) {
+                    if !segment_path(&rows_dir, next).exists() {
+                        break;
+                    }
+                    seg = next;
+                }
+                seg
+            }
+            _ => last_segment(&rows_dir)?,
+        };
+        let saved = saved.filter(|(mark, _)| {
             // A checkpoint is of use only when the segment it points into is still that long.
             // The indexes must reach as far as it says they were synced, too (a deleted or
             // shortened index file is rebuilt, not trusted).
