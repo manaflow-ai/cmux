@@ -552,7 +552,7 @@ test("files header shows the total additions and deletions", async () => {
   ].join("\n");
   installDomGlobals(dom, () => new Response(patch, { status: 200 }));
   // The real code view and file tree read DOM classes unqualified; jsdom lacks ResizeObserver.
-  const domOnlyGlobals = [...Object.getOwnPropertyNames(dom.window).filter((key) => !(key in globalThis))];
+  const domOnlyGlobals = Object.getOwnPropertyNames(dom.window).filter((key) => !(key in globalThis));
   for (const key of domOnlyGlobals) {
     (globalThis as any)[key] = (dom.window as any)[key];
   }
