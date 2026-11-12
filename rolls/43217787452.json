@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43217787452",
+  "recorded_at": "2026-11-12T12:34:23Z",
+  "reason": "cmux-tui 383c4fdc9888 changes the image's cmux-tui (pinned 4fb4dbac1cb4)",
+  "dry_run": false,
+  "cmux_tui": "383c4fdc9888d9f32d47f56b561a9aeb3dc2ff28",
+  "fixes": [
+    {
+      "sha": "d5811fbf25398f69276dc7fe43789daa4977002b",
+      "mergedAt": "2026-11-12T06:02:53-06:00",
+      "subject": "Close toast: one tab that is not working closes with no undo toast"
+    },
+    {
+      "sha": "e32aba8175266d9ad9dcc2b5ed2b5d86cb5b51fa",
+      "mergedAt": "2026-11-12T06:02:51-06:00",
+      "subject": "Close toast: test that one idle tab closes with no undo toast (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T12:34:23Z",
+    "snapshot_id": "sh-e1d826ac728045adb2f044f716f879d9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43217787452): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d1c6a56ea77fa518cb36b5e210f3d76f14f2dae1",
+    "image": "cloud-native-auto-383c4fdc-43217787452-1",
+    "revision": "ci-43217787452-1",
+    "at": "2026-11-12T12:34:23Z"
+  },
+  "rolled_back": false
+}
