@@ -26,6 +26,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Workflows that run CI, with the labels they react to.
@@ -89,7 +92,7 @@ def evaluate(expr: str, event: dict) -> bool:
     return bool(eval(py, {"__builtins__": {}}, {}))  # noqa: S307 - the input is our own constant
 
 
-NOT_ON_PULL_REQUEST = re.compile(r"^(!cancelled\(\) && )?github\.event_name == '(workflow_dispatch|push)' &&")
+PUSH_OR_DISPATCH = re.compile(r"github\.event_name\s*==\s*'(workflow_dispatch|push)'")
 # On a pull_request event github.ref is refs/pull/N/merge, never a branch, so a job gated first on a branch ref
 # never runs there. Not so for pull_request_target, whose github.ref is the base branch.
 ON_BRANCH_REF = re.compile(r"^(!cancelled\(\) && )?github\.ref == 'refs/heads/[^']+' &&")
@@ -107,11 +110,34 @@ def top_level_or(condition: str) -> bool:
     return False
 
 
+def never_on_pull_request(condition: str) -> bool:
+    """Whether a job condition keeps the job off every pull request event: every way it can be true needs a push
+    or a dispatch term (tests/workflow_jobs.expression_requires), and every event term in it is one of those."""
+    return (workflow_jobs.expression_requires(condition, lambda atom: bool(PUSH_OR_DISPATCH.fullmatch(atom)))
+            and workflow_jobs.events_only(condition, {"push", "workflow_dispatch"}))
+
+
+PUSH = "github.event_name == 'push'"
+# (condition, whether it keeps the job off pull requests). A leading push term is not enough: every way the condition
+# can be true must need push or dispatch, and every event term in it must name one of them.
+OFF_PULL_REQUEST_CASES = [
+    (f"{PUSH} && github.ref == 'refs/heads/main'", True),
+    (f"!cancelled() && github.event_name == 'workflow_dispatch' && inputs.x != ''", True),
+    (f"{PUSH} && (inputs.a || inputs.b)", True),
+    (f"{PUSH} && inputs.a || inputs.b", False),
+    (f"{PUSH} && inputs.a || github.event_name == 'pull_request'", False),
+    (f"{PUSH} && (inputs.a || github.event_name == 'pull_request')", False),
+    (f"{PUSH} && github.event_name != 'push'", False),
+    (f"{PUSH} && contains('push pull_request', github.event_name)", False),
+    (f"{PUSH} && github['event_name'] == 'pull_request'", False),
+]
+
+
 def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
     status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
     does one gated on a branch ref (pull_request only)."""
-    if NOT_ON_PULL_REQUEST.match(condition):
+    if never_on_pull_request(condition):
         return False
     if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False
@@ -132,6 +158,9 @@ def label_triggered(doc: dict) -> bool:
 
 def main() -> int:
     failures: list[str] = []
+    for condition, want in OFF_PULL_REQUEST_CASES:
+        if never_on_pull_request(condition) is not want:
+            failures.append(f"off-pull-request gate gives {not want} for {condition!r}, want {want}")
     found: set[str] = set()
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))

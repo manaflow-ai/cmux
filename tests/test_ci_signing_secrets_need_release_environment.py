@@ -130,6 +130,33 @@ def environment_values(document: dict, job: dict) -> set[str] | None:
     return set(RESULT_LITERAL.findall(environment)) or None
 
 
+def binds_dispatch_and_exact_ref(condition: str) -> bool:
+    """Whether a job condition lets the job run only on a dispatch of an exact protected ref: every way it can be
+    true needs both terms (tests/workflow_jobs.expression_requires), and every event term in it is the dispatch."""
+    return (workflow_jobs.expression_requires(condition, lambda atom: bool(DISPATCH_ONLY.fullmatch(atom)))
+            and workflow_jobs.expression_requires(condition, lambda atom: bool(EXACT_BRANCH_REF.fullmatch(atom)))
+            and workflow_jobs.events_only(condition, {"workflow_dispatch"}))
+
+
+DISPATCH = "github.event_name == 'workflow_dispatch'"
+MAIN = "github.ref == 'refs/heads/main'"
+# (condition, whether it binds a dispatch of an exact ref). A term that names the dispatch or the ref is not enough:
+# every way the condition can be true must need both, and every event term in it must name the dispatch.
+GATE_CASES = [
+    (f"{DISPATCH} && {MAIN}", True),
+    (f"${{{{ {DISPATCH} && {MAIN} }}}}", True),
+    (f"!cancelled() && {MAIN} && {DISPATCH}", True),
+    (f"github.event_name == 'push' || {DISPATCH} && {MAIN}", False),
+    (f"{DISPATCH} && {MAIN} || github.event_name == 'push'", False),
+    (f"{MAIN} && ({DISPATCH} || github.event_name == 'push')", False),
+    (f"{MAIN} && {DISPATCH} && github.event_name != 'push'", False),
+    (f"{MAIN} && {DISPATCH} && contains('workflow_dispatch push', github.event_name)", False),
+    (f"{MAIN} && contains('workflow_dispatch push', github.event_name)", False),
+    (f"{DISPATCH} && ({MAIN} || startsWith(github.ref, 'refs/heads/rc/'))", False),
+    (f"{DISPATCH} && {MAIN} && github['event_name'] == 'push'", False),
+]
+
+
 def wildcard_push_branches(document: dict) -> list[str]:
     # PyYAML 1.1 parses the plain key `on` as boolean true.
     triggers = document.get("on", document.get(True, {}))
@@ -146,6 +173,9 @@ def wildcard_push_branches(document: dict) -> list[str]:
 
 def main() -> int:
     failures: list[str] = []
+    for condition, want in GATE_CASES:
+        if binds_dispatch_and_exact_ref(condition) is not want:
+            failures.append(f"dispatch-and-ref gate gives {not want} for {condition!r}, want {want}")
     signing_jobs = 0
     ffi_readers: set[tuple[str, str]] = set()
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -184,7 +214,7 @@ def main() -> int:
                 )
             if wildcard_branches and path.name not in WILDCARD_PUSH_EXCEPTIONS:
                 condition = str(job.get("if", ""))
-                if not (DISPATCH_ONLY.search(condition) and EXACT_BRANCH_REF.search(condition)):
+                if not binds_dispatch_and_exact_ref(condition):
                     failures.append(
                         f"{where}: reads signing secrets on wildcard push branches {wildcard_branches}; "
                         "the signer must be dispatch-only and bind an exact protected ref"

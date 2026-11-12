@@ -22,7 +22,7 @@ from __future__ import annotations
 import itertools
 import json
 import re
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -418,6 +418,80 @@ def _wrapped(term: str) -> bool:
             if depth == 0 and index != len(term) - 1:
                 return False
     return True
+
+
+def _unwrap_expression(expression: Any) -> str:
+    text = str(expression).strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    return text
+
+
+def expression_requires(expression: Any, atom: Callable[[str], bool]) -> bool:
+    """Whether every way an `if:` condition can be true needs a term `atom` accepts: all alternatives of a
+    top-level `||`, any conjunct of a top-level `&&`, a parenthesized group read inside. A term that is merely
+    present is not required: `a && x || b` does not require `x`."""
+    text = _unwrap_expression(expression)
+    while _wrapped(text):
+        text = text[1:-1].strip()
+    alternatives = _split_top(text, "||")
+    if len(alternatives) > 1:
+        return all(expression_requires(part, atom) for part in alternatives)
+    conjuncts = _split_top(text, "&&")
+    if len(conjuncts) > 1:
+        return any(expression_requires(part, atom) for part in conjuncts)
+    return atom(text)
+
+
+def event_terms(expression: Any) -> list[str | None]:
+    """Each place an `if:` condition reads `github.event_name` (or `github['event_name']`), as the event it is
+    compared equal to, lower-cased; None for any other use: `!=`, contains(), startsWith(), a bare truth test, or
+    an `==` under a `!`. A gate that may run only on some events needs every entry on its allow list (see
+    events_only); finding one allowed term is not enough, since another term beside it may name any event."""
+    tokens = expression_tokens(_unwrap_expression(expression))
+    found: list[str | None] = []
+    negated: list[bool] = []  # one per open parenthesis: whether a `!` applies to it
+
+    def bang(index: int) -> bool:
+        return index > 0 and tokens[index - 1] == ("op", "!")
+
+    for index, (kind, text) in enumerate(tokens):
+        if (kind, text) == ("op", "("):
+            # `!(...)` or `!fn(...)`: the `!` sits before the parenthesis or before the function name.
+            negated.append(bang(index) or (index > 0 and tokens[index - 1][0] == "name" and bang(index - 1)))
+            continue
+        if (kind, text) == ("op", ")"):
+            if negated:
+                negated.pop()
+            continue
+        if kind != "name" or text.lower() != "github" or (index and tokens[index - 1] == ("op", ".")):
+            continue
+        after = tokens[index + 1:index + 4]
+        if len(after) > 1 and after[0] == ("op", ".") and after[1][0] == "name" and after[1][1].lower() == "event_name":
+            end = index + 3
+        elif len(after) == 3 and after[0] == ("op", "[") and after[1][0] == "string" and \
+                _string_value(after[1][1]).lower() == "event_name" and after[2] == ("op", "]"):
+            end = index + 4
+        else:
+            continue
+        value = None
+        if tokens[end:end + 1] == [("op", "==")] and end + 1 < len(tokens) and tokens[end + 1][0] == "string":
+            value = _string_value(tokens[end + 1][1]).lower()
+        elif index >= 2 and tokens[index - 1] == ("op", "==") and tokens[index - 2][0] == "string":
+            # `'push' == github.event_name`; the `!` that would negate it sits before the literal.
+            value = _string_value(tokens[index - 2][1]).lower()
+            if bang(index - 2):
+                value = None
+        if bang(index) or any(negated):
+            value = None
+        found.append(value)
+    return found
+
+
+def events_only(expression: Any, allowed: Iterable[str]) -> bool:
+    """Whether every event term of an `if:` condition is `github.event_name == '<an allowed event>'`."""
+    names = {name.lower() for name in allowed}
+    return all(term in names for term in event_terms(expression))
 
 
 def expression_values(expression: str) -> tuple[set[str], set[str]]:
