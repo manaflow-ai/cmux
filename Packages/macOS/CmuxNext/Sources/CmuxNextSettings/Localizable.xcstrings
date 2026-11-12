@@ -207221,127 +207221,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone."
+            "value": "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتيح لـ Claude Code وCodex ووكلاء البرمجة الآخرين الذين تشغّلهم استخدام أدوات cmux، بما فيها استخدام الكمبيوتر. مع «اسأل» تستمر إضافتها إلى الوكلاء الذين تبدأهم في طرفية cmux حتى تختار. مع «إيقاف» لا يُضاف شيء وتبقى إعدادات وكلائك كما هي."
+            "value": "يتيح لـ Claude Code وCodex ووكلاء البرمجة الآخرين الذين تشغّلهم استخدام أدوات cmux، بما فيها استخدام الكمبيوتر. إلى أن تختار، لا يضيف cmux شيئًا إلى وكلائك. «إيقاف» لا يضيف شيئًا ويترك إعدادات وكلائك كما هي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omogućava da Claude Code, Codex i drugi agenti za kodiranje koje pokrećete koriste cmux alate, uključujući Computer Use. Uz Pitaj alati se i dalje dodaju agentima pokrenutim u cmux terminalu dok ne odaberete. Isključeno ne dodaje ništa i ne dira postavke vaših agenata."
+            "value": "Omogućava da Claude Code, Codex i drugi agenti za kodiranje koje pokrećete koriste cmux alate, uključujući Computer Use. Dok ne odaberete, cmux vašim agentima ne dodaje ništa. Isključeno ne dodaje ništa i ne mijenja postavke vaših agenata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lader Claude Code, Codex og andre kodeagenter, du kører, bruge cmux' værktøjer, også Computer Use. Spørg bliver ved med at give dem til agenter, du starter i en cmux-terminal, indtil du vælger. Fra tilføjer intet og lader dine agenters indstillinger være."
+            "value": "Lader Claude Code, Codex og andre kodeagenter, du kører, bruge cmux' værktøjer, også Computer Use. Indtil du vælger, tilføjer cmux intet til dine agenter. Fra tilføjer intet og lader dine agenters indstillinger være."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lässt Claude Code, Codex und andere Coding-Agenten, die du nutzt, die Werkzeuge von cmux verwenden, Computer Use eingeschlossen. Fragen gibt sie weiter an Agenten, die du in einem cmux-Terminal startest, bis du dich entscheidest. Aus fügt nichts hinzu und lässt die Einstellungen deiner Agenten unverändert."
+            "value": "Lässt Claude Code, Codex und andere Coding-Agenten, die du nutzt, die Werkzeuge von cmux verwenden, Computer Use eingeschlossen. Bis du wählst, fügt cmux deinen Agenten nichts hinzu. Aus fügt nichts hinzu und lässt die Einstellungen deiner Agenten unverändert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite que Claude Code, Codex y otros agentes de programación que uses usen las herramientas de cmux, incluido Computer Use. Preguntar sigue añadiéndolas a los agentes que inicias en un terminal de cmux hasta que elijas. Desactivado no añade nada y deja los ajustes de tus agentes como están."
+            "value": "Permite que Claude Code, Codex y otros agentes de programación que uses usen las herramientas de cmux, incluido Computer Use. Hasta que elijas, cmux no añade nada a tus agentes. Desactivado no añade nada y no cambia los ajustes de tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permet à Claude Code, Codex et aux autres agents de code que vous lancez d’utiliser les outils de cmux, Computer Use compris. Demander continue de les ajouter aux agents lancés dans un terminal cmux jusqu’à votre choix. Désactivé n’ajoute rien et laisse les réglages de vos agents intacts."
+            "value": "Permet à Claude Code, Codex et aux autres agents de code que vous lancez d’utiliser les outils de cmux, Computer Use compris. Tant que vous n’avez pas choisi, cmux n’ajoute rien à vos agents. Désactivé n’ajoute rien et ne modifie pas les réglages de vos agents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consente a Claude Code, Codex e agli altri agenti di programmazione che usi di usare gli strumenti di cmux, Computer Use compreso. Chiedi continua ad aggiungerli agli agenti avviati in un terminale cmux finché non scegli. Disattivato non aggiunge nulla e lascia invariate le impostazioni dei tuoi agenti."
+            "value": "Consente a Claude Code, Codex e agli altri agenti di programmazione che usi di usare gli strumenti di cmux, Computer Use compreso. Finché non scegli, cmux non aggiunge nulla ai tuoi agenti. Disattivato non aggiunge nulla e lascia invariate le impostazioni dei tuoi agenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code、Codex など、使用しているコーディングエージェントが Computer Use を含む cmux のツールを使えるようにします。「確認する」の間は、選ぶまで cmux のターミナルで起動したエージェントに追加し続けます。「オフ」は何も追加せず、エージェントの設定も変更しません。"
+            "value": "Claude Code、Codex など、使用しているコーディングエージェントが Computer Use を含む cmux のツールを使えるようにします。選ぶまでは、cmux はエージェントに何も追加しません。「オフ」は何も追加せず、エージェントの設定も変更しません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អនុញ្ញាតឱ្យ Claude Code, Codex និងភ្នាក់ងារសរសេរកូដផ្សេងទៀតដែលអ្នកដំណើរការ ប្រើឧបករណ៍របស់ cmux រួមទាំង Computer Use។ «សួរ» នៅតែបន្ថែមវាទៅភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងស្ថានីយ cmux រហូតដល់អ្នកជ្រើសរើស។ «បិទ» មិនបន្ថែមអ្វីទេ ហើយទុកការកំណត់ភ្នាក់ងាររបស់អ្នកដដែល។"
+            "value": "អនុញ្ញាតឱ្យ Claude Code, Codex និងភ្នាក់ងារសរសេរកូដផ្សេងទៀតដែលអ្នកដំណើរការ ប្រើឧបករណ៍របស់ cmux រួមទាំង Computer Use។ រហូតដល់អ្នកជ្រើសរើស cmux មិនបន្ថែមអ្វីទៅភ្នាក់ងាររបស់អ្នកទេ។ «បិទ» មិនបន្ថែមអ្វីទេ ហើយទុកការកំណត់ភ្នាក់ងាររបស់អ្នកដដែល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code, Codex 등 사용하는 코딩 에이전트가 Computer Use를 포함한 cmux 도구를 쓸 수 있게 합니다. '묻기'는 선택할 때까지 cmux 터미널에서 시작한 에이전트에 계속 추가합니다. '끔'은 아무것도 추가하지 않고 에이전트 설정을 그대로 둡니다."
+            "value": "Claude Code, Codex 등 사용하는 코딩 에이전트가 Computer Use를 포함한 cmux 도구를 쓸 수 있게 합니다. 선택하기 전까지 cmux는 에이전트에 아무것도 추가하지 않습니다. '끔'은 아무것도 추가하지 않고 에이전트 설정을 그대로 둡니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lar Claude Code, Codex og andre kodeagenter du kjører, bruke cmux sine verktøy, også Computer Use. Spør fortsetter å gi dem til agenter du starter i en cmux-terminal til du velger. Av legger ikke til noe og lar agentinnstillingene være i fred."
+            "value": "Lar Claude Code, Codex og andre kodeagenter du kjører, bruke cmux sine verktøy, også Computer Use. Til du velger, legger cmux ikke til noe hos agentene dine. Av legger ikke til noe og lar innstillingene til agentene dine være."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pozwala Claude Code, Codex i innym używanym agentom kodowania korzystać z narzędzi cmux, w tym z Computer Use. Pytaj nadal dodaje je agentom uruchamianym w terminalu cmux, dopóki nie wybierzesz. Wyłączone niczego nie dodaje i nie zmienia ustawień agentów."
+            "value": "Pozwala Claude Code, Codex i innym używanym agentom kodowania korzystać z narzędzi cmux, w tym z Computer Use. Dopóki nie wybierzesz, cmux niczego nie dodaje do Twoich agentów. Wył. niczego nie dodaje i nie zmienia ustawień Twoich agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite que o Claude Code, o Codex e outros agentes de programação que você usa usem as ferramentas do cmux, incluindo o Computer Use. Perguntar continua adicionando-as aos agentes iniciados em um terminal do cmux até você escolher. Desativado não adiciona nada e mantém os ajustes dos seus agentes."
+            "value": "Permite que o Claude Code, o Codex e outros agentes de programação que você usa usem as ferramentas do cmux, incluindo o Computer Use. Até você escolher, o cmux não adiciona nada aos seus agentes. Desativado não adiciona nada e não altera as configurações dos seus agentes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Позволяет Claude Code, Codex и другим вашим агентам для кода пользоваться инструментами cmux, включая Computer Use. «Спрашивать» продолжает добавлять их агентам, запущенным в терминале cmux, пока вы не выберете. «Выкл.» ничего не добавляет и не меняет настройки агентов."
+            "value": "Позволяет Claude Code, Codex и другим вашим агентам для кода пользоваться инструментами cmux, включая Computer Use. Пока вы не выберете, cmux ничего не добавляет вашим агентам. «Выкл.» ничего не добавляет и не меняет настройки ваших агентов."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ให้ Claude Code, Codex และเอเจนต์เขียนโค้ดอื่นที่คุณใช้ ใช้เครื่องมือของ cmux ได้ รวมถึง Computer Use ตัวเลือก ถาม จะยังเพิ่มให้เอเจนต์ที่เริ่มในเทอร์มินัล cmux จนกว่าคุณจะเลือก ปิด จะไม่เพิ่มอะไรและไม่แตะการตั้งค่าเอเจนต์ของคุณ"
+            "value": "ให้ Claude Code, Codex และเอเจนต์เขียนโค้ดอื่นที่คุณใช้ ใช้เครื่องมือของ cmux ได้ รวมถึง Computer Use จนกว่าคุณจะเลือก cmux จะไม่เพิ่มอะไรให้เอเจนต์ของคุณ ตัวเลือก ปิด จะไม่เพิ่มอะไรและไม่เปลี่ยนการตั้งค่าเอเจนต์ของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code, Codex ve kullandığınız diğer kodlama ajanlarının Computer Use dahil cmux araçlarını kullanmasını sağlar. Sor, siz seçene kadar cmux terminalinde başlattığınız ajanlara eklemeye devam eder. Kapalı hiçbir şey eklemez ve ajanlarınızın ayarlarına dokunmaz."
+            "value": "Claude Code, Codex ve kullandığınız diğer kodlama ajanlarının Computer Use dahil cmux araçlarını kullanmasını sağlar. Siz seçene kadar cmux ajanlarınıza hiçbir şey eklemez. Kapalı hiçbir şey eklemez ve ajanlarınızın ayarlarını değiştirmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дозволяє Claude Code, Codex та іншим вашим агентам для коду користуватися інструментами cmux, зокрема Computer Use. «Питати» й далі додає їх агентам, запущеним у терміналі cmux, доки ви не виберете. «Вимк.» нічого не додає й не змінює налаштувань агентів."
+            "value": "Дозволяє Claude Code, Codex та іншим вашим агентам для коду користуватися інструментами cmux, зокрема Computer Use. Доки ви не оберете, cmux нічого не додає вашим агентам. «Вимк.» нічого не додає й не змінює налаштувань ваших агентів."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho phép Claude Code, Codex và các tác tử lập trình khác bạn dùng sử dụng công cụ của cmux, kể cả Computer Use. Hỏi vẫn thêm chúng cho tác tử bạn mở trong terminal cmux cho đến khi bạn chọn. Tắt không thêm gì và giữ nguyên cài đặt của tác tử."
+            "value": "Cho phép Claude Code, Codex và các tác tử lập trình khác bạn dùng sử dụng công cụ của cmux, kể cả Computer Use. Cho đến khi bạn chọn, cmux không thêm gì cho tác tử của bạn. Tắt không thêm gì và giữ nguyên cài đặt tác tử của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "让 Claude Code、Codex 和你使用的其他编程智能体使用 cmux 的工具，包括 Computer Use。选“询问”时，在你做出选择前，cmux 终端中启动的智能体仍会获得这些工具。选“关闭”则不添加任何内容，也不改动智能体的设置。"
+            "value": "让 Claude Code、Codex 和你使用的其他编程智能体使用 cmux 的工具，包括 Computer Use。在你做出选择前，cmux 不会给你的智能体添加任何内容。选“关闭”则不添加任何内容，也不改动智能体的设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "讓 Claude Code、Codex 和你使用的其他程式設計代理程式使用 cmux 的工具，包括 Computer Use。選「詢問」時，在你做出選擇前，cmux 終端機中啟動的代理程式仍會取得這些工具。選「關閉」則不加入任何內容，也不更動代理程式的設定。"
+            "value": "讓 Claude Code、Codex 和你使用的其他程式設計代理程式使用 cmux 的工具，包括 Computer Use。在你做出選擇前，cmux 不會為你的代理程式加入任何內容。選「關閉」則不加入任何內容，也不更動代理程式的設定。"
           }
         }
       }
