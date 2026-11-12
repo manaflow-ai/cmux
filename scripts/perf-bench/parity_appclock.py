@@ -73,6 +73,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 import chrome_parity as cp  # noqa: E402
 import parity_chrome_cdp as chrome_arm  # noqa: E402
 from bench_launch import BenchApp, LaunchError, account_home  # noqa: E402
+from made_workspace import made_workspace  # noqa: E402
 
 METHOD = ("app-clock: socket input (no OS event), frames from the app's own ScreenCaptureKit recorder (display "
           "time); the OS input hop is not measured")
@@ -253,11 +254,11 @@ class Cmux:
 
     def workspace(self):
         reply = self.act("workspace.newAtBottom") or {}
-        made = [i for i in reply.get("created", []) if str(i).startswith("ws_")]
+        made = made_workspace(reply, lambda: (self.rpc("snapshot.get") or {}).get("topology"))
         if not made:
             raise NotRun(f"cmux: workspace.newAtBottom made no workspace ({str(reply)[:200]})")
-        self.act("goToWorkspace", workspace=made[0])
-        return made[0]
+        self.act("goToWorkspace", workspace=made)
+        return made
 
     def terminal(self, text=None):
         self.act("newSurface")

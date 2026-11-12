@@ -344,6 +344,10 @@ def lex(text: str) -> Lexed:
         if not in_word:
             in_word, word_start = True, at
 
+    def quoted_equal_is_operator() -> bool:
+        prefix = "".join(buf)
+        return "]" in prefix or "[" not in prefix
+
     def end_word(at: int) -> None:
         nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen, equal_unquoted
         if not in_word:
@@ -428,7 +432,7 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1])
-            if text[i + 1:i + 2] == "=" and not equal_seen:
+            if text[i + 1:i + 2] == "=" and not equal_seen and quoted_equal_is_operator():
                 equal_seen = True
             quoted = True
             plain_open = False
@@ -439,7 +443,7 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1:close])
-            if not equal_seen and "=" in text[i + 1:close]:
+            if not equal_seen and "=" in text[i + 1:close] and quoted_equal_is_operator():
                 equal_seen = True
             quoted = True
             plain_open = False
@@ -463,7 +467,7 @@ def lex(text: str) -> Lexed:
                     if text[i + 1] == "\n":
                         i += 2
                         continue
-                    if text[i + 1] == "=" and not equal_seen:
+                    if text[i + 1] == "=" and not equal_seen and quoted_equal_is_operator():
                         equal_seen = True
                 if text[i] in "$`":
                     after = expansion(i, True)
@@ -471,7 +475,7 @@ def lex(text: str) -> Lexed:
                         return Lexed(tokens, False, heredoc_subs)
                     i = after
                     continue
-                if text[i] == "=" and not equal_seen:
+                if text[i] == "=" and not equal_seen and quoted_equal_is_operator():
                     equal_seen = True
                 buf.append(text[i])
                 i += 1
@@ -527,7 +531,7 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
-            if c == "=":
+            if c == "=" and not equal_seen:
                 equal_seen, equal_unquoted = True, True
             if plain_open:
                 plain += 1
@@ -987,9 +991,9 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
-        if name in _WRAPPERS and not words[start].quoted:
+        if name in _WRAPPERS and (name != "time" or not words[start].quoted):
             program, sure = _unwrap(words, start, _WRAPPERS[name])
-        elif name in _SHELLS:
+        elif name in _SHELLS and not words[start].quoted:
             program, sure = _shell_script(words, start)
         else:
             break
