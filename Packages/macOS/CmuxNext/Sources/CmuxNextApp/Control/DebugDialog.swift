@@ -181,6 +181,12 @@ enum DebugDialog {
                                    buttons: [CmuxDialogButton(id: "dont-save", title: "Don't Save", role: .destructive, key: "d"),
                                              .cancel(), CmuxDialogButton(id: "save", title: "Save", role: .default)],
                                    identifier: "cmux.dialog.fixture.save"),
+            // A long message (an import preview) scrolls in a bounded box, so the buttons stay on screen.
+            "long": CmuxDialogSpec(title: "Import 24 Workspaces?",
+                                   lines: ["These workspaces come from the file you picked:"]
+                                       + (1...24).map { "• project-\($0) in ~/code/project-\($0)" },
+                                   buttons: [.cancel(), CmuxDialogButton(id: "import", title: "Import", role: .default)],
+                                   identifier: "cmux.dialog.fixture.long"),
             "choice": CmuxDialogSpec(title: "Choose a Region", fields: [
                 .choice(id: "region", label: nil, options: [CmuxDialogOption(label: "US West", value: "us-west"),
                                                             CmuxDialogOption(label: "EU Central", value: "eu-central")],

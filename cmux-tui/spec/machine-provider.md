@@ -97,6 +97,20 @@ durability boundary. A later snapshot refresh failure must not turn an
 accepted mutation into a failed mutation or cause the client to issue it
 again.
 
+The client keeps a mutation's `mutation_id` until it sees a definite answer:
+success or a non-retryable provider failure. After a timeout, disconnect,
+protocol error, or retryable failure the outcome is unknown, so the next
+identical request, such as a second click on `new machine` in the same scope,
+replays the same id and receives the one committed result instead of creating
+a second machine.
+The client never forgets an unsettled `mutation_id` to make room. It keeps up
+to 32 at once; while 32 wait for an answer, a request with a new intent fails
+with a clear error before it reaches the provider, and a retry of a waiting
+request still replays its id. A definite answer frees that request's slot.
+Every mutation, `connect_external_machine` included, takes this one path. A
+first attempt that fails before its frame is written (the provider does not
+advertise the capability, or the client is not authenticated) holds no slot.
+
 The provider emits `snapshot_changed`, `connection_closed`, `notice`, and `connection_progress` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 
 When the client offers `connection-progress-v1` in `negotiate_client_capabilities` and the provider accepts it, the provider may emit `connection_progress` events while an `open_machine` request is in flight. Each event carries the machine id and a short human-readable stage ("resuming the machine", "waiting for sshd") that the client renders on the connection interstitial. The events are advisory and additive: they never replace the `open_machine` response, arrive only between the request and its response for that machine, and a client that did not negotiate the capability receives none. Ordering within one open is the provider's narration order; a client must tolerate zero events, and must clear rendered progress when the open settles either way.
@@ -122,7 +136,7 @@ scoped per-frontend or per-operation capabilities.
 
 A provider-authorized mux starts in provider-managed mode before accepting its first control connection. Ordinary rename and close commands are blocked immediately. The provider frontend includes the authority only in the private mirror handshake and post-provider rename or close commit; the mux compares it in constant time. This prevents an ordinary control-socket client from claiming ownership or forging a mirror commit after a provider mutation succeeds.
 
-Control requests time out after 30 seconds. Machine open may wait up to five minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
+Control requests time out after 30 seconds. `create_machine` and `create_workspace` wait up to 150 seconds, above a cloud create's 120 second reservation, so a slow create finishes instead of showing an error while the machine is still coming up. Machine open may wait up to five minutes for provisioning or wake. Each request kind names its bound in the client, and a test fails when a request carrying a `mutation_id` stays on the 30 second bound without a listed reason. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
 
 On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPABLE=0` before retaining the authority, overwrite the value in the original environment block, and unset the variable before spawning terminals or helpers. Startup fails closed when the non-dumpable state cannot be established. This blocks same-UID host-workspace shells from reading the authority through `/proc/<pid>/environ`, `/proc/<pid>/mem`, or ptrace. The VM's root user remains trusted and can replace or inspect the mux process.
 

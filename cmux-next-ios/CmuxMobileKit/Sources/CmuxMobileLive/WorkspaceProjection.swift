@@ -39,6 +39,14 @@ public actor WorkspaceProjection {
         var tabs: Set<String>
         var surfaces: Set<Int>
         var groups: Set<String>
+        /// Each agent tab's acpmux session, by surface (`conversation.agent_session`).
+        var sessions: [Int: String]
+    }
+
+    /// Where a workspace sits in the published tree.
+    private struct TreeSlot {
+        var home: Bool
+        var index: Int
     }
 
     private var rows: [Row] = []
@@ -52,6 +60,22 @@ public actor WorkspaceProjection {
     private var metadata: [String: RowMetadata] = [:]
     private var removedMetadata: [String: RowMetadata] = [:]
     private var surfaceRows: [Int: Int] = [:]
+    /// Row positions by key and by daemon handle (the first row with it), so a
+    /// delta finds its row without reading the list.
+    private var keyRows: [String: Int] = [:]
+    private var handleRows: [Int: Int] = [:]
+    /// Each acpmux session's surfaces, with how many rows list each one: an
+    /// ask's change finds its tabs without reading every row.
+    private var sessionSurfaces: [String: [Int: Int]] = [:]
+    /// Each workspace's place in `tree`, rebuilt when its order changes.
+    private var treeSlots: [String: TreeSlot] = [:]
+    /// The rows' order or membership changed since the tree was last ordered.
+    private var rowsReordered = false
+    /// Rows read by whole-list passes (list scans, index rebuilds, reorders,
+    /// the arrangement) since this projection was made: the work a delta adds
+    /// beyond its own row. `WorkspaceProjectionCostTests` holds a one-row
+    /// delta's share of it the same at 1,000 workspaces as at 200.
+    private(set) var scannedRows = 0
 
     public init() {}
 
@@ -75,9 +99,13 @@ public actor WorkspaceProjection {
         var parsed = try DaemonTree(reply: snapshot, macID: macID, previous: previous, agents: agents, activity: activity)
         parsed.apply(arrangement)
         rows = nextRows
-        metadata = Dictionary(uniqueKeysWithValues: rows.map { ($0.key, Self.metadata(for: $0.value)) })
+        metadata = [:]
+        sessionSurfaces = [:]
+        for row in rows { setMetadata(Self.metadata(for: row.value), for: row.key) }
         removedMetadata = [:]
-        rebuildSurfaceIndex()
+        rebuildRowIndexes()
+        rowsReordered = false
+        rebuildTreeSlots(parsed)
         self.macID = macID
         self.agents = agents
         self.activity = activity
@@ -138,12 +166,8 @@ public actor WorkspaceProjection {
             var sessions = Set(old.pending.keys).union(agents.pending.keys).union(old.waitingFor.keys).union(agents.waitingFor.keys)
             for session in Set(old.chatTitles.keys).union(agents.chatTitles.keys)
                 where old.chatTitles[session] != agents.chatTitles[session] { sessions.insert(session) }
-            for row in rows {
-                for tab in Self.tabs(row.value) {
-                    guard let surface = tab["surface"] as? Int,
-                          let session = Self.agentSession(tab), sessions.contains(session) else { continue }
-                    surfaces.insert(surface)
-                }
+            for session in sessions {
+                if let listed = sessionSurfaces[session] { surfaces.formUnion(listed.keys) }
             }
         }
         guard !surfaces.isEmpty else { return nil }
@@ -212,9 +236,9 @@ public actor WorkspaceProjection {
             let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
             let index = min(max(delta.index ?? rows.count, 0), rows.count)
             rows.insert(row, at: index)
-            metadata[row.key] = Self.metadata(for: row.value)
-            // Insertion shifts every later row's surface index.
-            rebuildSurfaceIndex()
+            setMetadata(Self.metadata(for: row.value), for: row.key)
+            // Insertion shifts every later row's index.
+            rebuildRowIndexes()
             return (Set([row.key]), true)
         }
         guard let index = rowIndex(workspace: delta.workspace, key: delta.workspaceKey) else {
@@ -223,22 +247,24 @@ public actor WorkspaceProjection {
         }
         let oldID = try rowID(at: index)
         if delta.kind == .workspaceClosed {
-            removedMetadata[oldID] = metadata.removeValue(forKey: oldID)
+            removedMetadata[oldID] = setMetadata(nil, for: oldID)
             rows.remove(at: index)
-            rebuildSurfaceIndex()
+            rebuildRowIndexes()
             return (Set([oldID]), true)
         }
         guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
         let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
+        let oldHandle = rows[index].handle
         rows[index] = row
         removedMetadata[oldID] = metadata[oldID]
-        if row.key != oldID { metadata.removeValue(forKey: oldID) }
+        if row.key != oldID { setMetadata(nil, for: oldID) }
         refreshMetadata(for: row.key, at: index)
-        if row.key != oldID { rebuildSurfaceIndex() }
         if delta.kind == .workspaceMoved, let target = delta.index {
             let moved = rows.remove(at: index)
             rows.insert(moved, at: min(max(target, 0), rows.count))
-            rebuildSurfaceIndex()
+            rebuildRowIndexes()
+        } else if row.key != oldID || row.handle != oldHandle {
+            rebuildRowIndexes()
         }
         return (Set([oldID, row.key]), true)
     }
@@ -341,29 +367,52 @@ public actor WorkspaceProjection {
 
     // MARK: Projection and row parsing
 
+    /// Publishes the rows in `IDs`. A one-row change costs one row at any
+    /// workspace count: rows and tree slots come from the indexes, the row is
+    /// replaced in place, and the derived maps change only where the row's
+    /// entries differ (so their storage, shared with the last published tree,
+    /// is not copied). The whole list is read again only when its order,
+    /// membership or arrangement inputs changed.
     private func publish(changed IDs: Set<String>, topology: Bool) throws -> Update? {
         guard var current = tree, !IDs.isEmpty else { return nil }
         var changed = Set<String>()
+        // The tree's membership or order changed, so its slots are stale.
+        var reshaped = false
+        // A replaced row's pin or arrangement inputs changed.
+        var rearranged = false
         for id in IDs {
-            guard let index = rows.firstIndex(where: { $0.key == id }) else {
+            guard let index = rowIndex(key: id) else {
                 // A closed row is removed from the current tree below.
                 continue
             }
-            let parsed = try parseRow(rows[index], previous: Self.workspace(id: id, in: current))
-            replace(parsed, id: id, in: &current)
+            let slot = slot(of: id, in: current)
+            let old = slot.map { Self.workspace(at: $0, in: current) }
+            let parsed = try parseRow(rows[index], previous: old)
+            switch replace(parsed, id: id, old: old, slot: slot, in: &current) {
+            case .inPlace(let sameArrangement): if !sameArrangement { rearranged = true }
+            case .moved:
+                reshaped = true
+                rebuildTreeSlots(current)
+            }
             refreshMetadata(for: id, at: index)
             changed.insert(id)
         }
         // Closed workspaces no longer have a raw row; remove them from the
-        // value tree and all index maps.
-        let live = Set(rows.map(\.key))
-        for old in current.workspaces + current.homeWorkspaces where !live.contains(old.id) {
-            remove(old, from: &current)
-            changed.insert(old.id)
+        // value tree and all index maps. Only a changed id can have closed:
+        // every other tree workspace still has its row.
+        for id in IDs where rowIndex(key: id) == nil {
+            guard let slot = slot(of: id, in: current) else { continue }
+            remove(Self.workspace(at: slot, in: current), from: &current)
+            changed.insert(id)
+            reshaped = true
+            rebuildTreeSlots(current)
         }
-        if topology {
+        if topology, reshaped || rearranged || rowsReordered {
             reorder(&current)
             current.apply(arrangement)
+            scannedRows += current.workspaces.count
+            rowsReordered = false
+            rebuildTreeSlots(current)
         }
         current.revision = revision
         current.registryID = registryID
@@ -380,26 +429,73 @@ public actor WorkspaceProjection {
         return try DaemonTree(reply: bytes, macID: macID, previous: previous.map { [$0] } ?? [], agents: agents, activity: activity)
     }
 
-    private func replace(_ parsed: DaemonTree, id: String, in current: inout DaemonTree) {
-        let old = Self.workspace(id: id, in: current)
-        let oldHomeIndex = old.flatMap { current.homeWorkspaces.firstIndex(of: $0) }
-        let oldIndex = old.flatMap { current.workspaces.firstIndex(of: $0) }
-        if let old { remove(old, from: &current) }
-        guard var replacement = parsed.workspaces.first ?? parsed.homeWorkspaces.first else { return }
-        if let old {
-            replacement.isPinned = old.isPinned
-            replacement.pinIndex = old.pinIndex
-            replacement.pinItemID = old.pinItemID
-            replacement.sidebarIndex = old.sidebarIndex
-            replacement.group = old.group
+    private enum Replacement {
+        /// Replaced at its own place; `sameArrangement` when its resource id
+        /// and legacy pin are what they were, so pins and places still hold.
+        case inPlace(sameArrangement: Bool)
+        /// Added, removed, or moved between the home and listed workspaces.
+        case moved
+    }
+
+    private func replace(_ parsed: DaemonTree, id: String, old: Workspace?, slot: TreeSlot?,
+                         in current: inout DaemonTree) -> Replacement {
+        guard var replacement = parsed.workspaces.first ?? parsed.homeWorkspaces.first else {
+            if let old { remove(old, from: &current) }
+            return .moved
         }
-        if replacement.isHome {
-            let index = min(oldHomeIndex ?? current.homeWorkspaces.count, current.homeWorkspaces.count)
-            current.homeWorkspaces.insert(replacement, at: index)
-        } else {
-            let index = min(oldIndex ?? current.workspaces.count, current.workspaces.count)
-            current.workspaces.insert(replacement, at: index)
+        guard let old, let slot, replacement.isHome == slot.home else {
+            // New, or between home and the list: remove and insert, as a
+            // whole-list change.
+            let oldHomeIndex = old.flatMap { old in current.homeWorkspaces.firstIndex { $0.id == old.id } }
+            let oldIndex = old.flatMap { old in current.workspaces.firstIndex { $0.id == old.id } }
+            scannedRows += current.workspaces.count + current.homeWorkspaces.count
+            if let old {
+                remove(old, from: &current)
+                Self.keepArrangement(of: old, in: &replacement)
+            }
+            if replacement.isHome {
+                current.homeWorkspaces.insert(replacement, at: min(oldHomeIndex ?? current.homeWorkspaces.count, current.homeWorkspaces.count))
+            } else {
+                current.workspaces.insert(replacement, at: min(oldIndex ?? current.workspaces.count, current.workspaces.count))
+            }
+            Self.merge(parsed, into: &current)
+            return .moved
         }
+        Self.keepArrangement(of: old, in: &replacement)
+        if slot.home {
+            if current.homeWorkspaces[slot.index] != replacement { current.homeWorkspaces[slot.index] = replacement }
+        } else if current.workspaces[slot.index] != replacement {
+            current.workspaces[slot.index] = replacement
+        }
+        // The same entries `remove` then `merge` leave, written only where
+        // they differ.
+        let rowMetadata = removedMetadata.removeValue(forKey: id) ?? metadata[id]
+        let tabs = rowMetadata?.tabs ?? Set(old.tabs.map(\.id))
+        let tabSurfaces = rowMetadata?.surfaces ?? Set(old.tabs.compactMap { current.surfaces[$0.id] })
+        Self.replaceEntries(&current.agentTabs, keys: tabs, with: parsed.agentTabs)
+        Self.replaceEntries(&current.surfaces, keys: tabs, with: parsed.surfaces)
+        Self.replaceEntries(&current.directories, keys: tabs, with: parsed.directories)
+        Self.replaceEntries(&current.tabPlaces, keys: tabs, with: parsed.tabPlaces)
+        Self.replaceEntries(&current.terminals, keys: tabs, with: parsed.terminals)
+        Self.replaceEntries(&current.notificationMarkers, keys: tabSurfaces, with: parsed.notificationMarkers)
+        Self.replaceEntries(&current.groupPanes, keys: rowMetadata?.groups ?? [], with: parsed.groupPanes)
+        Self.replaceEntries(&current.panes, keys: [id], with: parsed.panes)
+        Self.replaceEntries(&current.workspaceNumbers, keys: [id], with: parsed.workspaceNumbers)
+        let wasPinned = current.legacyPinned.contains(id)
+        if wasPinned, !parsed.legacyPinned.contains(id) { current.legacyPinned.remove(id) }
+        for pinned in parsed.legacyPinned where !current.legacyPinned.contains(pinned) { current.legacyPinned.insert(pinned) }
+        return .inPlace(sameArrangement: old.resourceID == replacement.resourceID && wasPinned == current.legacyPinned.contains(id))
+    }
+
+    private static func keepArrangement(of old: Workspace, in replacement: inout Workspace) {
+        replacement.isPinned = old.isPinned
+        replacement.pinIndex = old.pinIndex
+        replacement.pinItemID = old.pinItemID
+        replacement.sidebarIndex = old.sidebarIndex
+        replacement.group = old.group
+    }
+
+    private static func merge(_ parsed: DaemonTree, into current: inout DaemonTree) {
         current.agentTabs.merge(parsed.agentTabs) { _, new in new }
         current.surfaces.merge(parsed.surfaces) { _, new in new }
         current.directories.merge(parsed.directories) { _, new in new }
@@ -412,7 +508,15 @@ public actor WorkspaceProjection {
         current.legacyPinned.formUnion(parsed.legacyPinned)
     }
 
+    /// `dict` without `keys`, then with `new`: what removing a row's entries
+    /// and merging its new ones gives, writing only the entries that change.
+    private static func replaceEntries<Key: Hashable, Value: Equatable>(_ dict: inout [Key: Value], keys: Set<Key>, with new: [Key: Value]) {
+        for key in keys where new[key] == nil && dict[key] != nil { dict.removeValue(forKey: key) }
+        for (key, value) in new where dict[key] != value { dict[key] = value }
+    }
+
     private func remove(_ workspace: Workspace, from tree: inout DaemonTree) {
+        scannedRows += tree.workspaces.count + tree.homeWorkspaces.count
         tree.workspaces.removeAll { $0.id == workspace.id }
         tree.homeWorkspaces.removeAll { $0.id == workspace.id }
         // A changed row has already refreshed `metadata`; consume the
@@ -436,6 +540,7 @@ public actor WorkspaceProjection {
     }
 
     private func reorder(_ tree: inout DaemonTree) {
+        scannedRows += rows.count + tree.workspaces.count + tree.homeWorkspaces.count
         let byID = Dictionary((tree.workspaces + tree.homeWorkspaces).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         tree.workspaces = rows.filter { !$0.isHome }.compactMap { byID[$0.key] }
         tree.homeWorkspaces = rows.filter(\.isHome).compactMap { byID[$0.key] }
@@ -443,10 +548,27 @@ public actor WorkspaceProjection {
 
     // MARK: Raw lookup helpers
 
+    /// The first row with `key` or `workspace` as its handle, as a scan of
+    /// the rows finds it.
     private func rowIndex(workspace: Int?, key: String?) -> Int? {
-        rows.firstIndex { row in
-            (key != nil && row.key == key) || (workspace != nil && row.handle == workspace)
+        let byKey = key.flatMap { keyRows[$0] }
+        let byHandle = workspace.flatMap { handleRows[$0] }
+        // The indexes are rebuilt with every insert, remove, move and re-key;
+        // one that disagrees with the rows falls back to reading them.
+        let stale = byKey.map { !rows.indices.contains($0) || rows[$0].key != key } == true
+            || byHandle.map { !rows.indices.contains($0) || rows[$0].handle != workspace } == true
+        if stale {
+            scannedRows += rows.count
+            return rows.firstIndex { row in
+                (key != nil && row.key == key) || (workspace != nil && row.handle == workspace)
+            }
         }
+        if let byKey, let byHandle { return min(byKey, byHandle) }
+        return byKey ?? byHandle
+    }
+
+    private func rowIndex(key: String) -> Int? {
+        rowIndex(workspace: nil, key: key)
     }
 
     private func rowIndex(surface: Int) -> Int? {
@@ -473,11 +595,12 @@ public actor WorkspaceProjection {
     }
 
     private static func metadata(for row: [String: Any]) -> RowMetadata {
-        var tabs = Set<String>(), surfaces = Set<Int>(), groups = Set<String>()
+        var tabs = Set<String>(), surfaces = Set<Int>(), groups = Set<String>(), sessions: [Int: String] = [:]
         for tab in Self.tabs(row) {
             guard let surface = tab["surface"] as? Int else { continue }
             surfaces.insert(surface)
             tabs.insert(DaemonTree.tabID(surface: surface))
+            if let session = Self.agentSession(tab) { sessions[surface] = session }
         }
         for screen in row["screens"] as? [[String: Any]] ?? [] {
             for pane in screen["panes"] as? [[String: Any]] ?? [] {
@@ -486,32 +609,80 @@ public actor WorkspaceProjection {
                 }
             }
         }
-        return RowMetadata(tabs: tabs, surfaces: surfaces, groups: groups)
+        return RowMetadata(tabs: tabs, surfaces: surfaces, groups: groups, sessions: sessions)
     }
 
-    private func rebuildSurfaceIndex() {
+    /// Rebuilds the key, handle and surface indexes after rows were inserted,
+    /// removed, moved or re-keyed, from the cached row metadata.
+    private func rebuildRowIndexes() {
+        scannedRows += rows.count
+        keyRows = [:]
+        handleRows = [:]
         surfaceRows = [:]
         for (index, row) in rows.enumerated() {
-            for surface in Self.metadata(for: row.value).surfaces { surfaceRows[surface] = index }
+            if keyRows[row.key] == nil { keyRows[row.key] = index }
+            if let handle = row.handle, handleRows[handle] == nil { handleRows[handle] = index }
+            for surface in metadata[row.key]?.surfaces ?? [] { surfaceRows[surface] = index }
         }
+        rowsReordered = true
+    }
+
+    private func rebuildTreeSlots(_ tree: DaemonTree) {
+        scannedRows += tree.workspaces.count + tree.homeWorkspaces.count
+        treeSlots = [:]
+        for (index, workspace) in tree.workspaces.enumerated() where treeSlots[workspace.id] == nil {
+            treeSlots[workspace.id] = TreeSlot(home: false, index: index)
+        }
+        for (index, workspace) in tree.homeWorkspaces.enumerated() where treeSlots[workspace.id] == nil {
+            treeSlots[workspace.id] = TreeSlot(home: true, index: index)
+        }
+    }
+
+    /// The workspace's place in `tree`: the listed workspaces first, then
+    /// home, as a scan of both finds it.
+    private func slot(of id: String, in tree: DaemonTree) -> TreeSlot? {
+        if let slot = treeSlots[id] {
+            let count = slot.home ? tree.homeWorkspaces.count : tree.workspaces.count
+            if slot.index < count, Self.workspace(at: slot, in: tree).id == id { return slot }
+        }
+        // Not indexed (a new row) or stale: read the lists.
+        scannedRows += tree.workspaces.count + tree.homeWorkspaces.count
+        if let index = tree.workspaces.firstIndex(where: { $0.id == id }) { return TreeSlot(home: false, index: index) }
+        return tree.homeWorkspaces.firstIndex { $0.id == id }.map { TreeSlot(home: true, index: $0) }
+    }
+
+    private static func workspace(at slot: TreeSlot, in tree: DaemonTree) -> Workspace {
+        slot.home ? tree.homeWorkspaces[slot.index] : tree.workspaces[slot.index]
     }
 
     private func refreshMetadata(for id: String, at index: Int) {
-        let old = metadata[id]
-        let next = Self.metadata(for: rows[index].value)
-        metadata[id] = next
-        for surface in old?.surfaces ?? [] where next.surfaces.contains(surface) == false {
+        let old = setMetadata(Self.metadata(for: rows[index].value), for: id)
+        let next = metadata[id]
+        for surface in old?.surfaces ?? [] where next?.surfaces.contains(surface) == false {
             surfaceRows.removeValue(forKey: surface)
         }
-        for surface in next.surfaces { surfaceRows[surface] = index }
+        for surface in next?.surfaces ?? [] { surfaceRows[surface] = index }
+    }
+
+    /// Sets (or with nil removes) a row's metadata and keeps the session
+    /// index in step. Returns the metadata it replaced.
+    @discardableResult
+    private func setMetadata(_ next: RowMetadata?, for id: String) -> RowMetadata? {
+        let old: RowMetadata?
+        if let next { old = metadata.updateValue(next, forKey: id) } else { old = metadata.removeValue(forKey: id) }
+        for (surface, session) in old?.sessions ?? [:] where next?.sessions[surface] != session {
+            let count = (sessionSurfaces[session]?[surface] ?? 1) - 1
+            sessionSurfaces[session]?[surface] = count > 0 ? count : nil
+            if sessionSurfaces[session]?.isEmpty == true { sessionSurfaces.removeValue(forKey: session) }
+        }
+        for (surface, session) in next?.sessions ?? [:] where old?.sessions[surface] != session {
+            sessionSurfaces[session, default: [:]][surface, default: 0] += 1
+        }
+        return old
     }
 
     private static func agentSession(_ tab: [String: Any]) -> String? {
         ((tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any])?["session"] as? String
-    }
-
-    private static func workspace(id: String, in tree: DaemonTree) -> Workspace? {
-        (tree.workspaces + tree.homeWorkspaces).first { $0.id == id }
     }
 }
 

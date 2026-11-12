@@ -145,7 +145,8 @@ export type FollowChase = {
   /// The reader took the view while another motion of the thread (the composer growth's rise,
   /// VirtualTranscript `rowsMove`) still drew it `px` from its layout: that motion ends, and the chase
   /// draws the thread there instead, so it holds where it was painted (with `hold`) and goes home
-  /// from there if the view is followed again (`resume`).
+  /// from there if the view is followed again (`resume`), in every arm: on the spring in `eased` and
+  /// the chasing arms, in one frame in `instant`.
   carry(thread: HTMLElement, px: number): void;
   /// A held chase hands `px` of what it draws to the scroll offset (VirtualTranscript's quiet fold): the
   /// thread is drawn `px` nearer its layout, at once and with no frame loop; what is left stays held.
@@ -376,8 +377,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       askedAt = performance.now();
       frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
       return;
-    } else if (arm === "spring" || arm === "blocks") {
+    } else if (arm === "instant") {
+      // At once, as every move in this arm: what another motion left with the chase (`carry`, the
+      // composer growth's rise the reader froze) lands in the first frame it goes home in.
+      x = 0;
+      v = 0;
+    } else if (arm === "spring" || arm === "blocks" || arm === "eased") {
       // Critically damped toward 0, exact over the step: x(t) = (x0 + (v0 + w x0) t) e^(-w t).
+      // The `eased` arm chases nothing of its own (followGlide.ts moves its rows); what it holds is
+      // only what `carry` handed it, which springs home as in the default arm (it fell through to
+      // the `linear` approach below before).
       const w = (2 * Math.PI) / (RESPONSE_S * scale);
       const decay = Math.exp(-w * dt);
       const carry = v + w * x;

@@ -30159,6 +30159,14 @@
             },
             "description": "Creates the rightward split as a scrolling viewport column with this fraction of the viewport width."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Creates the split as a viewport column that shares the window: when the screen's columns fit the window, the new column takes an equal share and the others are scaled to fill the rest, so nothing scrolls sideways; on a screen that already scrolls, it opens at half the viewport width."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -30224,6 +30232,7 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
+          "fit requires direction left or right and excludes viewport_width, ratio, row_height and around.",
           "cols and rows are paired.",
           "At most one of argv or shell is present; argv[0] is non-empty.",
           "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
