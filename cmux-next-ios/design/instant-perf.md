@@ -41,6 +41,18 @@ on every PR that touches `cmux-next-ios/**`):
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
 | `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: the gap before the newest page fills after, untimed; its time is in the note) | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
+| `home_list_first_screen_under_load` | the first window as in `home_list_first_screen`, while every core but one parses the whole god list at the feed's priority for it (`MacHomeReply.wholeListPriority`, `.utility`): the first screen always wins. Small and god are timed under the same load, so the ratio judges size; the load's own cost is held to the budget, and the note has the god window with no load and under the same load at `.userInitiated`, the feed's priority before | 20 rows, loaded | 20 of 5,000 rows, loaded | 16 ms |
+| `workspaces_cold_paint_from_cache` | a cold launch with no link: the Workspaces cache read from disk (`LiveSnapshotStore.loadFirstScreen`, what `LiveCoordinator.restoreSnapshot` reads on the main actor) to the inbox the first screen draws (`WorkspaceInbox` over the restored rows, marked cached) | 20 workspaces | 5,000 workspaces | 16 ms |
+
+The Workspaces cache (`LiveSnapshotStore`, format 2) keeps each Mac's first 40 rows in list
+order (pins first, then the Mac's sidebar order; with the first 40 of an offline Mac's
+newest-first fold) in one small head file, and the rest of the Mac's rows, up to 5,000, in a tail
+file of its own. A launch reads the head only and paints; the tails are read off the main thread
+and join below the first screen. A head of another format version, or one that does not decode,
+deletes the account's cache (the launch starts as with none); a tail that does not decode or
+names another head is dropped and the head's rows stay. Sign-out deletes it all. The deterministic
+check is `WorkspacesCacheStoreTests` (CmuxMobileLiveTests): the rows and bytes a 5,000-workspace
+cache's first screen reads are within 1.2x of a 100-workspace one's.
 
 Home reads windows (since the windowed Home read): the first screen asks cmux-mobile-host for
 `limit: 20` rows of the scoped list (`chief_policy.rs`, `InboxWindow`), the whole list follows in

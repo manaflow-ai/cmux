@@ -185,9 +185,10 @@ body {
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
    one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
-   emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
-   group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. Truncated text wraps inside the same compact bubble. */
+   emphasized first line and an optional detail sits below in dimmer ink. It shows and goes in one
+   frame, with no fade and no rise, as do hover cards (.ui-card, the context window card) on the same
+   surface (Leo, 2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish.").
+   Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
@@ -209,25 +210,12 @@ body {
   /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
   overflow-wrap: break-word;
   pointer-events: none;
-  /* At rest (not "none"), so with no rise (Reduce Motion) the start and the end are the same. */
-  translate: 0 0;
-  transition:
-    opacity var(--tooltip-fade-in) ease-out,
-    translate var(--tooltip-fade-in) ease-out;
 }
 
-:is(.ui-tooltip, .ui-title-tooltip)[data-starting-style] {
-  opacity: 0;
-  translate: 0 var(--tooltip-rise);
-}
-
+/* Closing: nothing of it draws from the frame its close starts (its content, glass and backdrop),
+   so it leaves no trace while it unmounts (popover-close-trace.test.ts). */
 :is(.ui-tooltip, .ui-title-tooltip)[data-ending-style] {
   opacity: 0;
-  transition: opacity var(--tooltip-fade-out) ease-in;
-}
-
-:is(.ui-tooltip, .ui-title-tooltip)[data-instant]:not([data-ending-style]) {
-  transition: none;
 }
 
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
@@ -603,28 +591,18 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
      least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
      averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
-     (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
-     fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
+     (--cmux-hairline); elevation 1. It shows and goes in one frame. Reduce Transparency: the opaque
+     popup surface. */
   --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
   --tooltip-blur: var(--ds-glass-chip-blur);
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
-  --tooltip-fade-in: var(--ui-popup-open, 120ms);
-  --tooltip-fade-out: var(--ui-popup-close, 80ms);
-  --tooltip-rise: 2px;
   --tooltip-max-width: calc(var(--grid-base) * 80);
   /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
   --tooltip-edge: var(--grid-base);
   --tooltip-pad-block: calc(var(--grid-base) / 2);
   --tooltip-pad-inline: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
-}
-
-/* Reduce Motion: the tooltip still fades, with no rise. */
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --tooltip-rise: 0px;
-  }
 }
 
 @media (prefers-reduced-transparency: reduce) {

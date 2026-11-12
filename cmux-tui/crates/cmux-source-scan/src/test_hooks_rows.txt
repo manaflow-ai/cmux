@@ -7,8 +7,8 @@ starts with a line `=== KIND ARGS :: TITLE`; its source runs to the next `===` l
   clear FILE LINE               the check names nothing at FILE:LINE
   chain refused|passes          a generated chain (the property's prelude goes first): the python
                                 check's verdict, which this check gives too
-The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, and the
-type-alias rows of the timing-ratio review), then the chains.
+The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, the
+type-alias rows of the timing-ratio review, and #41523), then the chains.
 
 === passes lib.rs :: production caches, thread_local! hooks and a serializer
 use regex::Regex;
@@ -281,6 +281,33 @@ static S: Hide<std::option::Option<u8>> = std::sync::Mutex::new(None);
 === refused alias.rs 2 closure :: a parameter named Option hiding a closure
 type Hide<Option> = std::sync::OnceLock<Option>;
 static S: Hide<fn()> = std::sync::OnceLock::new();
+=== refused macro.rs 3 test slot :: review of #41523 F2: a #[cfg(test)] macro's statics are test-gated
+#[cfg(test)]
+wrapped! {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== passes macro.rs :: review of #41523 F2: the same macro without #[cfg(test)] is a production cache
+wrapped! {
+    static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== refused macro.rs 4 test slot :: review of #41523 F2: a #[cfg(test)] macro statement in a fn body
+fn setup() {
+    #[cfg(test)]
+    wrapped! {
+        static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== passes macro.rs :: review of #41523 F2: the same macro statement without #[cfg(test)]
+fn setup() {
+    wrapped! {
+        static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== refused macro.rs 3 test slot :: review of #41523 F2: every item kind carries #[cfg(test)], a const block too
+#[cfg(test)]
+const _: () = {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+};
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;

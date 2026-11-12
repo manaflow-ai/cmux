@@ -39,7 +39,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `workspace`: 193
 - `pane`: 137
 - `screen`: 65
-- `tab`: 112
+- `tab`: 114
 - `terminal`: 38
 - `browser`: 251
 - `sidebar`: 90
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 30
 - `settings`: 157
 
-## Counts (1447 actions)
+## Counts (1449 actions)
 
-Palette 1389, CLI verbs 862, right-click 640, MCP tools 778.
+Palette 1391, CLI verbs 864, right-click 640, MCP tools 780.
 
 ## Menus
 
@@ -159,7 +159,7 @@ Palette 1389, CLI verbs 862, right-click 640, MCP tools 778.
 
 **minimalMenu** (4): `space.newWindow`, `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
-**pointerMenuTrim** (48): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
+**pointerMenuTrim** (50): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `tab.moveToWindow`, `tab.duplicateToNewSplit`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
 
 ## Exemptions: mcp
 

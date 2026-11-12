@@ -19,9 +19,9 @@ const USAGE: &str = "usage: cmux-source-scan test-hooks [ACPMUX_CRATE_DIR]\n    
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("test-hooks") => {
-            let dir = args.get(1).map_or_else(
+    match args.as_slice() {
+        [command, rest @ ..] if command == "test-hooks" => {
+            let dir = rest.first().map_or_else(
                 || Path::new(env!("CARGO_MANIFEST_DIR")).join("../acpmux"),
                 PathBuf::from,
             );
@@ -38,9 +38,9 @@ fn main() -> ExitCode {
             }
             ExitCode::from(1)
         }
-        Some("timing-ratio") if args.len() >= 2 => {
-            let checkout = PathBuf::from(&args[1]);
-            let roots: Vec<PathBuf> = args[2..].iter().map(PathBuf::from).collect();
+        [command, checkout, paths @ ..] if command == "timing-ratio" => {
+            let checkout = PathBuf::from(checkout);
+            let roots: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
             let scan = match timing_ratio::scan(&checkout, &roots) {
                 Ok(scan) => scan,
                 Err(error) => {

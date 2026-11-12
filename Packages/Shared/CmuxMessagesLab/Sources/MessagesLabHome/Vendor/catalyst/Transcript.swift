@@ -1143,6 +1143,13 @@ final class RowCell: UICollectionViewCell {
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
         typingContainer.isHidden = !on
         typingDiscs.forEach { $0.isHidden = !on }
+        // cmux: a group's typing bubble (body, dots and discs) sits at the bubbles' column, right of the avatar column.
+        let shift = on ? spec.cmuxIndent : 0
+        if contentView.layer.sublayerTransform.m41 != shift {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            contentView.layer.sublayerTransform = shift == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(shift, 0, 0)
+            CATransaction.commit()
+        }
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity

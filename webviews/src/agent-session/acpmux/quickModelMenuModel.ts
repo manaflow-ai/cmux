@@ -175,6 +175,9 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
   accountFamily?: string;
+  /// Its harness offers Claude Code's Ultracode on a model that runs Extra High (acpmux's own Claude
+  /// Code backend, CLAUDE_STDIO_KIND): the Effort column lists it before a chat runs the model.
+  ultracode?: boolean;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS

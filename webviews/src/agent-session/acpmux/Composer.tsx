@@ -18,7 +18,6 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
-import { useScrollEdges } from "../../ui/scrollEdges";
 import { Listbox } from "../../ui/Listbox";
 import { ComposerListLayer } from "./backdropLayer";
 import { useComposerListBox } from "./backdropLayerModel";
@@ -41,7 +40,7 @@ import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
-import { showsLocationRow } from "./locationRow";
+import { chatHasFirstSend, showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -79,6 +78,7 @@ import {
   type CmuxCommand,
   type CmuxCommandResult,
 } from "./cmuxCommands";
+import { customizeMessage } from "./customizeCommand";
 import {
   applyCommand,
   fastModeState,
@@ -1739,7 +1739,8 @@ function ComposerFrame({
     });
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
-    const taken = onSend(marked.text, sent, steer, kept);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
+    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2939,13 +2940,16 @@ function ComposerFrame({
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocus>
         }
-        // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
-        // reports usage (inert, ContextRing), so the first report moves nothing in the row
-        // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
-        // the context or the plan usage limits (composerRing; UsageRingMenu).
+        // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
+        // when the location strip goes. After that it keeps its place before the chat reports
+        // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the
+        // composer holds still while a turn runs); the context-usage setting hides it
+        // (showContextUsage), from its own right-click too, which also picks what it shows: the
+        // context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
-          showContextUsage && (
+          showContextUsage &&
+          chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
               <ContextRing
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
@@ -3019,16 +3023,8 @@ function SlashMenu({
   const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
 
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const listEdges = useScrollEdges();
+  // The escape follows the glass shell; the rows' viewport (list) is what scrolls and fades.
   const escape = useEscapingList("top", 6, undefined, box);
-  const setList = useCallback(
-    (node: HTMLDivElement | null) => {
-      list.current = node;
-      listEdges(node);
-      escape?.(node);
-    },
-    [escape, listEdges],
-  );
   // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
     const node = list.current;
@@ -3066,7 +3062,8 @@ function SlashMenu({
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   return (
     <Listbox
-      listRef={setList}
+      listRef={list}
+      shellRef={escape}
       items={matches}
       getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
       textValue={(match) => shownName(match.command)}
@@ -3076,7 +3073,7 @@ function SlashMenu({
       onActiveIndexChange={onHover}
       onOpen={(match) => onPick(match.command)}
       getItemId={(_, index) => `acpmux-slash-${index}`}
-      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
+      shellClassName="ui-popup ui-glass acpmux-slash-menu"
       id="acpmux-slash-menu"
       rowClassName="acpmux-slash-row"
       empty={<div className="acpmux-slash-empty">{empty}</div>}

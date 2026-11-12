@@ -27,7 +27,7 @@
 //! follow (a parameter, a match binding) is read by its words: `latency`, `busy`, `*_ms` are
 //! timings, `p95`, `median` percentiles, `budget`, `limit`, `timeout` and SCREAMING_CASE bounds.
 //!
-//! Skipped: `#[ignore]`, `start_paused` (tokio's paused clock), a `// not wall-clock: <why>`
+//! Skipped: `#[ignore]`, `start_paused = true` (tokio's paused clock), a `// not wall-clock: <why>`
 //! comment on the line above the assert, and a test nextest runs alone or not at all
 //! ([`crate::nextest`]).
 //!
@@ -449,7 +449,8 @@ fn is_screaming(name: &str) -> bool {
 
 fn is_pct_word(w: &str) -> bool {
     PCT_WORDS.contains(&w)
-        || (w.len() >= 3 && w.starts_with('p') && w[1..].chars().all(|c| c.is_ascii_digit()))
+        || (w.len() >= 3
+            && w.strip_prefix('p').is_some_and(|d| d.chars().all(|c| c.is_ascii_digit())))
 }
 
 fn names_pct(name: &str) -> bool {
@@ -469,7 +470,7 @@ fn name_kind(name: &str) -> Kind {
         return Kind::of(Base::Pct);
     }
     let unit = ws.len() > 1 && ws.last().is_some_and(|w| UNIT_WORDS.contains(&w.as_str()));
-    let bare_unit = ws.len() == 1 && ["us", "ms", "ns"].contains(&ws[0].as_str());
+    let bare_unit = matches!(ws.as_slice(), [w] if ["us", "ms", "ns"].contains(&w.as_str()));
     if ws.iter().any(|w| TIMING_WORDS.contains(&w.as_str())) || unit || bare_unit {
         return Kind::of(Base::Timing);
     }
@@ -562,7 +563,7 @@ fn path_segs(p: &syn::ExprPath) -> Vec<String> {
 fn single_ident(e: &Expr) -> Option<String> {
     match e {
         Expr::Path(p) if p.qself.is_none() && p.path.segments.len() == 1 => {
-            Some(p.path.segments[0].ident.to_string())
+            p.path.segments.first().map(|s| s.ident.to_string())
         }
         _ => None,
     }
@@ -732,7 +733,7 @@ impl Scope<'_> {
             _ => Vec::new(),
         };
         let last = segs.last().map_or("", String::as_str);
-        let parent = segs.len().checked_sub(2).map(|i| segs[i].as_str());
+        let parent = segs.len().checked_sub(2).and_then(|i| segs.get(i)).map(String::as_str);
         let measured: Vec<&Kind> =
             args.iter().filter(|a| a.measured() || a.base == Base::Ratio).collect();
         let all_const = !args.is_empty() && args.iter().all(|a| a.base == Base::Const);
@@ -984,7 +985,7 @@ fn reads_clock(tokens: TokenStream) -> bool {
             return false;
         };
         match name.as_str() {
-            "elapsed" => k > 0 && flat[k - 1] == Flat::Punct('.'),
+            "elapsed" => k.checked_sub(1).and_then(|j| flat.get(j)) == Some(&Flat::Punct('.')),
             "Instant" | "SystemTime" => {
                 flat.get(k + 1) == Some(&Flat::Punct(':'))
                     && flat.get(k + 2) == Some(&Flat::Punct(':'))
@@ -1015,6 +1016,21 @@ struct Items {
     spread_fns: HashSet<String>,
 }
 
+/// Whether an attribute's tokens set `start_paused = true` (tokio's paused clock), at any depth.
+/// `start_paused = false` runs on the wall clock (#41523 F3).
+fn starts_paused(tokens: TokenStream) -> bool {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees.iter().enumerate().any(|(i, tree)| match tree {
+        TokenTree::Group(group) => starts_paused(group.stream()),
+        TokenTree::Ident(ident) if ident == "start_paused" => matches!(
+            (trees.get(i + 1), trees.get(i + 2)),
+            (Some(TokenTree::Punct(eq)), Some(TokenTree::Ident(value)))
+                if eq.as_char() == '=' && value == "true"
+        ),
+        _ => false,
+    })
+}
+
 fn macro_name(mac: &syn::Macro) -> String {
     mac.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
 }
@@ -1028,8 +1044,8 @@ impl Items {
         let is_test =
             paths.iter().any(|p| p.last().is_some_and(|last| TEST_ATTRS.contains(&last.as_str())));
         if is_test {
-            let ignored = paths.iter().any(|p| p.len() == 1 && p[0] == "ignore");
-            let paused = attrs.iter().any(|a| has_ident(a.meta.to_token_stream(), "start_paused"));
+            let ignored = paths.iter().any(|p| matches!(p.as_slice(), [only] if only == "ignore"));
+            let paused = attrs.iter().any(|a| starts_paused(a.meta.to_token_stream()));
             if !ignored && !paused {
                 self.tests.push(TestFn {
                     name: sig.ident.to_string(),

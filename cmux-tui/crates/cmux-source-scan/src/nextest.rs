@@ -71,8 +71,7 @@ pub fn parse_filter(text: &str) -> Result<Filter, String> {
     let n = chars.len();
     let mut toks = Vec::new();
     let mut i = 0;
-    while i < n {
-        let c = chars[i];
+    while let Some(&c) = chars.get(i) {
         if c.is_whitespace() {
             i += 1;
         } else if "()&|+-!".contains(c) {
@@ -80,34 +79,34 @@ pub fn parse_filter(text: &str) -> Result<Filter, String> {
             i += 1;
         } else if c.is_alphabetic() || c == '_' {
             let mut j = i;
-            while j < n && (chars[j].is_alphanumeric() || chars[j] == '_') {
+            while chars.get(j).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
                 j += 1;
             }
-            let word: String = chars[i..j].iter().collect();
+            let word: String = chars.get(i..j).unwrap_or_default().iter().collect();
             let mut k = j;
-            while k < n && chars[k].is_whitespace() {
+            while chars.get(k).is_some_and(|c| c.is_whitespace()) {
                 k += 1;
             }
-            if !matches!(word.as_str(), "and" | "or" | "not") && k < n && chars[k] == '(' {
+            if !matches!(word.as_str(), "and" | "or" | "not") && chars.get(k) == Some(&'(') {
                 k += 1;
-                while k < n && chars[k].is_whitespace() {
+                while chars.get(k).is_some_and(|c| c.is_whitespace()) {
                     k += 1;
                 }
                 let arg_start = k;
-                if k < n && chars[k] == '/' {
+                if chars.get(k) == Some(&'/') {
                     k += 1;
-                    while k < n && chars[k] != '/' {
-                        k += if chars[k] == '\\' { 2 } else { 1 };
+                    while let Some(&c) = chars.get(k).filter(|c| **c != '/') {
+                        k += if c == '\\' { 2 } else { 1 };
                     }
                     k += 1;
                 }
-                while k < n && chars[k] != ')' {
-                    k += if chars[k] == '\\' { 2 } else { 1 };
+                while let Some(&c) = chars.get(k).filter(|c| **c != ')') {
+                    k += if c == '\\' { 2 } else { 1 };
                 }
-                if k >= n {
+                let Some(arg) = chars.get(arg_start..k).filter(|_| k < n) else {
                     return Err(format!("unclosed {word}( in {text:?}"));
-                }
-                let arg: String = chars[arg_start..k].iter().collect();
+                };
+                let arg: String = arg.iter().collect();
                 toks.push(Tok::Fn(word, arg.trim().to_string()));
                 i = k + 1;
             } else {
@@ -199,10 +198,11 @@ impl FilterParser<'_> {
                     }
                 {
                     matcher = m;
-                    arg = &arg[1..];
-                } else if arg.len() >= 2 && arg.starts_with('/') && arg.ends_with('/') {
+                    arg = arg.strip_prefix(first).unwrap_or(arg);
+                } else if let Some(inner) = arg.strip_prefix('/').and_then(|a| a.strip_suffix('/'))
+                {
                     matcher = Matcher::Regex;
-                    arg = &arg[1..arg.len() - 1];
+                    arg = inner;
                 }
                 let value = arg.replace("\\)", ")").replace("\\,", ",");
                 let regex =
@@ -216,36 +216,39 @@ impl FilterParser<'_> {
 
 /// `*`, `?` and `[...]` (`[!...]` negated), all of `value`.
 fn glob(pattern: &[char], value: &[char]) -> bool {
-    match pattern.first() {
-        None => value.is_empty(),
-        Some('*') => (0..=value.len()).any(|k| glob(&pattern[1..], &value[k..])),
-        Some('?') => !value.is_empty() && glob(&pattern[1..], &value[1..]),
-        Some('[') => {
-            let Some(close) = pattern.iter().skip(2).position(|c| *c == ']').map(|p| p + 2) else {
-                return value.first() == Some(&'[') && glob(&pattern[1..], &value[1..]);
+    let Some((&p, rest)) = pattern.split_first() else {
+        return value.is_empty();
+    };
+    match p {
+        '*' => (0..=value.len()).filter_map(|k| value.get(k..)).any(|v| glob(rest, v)),
+        '?' => value.split_first().is_some_and(|(_, v)| glob(rest, v)),
+        '[' => {
+            // The class's first char (`rest[0]`) may itself be `]`.
+            let class = rest.iter().skip(1).position(|c| *c == ']').map(|p| p + 1);
+            let Some((set, after)) = class.and_then(|close| rest.split_at_checked(close)) else {
+                return value.split_first().is_some_and(|(c, v)| *c == '[' && glob(rest, v));
             };
-            let Some(&c) = value.first() else {
+            let after = after.get(1..).unwrap_or_default();
+            let Some((&c, value_rest)) = value.split_first() else {
                 return false;
             };
-            let mut set = &pattern[1..close];
-            let negated = set.first() == Some(&'!');
-            if negated {
-                set = &set[1..];
-            }
+            let (negated, mut set) = match set.split_first() {
+                Some(('!', set)) => (true, set),
+                _ => (false, set),
+            };
             let mut hit = false;
-            let mut k = 0;
-            while k < set.len() {
-                if k + 2 < set.len() && set[k + 1] == '-' {
-                    hit |= set[k] <= c && c <= set[k + 2];
-                    k += 3;
+            while let Some((&lo, tail)) = set.split_first() {
+                if let ['-', hi, next @ ..] = tail {
+                    hit |= lo <= c && c <= *hi;
+                    set = next;
                 } else {
-                    hit |= set[k] == c;
-                    k += 1;
+                    hit |= lo == c;
+                    set = tail;
                 }
             }
-            hit != negated && glob(&pattern[close + 1..], &value[1..])
+            hit != negated && glob(after, value_rest)
         }
-        Some(p) => value.first() == Some(p) && glob(&pattern[1..], &value[1..]),
+        p => value.split_first().is_some_and(|(c, v)| *c == p && glob(rest, v)),
     }
 }
 
@@ -371,7 +374,7 @@ impl Profiles {
         }
         for name in names {
             let profile = self.0.get(name).unwrap_or(default);
-            let inherited = if name == "default" { &[][..] } else { &default.overrides[..] };
+            let inherited: &[Override] = if name == "default" { &[] } else { &default.overrides };
             let default_filter =
                 profile.default_filter.as_ref().or(default.default_filter.as_ref());
             if default_filter.is_some_and(|f| eval_filter(f, t) == Some(false)) {
@@ -503,27 +506,31 @@ impl Layout {
         if matches!(first, Some("benches" | "examples")) {
             return FileTests::NotRun;
         }
-        let (binary, file_mods, binary_id, kind) = if first == Some("tests") && parts.len() >= 2 {
-            let binary = stem[1].clone();
+        let (binary, file_mods, binary_id, kind) = if first == Some("tests")
+            && let [_, binary, mods @ ..] = stem.as_slice()
+        {
+            let binary = binary.clone();
+            (binary.clone(), without(mods, ["main", "mod"]), format!("{package}::{binary}"), "test")
+        } else if let [src, bin, _, ..] = parts.as_slice()
+            && src == "src"
+            && bin == "bin"
+            && let [_, _, binary, mods @ ..] = stem.as_slice()
+        {
+            let binary = binary.clone();
             (
                 binary.clone(),
-                without(&stem[2..], ["main", "mod"]),
-                format!("{package}::{binary}"),
-                "test",
-            )
-        } else if parts.len() >= 3 && parts[0] == "src" && parts[1] == "bin" {
-            let binary = stem[2].clone();
-            (
-                binary.clone(),
-                without(&stem[3..], ["main", "mod"]),
+                without(mods, ["main", "mod"]),
                 format!("{package}::bin/{binary}"),
                 "bin",
             )
         } else if parts == ["src", "main.rs"] {
             (package.clone(), Vec::new(), format!("{package}::bin/{package}"), "bin")
         } else {
-            let mods =
-                if first == Some("src") { without(&stem[1..], ["lib", "mod"]) } else { stem };
+            let mods = if first == Some("src") {
+                without(stem.get(1..).unwrap_or_default(), ["lib", "mod"])
+            } else {
+                stem
+            };
             (lib, mods, package.clone(), "lib")
         };
         FileTests::Crate { file_mods, binary_id, binary, package, kind: kind.to_string() }

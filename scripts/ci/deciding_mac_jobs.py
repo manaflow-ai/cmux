@@ -36,6 +36,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import Unknown, disallowed_labels, resolve_labels  # noqa: E402
+import workflow_jobs  # noqa: E402 - tests/workflow_jobs.py, the one reader of a job's runs-on
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ROUTING_CHECK = "cmux-next path routing"
@@ -80,16 +81,32 @@ def runner_class(runs_on) -> str:
     return "other"
 
 
+def _cell_value(cell: tuple[str, ...]) -> str | list[str]:
+    """One runs-on cell as runs_on_labels reads it: its one label, or the list it asks for."""
+    return cell[0] if len(cell) == 1 else list(cell)
+
+
+def job_runner_class(job: dict) -> str:
+    """runner_class of the job's runs-on, read per matrix cell (workflow_jobs.runs_on_label_cells): mac when any
+    cell can schedule on a Mac, linux when every cell is Linux, else other. `${{ matrix.runner }}` read as one
+    string is one unknown value, so a matrix with a Mac cell would count as other and its checks as no Mac's."""
+    cells = workflow_jobs.runs_on_label_cells(job)
+    if not cells:
+        return "other"  # None: a matrix nothing resolves; []: a reusable-workflow caller, whose jobs are their own
+    classes = {runner_class(_cell_value(cell)) for cell in cells}
+    return "mac" if "mac" in classes else "linux" if classes == {"linux"} else "other"
+
+
 def classify(workflow: Path = WORKFLOW) -> dict[str, tuple[str, str]]:
     """job id -> (check name, runner class) for every job of the workflow."""
     jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-    return {job_id: (check_name(job_id, job), runner_class(job.get("runs-on"))) for job_id, job in jobs.items()}
+    return {job_id: (check_name(job_id, job), job_runner_class(job)) for job_id, job in jobs.items()}
 
 
 def classify_names(workflow: Path = WORKFLOW) -> list[tuple[str, str]]:
     """(check name, runner class) for every name any job's check run can show."""
     jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-    return [(name, runner_class(job.get("runs-on"))) for job_id, job in jobs.items()
+    return [(name, job_runner_class(job)) for job_id, job in jobs.items()
             for name in check_names(job_id, job)]
 
 
@@ -150,7 +167,13 @@ def guard(workflow: Path = WORKFLOW) -> list[str]:
         if check_name(job_id, job) != name:
             problems.append(f"{job_id}: its check is now {check_name(job_id, job)!r}, not {name!r}; "
                             "autoland's WAITED_JOBS and the required checks must follow")
-        bad = disallowed_labels(job.get("runs-on"))
+        cells = workflow_jobs.runs_on_label_cells(job)
+        if cells is None:
+            problems.append(f"{job_id}: may run off Linux: its runs-on reads a matrix value nothing resolves")
+            continue
+        bad = {}
+        for cell in cells or [("",)]:
+            bad.update(disallowed_labels(_cell_value(cell)))
         if bad:
             problems.append(f"{job_id}: may run off Linux: " + "; ".join(f"{k} ({v})" for k, v in sorted(bad.items())))
     return problems

@@ -116,6 +116,37 @@ def test_real_budget_rejects_the_x86_64_snapshot(tmp: Path) -> None:
     assert "v8_context_snapshot.x86_64.bin" in r.stderr, r.stderr
 
 
+def test_summary_names_the_overage_and_the_change_and_exits_0(tmp: Path) -> None:
+    # Over budget is reported, not gated: the nightly shows it on every run.
+    app = make_app(tmp)
+    dmg = tmp / "x.dmg"
+    dmg.write_bytes(b"d" * (3 * 1024 * 1024))
+    b = budget(tmp, app_max_bytes=5000, dmg_max_bytes=2 * 1024 * 1024)
+    out = tmp / "s.json"
+    r = run("summary", str(app), "--budget", str(b), "--variant", "arm64", "--dmg", str(dmg),
+            "--previous-dmg-bytes", str(2 * 1024 * 1024 + 512 * 1024), "--json", str(out))
+    assert r.returncode == 0, r.stderr
+    head = r.stdout.splitlines()[0]
+    assert head == ("**DMG 3.0 MiB**: 1.0 MiB over its 2.0 MiB cap (arm64); "
+                    "+0.5 MiB since the previous nightly (2.5 MiB)."), head
+    assert "- DMG over budget: x.dmg" in r.stdout, r.stdout
+    data = json.loads(out.read_text())
+    assert data["over_budget"] is True
+    assert data["dmg_delta_bytes"] == 512 * 1024
+    assert data["app_bytes"] == 4600 and data["app_max_bytes"] == 5000
+
+
+def test_summary_under_budget_without_a_previous_nightly(tmp: Path) -> None:
+    app = make_app(tmp)
+    dmg = tmp / "x.dmg"
+    dmg.write_bytes(b"d" * 10)
+    b = budget(tmp, app_max_bytes=5000, dmg_max_bytes=1024 * 1024)
+    r = run("summary", str(app), "--budget", str(b), "--variant", "arm64", "--dmg", str(dmg))
+    assert r.returncode == 0, r.stderr
+    assert "under its 1.0 MiB cap (arm64); no previous nightly to compare." in r.stdout, r.stdout
+    assert "Over budget" not in r.stdout, r.stdout
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

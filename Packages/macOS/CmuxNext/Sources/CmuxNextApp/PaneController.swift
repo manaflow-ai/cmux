@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextHibernation
 import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
@@ -42,6 +43,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingSelect = PendingTabSelect()
     let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
+    lazy var hoverLoad = HoverWakeGate(owner: "PaneHoverLoad") { [weak self] in if case let .tab(key) = $0 { self?.loadOnHover(key) } } // a rest on a strip tab (PaneController+Neighbors)
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
         item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
@@ -114,7 +116,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let views = spare ?? Spare(services: services)
         (stripModel, view) = (views.stripModel, views.view)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3) } // the window's one close rule
+        stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3, groups: $4) } // the window's one close rule
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
@@ -136,6 +138,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
+        hoverLoad.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
         launchFrames.withdrawAhead(in: view.contentHost)
@@ -354,7 +357,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
         if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
         // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

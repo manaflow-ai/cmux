@@ -28,6 +28,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var raw: [String] = []
         var rawBytes = 0
         var processing = false
+        /// Stream notifications left out since the page fell a full queue behind
+        /// (``AcpmuxPaneShedding``); nil while none is. `shedEnding`: its end is queued.
+        var shed: Int?
+        var shedEnding = false
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
@@ -47,6 +51,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
             inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush
+        }
+
+        /// The page is a full queue behind with `bytes` more: stream notifications are shed.
+        func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
+            raw.count + inbox.count >= limits.maximumQueuedFrames
+                || rawBytes + inboxBytes + bytes > limits.maximumQueuedBytes
+        }
+
+        /// Past the ceiling with `bytes` more: even a reply no longer queues.
+        func pastCeiling(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
+            raw.count + inbox.count >= limits.ceilingQueuedFrames
+                || rawBytes + inboxBytes + bytes > limits.ceilingQueuedBytes
+        }
+
+        /// Caught up enough to end a shed episode: a quarter of the queue or less waits.
+        func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
+            raw.count + inbox.count <= limits.maximumQueuedFrames / 4
+                && rawBytes + inboxBytes <= limits.maximumQueuedBytes / 4
         }
     }
 
@@ -166,23 +188,79 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// A host read uses the daemon reply path, including its bounds, ids and reply filtering.
     func receiveLocalReply(_ text: String) { arrived(text) }
 
+    /// A daemon frame for the page. A page a full queue behind loses stream notifications until it
+    /// caught up, then reads what it missed (``AcpmuxPaneShedding``); replies and requests still
+    /// queue, and only past the ceiling does the connection close.
     private func arrived(_ frame: String) {
         let received = Self.nativeUTF8(frame)
         let bytes = received.utf8.count
-        let (start, overflow) = state.withLock { state -> (Bool, Bool) in
-            guard state.closed == nil else { return (false, false) }
-            if state.raw.count + state.inbox.count >= limits.maximumQueuedFrames
-                || state.rawBytes + state.inboxBytes + bytes > limits.maximumQueuedBytes {
-                return (false, true)
-            }
-            state.raw.append(received)
-            state.rawBytes += bytes
-            guard !state.processing else { return (false, false) }
-            state.processing = true
-            return (true, false)
+        // The plain path: nothing shed and room left, one lock and no scan.
+        let decided = state.withLock { state -> Bool? in
+            guard state.closed == nil else { return false }
+            if state.shed != nil || state.full(limits, adding: bytes) { return nil }
+            return admit(received, bytes: bytes, into: &state)
         }
-        if overflow { close(code: 1008, reason: "inbound overflow", error: .inboundOverflow) }
-        if start { inbound.async { [self] in process() } }
+        if let start = decided {
+            if start { inbound.async { [self] in process() } }
+            return
+        }
+        let sheddable = AcpmuxPaneShedding.sheddable(received)
+        enum Outcome { case queued(start: Bool), shed(first: Bool), overflow, gone }
+        let outcome = state.withLock { state -> Outcome in
+            guard state.closed == nil else { return .gone }
+            if sheddable, state.shed != nil || state.full(limits, adding: bytes) {
+                let first = state.shed == nil
+                state.shed = (state.shed ?? 0) + 1
+                return .shed(first: first)
+            }
+            if state.pastCeiling(limits, adding: bytes) { return .overflow }
+            return .queued(start: admit(received, bytes: bytes, into: &state))
+        }
+        switch outcome {
+        case .queued(let start): if start { inbound.async { [self] in process() } }
+        case .shed(let first):
+            if first {
+                AgentPaneTransport.logger.notice("agent pane transport shedding stream notifications: the page is a full queue behind connection=\(self.connection, privacy: .public)")
+            }
+            // Ends once the page caught up (``take(maximumFrames:maximumBytes:)``); a page that
+            // drained while this frame was scanned is caught up already.
+            endSheddingIfCaughtUp()
+        case .overflow: close(code: 1008, reason: "inbound overflow", error: .inboundOverflow)
+        case .gone: break
+        }
+    }
+
+    /// Appends a frame for the next pass; true when a pass must start.
+    private func admit(_ text: String, bytes: Int, into state: inout State) -> Bool {
+        state.raw.append(text)
+        state.rawBytes += bytes
+        guard !state.processing else { return false }
+        state.processing = true
+        return true
+    }
+
+    /// Queues the end of a shed episode once the page caught up: on the inbound queue, after the
+    /// pass over frames that came before it, so the page reads what it missed from where they end.
+    private func endSheddingIfCaughtUp() {
+        let queue = state.withLock { state -> Bool in
+            guard state.closed == nil, state.shed != nil, !state.shedEnding, state.caughtUp(limits) else { return false }
+            state.shedEnding = true
+            return true
+        }
+        if queue { inbound.async { [self] in endShedding() } }
+    }
+
+    private func endShedding() {
+        let dropped = state.withLock { state -> Int? in
+            state.shedEnding = false
+            guard state.closed == nil, let shed = state.shed else { return nil }
+            state.shed = nil
+            return shed
+        }
+        guard let dropped else { return }
+        AgentPaneTransport.logger.notice("agent pane transport shed stream notifications dropped=\(dropped, privacy: .public) connection=\(self.connection, privacy: .public); the page reads them again")
+        // Awaited: a hidden page gets it too, so its chat is whole when it is shown.
+        enqueue([AcpmuxPaneShedding.lagMarker(dropped: dropped)], awaited: 1)
     }
 
     /// The frame as native UTF-8. URLSessionWebSocketTask hands a text frame over as a bridged
@@ -384,6 +462,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
 
+    /// Tests: returns once every inbound pass queued so far ran (frames checked and queued for the
+    /// page, a shed episode's end). Off the main thread only.
+    func waitForInboundPasses() { inbound.blockingSync {} }
+
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
@@ -409,7 +491,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
     func take(maximumFrames: Int, maximumBytes: Int) -> Batch {
-        state.withLock { state in
+        let batch = state.withLock { state -> Batch in
             var count = 0
             var bytes = 0
             while count < min(maximumFrames, state.inbox.count) {
@@ -432,6 +514,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             if !more { state.signaled = false }
             return Batch(frames: frames, closed: closed, more: more)
         }
+        if batch.closed == nil { endSheddingIfCaughtUp() }
+        return batch
     }
 
     // MARK: Outbound

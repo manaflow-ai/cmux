@@ -57,7 +57,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         self.style = style
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
         layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
@@ -156,6 +156,9 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     override func layout() {
         super.layout()
+        // The sidebar workspace row's corners (Lawrence 2026-11-09: "roundness needs to match roundness of the
+        // workspace row itself"), read here so a density change follows.
+        layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
         let outset = Self.fillOutset
         let side = WorkspaceHoverCardView.iconSize
         let mark = Metrics.smallIconSize
