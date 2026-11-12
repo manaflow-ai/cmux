@@ -59,9 +59,14 @@ pub(super) fn parse(raw: &str, cwd: &Path) -> Result<Source, String> {
         Some(reference) => vec![reference],
         None => tail,
     };
+    // Each part is a ref name's or a folder's part, never an option or a relative step.
     for part in &tail {
-        if part.is_empty() || part == "." || part == ".." {
-            return Err(format!("{raw}: the /tree/ path has an empty or relative part"));
+        let ok =
+            !part.starts_with('-') && part != "." && part != ".." && machine_repo::is_ref(part);
+        if !ok {
+            return Err(format!(
+                "{raw}: {part:?} in the /tree/ path is not a branch, tag, commit or folder name"
+            ));
         }
     }
     Ok(Source::Git { repo, tail, subdir })
@@ -202,7 +207,8 @@ pub(super) fn resolve(
     commit_of: impl Fn(&str) -> Option<String>,
 ) -> Option<(String, Option<String>, Option<String>)> {
     if tail.is_empty() {
-        let commit = commit_of("refs/remotes/origin/HEAD").or_else(|| commit_of("HEAD"))?;
+        // Only origin's default branch: the clone's own HEAD is whatever an earlier add checked out.
+        let commit = commit_of("refs/remotes/origin/HEAD")?;
         return Some((commit, None, None));
     }
     (1..=tail.len()).find_map(|cut| {

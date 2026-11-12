@@ -405,12 +405,13 @@ async fn search(query: Option<&str>) -> Result<Value, String> {
     }
     let response = request.send().await.map_err(|err| err.to_string())?;
     let status = response.status();
-    let body: Value = response.json().await.map_err(|err| err.to_string())?;
+    let text = response.text().await.map_err(|err| err.to_string())?;
+    let body: Option<Value> = serde_json::from_str(&text).ok();
     if !status.is_success() {
-        let said = body.field("message").as_str().unwrap_or("no message");
+        let said = body.as_ref().and_then(|b| b.field("message").as_str()).unwrap_or("no message");
         return Err(format!("GitHub answered {status}: {said}"));
     }
-    Ok(body)
+    body.ok_or_else(|| format!("GitHub answered {status} with no JSON"))
 }
 
 /// `ext search [QUERY]`.

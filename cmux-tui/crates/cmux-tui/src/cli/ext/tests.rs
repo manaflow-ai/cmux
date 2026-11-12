@@ -732,6 +732,7 @@ fn sources_name_folders_repositories_and_folders_inside_them() {
         "https://user:token@github.com/acme/widgets",
         "acme/widgets#../escape",
         "https://github.com/acme/widgets/tree/main/../x",
+        "https://github.com/acme/widgets/tree/--upload-pack=x/y",
         "not a source",
     ] {
         assert!(source::parse(bad, cwd).is_err(), "{bad}");
