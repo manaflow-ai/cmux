@@ -437,6 +437,95 @@ class SavedTrapAndSubshellSource(unittest.TestCase):
         self.assertEqual(int_only.strip(), "trap -- 'echo int' SIGINT")
 
 
+class TrapMatchesTheBuiltin(unittest.TestCase):
+    """The file's `trap` wrapper must print and do what bash's own builtin does, for every form a caller writes.
+
+    Follow-ups to the reviews of hq#9715 and cmux#41713. F1: `trap '' EXIT` was kept as an empty string, the same as
+    no caller trap, so `trap -p EXIT` printed nothing instead of `trap -- '' EXIT` and a saved ignored trap was lost.
+    F2: `trap -p --` read `--` as a signal name, so the listing showed the helper's dispatcher and not the caller's
+    EXIT action. The class of bug is the wrapper reading its arguments differently from the builtin, so this row runs
+    each form once under the wrapper and once in plain bash and compares stdout, the exit status and stderr (minus the
+    `FILE: line N:` prefix, which names the wrapper's file). Each form also exits through its EXIT action, so what
+    runs at exit is compared too. Run on the CI runner's bash and in the `bash:3.2` image (macOS /bin/bash)."""
+
+    # (name, script lines). Each line is followed by `echo "rc=$?"`, and every script ends with a full `trap -p`
+    # listing and `exit 3`, so the EXIT action runs and its $? is printed.
+    CASES = [
+        ("trap and trap -p with nothing set", [r"trap", r"trap -p", r"trap -p EXIT"]),
+        ("trap lists everything", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap"]),
+        ("trap -p", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap -p"]),
+        ("trap -p EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap -p EXIT"]),
+        ("trap -p -- EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap -p -- EXIT"]),
+        ("trap -p --", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap -p --"]),
+        ("trap -p -- round trip", [r"""trap 'echo "bye $?"' EXIT""", r"saved=$(trap -p --)", r"trap - EXIT",
+                                   r'eval "$saved"']),
+        ("trap -l", [r"trap -l", r"trap -lp", r"trap -p -l"]),
+        ("trap - EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap - EXIT", r"trap -p EXIT"]),
+        ("trap '' EXIT", [r"trap '' EXIT", r"trap -p EXIT"]),
+        ("ignored EXIT round trip", [r"trap '' EXIT", r"saved=$(trap -p EXIT)", r"trap - EXIT", r'eval "$saved"',
+                                     r"trap -p EXIT"]),
+        ("ignored EXIT round trip, whole listing", [r"trap '' EXIT", r"""trap 'echo int' INT""",
+                                                    r"saved=$(trap -p)", r"trap - EXIT INT", r'eval "$saved"']),
+        ("ignored before sourcing", [r"trap -p EXIT"]),
+        ("ignore after an ignored reset", [r"trap '' EXIT", r"trap - EXIT", r"trap '' EXIT", r"trap -p EXIT",
+                                           r"""trap 'echo "bye $?"' EXIT""", r"trap - EXIT", r"trap '' EXIT",
+                                           r"trap -p EXIT"]),
+        ("ignored and reset before sourcing", [r"trap '' EXIT", r"trap -p EXIT"]),
+        ("trap -- action EXIT", [r"""trap -- 'echo "bye $?"' EXIT""", r"trap -p EXIT"]),
+        ("trap action 0", [r"""trap 'echo "bye $?"' 0""", r"trap -p 0"]),
+        ("trap action 00", [r"""trap 'echo "bye $?"' 00""", r"trap -p 00"]),
+        ("SIGEXIT is not a signal", [r"""trap 'echo "bye $?"' SIGEXIT""", r"trap -p SIGEXIT", r"trap - SIGEXIT"]),
+        ("lowercase exit", [r"""trap 'echo "bye $?"' exit""", r"trap -p exit", r"trap -p Exit"]),
+        ("lowercase exit reset", [r"""trap 'echo "bye $?"' EXIT""", r"trap - Exit"]),
+        ("lowercase sigexit", [r"""trap 'echo "bye $?"' sigexit"""]),
+        ("several signals in one call", [r"""trap 'echo many' INT EXIT TERM""", r"trap -p INT EXIT TERM",
+                                         r"trap - INT EXIT", r"trap -p TERM EXIT INT"]),
+        ("trap EXIT resets", [r"""trap 'echo "bye $?"' EXIT""", r"trap EXIT", r"trap -p",
+                              r"""trap 'echo "bye $?"' EXIT""", r"trap -- EXIT"]),
+        ("a digit first resets every signal", [r"""trap 'echo "bye $?"' EXIT""", r"""trap 'echo int' INT""",
+                                               r"trap 0 INT"]),
+        ("trap 0 resets", [r"""trap 'echo "bye $?"' EXIT""", r"trap 0"]),
+        ("an invalid signal keeps the valid ones", [r"""trap 'echo "bye $?"' NOPE EXIT INT""", r"trap -p NOPE EXIT"]),
+        ("usage", [r"trap x"]),
+        ("usage after --", [r"trap -- -p"]),
+        ("usage with an empty action", [r"trap ''"]),
+        ("an unknown option", [r"trap -x"]),
+        ("an option-looking signal", [r"trap -p -- -x"]),
+        ("quotes in the action", [r"""trap 'echo "it'\''s $?"' EXIT""", r"saved=$(trap -p EXIT)", r"trap - EXIT",
+                                  r'eval "$saved"', r"trap -p EXIT"]),
+        ("a blank line inside an action", [r"trap $'echo a\n\necho b' INT", r"""trap 'echo "bye $?"' EXIT""",
+                                           r"trap -p"]),
+    ]
+    # Set before the script (and before sourcing, under the wrapper).
+    BEFORE = {"ignored before sourcing": "trap '' EXIT\n",
+              "ignored and reset before sourcing": "trap '' EXIT\ntrap - EXIT\n"}
+    PREFIX = re.compile(r"^.*?\bline \d+: ", re.M)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-builtin-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+
+    def run_side(self, script: str, tmpdir: Path) -> tuple[str, int, str]:
+        done = subprocess.run(["bash", "-c", script, "_", str(LIB)], env={**self.env, "TMPDIR": str(tmpdir)},
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+        return done.stdout, done.returncode, self.PREFIX.sub("", done.stderr)
+
+    def test_every_trap_form_matches_the_builtin(self):
+        for errexit in ("", "set -euo pipefail\n"):
+            for number, (name, lines) in enumerate(self.CASES):
+                with self.subTest(errexit=bool(errexit), form=name):
+                    # A TMPDIR per form, so a folder one form leaves is charged to that form alone.
+                    tmpdir = self.tmp / f"tmpdir-{bool(errexit)}-{number}"
+                    tmpdir.mkdir()
+                    body = "".join(f'{line}\necho "rc=$?"\n' for line in lines) + "echo ==\ntrap -p\nexit 3\n"
+                    before = errexit + self.BEFORE.get(name, "")
+                    plain = self.run_side(before + body, tmpdir)
+                    wrapped = self.run_side(before + 'source "$1"\n' + body, tmpdir)
+                    self.assertEqual(wrapped, plain, f"script:\n{before}{body}")
+                    self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
+
+
 class Bash32(unittest.TestCase):
     """The review of hq#9715 F1, ported: macOS's /bin/bash is 3.2, which has no $BASHPID, so a `set -u` caller died
     sourcing the file ("BASHPID: unbound variable"). bash 4+ always sets BASHPID, so no run here can reproduce that;

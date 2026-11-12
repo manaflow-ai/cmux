@@ -20,9 +20,12 @@ import importlib.util
 import io
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -451,6 +454,123 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
             self.assertEqual(call["env"]["GIT_TERMINAL_PROMPT"], "0")
             self.assertEqual(call["env"]["GCM_INTERACTIVE"], "never")
             self.assert_no_prompt(call)
+
+
+    # -- cmux#41750 review: the fetch ends with whatever cancels its caller -------------------------------------
+
+    def slow_ssh(self) -> Path:
+        """An ssh that never answers; each start writes its pid to self.ssh_pids (git's `-G` probe connects nowhere)."""
+        self.ssh_pids = self.tmp / "slow-ssh.pids"
+        slow = self.tmp / "bin" / "slow" / "ssh"
+        slow.parent.mkdir(parents=True, exist_ok=True)
+        slow.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if sys.argv[1:2] != ['-G']:\n"
+                        f"    open({str(self.ssh_pids)!r}, 'a').write(f'{{os.getpid()}}\\n')\n"
+                        f"    time.sleep(120)\n")
+        slow.chmod(0o755)
+        return slow
+
+    def ssh_started(self) -> list[int]:
+        return [int(line) for line in self.ssh_pids.read_text().split()] if self.ssh_pids.exists() else []
+
+    def assert_fetch_gone(self, started: list[int], why: str) -> None:
+        """Every ssh in STARTED exits within 5 s (one the test started itself and finds alive is then killed)."""
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            try:  # an orphan its reaper has not collected yet is gone too
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            except (OSError, IndexError):
+                return True
+
+        deadline = time.monotonic() + 5
+        while any(alive(pid) for pid in started) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = [pid for pid in started if alive(pid)]
+        for pid in left:
+            os.kill(pid, 9)
+        self.assertEqual(left, [], why)
+
+    def assert_attempt_stamped(self) -> None:
+        stamp = Path(self.git(self.work, "rev-parse", "--path-format=absolute", "--git-common-dir")) / \
+            "cmux-guardrails" / self.push_range.UPSTREAM_REFRESH_FILE
+        self.assertTrue(stamp.exists(), "the cancelled fetch is stamped for its hook run")
+        note = self.finish(self.checker("run-1"))
+        self.assertIn("could not be fetched", note)
+        self.assertEqual(len(self.ssh_started()), 1, "the next checker of the run did not fetch again")
+
+    def test_the_fast_tier_s_cancel_ends_the_fetch_and_stamps_the_attempt(self):
+        """prepush_fast_tier.py kills its worker's process group with SIGKILL after 4 s. The fetch ran in a session
+        of its own, so it escaped: ssh ran on with no 30 s limit and no stamp, and the next checker of the same hook
+        run fetched again beside it. Runs the real fast-tier entry point against an ssh that never answers."""
+        self.over_ssh()
+        os.environ.update(GIT_SSH_COMMAND=str(self.slow_ssh()), CMUX_PREPUSH_RUN="run-1")
+        tier = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/cmux-next/prepush_fast_tier.py"),
+                               "--repo", str(self.work), "--remote", "origin"], input=self.key + "\n",
+                              capture_output=True, text=True, timeout=60)
+        self.assertIn("4s budget exhausted", tier.stdout, f"the fast tier cancelled its worker: {tier.stdout}")
+        self.assertTrue(self.ssh_started(), "the fetch reached ssh before the cancel")
+        self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the fast tier that cancelled it")
+        self.assert_attempt_stamped()
+
+    def test_ctrl_c_on_a_checker_ends_the_fetch_and_stamps_the_attempt(self):
+        """cmux#41750 review: Ctrl-C (SIGINT) on a checker mid-fetch. The terminal's SIGINT reaches only the
+        foreground process group, which the fetch's own session is not in, and subprocess.run answers the
+        KeyboardInterrupt by killing its own child alone. The checker is interrupted once its fetch reaches ssh."""
+        self.over_ssh()
+        os.environ["GIT_SSH_COMMAND"] = str(self.slow_ssh())
+        proc = self.checker("run-1")
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        deadline = time.monotonic() + 30
+        while not self.ssh_started() and time.monotonic() < deadline and proc.poll() is None:
+            time.sleep(0.05)
+        self.assertTrue(self.ssh_started(), "the checker's fetch reached ssh")
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=30)
+        self.assertNotEqual(proc.returncode, 0, "the checker stopped on Ctrl-C")
+        self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the checker stopped by Ctrl-C")
+        self.assert_attempt_stamped()
+
+class SshBatchModeWins(StaleBaseFixture):
+    """cmux#41750 review: OpenSSH keeps the FIRST value of an option, so `-o BatchMode=yes` appended after a user's
+    `BatchMode=no` lost, and ssh could still ask. Each row resolves the command the fetch would run with the real ssh
+    (`ssh -G` connects nowhere) and reads the batchmode it ends up with."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push_range = load("stale_base_push_range_batch", "scripts/cmux-next/push_range.py")
+        for name in ("GIT_SSH", "GIT_SSH_COMMAND"):
+            os.environ.pop(name, None)
+        self.ssh = shutil.which("ssh")
+        self.assertIsNotNone(self.ssh, "these rows need OpenSSH's client on PATH")
+
+    def batchmode(self) -> str:
+        command = self.push_range._no_prompt_env(self.work).get("GIT_SSH_COMMAND", "")
+        self.assertTrue(command, "the fetch runs ssh through a GIT_SSH_COMMAND it set")
+        out = subprocess.run(["sh", "-c", f"{command} -F /dev/null -G fixture.invalid"], capture_output=True,
+                             text=True, stdin=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return next(line.split()[1] for line in out.stdout.splitlines() if line.startswith("batchmode "))
+
+    def test_git_ssh_as_a_full_path_to_openssh(self):
+        os.environ["GIT_SSH"] = self.ssh
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_git_ssh_command_that_turns_batchmode_off(self):
+        os.environ["GIT_SSH_COMMAND"] = "ssh -o BatchMode=no"
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_core_sshcommand_that_turns_batchmode_off(self):
+        self.git(self.work, "config", "core.sshCommand", f"{self.ssh} -o BatchMode=no")
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_a_quoted_program_path_keeps_its_arguments(self):
+        os.environ["GIT_SSH_COMMAND"] = f"'{self.ssh}' -oBatchMode=no -o ConnectTimeout=7"
+        self.assertEqual(self.batchmode(), "yes")
 
 
 if __name__ == "__main__":

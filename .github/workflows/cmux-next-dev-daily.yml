@@ -93,8 +93,10 @@ jobs:
 
   sign:
     needs: [pick-sign-runner]
-    # The source run is checked again by id in the first step.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # The source run is checked again by id in the first step. pick-sign-runner is continue-on-error: a
+    # timed-out pick ends `cancelled`, and without !cancelled() that skipped this signer; its empty outputs
+    # fall back to the runs-on default (tests/test_nightly_delivery_concurrency.py).
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
     name: Sign cmux NEXT DEV
     # No concurrency group: a group keeps one pending run and replaces it with
     # each newer handoff, so a newer handoff would cancel one still waiting to
