@@ -409,8 +409,11 @@ impl Hub {
                 && !kind.ends_with(".replay")
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && subagent.is_none();
+            // It reads the update as logged, after the normalizing above: a todo call acpmux
+            // makes the plan of (`_meta.acpmux.planTool`) is one the pane hides, not a cut.
             if live_update
-                && let Some(segment) = tap_hub.before_agent_update(&tap_session, msg.params())
+                && let Some(segment) =
+                    tap_hub.before_agent_update(&tap_session, value.get("params"))
             {
                 super::stream::stamp_reply_segment(&mut value, &segment);
             }
@@ -474,6 +477,9 @@ impl Hub {
                 tap_hub.note_tool_update(&tap_session, &update);
                 let msg = json!({"jsonrpc": "2.0", "method": crate::rpc::method::SESSION_UPDATE,
                                  "params": {"sessionId": session_id, "update": update}});
+                // The plan the pane draws is where its row may cut (the turn's first checklist):
+                // the reply's segments end there too.
+                tap_hub.before_agent_update(&tap_session, msg.get("params"));
                 tap_hub.append(&tap_session, "in", "plan", msg);
             }
             if subagent_events || background_changed {
