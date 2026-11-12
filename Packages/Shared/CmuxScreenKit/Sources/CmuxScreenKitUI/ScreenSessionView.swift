@@ -76,10 +76,8 @@ public struct ScreenSessionView: View {
     @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3, bounce: 0.1)))
     private var trackpadDrag: CGFloat = 0
     @State private var trackpadLink = ScreenTrackpadLink()
-    /// The viewer's size inside the safe area, without the software keyboard: sizes the trackpad.
+    /// The viewer's size inside the safe area, above the software keyboard while it is up.
     @State private var containerSize = CGSize.zero
-    /// The viewer's height above the software keyboard (the full height while it is down).
-    @State private var aboveKeyboardHeight: CGFloat = 0
     /// In landscape the trackpad starts tucked away (height is short there) and
     /// does not touch the remembered choice, which is for portrait.
     @State private var landscapeTrackpadOpen = false
@@ -121,14 +119,8 @@ public struct ScreenSessionView: View {
             if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveKeyboardHeight = $0 }
-        .background {
-            // Measured inside the safe area but under the software keyboard: the keyboard
-            // covers the drawer, it does not resize the trackpad.
-            Color.clear
-                .ignoresSafeArea(.keyboard)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
-        }
+        // Inside the safe area, above the software keyboard while it is up (see `fullSize`).
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
         .preferredColorScheme(.dark)
@@ -227,7 +219,11 @@ public struct ScreenSessionView: View {
 
     private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
 
-    private var isLandscape: Bool { containerSize.width > containerSize.height }
+    /// The viewer's size inside the safe area as if the keyboard were down: the keyboard
+    /// covers the trackpad, it neither resizes it nor turns a portrait screen "landscape".
+    private var fullSize: CGSize { CGSize(width: containerSize.width, height: containerSize.height + keyboardOverlap) }
+
+    private var isLandscape: Bool { fullSize.width > fullSize.height }
 
     /// The trackpad is up: the remembered choice (up by default) in portrait,
     /// tucked away in landscape until it is brought up there.
@@ -235,10 +231,7 @@ public struct ScreenSessionView: View {
 
     /// How much of the bottom the keyboard (or only its key bar, with a hardware
     /// keyboard) covers: the drawer sits under it, so that much less room is kept.
-    private var keyboardOverlap: CGFloat {
-        guard containerSize.height > 0, aboveKeyboardHeight > 0 else { return 0 }
-        return max(0, containerSize.height - aboveKeyboardHeight)
-    }
+    private var keyboardOverlap: CGFloat { trackpadLink.keyboardOverlap }
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
@@ -266,7 +259,7 @@ public struct ScreenSessionView: View {
     /// to the width, within a floor that keeps it usable and a ceiling that
     /// keeps the screen readable (lower in landscape, where height is short).
     private var trackpadPadHeight: CGFloat {
-        let size = containerSize
+        let size = fullSize
         guard size.width > 0, size.height > 0 else { return 240 }
         // The display the screen is fitted to (one of several), else the whole frame.
         let display = trackpadLink.focusSize.width > 0 ? trackpadLink.focusSize : session.frameSize
@@ -613,6 +606,7 @@ public struct ScreenView: UIViewControllerRepresentable {
         controller.onFocusSize = { [weak trackpadLink] size in
             if trackpadLink?.focusSize != size { trackpadLink?.focusSize = size }
         }
+        controller.onKeyboardOverlap = { [weak trackpadLink] overlap in trackpadLink?.keyboardOverlap = overlap }
         return controller
     }
 

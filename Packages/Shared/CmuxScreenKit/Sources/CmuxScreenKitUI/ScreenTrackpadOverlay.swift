@@ -13,6 +13,10 @@ public final class ScreenTrackpadLink {
     /// one display of several, or the whole frame. The trackpad's height
     /// leaves that display's fitted height to the screen.
     public internal(set) var focusSize = CGSize.zero
+    /// How far the software keyboard (or only its key bar, with a hardware
+    /// keyboard) reaches above the bottom of the safe area, in points; 0 while
+    /// it is down. The trackpad sits under it, so that much less room is kept.
+    public internal(set) var keyboardOverlap: CGFloat = 0
 
     public init() {}
 }

@@ -87,7 +87,10 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         if app.keyboards.firstMatch.waitForExistence(timeout: 5) {
             settle(app, 1)
             XCTAssertGreaterThan(screen.frame.height, 100, "keyboard squeezed the screen (\(screen.frame))")
-            XCTAssertLessThanOrEqual(screen.frame.maxY, app.keyboards.firstMatch.frame.minY + 60, "screen under the keyboard")
+            // The screen reaches down to the keyboard's key bar: no room is kept for the covered trackpad.
+            let keyboardTop = min(app.keyboards.firstMatch.frame.minY, app.buttons["esc"].firstMatch.frame.minY)
+            XCTAssertLessThanOrEqual(screen.frame.maxY, keyboardTop + 2, "screen under the keyboard (\(screen.frame), keyboard top \(keyboardTop))")
+            XCTAssertGreaterThan(screen.frame.maxY, keyboardTop - 12, "room kept above the keyboard (\(screen.frame), keyboard top \(keyboardTop))")
             attach(app, "05-portrait-keyboard-up")
             app.buttons["Keyboard"].firstMatch.tap()
             settle(app, 1)
