@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43226823102",
+  "recorded_at": "2026-11-12T13:32:21Z",
+  "reason": "cmux-tui 200e3cd97c29 changes the image's cmux-tui (pinned 683a2f9a78ac)",
+  "dry_run": false,
+  "cmux_tui": "200e3cd97c2919a8313d82c8cdbeaa6907a75d2f",
+  "fixes": [
+    {
+      "sha": "200e3cd97c2919a8313d82c8cdbeaa6907a75d2f",
+      "mergedAt": "2026-11-12T13:09:04Z",
+      "subject": "cmux-tui tests: a running daemon follows the usage patterns setting, and one that counts stays idle (#42027)"
+    },
+    {
+      "sha": "67d513ea8fe5c47d35872d0dfd0c2b1af58ecd14",
+      "mergedAt": "2026-11-12T05:08:36-08:00",
+      "subject": "acpmux: a session-list page costs its own rows, not every chat (#41580)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T13:32:21Z",
+    "snapshot_id": "sh-b0b916f7a54842faa830ed64c3d13660",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43226823102): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c0e0ee32ba99656e1550606c81076532880aefa4",
+    "image": "cloud-native-auto-200e3cd9-43226823102-1",
+    "revision": "ci-43226823102-1",
+    "at": "2026-11-12T13:32:21Z"
+  },
+  "rolled_back": false
+}
