@@ -105,7 +105,6 @@ const click = (element: Element | null | undefined) =>
 const buttons = (within: ParentNode = host) => [...within.querySelectorAll("button")];
 const named = (label: string, within: ParentNode = host) =>
   buttons(within).filter((node) => (node.getAttribute("aria-label") ?? node.textContent) === label);
-const byText = (text: string, within: ParentNode = host) => buttons(within).find((node) => node.textContent === text);
 
 const lines = (count: number, make = (index: number) => `line ${index + 1}`) =>
   Array.from({ length: count }, (_, index) => make(index)).join("\n") + "\n";
