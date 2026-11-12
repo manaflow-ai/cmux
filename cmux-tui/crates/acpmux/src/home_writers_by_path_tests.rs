@@ -1424,8 +1424,16 @@ fn all_rows() -> Vec<Row> {
 #[test]
 fn no_read_under_the_home_goes_by_path() {
     let reads: Vec<Row> = all_rows().into_iter().filter(|row| row.read).collect();
-    let elsewhere = reads.iter().filter(|r| !READ_CHECKED.contains(&r.rel.as_str())).count();
-    println!("reads by path from the home outside {READ_CHECKED:?}, not checked: {elsewhere}");
+    let elsewhere: Vec<String> = reads
+        .iter()
+        .filter(|r| !READ_CHECKED.contains(&r.rel.as_str()))
+        .map(ToString::to_string)
+        .collect();
+    println!(
+        "reads by path from the home outside {READ_CHECKED:?}, not checked ({}):\n  {}",
+        elsewhere.len(),
+        elsewhere.join("\n  ")
+    );
     let red: Vec<String> = reads
         .iter()
         .filter(|r| READ_CHECKED.contains(&r.rel.as_str()))
