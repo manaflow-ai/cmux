@@ -80,6 +80,7 @@ dependencies = [
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
+ "cmux-unix-socket",
  "serde",
  "serde_json",
  "sha2",
@@ -330,6 +331,13 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-unix-socket"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-window-rules"
