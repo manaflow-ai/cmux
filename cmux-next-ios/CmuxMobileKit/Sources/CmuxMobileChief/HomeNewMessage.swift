@@ -36,13 +36,34 @@ public final class HomeNewMessage {
     private let context: Context
     private let directory: HomeNewMessageDirectory
     private weak var sheet: ConversationComposeViewController?
-    /// The presenter lives as long as its sheet does (the sheet holds it).
+    /// The conversation shown under To: (``existing(_:carrying:)``).
+    private weak var embedded: EmbeddedConversation?
+    /// The sheet is up (false once it went away, by a send or the X).
+    private var isUp = false
+    /// The presenter lives as long as its sheet is up.
     private static var current: HomeNewMessage?
 
     init(context: Context) {
         self.context = context
-        let me = context.sources.activeUserID.map(HomeNewMessageDirectory.participantID)
-        directory = HomeNewMessageDirectory(snapshot: context.snapshot(), cloud: context.sources.account, me: me)
+        // The Cloud's own id for this account (a creator joins its group as itself).
+        directory = HomeNewMessageDirectory(snapshot: context.snapshot(), cloud: context.sources.account,
+                                            me: context.sources.cloudUserID)
+        let feed = context.feed, sources = context.sources
+        // A first message to a Chief opens its conversation first: a refusal shows under To: and
+        // the text stays (the Mac's draft send path), never lost after the sheet goes.
+        directory.prepare = { entry in
+            switch entry.kind {
+            case let .macChief(mac):
+                _ = try await feed.session(for: mac)
+            case let .cloudChief(agent, conversation):
+                guard sources.cloudConversation(CloudConversationRoute(conversationID: conversation, title: entry.contact.name,
+                                                                       chief: agent)) != nil else {
+                    throw HomeNewMessageDirectory.refusal(String(localized: "Sign in to message people from your iPhone."))
+                }
+            case .chief, .teammate, .agentTab, .address:
+                break
+            }
+        }
     }
 
     /// Opens New Message over the frontmost screen; `prefill` is a forwarded draft.
@@ -53,7 +74,9 @@ public final class HomeNewMessage {
         compose.onOpenConversation = { [weak self] creation, message in self?.opened(creation, message: message) }
         compose.onAction = { [weak self] action in self?.run(action) }
         compose.existingConversation = { [weak self] recipients, carrying in self?.existing(recipients, carrying: carrying) }
+        compose.onDismiss = { [weak self] in self?.sheetWentAway() }
         sheet = compose
+        isUp = true
         Self.current = self
         #if DEBUG
         ChiefDemoHook.shared.compose = compose
@@ -79,9 +102,13 @@ public final class HomeNewMessage {
         }
         #endif
         guard let account = context.sources.account else { return }
+        // The active team, as the Mac reads it (`HomeDirectory.readTeamMembers`): named by the Cloud's
+        // team id; the personal space reads the personal team (just this account, so Invite shows).
+        let team = context.store.activeTeam.flatMap { context.sources.cloudTeamID(stackTeamID: $0.id) }
         // task-owner: one team read for this sheet; ends with its reply
         Task { [weak self] in
-            guard let data = try? await account.read("team.members.list", params: ["limit": 200]) else { return }
+            if team != nil { _ = try? await account.read("user.teams.list") }
+            guard let data = try? await account.read("team.members.list", params: ["limit": 200], team: team) else { return }
             guard let self else { return }
             var snapshot = self.context.snapshot()
             snapshot.team = HomeNewMessageDirectory.withLines(HomeNewMessageDirectory.teammates(from: data, excluding: me))
@@ -130,6 +157,8 @@ public final class HomeNewMessage {
     /// known to the phone before `dm.open`, so it starts on the blank page.
     private func existing(_ recipients: [ConversationRecipient], carrying: ConversationComposeMessage) -> UIViewController? {
         guard recipients.count == 1, let id = recipients[0].contactID, let entry = directory.entry(id: id) else { return nil }
+        // Photos stay on the blank page, whose first send carries them (a conversation's own box takes text only).
+        guard carrying.images.isEmpty else { return nil }
         let session: ChiefSession?
         let route: HomeConversationRoute
         switch entry.kind {
@@ -149,41 +178,38 @@ public final class HomeNewMessage {
             return nil
         }
         guard let session else { return nil }
-        // That conversation is open under New Message (Forward from inside it): its screen owns the
-        // store's updates, so the blank page sends there instead of showing a second copy.
-        if let id = session.conversationID, ChiefSession.conversationOnScreen == id { return nil }
-        if !carrying.text.isEmpty { session.carryComposerText(carrying.text) }
-        // The sheet's keyboard tracker: the keyboard is already up, and the message box sits on it.
-        let conversation = ConversationViewController(store: session.store, options: .chief, keyboard: sheet?.keyboard)
-        // New Message keeps its title and X.
-        conversation.hidesNavigationBar = false
-        // To: names it: no header of its own (its room stays, slid under To:).
-        conversation.showsHeader = false
-        let container = ChiefConversationContainer(conversation: conversation, session: session)
-        container.focusesComposerOnAppear = !carrying.text.isEmpty
-        // A message sent there: New Message is done, and the conversation opens on Home.
-        let watch = SentWatch()
-        container.sentWatch = watch
-        session.store.addObserver { [weak watch, weak self] change in
-            guard let watch, !watch.fired, case .live(_, true) = change else { return }
-            watch.fired = true
+        // Another screen draws that conversation (Forward from inside it, or it sits under Home's
+        // top screen): a second one would take its updates, so the blank page sends there instead.
+        guard !session.store.hasPrimaryObserver else { return nil }
+        let view = EmbeddedConversation(session: session, keyboard: sheet?.keyboard, carrying: carrying.text)
+        // A message sent there (a new row of mine, not an older one's progress): New Message is
+        // done, and the conversation opens on Home.
+        view.sentToken = session.store.addObserver { [weak self, weak view] change in
+            guard let view, !view.sent, case let .live(inserted, true) = change, !inserted.isEmpty else { return }
+            view.sent = true
             self?.finish(route)
         }
-        return container
-    }
-
-    final class SentWatch {
-        var fired = false
+        embedded = view
+        return view
     }
 
     private func finish(_ route: HomeConversationRoute) {
-        // Never embedded over its own open screen (``existing``), so it always opens on Home.
         dismissSheet { [context] in context.open(route) }
+    }
+
+    /// The sheet went away: the embedded conversation gives its store back before Home's next
+    /// screen over it takes it, and the presenter is let go.
+    private func sheetWentAway() {
+        isUp = false
+        embedded?.release()
+        Self.current = nil
     }
 
     // MARK: The first send
 
     private func opened(_ creation: ConversationCreation, message: ConversationComposeMessage) {
+        // Closed while the first send was on its way: nothing opens and nothing sends.
+        guard isUp else { return }
         let id = creation.info.id
         if id.hasPrefix(HomeNewMessageDirectory.cloudConversationPrefix) {
             let cloud = CloudConversationRoute(conversationID: String(id.dropFirst(HomeNewMessageDirectory.cloudConversationPrefix.count)),
@@ -211,7 +237,8 @@ public final class HomeNewMessage {
                 context.sources.cloudConversation(cloud)?.send(message)
             case let .macChief(mac):
                 context.open(.mac(mac))
-                // task-owner: the conversation's channel, then the first message; ends with the send
+                // The channel opened before the sheet went (``HomeNewMessageDirectory/prepare``): this answers at once.
+                // task-owner: the opened conversation's session, then the first message; ends with the send
                 Task { [feed = context.feed] in (try? await feed.session(for: mac))?.send(message) }
             case let .agentTab(destination):
                 ChiefComposer.send(message, to: destination, store: context.store, open: context.open)
@@ -224,14 +251,62 @@ public final class HomeNewMessage {
 
     private func dismissSheet(then: @escaping () -> Void) {
         guard let presenting = sheet?.navigationController?.presentingViewController ?? sheet?.presentingViewController else {
-            Self.current = nil
+            sheetWentAway()
             then()
             return
         }
-        presenting.dismiss(animated: true) {
-            Self.current = nil
-            then()
+        // The sheet's viewDidDisappear (``sheetWentAway``) runs before this completion.
+        presenting.dismiss(animated: true, completion: then)
+    }
+}
+
+/// A Chief's conversation under New Message's To: (the Mac's `HomeHostView` in its New Message
+/// page): the transcript and its own message box, without its header (To: names it). It is not
+/// Home's Chief screen: it never counts as the Chief on screen (alerts, read state), and it gives
+/// the store back when the sheet goes, before Home's screen for that Chief takes it.
+@MainActor
+final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddable {
+    let conversation: ConversationViewController
+    let session: ChiefSession
+    var sentToken: Int?
+    var sent = false
+    private let carrying: String
+
+    init(session: ChiefSession, keyboard: MobileKeyboardFrameTracker?, carrying: String) {
+        self.session = session
+        self.carrying = carrying
+        conversation = ConversationViewController(store: session.store, options: .chief, keyboard: keyboard)
+        // New Message keeps its title and X.
+        conversation.hidesNavigationBar = false
+        conversation.showsHeader = false
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    var composeHeaderHeight: CGFloat { conversation.composeHeaderHeight }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        addChild(conversation)
+        conversation.view.frame = view.bounds
+        conversation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(conversation.view)
+        conversation.didMove(toParent: self)
+        // What was typed in the sheet moves into this conversation's box, focused.
+        if !carrying.isEmpty, let field = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.text" }) as? UITextView {
+            field.text = carrying
+            field.delegate?.textViewDidChange?(field)
+            field.becomeFirstResponder()
         }
+    }
+
+    /// Stops watching and hands the store's updates back.
+    func release() {
+        if let sentToken { session.store.removeObserver(sentToken) }
+        sentToken = nil
+        conversation.releaseStore()
     }
 }
 

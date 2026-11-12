@@ -61,6 +61,9 @@ public final class ChiefSources {
 
     @ObservationIgnored var http: ChiefCloudHTTP?
     @ObservationIgnored var userID: String?
+    /// The Stack project this build signs in to (``CmuxMobileAuthModel/stackProjectID``): the
+    /// Cloud's user and team ids are derived from it.
+    @ObservationIgnored public var stackProjectID: String?
     /// ``cloudConversation(_:)``'s sessions, by conversation id (emptied on sign-out).
     @ObservationIgnored private var cloudConversations: [String: ChiefSession] = [:]
     @ObservationIgnored private var lookup: Task<Void, Never>?
@@ -451,6 +454,20 @@ public final class ChiefSources {
             }
         )
         cloud.use(backend, identity: identity)
+    }
+
+    /// This account's Cloud participant id, as the Cloud derives it (the Mac's
+    /// `CloudIdentity.workerUserID`); nil without a project or a signed-in account.
+    public var cloudUserID: String? {
+        guard let stackProjectID, let userID else { return nil }
+        return CloudIDs.user(project: stackProjectID, stackUser: userID)
+    }
+
+    /// The Cloud's team id for a Stack team (`x-cmux-team`; the Mac's `CloudIdentity.workerTeamID`),
+    /// or nil for the personal space or without a project.
+    public func cloudTeamID(stackTeamID: String) -> String? {
+        guard let stackProjectID, !stackTeamID.hasPrefix("personal-") else { return nil }
+        return CloudIDs.team(project: stackProjectID, stackTeam: stackTeamID)
     }
 
     /// A Cloud conversation other than the open Cloud Chief's (a teammate DM or

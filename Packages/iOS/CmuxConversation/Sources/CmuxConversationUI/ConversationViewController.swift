@@ -417,6 +417,7 @@ public final class ConversationViewController: UIViewController {
         observeKeyboardFrames()
         installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
+        ownsStoreUpdates = true
         store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
         rebuild(change: .reset)
@@ -426,6 +427,16 @@ public final class ConversationViewController: UIViewController {
     /// controller's bar. False when it is shown inside another screen that
     /// keeps its bar (New Message's existing conversation under To:).
     public var hidesNavigationBar = true
+    /// This screen set the store's `onChange` (``releaseStore()`` gives it back).
+    private var ownsStoreUpdates = false
+
+    /// Gives the store's updates back (nil `onChange`), for a screen shown inside another one
+    /// and removed before the next screen over the same store takes them.
+    public func releaseStore() {
+        guard ownsStoreUpdates else { return }
+        ownsStoreUpdates = false
+        store.onChange = nil
+    }
     /// False hides the conversation's own header and its top fade (New
     /// Message shows the conversation under its To: field, which names it).
     public var showsHeader = true {

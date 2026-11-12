@@ -91,8 +91,9 @@ struct ChiefCloudHTTP: Sendable {
         URL(string: path, relativeTo: base)?.absoluteURL ?? base.appendingPathComponent(path)
     }
 
-    /// `method path` with the bearer; one retry with a fresh token after a 401.
-    func send(_ method: String, _ path: String, body: Data? = nil) async throws -> Reply {
+    /// `method path` with the bearer; one retry with a fresh token after a 401. `team` names the
+    /// Cloud team the request acts in (`x-cmux-team`); without it a session acts in its personal team.
+    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil) async throws -> Reply {
         var forceRefresh = false
         while true {
             let token = try await accessToken(forceRefresh)
@@ -100,6 +101,7 @@ struct ChiefCloudHTTP: Sendable {
             request.httpMethod = method
             request.timeoutInterval = 20
             request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
             if let body {
                 request.setValue("application/json", forHTTPHeaderField: "content-type")
                 request.httpBody = body

@@ -56,6 +56,9 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let teamCreationRoute: TeamCreationRoute
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
+    /// The Stack project this build signs in to: the Cloud derives its user and team ids from it
+    /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
+    public let stackProjectID: String?
     private var mockSignedIn: Bool
 
     /// The provider whose flow is in flight (its button shows a spinner).
@@ -64,7 +67,8 @@ public final class CmuxMobileAuthModel {
     public var errorMessage: String?
 
     init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
-         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool) {
+         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool, stackProjectID: String? = nil) {
+        self.stackProjectID = stackProjectID
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
@@ -167,7 +171,7 @@ public final class CmuxMobileAuthModel {
             mobileServiceBase: apiBase
         )
         return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
-                                   teamCreationRoute: teamCreationRoute, isMock: false)
+                                   teamCreationRoute: teamCreationRoute, isMock: false, stackProjectID: config.stack.projectId)
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG

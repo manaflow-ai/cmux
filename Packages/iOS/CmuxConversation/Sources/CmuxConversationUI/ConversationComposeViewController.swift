@@ -14,6 +14,9 @@ public final class ConversationComposeViewController: UIViewController {
     /// Called when the person picks + (Add Contact). Without a handler the
     /// sheet lists every contact the directory knows.
     public var onAddContact: (() -> Void)?
+    /// The sheet went away (the X, a swipe down, or the host's dismissal), before the host's
+    /// dismissal completion runs.
+    public var onDismiss: (() -> Void)?
     /// An action row under To: was picked (``ConversationComposeAction``).
     public var onAction: ((ConversationComposeAction) -> Void)?
     /// The conversation the chosen people already have, shown under To: as
@@ -240,6 +243,14 @@ public final class ConversationComposeViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         recipientField.textField.becomeFirstResponder()
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            onDismiss?()
+            onDismiss = nil
+        }
     }
 
     public override func viewDidLayoutSubviews() {

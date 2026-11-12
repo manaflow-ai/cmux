@@ -101,6 +101,46 @@ import Testing
         #expect(team.map(\.kind) == [.teammate(participant: "user_amy"), .teammate(participant: "user_zed")])
     }
 
+    @Test func aGroupNamesTheCreatorByItsCloudIDMasksInviteesAndReplaysOnRetry() async throws {
+        let directory = Self.directory()
+        var calls: [(op: String, params: [String: any Sendable], key: String)] = []
+        var failInvite = true
+        directory.mutate = { op, params, key in
+            calls.append((op, params, key))
+            if op == "invite.create", failInvite { throw HomeNewMessageDirectory.refusal("network") }
+            return try JSONSerialization.data(withJSONObject: ["conversation": ["id": "conv_g"]])
+        }
+        _ = try await directory.searchContacts("new@example.com", limit: 20, excluding: [])
+        let refs: [ConversationRecipientRef] = [.participant("team:user_ada"), .participant("address:new@example.com")]
+        await #expect(throws: ConversationBackendError.self) { try await directory.createConversation(refs) }
+        failInvite = false
+        let created = try await directory.createConversation(refs)
+        #expect(created.info.id == "cloud:conv_g")
+        let creates = calls.filter { $0.op == "conversation.create" }
+        #expect(creates.count == 2)
+        #expect(creates[0].key == creates[1].key, "Send again replays the same group")
+        let records = creates[0].params["participants"] as? [[String: any Sendable]] ?? []
+        #expect(records.first?["id"] as? String == "user_me", "the creator is this account's Cloud id")
+        let invite = calls.last { $0.op == "invite.create" }
+        #expect(invite?.params["display_name"] as? String == "n***@example.com", "the group sees the invitee masked")
+    }
+
+    @Test func aChiefWhoseConversationCannotOpenIsRefusedUnderTo() async throws {
+        let directory = Self.directory()
+        directory.prepare = { _ in throw HomeNewMessageDirectory.refusal("Your Mac isn't connected.") }
+        await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.participant("chief:mac:b")]) }
+    }
+
+    @Test func maskingAndCloudIDsMatchTheMac() {
+        #expect(HomeNewMessageDirectory.masked("ada@example.com", isEmail: true) == "a***@example.com")
+        #expect(HomeNewMessageDirectory.masked("+15551234567", isEmail: false) == "+1 *** *** 4567")
+        #expect(HomeNewMessageDirectory.masked("12345", isEmail: false) == "***")
+        // The Worker's userIdFor / stackTeamIdFor: sha256, 20 hex digits.
+        let user = CloudIDs.user(project: "p", stackUser: "u")
+        #expect(user.hasPrefix("user_") && user.count == 25 && user != "user_u")
+        #expect(CloudIDs.team(project: "p", stackTeam: "T") == CloudIDs.team(project: "p", stackTeam: "t"), "team ids ignore case")
+    }
+
     @Test func oneChiefOpensItsOwnConversationAndMacChiefsCannotJoinAGroup() async throws {
         let directory = Self.directory()
         let opened = try await directory.createConversation([.participant("chief:mac:b")])

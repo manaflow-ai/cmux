@@ -78,6 +78,14 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
     /// The entries the last search or lookup answered, by contact id, so a
     /// typed address that became a token is still known at the first send.
     private var known: [String: HomeRecipientEntry] = [:]
+    /// Runs before a first send to one Chief opens its conversation (the presenter opens the
+    /// Mac channel); a throw is the refusal under To:.
+    var prepare: (@MainActor (HomeRecipientEntry) async throws -> Void)?
+    /// One idempotency key per recipient set: Send again after a failure (a lost reply, a refused
+    /// invite) replays the same group instead of making a second one (the Mac keys from the intent).
+    private var keys: [[String]: String] = [:]
+    /// The Cloud write (tests replace it); defaults to ``AccountCloud/mutate(_:params:key:team:)``.
+    var mutate: (@MainActor (_ op: String, _ params: [String: any Sendable], _ key: String) async throws -> Data)?
 
     init(snapshot: HomeRecipientSnapshot, cloud: AccountCloud?, me: String?) {
         self.snapshot = snapshot
@@ -210,13 +218,14 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
             let entry = picked[0]
             switch entry.kind {
             case .chief, .cloudChief, .macChief, .agentTab:
+                try await prepare?(entry)
                 return ConversationCreation(info: ConversationInfo(id: entry.contact.id, title: title, kind: .direct, participants: participants),
                                             created: false, service: .iMessage)
             case let .teammate(participant):
-                let id = try await open("dm.open", ["peer": participant])
+                let id = try await open("dm.open", ["peer": participant], key: key(for: refs))
                 return Self.cloudCreation(id, title: title, participants: participants, group: false)
             case let .address(address, isEmail):
-                let id = try await open("dm.open", ["peer": [isEmail ? "email" : "phone": address]])
+                let id = try await open("dm.open", ["peer": [isEmail ? "email" : "phone": address]], key: key(for: refs))
                 return Self.cloudCreation(id, title: title, participants: participants, group: false)
             }
         }
@@ -242,18 +251,42 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
                 records.append(record)
             }
         }
-        let key = UUID().uuidString.lowercased()
+        let key = key(for: refs)
         let id = try await open("conversation.create", ["participants": records], key: key)
         for (index, address) in addresses.enumerated() {
+            // The group's members see the invitee masked, as the Mac sends it (`WireHomeSource.masked`).
             _ = try await call("invite.create", ["conversation": id, "address": [address.1 ? "email" : "phone": address.0],
-                                                 "display_name": address.0], key: "\(key):invite:\(index)")
+                                                 "display_name": Self.masked(address.0, isEmail: address.1)],
+                               key: "\(key):invite:\(index)")
         }
         return Self.cloudCreation(id, title: title, participants: participants, group: true)
     }
 
     // MARK: Cloud calls
 
-    private func open(_ op: String, _ params: [String: any Sendable], key: String = UUID().uuidString.lowercased()) async throws -> String {
+    /// The key for this recipient set, the same on every Send of this sheet.
+    private func key(for refs: [ConversationRecipientRef]) -> String {
+        let set = refs.map { "\($0)" }.sorted()
+        if let key = keys[set] { return key }
+        let key = UUID().uuidString.lowercased()
+        keys[set] = key
+        return key
+    }
+
+    /// An address as the group shows an invitee (the Mac's `WireHomeSource.masked`): `a***@host`,
+    /// or `+1 *** *** 1234`; anything else `***`.
+    static func masked(_ address: String, isEmail: Bool) -> String {
+        if isEmail {
+            let pieces = address.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pieces.count == 2 else { return "***" }
+            return "\(pieces[0].prefix(1))***@\(pieces[1])"
+        }
+        let digits = address.dropFirst()
+        guard address.hasPrefix("+"), (11...15).contains(digits.count), digits.allSatisfy({ ("0"..."9").contains($0) }) else { return "***" }
+        return "+\(digits.dropLast(10)) *** *** \(address.suffix(4))"
+    }
+
+    private func open(_ op: String, _ params: [String: any Sendable], key: String) async throws -> String {
         let data = try await call(op, params, key: key)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let conversation = object["conversation"] as? [String: Any], let id = conversation["id"] as? String, !id.isEmpty else {
@@ -263,6 +296,7 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
     }
 
     private func call(_ op: String, _ params: [String: any Sendable], key: String) async throws -> Data {
+        if let mutate { return try await mutate(op, params, key) }
         #if DEBUG
         if cloud == nil, DeveloperOptions.mockContentEnabled {
             // Demo and UI tests: no Cloud service; a stable made-up conversation per call.
