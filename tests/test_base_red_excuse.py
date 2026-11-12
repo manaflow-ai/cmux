@@ -10549,6 +10549,32 @@ class CompileErrorsAreComparedBySignature(unittest.TestCase):
         with self.assertRaises(excuse.Refused):
             self.judge(github)
 
+    def test_an_error_printed_more_often_than_on_base_is_the_prs_own(self):
+        # The review's F2: a second `mismatched types` in the same untouched file is a new error, not the base's one.
+        mine = [clippy_dead_variant(45, 61), clippy_dead_variant(48, 90)]
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(head=mine))
+
+    def test_a_second_failed_step_without_a_located_error_is_the_prs_own(self):
+        # The review's F3: a step that exits 1 on text no parser reads is never excused by the clippy step's errors.
+        github = CompileErrorGitHub()
+        run = "Run the seeds"
+        github.jobs[1]["steps"].append({"name": run, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + "\n".join(f"{CompileErrorGitHub.SIM}\t{run}\t2026-11-12T11:45:0{n}.0Z {line}"
+                                           for n, line in enumerate(["seed 42 diverged",
+                                                                     "##[error]Process completed with exit code 1."]))
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_an_unlocated_error_never_takes_the_next_errors_file(self):
+        # The review's F4.
+        job = CompileErrorGitHub().jobs[1]
+        said = excuse.compile_errors(["error: linking with `cc` failed: exit status: 1",
+                                      "error: variant `RootEntries` is never constructed",
+                                      "  --> crates/acpmux/src/chats/watch.rs:61:5"], job)
+        self.assertEqual(said.other, ("error: linking with `cc` failed: exit status: 1",))
+        self.assertEqual(len(said.located), 1)
+
 
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
     """2026-11-11: every red in 'cmux-next checks' (cmux#40954) and the CmuxMobileKit tests (cmux#40598 at ea17b848,

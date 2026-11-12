@@ -1930,12 +1930,13 @@ class CompileErrors(NamedTuple):
     summaries: frozenset  # cargo's summary lines, numbers masked: read, never compared
     other: tuple  # every other error line: a red that has one is not judged by its compile errors
     named: frozenset = frozenset()  # the files the clippy wrapper's base-red lines name (CLIPPY_BASE_RED)
+    counts: Counter = Counter()  # how often each located signature is printed: a base error once is not the PR's twice
 
 
 def compile_errors(lines: list[str], job: dict) -> CompileErrors:
     """CompileErrors of LINES (a job's lines with stamps, colours and script echoes removed): each error line the
     classifier reads (the filter unplaced_signature applies), sorted into located diagnostics, summaries and the rest."""
-    located, summaries, other, named = set(), set(), [], set()
+    located, summaries, other, named, counts = set(), set(), [], set(), Counter()
     for n, line in enumerate(lines):
         if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line) or SOURCE_EXCERPT.match(line):
             continue
@@ -1955,13 +1956,19 @@ def compile_errors(lines: list[str], job: dict) -> CompileErrors:
             summaries.add(normalise_error(said))
             continue
         found = DIAGNOSTIC.match(said)
-        at = next((m for later in lines[n + 1:n + 1 + DIAGNOSTIC_AT_WITHIN] if (m := DIAGNOSTIC_AT.match(later))),
-                  None) if found else None
+        at = None
+        for later in lines[n + 1:n + 1 + DIAGNOSTIC_AT_WITHIN] if found else ():
+            if later.lstrip().startswith(("error", "##[error]")):
+                break  # another error's location is never this one's (an unlocated error before a located one)
+            if (at := DIAGNOSTIC_AT.match(later)) is not None:
+                break
         if found is None or at is None:
             other.append(said)
             continue
-        located.add((found["code"] or "", repo_path(at["path"]), normalise_error(found["message"])))
-    return CompileErrors(frozenset(located), frozenset(summaries), tuple(other), frozenset(named))
+        key = (found["code"] or "", repo_path(at["path"]), normalise_error(found["message"]))
+        located.add(key)
+        counts[key] += 1
+    return CompileErrors(frozenset(located), frozenset(summaries), tuple(other), frozenset(named), counts)
 
 
 def signature_text(error: tuple) -> str:
@@ -1991,6 +1998,13 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
     else:
         _, tests, errors = signature(view)
         if tests or crash_signals(view) or any(RATCHET_SCOPE.match(error) for error in errors):
+            return None
+        if test_reds.read(view_text(view)).unnamed:
+            return None
+        # Each failed section is a compile red of its own: a second failed step that prints no located error (a
+        # sim run that exits 1 on `seed 42 diverged`) is never excused by the clippy step's base errors.
+        if any(not compile_errors(list(lines_of("\n".join(lines))), job).located
+               for _, _, lines in view.sections):
             return None
     if head is None or head.other or not head.located:
         return None
@@ -2027,7 +2041,8 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             if compared >= COMPILE_ERROR_LOGS:
                 return None
             compared += 1
-            if head.located <= compile_base_evidence(repo, run, other, github, run_reads).located:
+            theirs = compile_base_evidence(repo, run, other, github, run_reads)
+            if all(theirs.counts[error] >= n for error, n in head.counts.items()):
                 url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
                 return (f"excused '{name}': every compiler error it prints is one {base} run {run['id']}'s red "
                         f"'{other.get('name')}' prints ({url}), in files this PR does not change: "
@@ -6774,8 +6789,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
                         raise
+                    # BASE_JOB: the newest verdict's job, as read from the jobs API (never the window's view).
                     if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
-                                                       window[0][1].job, evidence.runs(workflow), base_jobs, github,
+                                                       base_job, evidence.runs(workflow), base_jobs, github,
                                                        run_reads)) is not None:
                         audit.append(same)
                         break
