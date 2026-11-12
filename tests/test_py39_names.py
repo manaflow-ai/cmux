@@ -117,35 +117,159 @@ _CMP = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b, ast.Gt: lambda
 _SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set()}
 
 
-def _aliases(tree):
-    """{local name: stdlib module} for each `import M` / `import M as A` in TREE."""
-    std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = {}
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Import):
-            for a in n.names:
-                top = a.name.split(".")[0]
+class _AliasScope:
+    """The lexical bindings relevant to stdlib-module aliases, following scope_resolver's fail-closed rule."""
+
+    def __init__(self, parent=None, kind="module"):
+        self.parent = parent
+        self.kind = kind
+        self.imports = {}
+        self.bindings = set()
+        self.nodes = {}
+        self.children = []
+
+    def alias(self, name):
+        if name in self.bindings:
+            return self.imports.get(name)
+        if name in self.imports:
+            return self.imports[name]
+        return self.parent.alias(name) if self.parent is not None else None
+
+
+class _LexicalAliases:
+    """Map each Name read to the alias Python gives it in that lexical scope.
+
+    This is the small part of leo-workspace's scope_resolver needed here: bindings are collected per compiler scope,
+    and a function nested in a class resolves globals through the module, not through the class body. A local binding
+    anywhere in a function hides an outer import for that whole function; an unrelated function's parameter cannot
+    hide the module alias.
+    """
+
+    def __init__(self, tree):
+        self.root = _AliasScope()
+        self._node_map = {}
+        self._walk(tree, self.root)
+        self._finish(self.root)
+
+    def _walk(self, node, scope):
+        scope.nodes[id(node)] = scope
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scope.bindings.add(node.name)
+            for decorator in node.decorator_list:
+                self._walk(decorator, scope)
+            for default in list(node.args.defaults) + [x for x in node.args.kw_defaults if x is not None]:
+                self._walk(default, scope)
+            for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs + [node.args.vararg, node.args.kwarg]:
+                if arg is not None and arg.annotation is not None:
+                    self._walk(arg.annotation, scope)
+            if node.returns is not None:
+                self._walk(node.returns, scope)
+            # Function bodies skip a containing class scope when resolving globals, as Python does.
+            parent = scope.parent if scope.kind == "class" else scope
+            child = _AliasScope(parent, "function")
+            scope.children.append(child)
+            for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs + [node.args.vararg, node.args.kwarg]:
+                if arg is not None:
+                    child.bindings.add(arg.arg)
+            for statement in node.body:
+                self._walk(statement, child)
+            return
+        if isinstance(node, ast.Lambda):
+            parent = scope.parent if scope.kind == "class" else scope
+            child = _AliasScope(parent, "lambda")
+            scope.children.append(child)
+            for arg in node.args.posonlyargs + node.args.args + node.args.kwonlyargs + [node.args.vararg, node.args.kwarg]:
+                if arg is not None:
+                    child.bindings.add(arg.arg)
+            self._walk(node.body, child)
+            return
+        if isinstance(node, ast.ClassDef):
+            scope.bindings.add(node.name)
+            for decorator in node.decorator_list:
+                self._walk(decorator, scope)
+            child = _AliasScope(scope, "class")
+            scope.children.append(child)
+            for base in node.bases:
+                self._walk(base, child)
+            for keyword in node.keywords:
+                self._walk(keyword.value, child)
+            for statement in node.body:
+                self._walk(statement, child)
+            return
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            child = _AliasScope(scope, "comprehension")
+            scope.children.append(child)
+            generators = node.generators
+            if generators:
+                self._walk(generators[0].iter, scope)
+                self._walk(generators[0].target, child)
+                for condition in generators[0].ifs:
+                    self._walk(condition, child)
+                for generator in generators[1:]:
+                    self._walk(generator.iter, child)
+                    self._walk(generator.target, child)
+                    for condition in generator.ifs:
+                        self._walk(condition, child)
+            if isinstance(node, ast.DictComp):
+                self._walk(node.key, child)
+                self._walk(node.value, child)
+            else:
+                self._walk(node.elt, child)
+            return
+        if isinstance(node, ast.Import):
+            std = set(getattr(sys, "stdlib_module_names", ()))
+            for item in node.names:
+                top = item.name.split(".")[0]
+                bound = item.asname or top
                 if top in std:
-                    alias[a.asname or top] = a.name if a.asname else top
-    shadowed = set()
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-            shadowed.add(n.id)
-        elif isinstance(n, ast.arg):
-            shadowed.add(n.arg)
-        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            shadowed.add(n.name)
-    for name in shadowed:
-        alias.pop(name, None)
-    return alias
+                    scope.imports[bound] = item.name if item.asname else top
+                else:
+                    scope.bindings.add(bound)
+            return
+        if isinstance(node, ast.ImportFrom):
+            for item in node.names:
+                if item.name != "*":
+                    scope.bindings.add(item.asname or item.name)
+            return
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            scope.bindings.add(node.name)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            scope.bindings.add(node.id)
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                scope.bindings.discard(name)
+                scope.imports.pop(name, None)
+        for child in ast.iter_child_nodes(node):
+            self._walk(child, scope)
+
+    def _finish(self, scope):
+        # A non-import binding in this scope shadows its import regardless of statement order.
+        for name in scope.bindings:
+            scope.imports.pop(name, None)
+        for node_id, node_scope in list(scope.nodes.items()):
+            if node_scope is scope:
+                self._node_map[node_id] = scope
+        for child in scope.children:
+            self._finish(child)
+
+    def for_name(self, node):
+        scope = self._node_map.get(id(node))
+        return scope.alias(node.id) if scope is not None and isinstance(node, ast.Name) else None
+
+
+def _aliases(tree):
+    """A lexical alias resolver for stdlib imports; unrelated nested scopes cannot shadow one another."""
+    return _LexicalAliases(tree)
 
 
 def _guard_pair(expr):
     """(module, name) when EXPR is hasattr(M, "N") or getattr(M, "N", ...) of a stdlib module alias, else None."""
     if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in GUARD_CALLS
-            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name) and expr.args[0].id in _SCOPE["alias"]
+            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name)
             and isinstance(expr.args[1], ast.Constant) and isinstance(expr.args[1].value, str)):
-        return _SCOPE["alias"][expr.args[0].id], expr.args[1].value
+        module = _SCOPE["alias"].for_name(expr.args[0])
+        if module is not None:
+            return module, expr.args[1].value
     return None
 
 
@@ -308,8 +432,8 @@ def sites(path):
             for a in n.names:
                 out.append((n.module, a.name, n.lineno, guarded(n), "import"))
         elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)
-              and n.value.id in alias):
-            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n), "attr"))
+              and (module := alias.for_name(n.value)) is not None):
+            out.append((module, n.attr, n.lineno, guarded(n), "attr"))
     return out
 
 
