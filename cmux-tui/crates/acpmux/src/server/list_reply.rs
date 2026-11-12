@@ -11,6 +11,7 @@
 
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::{RequestStage, Snapshot};
+use crate::hub::row_log;
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
@@ -79,6 +80,7 @@ async fn reply(
     conn: &Conn,
     share: f64,
     live_only: bool,
+    cursor: Option<Cursor>,
     make: impl Fn(&Snapshot) -> Result<Arc<String>, RpcError>,
 ) -> Result<Value, RpcError> {
     let guard = &hub.list_guard;
@@ -101,7 +103,12 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let text = make(&list)?;
+        let mut text = make(&list)?;
+        // A watch's list says the position it is current to: read before the list was, so every
+        // change after it reaches the watcher as a notice (`row_log.rs`).
+        if let Some(Cursor { head, reset }) = cursor {
+            text = Arc::new(row_log::with_cursor(&text, head, hub.list_cursor().1, reset));
+        }
         let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
             (r.id.clone(), r.method, r.claim.clone())
@@ -140,6 +147,24 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
 /// census in its own order (`orderBy`), holds at most `limit` rows and at most
 /// [`LIST_PAGE_BYTES`] (`Snapshot::page`): no reply here is too large to send.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    list(hub, conn, params, None).await
+}
+
+/// The list position a watch's list is current to, and whether it answers a cursor the log could
+/// not follow (`reset`: the client drops what it held).
+#[derive(Clone, Copy)]
+struct Cursor {
+    head: u64,
+    reset: bool,
+}
+
+/// [`sessions`], its reply current to list position `cursor` when a watch asked for it.
+async fn list(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+    cursor: Option<Cursor>,
+) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     if crate::hub::session_pages::bool_filter(params, "pendingOnly")? {
         return pending(hub, raw, params);
@@ -153,7 +178,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     // list in all, not one per page.
     if tools || !whole(params) {
         let share = if by_bytes { guard.share_bytes(most) } else { guard.share(limit) };
-        return reply(hub, conn, share, excludes_closed(params), |list| {
+        return reply(hub, conn, share, excludes_closed(params), cursor, |list| {
             if by_bytes {
                 return within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget));
             }
@@ -162,7 +187,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         })
         .await;
     }
-    reply(hub, conn, guard.share_bytes(most), excludes_closed(params), |list| {
+    reply(hub, conn, guard.share_bytes(most), excludes_closed(params), cursor, |list| {
         // The cached whole list, as the client reads it (masked for a peer, which may lengthen
         // it), when that fits in one message; else its pages.
         if list.whole.len() <= most {
@@ -221,6 +246,50 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
+    // The position the reply is current to, read once the watch is on: every change after it is
+    // a notice on this connection (`row_log.rs`).
+    let head = hub.list_cursor().0;
+    let own_only = conn.origin == super::Origin::Peer;
+    if on && let Some(after) = follow_cursor(hub, params)? {
+        // Rows changed after the client's cursor, never the list: its cost is the changes.
+        let raw = conn.raw_text;
+        let follow = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            hub.list_follow(after, own_only, tools, budget)
+                .map(|follow| follow.text)
+                .ok_or_else(|| RpcError::internal("reset"))
+        });
+        if let Ok(text) = follow {
+            return serde_json::from_str(&text).map_err(|e| RpcError::internal(e.to_string()));
+        }
+        // The log cannot follow it (another run, or older than its oldest removal): the list, as
+        // on a first watch, marked `reset`.
+        return watch_list(hub, conn, params, tools, Cursor { head, reset: true }).await;
+    }
+    watch_list(hub, conn, params, tools, Cursor { head, reset: false }).await
+}
+
+/// `afterSeq` of a watch: a cursor of another run (its `listEpoch` is not this run's) is read as
+/// one past every position, which the log answers `reset`.
+fn follow_cursor(hub: &Hub, params: &Value) -> Result<Option<u64>, RpcError> {
+    let after = match params.get("afterSeq") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| RpcError::invalid_params("afterSeq must be a non-negative integer"))?,
+    };
+    let epoch = params.get("listEpoch").and_then(Value::as_str);
+    // Past any head: the follow answers reset.
+    Ok(Some(if epoch == Some(hub.list_cursor().1) { after } else { u64::MAX }))
+}
+
+/// The watch's list (its first page, or whole), current to list position `head`.
+async fn watch_list(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+    tools: bool,
+    cursor: Cursor,
+) -> Result<Value, RpcError> {
     if conn.origin == super::Origin::Peer && whole(params) {
         let raw = conn.raw_text;
         // What the link holds of this list already: it reads only what changed
@@ -231,7 +300,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
         let most = LIST_PAGE_BYTES;
-        return reply(hub, conn, hub.list_guard.share_bytes(most), false, |list| {
+        return reply(hub, conn, hub.list_guard.share_bytes(most), false, Some(cursor), |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
                 (true, false) => "own tools masked",
@@ -254,7 +323,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
         })
         .await;
     }
-    sessions(hub, conn, params).await
+    list(hub, conn, params, Some(cursor)).await
 }
 
 /// ACP's `session/list`: every session, its summary under `_meta.acpmux`. A list too large
@@ -269,41 +338,49 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         Some(Value::String(text)) => Some(text.as_str()),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
-    reply(hub, conn, hub.list_guard.share_bytes(LIST_PAGE_BYTES), excludes_closed(params), |list| {
-        let full = list.full_rows(hub);
-        // An ACP row holds its summary whole, so rows already over the budget are no whole
-        // reply: that one is not made only to be dropped.
-        if cursor.is_none() && full.bytes() <= LIST_PAGE_BYTES {
-            let whole = list.made(if raw { "acp" } else { "acp masked" }, |list| {
-                let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
-                let sessions: Vec<Value> = full
-                    .get("sessions")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .map(acp_row)
-                    .collect();
-                let result = json!({"sessions": sessions});
-                if raw { result.to_string() } else { masked(result) }
-            });
-            if whole.len() <= LIST_PAGE_BYTES {
-                return Ok(whole);
+    reply(
+        hub,
+        conn,
+        hub.list_guard.share_bytes(LIST_PAGE_BYTES),
+        excludes_closed(params),
+        None,
+        |list| {
+            let full = list.full_rows(hub);
+            // An ACP row holds its summary whole, so rows already over the budget are no whole
+            // reply: that one is not made only to be dropped.
+            if cursor.is_none() && full.bytes() <= LIST_PAGE_BYTES {
+                let whole = list.made(if raw { "acp" } else { "acp masked" }, |list| {
+                    let full: Value =
+                        serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
+                    let sessions: Vec<Value> = full
+                        .get("sessions")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .map(acp_row)
+                        .collect();
+                    let result = json!({"sessions": sessions});
+                    if raw { result.to_string() } else { masked(result) }
+                });
+                if whole.len() <= LIST_PAGE_BYTES {
+                    return Ok(whole);
+                }
             }
-        }
-        let page = |budget: usize| -> Result<String, RpcError> {
-            let row = |at: usize| acp_row_within(&full.row(at), budget);
-            let (sessions, next) =
-                crate::hub::session_pages::byte_page(full.keys(), cursor, budget, row, |v| {
-                    v.to_string().len()
-                })?;
-            let mut result = json!({"sessions": sessions});
-            if let Some(next) = next {
-                result.set("nextCursor", Value::String(next));
-            }
-            Ok(result.to_string())
-        };
-        within_limit(raw, LIST_PAGE_BYTES, page)
-    })
+            let page = |budget: usize| -> Result<String, RpcError> {
+                let row = |at: usize| acp_row_within(&full.row(at), budget);
+                let (sessions, next) =
+                    crate::hub::session_pages::byte_page(full.keys(), cursor, budget, row, |v| {
+                        v.to_string().len()
+                    })?;
+                let mut result = json!({"sessions": sessions});
+                if let Some(next) = next {
+                    result.set("nextCursor", Value::String(next));
+                }
+                Ok(result.to_string())
+            };
+            within_limit(raw, LIST_PAGE_BYTES, page)
+        },
+    )
     .await
 }
 

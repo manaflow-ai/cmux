@@ -2616,6 +2616,7 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
         }

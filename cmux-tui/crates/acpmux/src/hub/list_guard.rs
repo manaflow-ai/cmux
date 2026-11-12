@@ -60,6 +60,11 @@ pub(crate) struct Events {
     /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
     /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
+    /// The list's row log (`row_log.rs`): a row change is stamped and sent under its lock, so
+    /// list positions go out in their order.
+    rows: std::sync::Mutex<super::row_log::RowLog>,
+    /// This run's id for list positions: a cursor of another run is no cursor here.
+    epoch: String,
 }
 
 impl Events {
@@ -68,7 +73,31 @@ impl Events {
             tx: broadcast::channel(capacity).0,
             changes: AtomicU64::new(0),
             summary_generation: Arc::new(AtomicU64::new(0)),
+            rows: Default::default(),
+            epoch: super::row_log::new_epoch(),
         }
+    }
+
+    /// Sends `event`, stamped with the list position of the row it changes, if any.
+    fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        let Some((key, gone)) = super::row_log::row_change(&event) else {
+            return self.tx.send(event);
+        };
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        event.list_seq = rows.stamp(key, gone);
+        self.tx.send(event)
+    }
+
+    pub(super) fn list_head(&self) -> u64 {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).head()
+    }
+
+    pub(super) fn list_epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    pub(super) fn list_since(&self, after: u64) -> Option<super::row_log::Since> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).since(after)
     }
 
     /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
@@ -79,7 +108,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.changed();
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -107,7 +136,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
         self.changes.fetch_add(1, Ordering::SeqCst);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
@@ -118,7 +147,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.row_changed(session);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// A change of `session`'s own row no event carries (an attach, a start under way): the next

@@ -184,4 +184,13 @@ pub struct WatchParams {
     /// is then a delta: `delta: true`, the rows new or changed, and `removed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub known: Option<std::collections::BTreeMap<String, String>>,
+    /// Follow the list from this position (`hub/row_log.rs`, capability
+    /// `session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the
+    /// rows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is
+    /// answered with the list's first page and `reset: true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<u64>,
+    /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_epoch: Option<String>,
 }

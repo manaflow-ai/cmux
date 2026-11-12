@@ -697,6 +697,7 @@ impl Hub {
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
             update_line: Default::default(),
             row: Default::default(),
+            list_seq: 0,
         });
     }
 
@@ -988,6 +989,7 @@ impl Hub {
                             }),
                             update_line: Default::default(),
                             row: Default::default(),
+                            list_seq: 0,
                         });
                         return;
                     }
@@ -1050,6 +1052,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
@@ -1082,6 +1085,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                 }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
@@ -1108,6 +1112,7 @@ impl Hub {
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                             update_line: Default::default(),
                             row: Default::default(),
+                            list_seq: 0,
                         });
                     }
                 }
@@ -1246,6 +1251,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                 }
             }
