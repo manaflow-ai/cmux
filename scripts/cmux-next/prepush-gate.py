@@ -963,6 +963,21 @@ def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
     return False
 
 
+def ast_grep_shape_fault(matches) -> str | None:
+    """Why MATCHES (ast-grep's parsed `--json=compact` output) is not a list of matches, or None when it is: each a dict
+    with a str `file`, an int `range.start.line`, and str `ruleId` and `message`. Valid JSON of another shape (an
+    `{"error": ...}` object) made the reads below raise and crash the gate instead of refusing (#41827 review, F1)."""
+    if not isinstance(matches, list):
+        return f"a {type(matches).__name__}, not a list"
+    for index, m in enumerate(matches):
+        start = m.get("range", {}).get("start", {}) if isinstance(m, dict) and isinstance(m.get("range"), dict) else None
+        if (not isinstance(m, dict) or not isinstance(m.get("file"), str) or not isinstance(start, dict)
+                or not isinstance(start.get("line"), int) or isinstance(start.get("line"), bool)
+                or not isinstance(m.get("ruleId"), str) or not isinstance(m.get("message"), str)):
+            return f"match {index} has no file, range.start.line, ruleId and message"
+    return None
+
+
 def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
@@ -977,6 +992,9 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
         matches = json.loads(result.stdout)
     except json.JSONDecodeError:
         return f"ast-grep failed: {result.stderr.strip()}"
+    fault = ast_grep_shape_fault(matches)
+    if fault:
+        return f"ast-grep failed: printed JSON of the wrong shape ({fault}): {result.stdout.strip()[:200]}"
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
@@ -1944,9 +1962,13 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
                 problems = json.loads(result.read_text(encoding="utf-8")) if code == 0 else None
             except (OSError, ValueError):
                 problems = None
-            if not isinstance(problems, dict):
+            # A dict of highlight name to a list of problem strings; any other shape (a value that is not a list, a
+            # problem that is not a string) raised in the loop below and crashed the gate (#41827 review).
+            if not isinstance(problems, dict) or not all(
+                    isinstance(v, list) and all(isinstance(x, str) for x in v) for v in problems.values()):
                 tail = out.strip().splitlines()[-1] if out.strip() else "no output"
-                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}: "
+                shape = "" if problems is None else ", wrote a result of the wrong shape"
+                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
                                   f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py")]
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
