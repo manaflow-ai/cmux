@@ -106,6 +106,7 @@ impl JsonSet for Map<String, Value> {
 /// let record = json!({ "id": "w1", "count": 3, "pinned": true, "tabs": [1, 2] });
 /// assert_eq!(record.get_str("id"), Some("w1"));
 /// assert_eq!(record.get_string("id").as_deref(), Some("w1"));
+/// assert_eq!(json!({ "id": "" }).get_nonempty_str("id"), None);
 /// assert_eq!(record.get_u64("count"), Some(3));
 /// assert_eq!(record.get_bool("pinned"), Some(true));
 /// assert_eq!(record.get_array("tabs").len(), 2);
@@ -119,6 +120,12 @@ pub trait JsonGet {
     /// Member `key` as a string.
     fn get_str(&self, key: &str) -> Option<&str> {
         self.member(key).and_then(Value::as_str)
+    }
+
+    /// Member `key` as a string that is not empty: `""` reads as absent,
+    /// for ids and names where an empty value means "not set".
+    fn get_nonempty_str(&self, key: &str) -> Option<&str> {
+        self.get_str(key).filter(|text| !text.is_empty())
     }
 
     /// Member `key` as an owned string.
@@ -223,6 +230,9 @@ mod tests {
         let value = json!({ "s": "x", "n": 7, "neg": -1, "b": false, "a": [1], "q": "7" });
         assert_eq!(value.get_str("s"), Some("x"));
         assert_eq!(value.get_string("s"), Some("x".to_owned()));
+        assert_eq!(value.get_nonempty_str("s"), Some("x"));
+        assert_eq!(json!({ "e": "" }).get_nonempty_str("e"), None);
+        assert_eq!(json!({ "e": "" }).get_str("e"), Some(""));
         assert_eq!(value.get_u64("n"), Some(7));
         assert_eq!(value.get_bool("b"), Some(false));
         assert_eq!(value.get_array("a"), &[json!(1)]);
