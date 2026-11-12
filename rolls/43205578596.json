@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43205578596",
+  "recorded_at": "2026-11-12T11:06:37Z",
+  "reason": "cmux-tui b9688b645c1c changes the image's cmux-tui (pinned df781661ff49)",
+  "dry_run": false,
+  "cmux_tui": "b9688b645c1cab59a26bf1519e24e8f76e22a66e",
+  "fixes": [
+    {
+      "sha": "b9688b645c1cab59a26bf1519e24e8f76e22a66e",
+      "mergedAt": "2026-11-12T04:47:43-06:00",
+      "subject": "cmux-tui tests: the router connection operation check names its operations"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T11:06:37Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
