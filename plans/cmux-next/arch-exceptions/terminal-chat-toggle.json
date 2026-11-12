@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-12",
+  "row": "app_lines",
+  "allow": 24,
+  "why": "Toggle Terminal and Chat (Leo's ask ask-ce82ca2cf6) extends the existing App handler TerminalChatHandler: it reads AgentTabs (adoptions, tab(resuming:)), AppServices.revealTab and PaneController, all App-only types, and the Handlers folder has no domain package to move to yet (architecture-refactor-DESIGN.md B5). The route is Rust (cmux-window-rules tabs::terminal_chat_toggle); the App keeps only the reads and the reveal/open. The same push converts Open Terminal as Chat to a typed bindEffect.",
+  "author": "terminal-chat-toggle lane (claude opus, aid-e586581529fc4b076715)",
+  "owner": "terminal-chat-toggle lane (aid-e586581529fc4b076715)",
+  "receipt": "Review (claude opus subagent a628af50): SHIP at da32c911fc7fb2bcc46bb6dfcee1e11dbed33f5e",
+  "expiry": "2026-11-26"
+}
