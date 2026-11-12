@@ -329,13 +329,6 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
-/// How far apart two wall clock stamps of one session may be for the
-/// later-sent event to be journaled first. It decides only when an event or
-/// the latest applied one has no monotonic stamp (an older hook helper, or a
-/// platform with no boot id): an event that started even earlier comes from
-/// a clock that stepped back and is newer, not reordered.
-pub(crate) const HOOK_REORDER_WINDOW_MS: u64 = 5_000;
-
 /// When the hook that sent the event with `payload` started
 /// (`normalized.observed_at_ms`), if it said.
 pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
@@ -347,10 +340,10 @@ pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
 }
 
 /// The order key of one hook event, as its hook stamped it: the monotonic
-/// clock of the machine that ran the hook (`boot_id`, `monotonic_ns`), and
-/// the wall clock (`observed_at_ms`) for events with no monotonic stamp.
-/// One agent session runs on one machine, so its events compare on that
-/// machine's clock.
+/// clock of the machine that ran the hook (`boot_id`, `monotonic_ns`). One
+/// agent session runs on one machine, so its events compare on that
+/// machine's clock. The wall clock (`observed_at_ms`) is kept for the record
+/// only; it does not order events.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HookOrderStamp {
     /// The boot of the machine whose monotonic clock `monotonic_ns` reads.
@@ -407,10 +400,12 @@ impl HookOrderStamp {
 /// keeps it either way. The agent projection and the roster both ask this,
 /// so they agree.
 ///
-/// On one boot of one machine the monotonic clock decides: an earlier stamp
-/// is a reorder, however far apart. An event of another boot (a resume
-/// after a reboot) applies. Without a monotonic stamp on both sides, the wall
-/// clock decides within [`HOOK_REORDER_WINDOW_MS`].
+/// On one boot of one machine the monotonic clock decides: a strictly
+/// earlier stamp is a reorder, however far apart. An equal stamp is not: the
+/// journal order decides. An event of another boot (a resume after a reboot)
+/// applies, whatever its clock reads. Without a monotonic stamp on both sides
+/// (an older hook helper, or a platform with no boot id) the event applies in
+/// journal order: the wall clock can step, so it decides nothing.
 ///
 /// Never skipped: the session's start and end, and an event that opens a
 /// dialog (a permission, a question, a plan review): parallel subagents of
@@ -433,20 +428,16 @@ pub(crate) fn hook_event_is_reordered(
         return false;
     }
     let Some(last) = last else { return false };
-    if let (Some((boot, now)), Some((last_boot, then))) = (stamp.monotonic(), last.monotonic()) {
-        return boot == last_boot && now < then;
+    match (stamp.monotonic(), last.monotonic()) {
+        (Some((boot, now)), Some((last_boot, then))) => boot == last_boot && now < then,
+        _ => false,
     }
-    let (Some(seen), Some(last)) = (stamp.observed_at_ms, last.observed_at_ms) else {
-        return false;
-    };
-    seen < last && last - seen <= HOOK_REORDER_WINDOW_MS
 }
 
 /// Records in `ingress` when the hook that saw the event started
-/// (`normalized.observed_at_ms`, ms since the epoch). One agent's hooks run
-/// one after another but reach the journal on separate connections; the
-/// daemon orders the agent's state by this time when the event carries no
-/// monotonic stamp ([`stamp_agent_hook_monotonic`]).
+/// (`normalized.observed_at_ms`, ms since the epoch), for the record. The
+/// daemon orders one agent's events by the monotonic stamp
+/// ([`stamp_agent_hook_monotonic`]), never by this time.
 pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
     if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
         normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
@@ -465,13 +456,18 @@ pub fn stamp_agent_hook_monotonic(ingress: &mut JournalIngress, now: &(String, u
 }
 
 /// This machine's monotonic clock now: its boot id and nanoseconds since
-/// that boot. `None` where the platform gives no boot id; the wall clock
-/// orders those events.
+/// that boot. `None` where the platform gives no boot id; those events
+/// apply in journal order.
 pub fn hook_monotonic_now() -> Option<(String, u64)> {
     let boot_id = machine_boot_id()?;
     monotonic_now_ns().map(|now| (boot_id, now))
 }
 
+/// `CLOCK_MONOTONIC`: one system-wide clock per boot. On macOS it is
+/// `mach_continuous_time` (it counts while the machine sleeps; not
+/// `CLOCK_UPTIME_RAW`, which stops). On Linux it stops during suspend but
+/// never steps back within one boot. Either way it only orders events of one
+/// boot, and the boot id tells boots apart.
 #[cfg(unix)]
 fn monotonic_now_ns() -> Option<u64> {
     // SAFETY: a zeroed `timespec` is a valid value of this plain C struct.

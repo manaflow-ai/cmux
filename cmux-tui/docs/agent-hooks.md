@@ -36,25 +36,20 @@ attention jump read, follows the latest-stamped event of its session: an
 event of the same session stamped earlier than the latest applied one is
 kept in the journal but does not change the state. One session runs on one
 machine, so the monotonic clock decides, however far apart the events are;
-a wall clock step does not change the order. An event of another boot (a
-resume after a reboot) applies. The session's start and end, and an event
-that opens a dialog, a question or a plan review, always apply (parallel
-subagents of one session can each open one, and it stays open until
-answered). An error report is a state like any other: a late one does not
-replace a newer state. The latest stamp is stored with the agent's hook
-state, so the order holds across a session restart. An event with no stamp
-applies in journal order.
+a wall clock step does not change the order. Two events with the same
+monotonic value keep journal order. An event of another boot (a resume after
+a reboot) applies, even if its clock reads less. The session's start and
+end, and an event that opens a dialog, a question or a plan review, always
+apply (parallel subagents of one session can each open one, and it stays
+open until answered). An error report is a state like any other: a late one
+does not replace a newer state. The latest stamp is stored with the agent's
+hook state, so the order holds across a session restart.
 
-Events with no monotonic stamp (an older hook helper, or a platform that
-gives no boot id) order by the wall clock instead, within 5 s (the reorder
-window):
-
-- Two events stamped in the same millisecond keep journal order.
-- An event stamped more than 5 s earlier applies, since a clock stepped back
-  is likelier than a reorder that long.
-- When the agent machine's clock steps back by up to 5 s (by NTP, say),
-  every event the agent sends until the clock passes its latest stamp again
-  is dropped from the state; the next event after that sets it.
+The monotonic clock is `CLOCK_MONOTONIC`, one system-wide clock per boot. On
+macOS that is `mach_continuous_time`, which counts while the Mac sleeps. An
+event with no monotonic stamp (an older hook helper, or a platform that gives
+no boot id) applies in journal order: the wall clock (`observed_at_ms`) is
+kept for the record and does not order events.
 
 ## Agents in a tmux session started elsewhere
 

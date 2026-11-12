@@ -706,24 +706,18 @@ fn hook_order_events_journaled_out_of_send_order_keep_the_last_sent_state() {
     // The unqueued hook path (no private queue directory, non-Unix) sends
     // each event on its own connection: the journal can take the prompt
     // after the Stop.
-    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
-    append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
-    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("UserPromptSubmit", 2_000, 2_000),
+        ],
+    );
     assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Idle));
     // The next prompt the hooks send still applies.
-    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 4_000);
-    assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
-}
-
-#[test]
-fn hook_order_an_event_older_than_the_reorder_window_applies() {
-    let mux = test_mux();
-    let surface = mux.new_workspace(None, None).unwrap();
-    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
-    append_ordered_hook(&mux, &terminal_id, "Stop", 20_000);
-    // Far earlier than a reorder can be: the clock stepped back.
-    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
+    append_clocked(&mux, &terminal_id, &[("UserPromptSubmit", 4_000, 4_000)]);
     assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
 }
 
@@ -732,9 +726,15 @@ fn hook_order_a_dialog_is_never_skipped() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
-    append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
-    append_ordered_hook(&mux, &terminal_id, "PermissionRequest", 2_000);
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("PermissionRequest", 2_000, 2_000),
+        ],
+    );
     assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Blocked));
 }
 
@@ -743,10 +743,13 @@ fn hook_order_a_session_end_is_never_skipped() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
-    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 3_000);
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[("SessionStart", 1_000, 1_000), ("UserPromptSubmit", 3_000, 3_000)],
+    );
     // Journaled after a later-started event, but the session ended: the row goes.
-    append_ordered_hook(&mux, &terminal_id, "SessionEnd", 2_000);
+    append_clocked(&mux, &terminal_id, &[("SessionEnd", 2_000, 2_000)]);
     assert_hook_order_state(&mux, surface.id, &terminal_id, None);
 }
 
@@ -755,8 +758,7 @@ fn hook_order_an_unstamped_event_after_stamped_ones_applies() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-    append_ordered_hook(&mux, &terminal_id, "SessionStart", 1_000);
-    append_ordered_hook(&mux, &terminal_id, "Stop", 3_000);
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
     // An older hook helper sends no start time: journal order decides.
     append_hook(&mux, &terminal_id, "UserPromptSubmit", None);
     assert_hook_order_state(&mux, surface.id, &terminal_id, Some(AgentState::Working));
