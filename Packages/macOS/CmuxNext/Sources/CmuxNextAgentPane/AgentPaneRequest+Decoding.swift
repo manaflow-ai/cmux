@@ -163,6 +163,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.finishSound":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneFinishSound.Kind.init(rawValue:)) {
+                self = .finishSound(kind)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.saveFile":
             // A document's kind only: the inspector's log has its own method.
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
@@ -336,8 +342,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "newTab.editWidgets":
-            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "readAloud.speak", "readAloud.stop":
             self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":
@@ -556,13 +560,14 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int,
+                                     mark: SubagentTabTitles.mark(params?["mark"]))
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
                 self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
-                                      facts: id == nil ? nil : SubagentTabFacts(params))
+                                      facts: id == nil ? nil : SubagentTabFacts(params), mark: id == nil ? nil : SubagentTabTitles.mark(params?["mark"]))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }

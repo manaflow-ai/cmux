@@ -36,9 +36,6 @@ public final class UpdaterService {
     @ObservationIgnored public internal(set) var lastFeedRead: FeedRead?
     /// A read ahead of the install click in flight (``readFeedAhead()``); never joined by a probe.
     @ObservationIgnored var feedReadAheadTask: Task<Void, Never>?
-    /// Sparkle committed to relaunching into the installed update (cleared if the install is
-    /// abandoned): the quit that follows hands the agent daemon to the new build.
-    @ObservationIgnored public internal(set) var relaunchesIntoUpdate = false
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.

@@ -34,24 +34,19 @@ Chromium profile whose cookies are kept in sync, and that profile's `Cookies`
 database with rows. It passes when the app stays up SEEDED-SECONDS (default 10)
 with Home rendered and no crash, and the app's cookie sync saved its baseline
 of the seeded store with at least one site (the proof that it opened and read
-it). A build whose sync
-never reads the store (it has none, or its format moved on) is "not-run" for
-this arm, said in the log and in report.json's `arms`; it is never a pass of
-it and never a failure. A crash of the seeded arm fails the run as a crash of
-the first does. In the seeded arm a crash report counts only when it is of
-that launch: one of a process that died before the seeded launch started (the
-first arm's app or a helper of it, a crash while it quit, written seconds
-later), one that names the first arm's process, or one of another copy of the
-app is logged and kept under --out's not-counted/, never counted. The first
-arm does the same for its launch: a crash of another launch of an app with
-the same executable name on the host (another tagged build on a fleet Mac) is
-not its crash. A report that names no process is no crash alone, in either
-arm: it counts only beside the end of the launch's app (CRASH_FILTER). Without
---arms only the empty home is launched, as before.
+it). A build whose sync never reads the store (it has none, or its format
+moved on) is "not-run" for this arm, and a seed that could not be made is
+"cannot-run", said in the log and in report.json's `arms`: never a pass of it,
+never a failure, and the first arm's exit code stands. A crash of the seeded
+arm fails the run as a crash of the first does. In each arm a crash report
+counts only when it is of that launch (not_of_launch); another is kept under
+--out's not-counted/. Without --arms only the empty home is launched.
 
-Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
-           [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
-           [--seeded-seconds S]
+--daemon (the publish gate only): a build with a dead daemon (cmux-tui) shows Home and takes no key. So each
+arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
+DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`). The daemon's socket is the account's,
+by session, not the home's (DaemonLauncher.swift runtimeBase): "connected" counts only with a daemon of this
+launch's app copy (app_daemons), else the read is not judged and is no pass.
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -67,8 +62,7 @@ Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
 arm; report.json's `arm` names the one the report describes). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
-never launched is never published. A seeded arm that could not be made or did
-not reach the cookie sync changes no exit code: the first arm's verdict stands.
+never launched is never published.
 """
 from __future__ import annotations
 
@@ -112,17 +106,17 @@ FIRST_RUN_MARK = "first_run.history_import_shown"
 # Chromium profile's cookies and keeps them in sync (seed_cookie_sync_home), launched from ROOT/SEEDED.
 EMPTY, SEEDED = "empty", "seeded"
 ARMS = (EMPTY, SEEDED)
-# How both arms match a crash report to their launch, for a caller that chooses the folder to give this tool: by
-# the process the report names (not_of_launch), never by the executable's name and the file's time alone. So the
-# account's real DiagnosticReports folder, which has the reports of every launch on the host, is safe to give.
+# Both arms match a crash report to their launch by the process that it names (not_of_launch), so a caller can
+# give the account's real DiagnosticReports folder, which has the reports of every launch on the host.
 CRASH_FILTER = "pid"
 # The seeded arm's verdict when it launched nothing or the app never read the seeded store.
 NOT_RUN = "not-run"
-# Where --out keeps the crash reports the seeded arm found and did not count (not_of_launch says why in the log).
+# Where --out keeps the crash reports that an arm found and did not count (the log says why).
 NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
 SEEDED_STARTUP_LIMIT = 45.0
+DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
 # The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
 # app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
@@ -170,10 +164,10 @@ def seed_cookie_sync_home(home: Path, bundle_id: str, now: float | None = None) 
     The store is not in a browser's own folder, so the app's browser detection finds no browser in this home. No
     baseline is written (BrowserImport/cookie-sync/ stays empty): the sync's first scan then saves its own and
     reports nothing changed, so the app imports nothing and never asks the Keychain for a browser's key. That is
-    the app's code of today. The home also holds it: SEED_BROWSER has no Keychain item name in the app and no
-    cookie reader (CookieImporter.read), so a build that imports at its first scan reads no key, cannot import
-    this source, and saves no baseline: the arm is then not-run, never a Keychain dialog on the host. Returns
-    what the run checks afterwards: the source's key, the baseline folder, and the hosts and rows written.
+    the app's code of today. SEED_BROWSER holds it for a build that imports at its first scan: with no Keychain
+    item name and no cookie reader (CookieImporter.read) it reads no key and saves no baseline, so the arm is
+    not-run, never a Keychain dialog on the host. Returns what the run checks afterwards: the source's key, the
+    baseline folder, and the hosts and rows written.
     """
     import sqlite3  # here, so a Python without it is this arm's cannot-run only
 
@@ -417,7 +411,7 @@ class DefaultsAside:
         return False
 
 
-def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
+def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:
     """snapshot.get over the release control socket (newline-delimited JSON), None while it does not answer."""
     if not socket_path.exists():
         return None
@@ -425,7 +419,7 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(str(socket_path))
-            sock.sendall(b'{"id": 1, "method": "snapshot.get", "params": {}}\n')
+            sock.sendall(b'{"id": %d, "method": "snapshot.get", "params": {}}\n' % request)
             buffer = b""
             while b"\n" not in buffer:
                 chunk = sock.recv(1 << 20)
@@ -437,6 +431,57 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         return None
     result = reply.get("result")
     return result if isinstance(result, dict) else None
+
+
+def app_daemons(app: Path) -> tuple[list[str], list[str]]:
+    """This user's app daemons (cmux-tui --headless --session cmux-app...; a Chief's is cmux-chief-...): the
+    sessions of those whose program is below APP (this launch's), and the others of such a session (of each app
+    session when this launch has none) as "pid N PROGRAM (SESSION)"."""
+    own, others = [], []
+    for pid, args in user_processes():
+        session = re.search(r" --session (cmux-app\S*)", args)
+        if session and " --headless" in args:
+            if args.startswith((f"{app}/", f"{os.path.realpath(app)}/")):
+                own.append(session[1])
+            else:
+                others.append((session[1], f"pid {pid} {args.partition(' --')[0]} ({session[1]})"))
+    return own, [text for session, text in others if not own or session in own]
+
+
+def daemon_at_end(socket_path: Path, app: Path) -> list[dict]:
+    """The app's daemon_state and daemon_failure (snapshot.get topology): one read, and when it is not clean one
+    more DAEMON_REREAD_SECONDS later (a reconnect in work). None (no answer, no field) is not judged, as is
+    "connected" with no daemon of this launch (`of_launch` False: no pass). Each read is said in the log."""
+    reads: list[dict] = []
+    for request in (2, 3):
+        snap = snapshot(socket_path, request=request)
+        topology = (snap or {}).get("topology") or {}
+        state = topology.get("daemon_state")
+        reads.append({"state": state if isinstance(state, str) else None,
+                      "failure": str(topology.get("daemon_failure") or "")[:300] or None})
+        if state == "connected" and not app_daemons(app)[0]:
+            reads[-1]["of_launch"] = False
+        log("daemon: " + ("not judged (not of this launch)" if "of_launch" in reads[-1] else reads[-1]["state"]
+                          or f"not judged ({'no field' if snap else 'no answer'})"))
+        if request == 3 or (reads[0]["state"] in (None, "connected") and not reads[0]["failure"]):
+            break
+        time.sleep(float(os.environ.get("CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS", DAEMON_REREAD_SECONDS)))
+    return reads
+
+
+def daemon_down(reads: list[dict] | None, app: Path) -> str | None:
+    """Why READS fail the launch: the last tells a daemon failure, or both are not connected; with the live app
+    daemons of other launches, a possible cause."""
+    if reads and reads[-1]["failure"]:
+        why = f"the app's daemon (cmux-tui) failed: {reads[-1]['failure']}"
+    elif reads and len(reads) == 2 and all(read["state"] not in (None, "connected") for read in reads):
+        why = (f"the app's daemon (cmux-tui) was not connected when the watch ended ({reads[0]['state']}) "
+               f"and at the next read ({reads[1]['state']})")
+    else:
+        return None
+    own, others = app_daemons(app)
+    return (f"{why}; daemons of {' or '.join(sorted(set(own))) or 'an app session'} that are not of this launch: "
+            f"{', '.join(others[:3]) or 'none'}")
 
 
 def visible_windows(snap: dict | None) -> int:
@@ -672,20 +717,21 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
             + ("" if own is None else " and not this launch's files"))
 
 
-def pids_under(root: Path) -> list[int]:
-    """This user's processes whose command line names the run's private root, never by name."""
-    real = os.path.realpath(root)
+def user_processes() -> list[tuple[int, str]]:
+    """(pid, command line) of this user's other processes."""
     try:
         out = subprocess.run(["ps", "-ww", "-o", "pid=", "-o", "args=", "-U", str(os.getuid())],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    pids = []
-    for line in out.splitlines():
-        pid, _, args = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and (f"{root}/" in args or f"{real}/" in args):
-            pids.append(int(pid))
-    return pids
+    pairs = [line.strip().partition(" ") for line in out.splitlines()]
+    return [(int(pid), args.strip()) for pid, _, args in pairs if pid.isdigit() and int(pid) != os.getpid()]
+
+
+def pids_under(root: Path) -> list[int]:
+    """This user's processes whose command line names the run's private root, never by name."""
+    real = os.path.realpath(root)
+    return [pid for pid, args in user_processes() if f"{root}/" in args or f"{real}/" in args]
 
 
 # Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
@@ -792,11 +838,14 @@ def screenshot(out: Path) -> str | None:
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
-          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0) -> dict:
+          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
+          daemon: bool = False) -> dict:
     """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits.
 
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
-    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch."""
+    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch.
+
+    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
@@ -831,8 +880,12 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
             time.sleep(0.25)
-    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status,
-            "seconds_up": round(time.monotonic() - started, 1)}
+    reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
+    if daemon and status is None and rendered_at is not None and ready is None:
+        reads = daemon_at_end(socket_path, app)
+        status = process.poll()
+    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
+            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1)}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -977,7 +1030,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 startup = min(max(args.seeded_seconds, args.startup_timeout), SEEDED_STARTUP_LIMIT)
                 scan_wait = float(os.environ.get("CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS", SEEDED_SCAN_WAIT))
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
-                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait)))
+                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
             finally:
                 stop_child(process)
                 stop(own_pids(root))
@@ -1012,8 +1065,10 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in seen['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync")})
+                                           "cookie_sync", "daemon", "daemon_down")})
     arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
@@ -1068,7 +1123,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     def failed() -> None:
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
-                    "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
+                    "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
+                    "daemon", "daemon_down"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
@@ -1130,7 +1186,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         os.close(marks_write)
         try:
             seen = watch(process, marks_read, marks_path, socket_path, args.seconds,
-                         max(args.seconds, args.startup_timeout))
+                         max(args.seconds, args.startup_timeout), daemon=args.daemon)
         finally:
             os.close(marks_read)
         report.update(seen)
@@ -1177,6 +1233,8 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
                         f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
@@ -1215,6 +1273,8 @@ def main(argv: list[str] | None = None) -> int:
                              "imported cookies are kept in sync")
     parser.add_argument("--seeded-seconds", type=float, default=10.0,
                         help="how long the app must stay up in the seeded arm")
+    parser.add_argument("--daemon", action="store_true",
+                        help="also fail a launch whose daemon is not connected when the watch ends")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)

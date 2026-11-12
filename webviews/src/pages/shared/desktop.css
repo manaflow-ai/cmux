@@ -130,6 +130,11 @@ body {
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
+  /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
+  --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
+  --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
+  --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
+  --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -140,7 +145,8 @@ body {
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
   --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a selected row or the checked segment */
-  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines and dividers */
+  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines inside a page: list rows, cards and fields */
+  --ds-color-divider: var(--cmux-chrome-divider, var(--cmux-sidebar-line, var(--ds-color-separator))); /* a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
   --ds-color-accent: var(--cmux-accent, var(--cmux-app-accent, CanvasText)); /* the theme accent: the text colour unless the theme names a hue */
   --ds-color-on-accent: var(--cmux-on-accent, var(--cmux-app-on-accent, Canvas)); /* text and glyphs on the accent */
@@ -842,6 +848,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    (test/spinner-period.test.ts). */
 :root {
   --cmux-breath-period: 2.4s;
+  /* The breath's curve: in and out alike, so it never snaps at either end (the Apps skeleton's, now ui/Skeleton's). */
+  --cmux-breath-ease: ease-in-out;
   --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {

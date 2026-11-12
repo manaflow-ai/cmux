@@ -73,17 +73,23 @@ pub enum SessionStatus {
     Closed,
 }
 
-impl std::fmt::Display for SessionStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl SessionStatus {
+    /// The status as a session list's `status` says it (its `Display`).
+    pub fn as_str(self) -> &'static str {
+        match self {
             Self::Idle => "idle",
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Waiting => "waiting",
             Self::Disconnected => "disconnected",
             Self::Closed => "closed",
-        };
-        f.write_str(s)
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -156,9 +162,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
-    #[serde(alias = "harness")]
+    /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
+    #[serde(alias = "agent")]
     pub harness: String,
-    #[serde(default, alias = "agent_argv")]
+    /// `agentArgv` (or `agent_argv`) in a chat stored before that rename.
+    #[serde(default, alias = "agentArgv", alias = "agent_argv")]
     pub harness_argv: Vec<String>,
     /// The argv its agent last started with: a config or preset reload since creation can change
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
@@ -916,6 +924,10 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = test_clock::followed_now_ms() {
+        return now;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -927,16 +939,26 @@ pub fn now_ms() -> u64 {
 
 /// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
 /// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+/// Followed (`follow_tokio`), it is the wall time at the follow plus tokio's ticked time, never
+/// the real time since.
 #[cfg(test)]
 pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
-    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+    // Followed: tokio's instant and the real wall time (ms) at the follow.
+    thread_local!(static FOLLOW: Cell<Option<(tokio::time::Instant, u64)>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
-        AHEAD_MS.with(Cell::get) + followed as u64
+        AHEAD_MS.with(Cell::get)
+    }
+
+    /// This thread's wall clock while it follows tokio: the wall time at the follow, the ticked
+    /// time since and what it was moved. None when it does not follow.
+    pub(crate) fn followed_now_ms() -> Option<u64> {
+        let (origin, wall) = FOLLOW.with(Cell::get)?;
+        let ticked = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Some(wall.saturating_add(ticked).saturating_add(ahead_ms()))
     }
 
     /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
@@ -949,13 +971,41 @@ pub(crate) mod test_clock {
     /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
     /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
     pub(crate) fn follow_tokio() {
-        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        FOLLOW.with(|f| f.set(Some((tokio::time::Instant::now(), wall))));
     }
 
     /// Back to the real wall clock.
     pub(crate) fn reset() {
         AHEAD_MS.with(|a| a.set(0));
         FOLLOW.with(|f| f.set(None));
+    }
+
+    /// A followed clock is ticked time only: the real milliseconds a run takes, more on a loaded
+    /// host, never move it, so the wall-clock rules a test drives (a peer parked after a day
+    /// down) fall on the same tick in every run (`stress::reconnect`, "a seed replays its
+    /// schedule exactly", failed at 9dc6d10f under load 22-60).
+    #[tokio::test(start_paused = true)]
+    async fn a_followed_clock_moves_with_ticked_time_only() {
+        follow_tokio();
+        let before = super::now_ms();
+        // Real time passes, as when a loaded host deschedules the test; tokio's paused clock
+        // does not (no await, so it cannot auto-advance).
+        let real = std::time::Instant::now();
+        while real.elapsed() < std::time::Duration::from_millis(20) {
+            std::hint::spin_loop();
+        }
+        let after_real = super::now_ms();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let after_tick = super::now_ms();
+        advance(5_000);
+        let after_sleep = super::now_ms();
+        reset();
+        assert_eq!(after_real, before, "20 ms of real time moved the followed clock");
+        assert_eq!(after_tick, before + 1_000, "1 s of ticked time");
+        assert_eq!(after_sleep, before + 6_000, "a computer sleep still runs the wall clock ahead");
     }
 }
 

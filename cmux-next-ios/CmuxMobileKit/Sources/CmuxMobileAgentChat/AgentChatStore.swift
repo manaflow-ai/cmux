@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
@@ -262,6 +263,14 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// What the chat says when the Mac refused a send for this phone's Full-access setting
+    /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
+    /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
+    /// It goes once a later connection says Full access covers this phone (`.fullAccess(true)`).
+    public static let fullAccessOffNotice = "Full access is off for this iPhone, so from it a chat runs only in a mode that asks before changes. Turn it on in Settings > Devices on the Mac."
+    /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
+    /// fleet lanes run in Bypass permissions): what to change to send it.
+    public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -318,10 +327,31 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    public init(source: any AgentSessionSource) {
+    /// Says when a dropped or catching-up chat may show its line (after 10 s);
+    /// its rows stay on screen the whole time.
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+
+    /// The chat's one quiet status line by the composer: nil while live and for the first
+    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
+    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
+    /// instead (``AgentChatLoadingState``).
+    public var connectionLine: String? {
+        guard quietStatus.isShown, hasTurns else { return nil }
+        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
+        return isLoadingHistory ? "Updating…" : nil
+    }
+
+    /// Feeds ``quietStatus`` from the link and history state.
+    private func updateQuietStatus() {
+        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+    }
+
+    public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.quietStatus = quietStatus
+        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -441,6 +471,7 @@ public final class AgentChatStore {
         chunkFlushes += 1
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
+        updateQuietStatus()
     }
 
     nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
@@ -811,6 +842,8 @@ public final class AgentChatStore {
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
         refreshDerived()
+        // A record after a reattach can end `.disconnected` without a `.status` event.
+        updateQuietStatus()
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
@@ -1034,6 +1067,8 @@ public final class AgentChatStore {
             fillGap(events, done: done)
         case .fullAccess(let on):
             fullAccess = on
+            // The refusal said Full access was off; a connection that says it is on ends it.
+            if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
@@ -1056,8 +1091,16 @@ public final class AgentChatStore {
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, attachments, promptID)
+            if let earlier = returnedDraft {
+                // Several messages came back before the composer took the first: none is lost.
+                // Joined, they are a new message (no single id runs them all once).
+                returnedDraft = ReturnedDraft(text: [earlier.text, text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                              attachments: earlier.attachments + attachments, promptID: promptID)
+                resendable = nil
+            } else {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                resendable = (text, attachments, promptID)
+            }
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
