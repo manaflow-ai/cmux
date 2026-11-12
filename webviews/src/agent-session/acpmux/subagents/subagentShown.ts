@@ -33,6 +33,9 @@ export function useShownSubagent(
   id: string | undefined,
   title: string | undefined,
   facts?: ShownSubagentFacts,
+  /// The harness whose mark the subagent's row draws (subagentPanes.ts `subagentRowMark`), unset for
+  /// the subagent mark: the tab draws the same icon as the row.
+  mark?: string,
 ) {
   const shownOnce = useRef(false);
   const { state, sinceMs, model } = facts ?? {};
@@ -51,9 +54,10 @@ export function useShownSubagent(
             subagent: id,
             ...(title ? { title } : {}),
             ...(workflow ? {} : { tone: agentTone(id) }),
+            ...(!workflow && mark ? { mark } : {}),
             ...(!workflow && state ? { state, ...(sinceMs ? { sinceMs } : {}), ...(model ? { model } : {}) } : {}),
           }
         : {},
     ).catch(() => undefined);
-  }, [call, ownPane, id, title, state, sinceMs, model]);
+  }, [call, ownPane, id, title, state, sinceMs, model, mark]);
 }
