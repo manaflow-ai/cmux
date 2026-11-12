@@ -231,9 +231,12 @@ public final class HomeNewMessage {
 
 #if DEBUG
 /// Demo and UI tests (mock content, no Cloud service): a team to list.
+@MainActor
 enum HomeNewMessageDemo {
     static var team: [HomeRecipientEntry] {
-        [("user_demo_ada", "Ada Lovelace"), ("user_demo_lawrence", "Lawrence Chen"), ("user_demo_austin", "Austin Wang")]
+        // The Mac-only demo is a team of one: its list offers Invite instead.
+        if CommandLine.arguments.contains("new-message-mac-only") { return [] }
+        return [("user_demo_ada", "Ada Lovelace"), ("user_demo_grace", "Grace Hopper"), ("user_demo_alan", "Alan Turing")]
             .map { HomeNewMessageDirectory.teammate(id: $0.0, name: $0.1) }
     }
 }
