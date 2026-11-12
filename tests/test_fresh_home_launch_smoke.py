@@ -59,7 +59,10 @@ BUNDLE = "com.example.fresh-smoke-stub"
 # reads while it waits for Home have the request id 1, its read when the watch ends 2, its read again 3. No
 # DAEMON: connected in each read. none: the snapshot has no such field (a build from before it). down: not
 # connected from the read 2 on. seeded-down: the same, in the seeded home only. reconnects: "disconnected" in
-# the read 2 alone. failed: the state "failed" with a failure text from the read 2 on.
+# the read 2 alone. failed: the state "failed" with a failure text from the read 2 on. The stub starts a daemon
+# of its own as the real app does (its program in the bundle, cmux-tui's arguments, the session of
+# Resources/session); a DAEMON that ends in "other" (other, down-other) starts none, as an app that got the daemon
+# of another launch of its session.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -72,6 +75,13 @@ open(os.path.join(home, "stub-report.json"), "w").write(json.dumps(report))
 helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", os.path.abspath(__file__)],
                           start_new_session=True)
 open(os.path.join(home, "helper.pid"), "w").write(str(helper.pid))
+resources = os.path.join(os.path.dirname(here), "Resources")
+if daemon.endswith("other"):
+    daemon = daemon[:-len("other")].rstrip("-")
+else:
+    subprocess.Popen([os.path.join(resources, "bin", "cmux-tui"), "-c", "import time; time.sleep(600)", "--headless",
+                      "--session", open(os.path.join(resources, "session")).read(), "--socket", "s"],
+                     start_new_session=True)
 # A terminal host, as the real app's are: detached, its command line never names the root, its cwd is /. Only its
 # record under HOME names it, so cleanup must stop it by that record's host_pid.
 host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "__terminal-host"], cwd="/",
@@ -278,6 +288,10 @@ def make_app(parent: Path, mode: str) -> Path:
     with open(app / "Contents" / "Info.plist", "wb") as handle:
         plistlib.dump({"CFBundleIdentifier": BUNDLE, "CFBundleExecutable": "stub"}, handle)
     (app / "Contents" / "Resources" / "mode").write_text(mode)
+    # The stub's daemon: a program file in the bundle (Python by another name) and a session of this test alone.
+    (app / "Contents" / "Resources" / "bin").mkdir()
+    os.symlink(sys.executable, app / "Contents" / "Resources" / "bin" / "cmux-tui")
+    (app / "Contents" / "Resources" / "session").write_text(f"cmux-app-stub-{parent.parent.name}")
     # Where the stub puts a crash report of its own (the test's diagnostics folder), outside the run's root.
     (app / "Contents" / "Resources" / "diagnostics_path").write_text(str(parent.parent / "diagnostics"))
     write_executable(app / "Contents" / "MacOS" / "stub", STUB)
@@ -1246,6 +1260,67 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(verdicts.verdict([(1, report), (1, report)], daemon=True), verdicts.CRASH)
         # And for a caller that does not ask (the post-publish smoke's verdict) it is no crash.
         self.assertEqual(verdicts.verdict([(1, report), (1, report)]), verdicts.CANNOT_RUN)
+
+    def daemon_of_another_launch(self, session: str) -> subprocess.Popen:
+        """A live app daemon of SESSION whose program is not in the run's app copy: another launch's."""
+        program = self.dir / f"other-{session}" / "cmux-tui"
+        program.parent.mkdir()
+        os.symlink(sys.executable, program)
+        other = subprocess.Popen([str(program), "-c", "import time; time.sleep(600)", "--headless", "--session",
+                                  session, "--socket", "s"])
+        self.addCleanup(other.wait)
+        self.addCleanup(other.kill)
+        # How a daemon failure names it. The program is all before the first option: for this stand-in, Python's
+        # own -c and its text too (the real daemon's first argument is --headless).
+        other.said = f"pid {other.pid} {program} -c import time; time.sleep(600) ({session})"
+        return other
+
+    def test_a_connected_daemon_that_is_not_of_this_launch_is_not_judged_and_is_no_pass_for_the_gate(self):
+        # The daemon's socket is the account's, by session, not the home's (FOUND 5): with an installed build of the
+        # same channel live, the launched app gets THAT daemon, and "connected" says nothing of this build's.
+        verdicts = gate_verdicts()
+        self.daemon_of_another_launch(f"cmux-app-stub-{self.dir.name}")
+        status, output, report = self.run_smoke("healthy@other", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        self.assertEqual(status, smoke.PASS, output)  # the launch itself passed; what a caller makes of the mark is its
+        self.assertEqual(report["daemon"], [{**self.CONNECTED, "of_launch": False}])
+        self.assertIsNone(report["daemon_down"])
+        self.assertIn("\ndaemon: not judged (not of this launch)\n", output)
+        self.assertNotIn("daemon: connected", output)
+        self.assert_cleaned_up(report)
+        self.assertEqual(verdicts.attempt_result(0, report, True), verdicts.CANNOT_RUN)
+        self.assertEqual(verdicts.attempt_result(0, report), verdicts.PASS)  # the post-publish smoke: as before
+        # The seeded home's launch has the same rule, and the report says which home.
+        status, output, report = self.run_smoke("healthy@other", "--seconds", "2", "--startup-timeout", "10", "--arms",
+                                                "empty,seeded", "--seeded-seconds", "2", "--daemon")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["arms"]["seeded"]["daemon"], [{**self.CONNECTED, "of_launch": False}])
+        self.assertEqual(output.count("daemon: not judged (not of this launch)\n"), 2, output)
+        self.assertEqual(verdicts.attempt_result(0, report, True), verdicts.CANNOT_RUN)
+
+    def test_a_daemon_failure_names_the_daemons_of_its_session_that_are_not_of_this_launch_or_none(self):
+        # A reader of a held build must know at once whether another launch's daemon can be the cause.
+        session = f"cmux-app-stub-{self.dir.name}"
+        status, output, report = self.run_smoke("healthy@down", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertTrue(report["daemon_down"].endswith(
+            f"at the next read (disconnected); daemons of {session} that are not of this launch: none"), output)
+        other = self.daemon_of_another_launch(session)
+        stranger = self.daemon_of_another_launch(session + "-2")  # another session: not the launch's socket
+        status, output, report = self.run_smoke("healthy@failed", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertTrue(report["daemon_down"].endswith(
+            f"did not start; daemons of {session} that are not of this launch: {other.said}"), output)
+        self.assertEqual(report["daemon_down"], report["failures"][0])
+        self.assertIn(f"FAIL: {report['daemon_down']}", output)
+        # A launch with no daemon of its own (a dead daemon has no process) does not know its session: each app
+        # session's daemons are named, with their session.
+        status, output, report = self.run_smoke("healthy@down-other", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        self.assertEqual(status, smoke.FAIL, output)
+        said = report["daemon_down"].partition("; daemons of an app session that are not of this launch: ")[2]
+        self.assertTrue(said, report["daemon_down"])
+        # 3 at most are named, and a developer's Mac can have app daemons of its own.
+        self.assertTrue({other.said, stranger.said} & set(said.split(", ")) or len(said.split(", ")) == 3, said)
+        self.assert_cleaned_up(report)
 
     def test_a_daemon_that_is_connected_again_at_the_second_read_is_no_failure(self):
         # A reconnect in work when the watch ends: the app says "not connected" one time and "connected" the next.

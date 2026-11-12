@@ -132,6 +132,27 @@ class VerdictTests(unittest.TestCase):
         for status in (0, 2, 3, 143, 137, -1):
             self.assertEqual(smoke.attempt_result(status, DAEMON_DOWN, True), smoke.CANNOT_RUN, status)
 
+    def test_a_pass_with_the_daemon_of_another_launch_is_no_pass_for_the_gate(self) -> None:
+        # The daemon's socket is the account's, by session, not the home's: a launch can get the daemon of an
+        # installed build of its channel. The harness then marks the read; for the gate that asked (--daemon) the
+        # daemon was not judged, which is cannot-run (a warning), never a pass and never a hold.
+        other = {"state": "connected", "failure": None, "of_launch": False}
+        mine = {"state": "connected", "failure": None}
+        empty = {**PASSED, "daemon": [other]}
+        seeded = {**PASSED, "daemon": [mine], "arms": {"empty": {"verdict": "pass"},
+                                                      "seeded": {"verdict": "pass", "daemon": [other]}}}
+        for report in (empty, seeded, {**PASSED, "daemon": [{"state": "disconnected", "failure": None}, other]}):
+            self.assertEqual(smoke.attempt_result(0, report, True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(0, report)], daemon=True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, report)], daemon=True), smoke.CANNOT_RUN, report)
+            # The post-publish smoke does not ask: its verdict is the one of before.
+            self.assertEqual(smoke.attempt_result(0, report), smoke.PASS, report)
+        for report in ({**PASSED, "daemon": [mine]}, {**PASSED, "daemon": None}, {**PASSED, "daemon": "connected"},
+                       {**PASSED, "daemon": [{"state": None, "failure": None}], "arms": {"seeded": "not-run"}}):
+            self.assertEqual(smoke.attempt_result(0, report, True), smoke.PASS, report)
+        # A crash stays a crash: the mark changes a pass only.
+        self.assertEqual(smoke.verdict([(1, {**RAN, "daemon": [other]})] * 2, daemon=True), smoke.CRASH)
+
     def test_the_post_publish_smoke_never_rolls_a_build_back_for_its_daemon(self) -> None:
         # The daemon check is the publish gate's alone (FABLE LEAD, 2026-11-12: a feed rollback and an issue
         # "crashed at launch" are acts on a published nightly, and a daemon that is down after the gate passed the
@@ -633,7 +654,7 @@ class GateScriptTests(unittest.TestCase):
                 "        sys.exit(143)\n"
                 "    signal.signal(signal.SIGTERM, cut)\n    time.sleep(30)\n"
                 # As the real harness: the daemon is read only for a caller that asks (--daemon), else a pass.
-                "if 'daemon-down' in kind and '--daemon' not in sys.argv:\n    kind = 'pass'\n"
+                "if 'daemon-' in kind and '--daemon' not in sys.argv:\n    kind = 'pass'\n"
                 "empty = {'verdict': 'pass', 'exit': None}\n"
                 "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
@@ -647,6 +668,9 @@ class GateScriptTests(unittest.TestCase):
                 " 'seeded-daemon-down': {'verdict': 'fail', 'pid': 2, 'exit': None, 'arm': 'seeded',"
                 " 'daemon_down': 'not connected', 'failures': ['seeded home: the daemon was not connected'],"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': None}}},"
+                " 'daemon-other': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'daemon': [{'state': 'connected', 'failure': None, 'of_launch': False}],"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
                 " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'not-run', 'reason': 'its cookie sync did not read\\nthe seeded store'}}},"
                 " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
@@ -655,7 +679,7 @@ class GateScriptTests(unittest.TestCase):
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'seeded-cannot-run': 0,"
-                " 'daemon-down': 1, 'seeded-daemon-down': 1,"
+                " 'daemon-down': 1, 'seeded-daemon-down': 1, 'daemon-other': 0,"
                 " 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
@@ -707,6 +731,16 @@ class GateScriptTests(unittest.TestCase):
         status, output, _ = self.run_gate(["daemon-down", "crash"])
         self.assertEqual(status, 1, output)
         self.assertIn("the app crashed at launch from a fresh home on both attempts", output)
+
+    def test_a_pass_with_the_daemon_of_another_launch_is_a_warning_and_never_a_pass(self) -> None:
+        status, output, _ = self.run_gate(["daemon-other", "pass"])
+        self.assertEqual(status, 0, output)
+        self.assertNotIn("launch smoke attempt 2", output)  # as each cannot-run: no second attempt
+        self.assertIn("::warning title=nightly-next launch smoke::the app launched, but the daemon that it used was "
+                      "not of this launch (another build of its session is live on this account), so its daemon was "
+                      "not judged; the build is not held", output)
+        self.assertNotIn("launch smoke passed", output)
+        self.assertIn("### Launch smoke: cannot-run", self.summary)
 
     def test_a_daemon_that_is_down_on_one_attempt_never_holds_the_build(self) -> None:
         for plan in (["daemon-down", "pass"], ["daemon-down", "cannot-run"], ["daemon-down"],
