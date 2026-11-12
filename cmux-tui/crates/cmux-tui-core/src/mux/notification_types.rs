@@ -135,6 +135,18 @@ pub struct NotificationPoster {
     pub executable: String,
 }
 
+impl NotificationPoster {
+    /// The poster of a terminal whose PTY child is `pid`: `group` finds the foreground
+    /// process-group leader of `pid`, `executable` names a process.
+    pub(crate) fn of_terminal(
+        pid: u32,
+        group: impl Fn(u32) -> Option<u32>,
+        executable: impl Fn(u32) -> Option<String>,
+    ) -> Option<Self> {
+        Some(Self { pid: group(pid)?, executable: executable(group(pid)?)? })
+    }
+}
+
 /// What the daemon remembers about a ledger row it posted in this run
 /// (memory only): the `notification` event's number and the poster.
 #[derive(Debug, Clone, PartialEq, Eq)]

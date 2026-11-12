@@ -1003,3 +1003,18 @@ fn clearing_notifications_frees_their_post_records() {
     let posts = mux.notification_posts.lock().unwrap().len();
     assert_eq!(posts, 0, "cleared notifications keep {posts} post records");
 }
+
+/// The foreground group changes between two lookups (a shell starting a program): the poster must
+/// name the leader it reports, never pair one program's PID with another's executable.
+#[test]
+fn a_poster_names_the_leader_it_reports() {
+    let lookups = std::cell::Cell::new(0_u32);
+    let group = |_pid: u32| {
+        lookups.set(lookups.get() + 1);
+        Some(if lookups.get() == 1 { 100 } else { 200 })
+    };
+    let poster =
+        NotificationPoster::of_terminal(7, group, |leader| Some(format!("/bin/program-{leader}")))
+            .expect("a poster");
+    assert_eq!(poster.executable, format!("/bin/program-{}", poster.pid));
+}
