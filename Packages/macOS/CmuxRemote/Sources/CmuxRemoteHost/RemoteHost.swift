@@ -414,7 +414,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
 
     /// The app's connections: a hello with the secret from `app_grant`, from
     /// that exact process; then one `open` that turns the connection into a
-    /// channel (the Screen Sharing worker's socket).
+    /// channel (the Screen Sharing worker's socket, or the Computer Use worker's live preview socket).
     func serveApp(_ channel: LineChannel) {
         channel.setReadTimeout(5)
         guard let hello = channel.readObject(), hello["type"] as? String == "hello",
@@ -436,6 +436,18 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             channel.write(RemoteWire.failure(id: id, code: "bad_request",
                                              message: "Computer Use has no app channel; the daemon serves computer-use-endpoint"))
             channel.close()
+        case "computer-use-preview":
+            // The live preview of an agent's window: the worker streams it; only this checked app gets it.
+            guard let worker = try? LocalSocket.connect(host.layout.computerUsePreviewSocket) else {
+                channel.write(RemoteWire.failure(id: id, code: "worker_unavailable", message: "Computer Use is not running"))
+                return channel.close()
+            }
+            channel.write(RemoteWire.answer(id: id, result: ["pid": host.computerUse.pid.map(Int.init) ?? 0]))
+            let early = channel.takeBuffered()
+            BytePump.splice(channel.readDescriptor, worker, prefixForSecond: early, name: "remote-app-cu-preview") {
+                close(worker)
+                channel.close()
+            }
         case RemoteWorkerKind.screenSharing.rawValue:
             // A worker that is starting answers within seconds; this connection's own thread waits for it.
             guard host.screen.waitReady(until: Date().addingTimeInterval(10)),
@@ -450,7 +462,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
                 channel.close()
             }
         default:
-            channel.write(RemoteWire.failure(id: id, code: "bad_request", message: "channel must be computer-use or screen-sharing"))
+            channel.write(RemoteWire.failure(id: id, code: "bad_request",
+                                             message: "channel must be screen-sharing or computer-use-preview"))
             channel.close()
         }
     }

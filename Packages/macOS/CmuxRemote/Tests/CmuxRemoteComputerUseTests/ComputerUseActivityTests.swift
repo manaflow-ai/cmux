@@ -11,7 +11,7 @@ import Testing
     /// A clock the test moves, and the lines the reporter wrote.
     private final class Rig: Sendable {
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 1_000))
-        let lines = OSAllocatedUnfairLock(initialState: [[String: Any]]())
+        let lines = OSAllocatedUnfairLock(uncheckedState: [[String: Any]]())
         let windows: [UInt32: ComputerUseActivity.App]
 
         init(windows: [UInt32: ComputerUseActivity.App] = [:]) { self.windows = windows }
@@ -77,22 +77,28 @@ import Testing
     @Test func theHostKeepsTheLatestPerSessionAndForgetsEndedAndStaleOnes() {
         var activity = ComputerUseActivity()
         let now = Date(timeIntervalSince1970: 2_000)
-        #expect(activity.take(["type": "activity", "session": "a", "label": "Claude", "at_ms": 1_999_000,
-                               "app": ["id": "com.apple.Notes", "name": "Notes"]], now: now))
-        #expect(!activity.take(["type": "activity", "session": "a", "label": "Claude", "at_ms": 1_999_000,
-                                "app": ["id": "com.apple.Notes", "name": "Notes"]], now: now), "the same line changes nothing")
-        #expect(activity.take(["type": "activity", "session": "b", "label": "Codex\u{7}\nbad", "at_ms": 2_000_000], now: now))
+        let first = activity.take(["type": "activity", "session": "a", "label": "Claude", "at_ms": 1_999_000,
+                                   "app": ["id": "com.apple.Notes", "name": "Notes"]], now: now)
+        #expect(first)
+        let same = activity.take(["type": "activity", "session": "a", "label": "Claude", "at_ms": 1_999_000,
+                                  "app": ["id": "com.apple.Notes", "name": "Notes"]], now: now)
+        #expect(!same, "the same line changes nothing")
+        let taken1 = activity.take(["type": "activity", "session": "b", "label": "Codex\u{7}\nbad", "at_ms": 2_000_000], now: now)
+        #expect(taken1)
         let fields = activity.fields
         #expect(fields.map { $0["session"] as? String } == ["b", "a"], "newest first")
         #expect(fields[0]["label"] as? String == "Codexbad", "no control characters reach the person")
         #expect((fields[1]["app"] as? [String: Any])?["name"] as? String == "Notes")
         #expect((fields[1]["app"] as? [String: Any])?["pid"] == nil, "no pid when the line names none")
-        #expect(activity.take(["type": "activity", "session": "a", "ended": true], now: now))
+        let taken2 = activity.take(["type": "activity", "session": "a", "ended": true], now: now)
+        #expect(taken2)
         #expect(activity.sessions.keys.sorted() == ["b"])
         let later = now.addingTimeInterval(ComputerUseActivity.forgetAfter + 1)
-        #expect(activity.take(["type": "activity", "session": "c", "label": "Claude"], now: later))
+        let taken3 = activity.take(["type": "activity", "session": "c", "label": "Claude"], now: later)
+        #expect(taken3)
         #expect(activity.sessions.keys.sorted() == ["c"], "a session quiet for 15 minutes is dropped")
-        #expect(!activity.take(["type": "activity", "label": "no session"], now: later))
+        let taken4 = activity.take(["type": "activity", "label": "no session"], now: later)
+        #expect(!taken4)
     }
 
     @Test func theCursorTagModeComesFromThePolicy() {
@@ -129,10 +135,13 @@ import Testing
     @Test func theHostKeepsAStoppedSessionStopped() {
         var activity = ComputerUseActivity()
         let now = Date(timeIntervalSince1970: 1_000)
-        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now))
-        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000, "stopped": true], now: now))
+        let taken5 = activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now)
+        #expect(taken5)
+        let taken6 = activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000, "stopped": true], now: now)
+        #expect(taken6)
         #expect(activity.fields.first?["stopped"] as? Bool == true)
-        #expect(activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now))
+        let taken7 = activity.take(["session": "s1", "label": "Codex", "at_ms": 1_000_000], now: now)
+        #expect(taken7)
         #expect(activity.fields.first?["stopped"] == nil)
     }
 }

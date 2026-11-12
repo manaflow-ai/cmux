@@ -69,15 +69,19 @@ struct WorkerConfiguration: Equatable, Sendable {
     var stateDirectory: String
     var machine: String
     var motion: CursorMotionSettings
+    /// Where the app's live preview streams come from (the host splices them here); nil from an
+    /// older host, and then no preview streams.
+    var previewSocket: String?
 
     init(policy: Data, socket: String, secret: String, stateDirectory: String, machine: String,
-         motion: CursorMotionSettings = CursorMotionSettings()) {
+         motion: CursorMotionSettings = CursorMotionSettings(), previewSocket: String? = nil) {
         self.policy = policy
         self.socket = socket
         self.secret = secret
         self.stateDirectory = stateDirectory
         self.machine = machine
         self.motion = motion
+        self.previewSocket = previewSocket
     }
 
     init?(line: [String: Any]) {
@@ -86,13 +90,15 @@ struct WorkerConfiguration: Equatable, Sendable {
               let secret = line["secret"] as? String, RemoteWire.unhex(secret).map({ $0.count >= 16 }) == true,
               let state = line["state_dir"] as? String, state.hasPrefix("/") else { return nil }
         self.init(policy: policy, socket: socket, secret: secret, stateDirectory: state,
-                  machine: line["machine"] as? String ?? "", motion: CursorMotionSettings(line["motion"]) ?? CursorMotionSettings())
+                  machine: line["machine"] as? String ?? "", motion: CursorMotionSettings(line["motion"]) ?? CursorMotionSettings(),
+                  previewSocket: (line["preview_socket"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil })
     }
 
     var line: Data {
         var fields: [String: Any] = ["type": "configure", "socket": socket, "secret": secret, "state_dir": stateDirectory,
                                      "machine": machine, "motion": motion.fields]
         fields["config"] = (try? JSONSerialization.jsonObject(with: policy)) ?? [String: Any]()
+        if let previewSocket { fields["preview_socket"] = previewSocket }
         return RemoteWire.line(fields)
     }
 }

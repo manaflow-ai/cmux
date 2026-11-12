@@ -271,7 +271,8 @@ final class ComputerUseSupervisor: Sendable {
             state.endpoint = Endpoint(socket: layout.computerUseSocket, secret: secret, pid: child.pid)
             state.generation += 1
             let line: [String: Any] = ["type": "configure", "config": Self.object(state.policy), "socket": layout.computerUseSocket,
-                                       "secret": secret, "state_dir": stateDirectory, "machine": state.machine, "motion": state.motion]
+                                       "secret": secret, "state_dir": stateDirectory, "machine": state.machine, "motion": state.motion,
+                                       "preview_socket": layout.computerUsePreviewSocket]
             return (state.generation, RemoteWire.line(line))
         }
         logger.notice("Computer Use worker started pid=\(child.pid, privacy: .public)")
@@ -377,6 +378,7 @@ final class ComputerUseSupervisor: Sendable {
         guard outcome.current else { return }
         failPending("the worker exited")
         unlink(layout.computerUseSocket)
+        unlink(layout.computerUsePreviewSocket)
         readyCondition.lock()
         readyCondition.broadcast()
         readyCondition.unlock()

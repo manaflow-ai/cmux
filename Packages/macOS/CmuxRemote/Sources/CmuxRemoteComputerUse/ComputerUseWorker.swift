@@ -194,6 +194,15 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
             flags = PolicyFlags(configuration.policy)
         }
         applyFlags(motion: configuration.motion)
+        if let previewSocket = configuration.previewSocket {
+            // The app's live preview: the window each agent works in, streamed while the app shows it.
+            let activity = self.activity
+            let preview = PreviewStreamServer(path: previewSocket, windowOf: { activity.window(of: $0) },
+                                              blocked: { engine.appBlocked(id: $0, name: $1) })
+            do { try preview.start() } catch {
+                logger.error("Computer Use preview socket \(previewSocket, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
         logger.notice("Computer Use worker ready pid=\(getpid(), privacy: .public)")
         channel.write(WorkerReport.ready(pid: getpid(), socket: configuration.socket))
     }

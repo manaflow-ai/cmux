@@ -133,6 +133,9 @@ public struct RemoteHostLayout: Sendable, Equatable {
     public var screenSharingSocket: String { directory + "/w-screen.sock" }
     /// The Computer Use worker's agent socket (cmux-computer-use-v1; the daemon hands it to acpmux).
     public var computerUseSocket: String { directory + "/w-cu.sock" }
+    /// The Computer Use worker's live preview socket (the host splices the app's
+    /// `computer-use-preview` channel to it; only the host connects).
+    public var computerUsePreviewSocket: String { directory + "/w-cu-preview.sock" }
     /// The adoption record the daemon writes (`docs/cmux-remote.md`, Lifecycle).
     public var record: String { directory + "/host.json" }
     public var log: String { directory + "/host.log" }
