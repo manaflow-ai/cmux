@@ -243,6 +243,11 @@ _IMPORT_MODULES = {name.rsplit(".", 1)[0] for name in IMPORT_BY_NAME if "." in n
 # Keywords naming the attribute or dotted target a patch replaces (monkeypatch.setattr(m, name=...),
 # mock.patch.object(m, attribute=...), mock.patch(target=...)).
 _PATCH_KEYWORDS = {"name", "attribute", "target"}
+# Mapping methods that write or remove a key: on sys.modules (or a module's __dict__) a key naming a module that holds
+# an import function swaps that module (`monkeypatch.setitem(sys.modules, "importlib", fake)`,
+# `mock.patch.dict(sys.modules, importlib=fake)`, `sys.modules.update(...)`, `setdefault`, `pop`). Only these calls,
+# so a read (`sys.modules.get("importlib")`) or a literal import of the module itself is not a patch.
+_MAPPING_WRITES = {"dict", "update", "setdefault", "setitem", "delitem", "pop", "__setitem__", "__delitem__"}
 
 
 def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset[str], frozenset[str]]:
@@ -258,7 +263,9 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
     by keyword (`name=`, `attribute=`, `target=`, `mock.patch.multiple(importlib, import_module=f)`), by a write
     through a mapping (`vars(importlib)["import_module"] = f`, `importlib.__dict__[...]`, or a dict of them passed
     to a call such as `mock.patch.dict(importlib.__dict__, {...})`), or by swapping the module that holds it in
-    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`). A bare
+    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`, or by key or keyword through a mapping-writing method:
+    `mock.patch.dict(sys.modules, importlib=fake)`, `monkeypatch.setitem(sys.modules, "importlib", fake)`,
+    `monkeypatch.delitem`, `sys.modules.update(...)`, `setdefault`, `pop`). A bare
     attribute name names no object, so it replaces every import function; reading a name replaces nothing."""
     roots: set[str] = set()
     imported: dict[str, set[str]] = {}
@@ -307,6 +314,12 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
                 elif isinstance(arg, ast.Dict):
                     for key in arg.keys:  # mock.patch.dict(importlib.__dict__, {"import_module": f})
                         names_a_patch(key)
+            if isinstance(node.func, ast.Attribute) and node.func.attr in _MAPPING_WRITES:
+                for arg in node.args:  # monkeypatch.setitem(sys.modules, "importlib", fake), sys.modules.pop("importlib")
+                    names_a_patch(arg)
+                for keyword in node.keywords:  # mock.patch.dict(sys.modules, importlib=fake), sys.modules.update(...)
+                    if keyword.arg is not None:
+                        names_a_patch(ast.Constant(keyword.arg))
             for keyword in node.keywords:
                 if keyword.arg in _PATCH_KEYWORDS:
                     names_a_patch(keyword.value)  # monkeypatch.setattr(importlib, name="import_module", value=f)
