@@ -22,8 +22,12 @@ use std::time::Duration;
 
 /// Quiet window over which wakeups are counted.
 const WINDOW: Duration = Duration::from_secs(10);
-/// Windows measured; a process is judged by its median window.
-const WINDOWS: u32 = 3;
+/// Windows measured; a process is judged by its median window, and its
+/// threads by the windows they ran in: over 60 s any timer with a period up
+/// to 30 s runs in 2 windows or more.
+const WINDOWS: u32 = 6;
+/// Windows a thread pool may run in: one, for a one-off event.
+const MAX_WINDOWS_A_POOL_RUNS: usize = 1;
 /// Time after startup for one-shot work (the first chat scan, the cache save).
 const SETTLE: Duration = Duration::from_secs(5);
 /// Context switches allowed per process in its median window: a 1 Hz wake gives 10.
@@ -261,11 +265,20 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
             failures.push(format!("{name}: {windows:?}"));
         }
     }
-    // A thread that runs in every window is woken by a timer, however
-    // little each wake costs (a 5-second loop is 2 switches per window).
-    let periodic = thread_activity::periodic_threads(&threads);
+    // A thread pool that runs in more than one window is woken by a timer,
+    // however little each wake costs and whichever of its threads takes it:
+    // the desktop bridge's 15 s setting reread ran in 2 of each 3 windows and
+    // the peer cache's 30 s tick in 1 of 3, on any runtime worker, so neither
+    // ran in every window nor on one thread.
+    let periodic = thread_activity::names_in_windows(&threads, MAX_WINDOWS_A_POOL_RUNS + 1);
+    for name in &periodic {
+        eprintln!("idle acpmux daemon thread pool woke in more than one window: {name}");
+    }
     if !periodic.is_empty() {
-        failures.push(format!("daemon threads that ran in every window: {}", periodic.join(", ")));
+        failures.push(format!(
+            "daemon threads that ran in more than {MAX_WINDOWS_A_POOL_RUNS} window: {}",
+            periodic.join(", ")
+        ));
     }
     let _ = child.kill();
     let _ = child.wait();
