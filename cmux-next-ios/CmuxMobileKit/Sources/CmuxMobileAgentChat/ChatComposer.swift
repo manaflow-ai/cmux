@@ -897,23 +897,7 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
-/// How the composer's voice button is drawn (CMUX-39). One filled circle per composer, as
-/// in ChatGPT's: alone (no draft) the voice button is the primary control and keeps its
-/// filled circle; beside Stop it is secondary, a plain glyph at the weight of the plus.
-/// Voice mode on is always the accent circle, so its state stays visible.
-struct ComposerVoiceStyle: Equatable {
-    let primaryIsVisible: Bool
-    let active: Bool
-
-    enum Fill: Equatable { case accent, neutral, plain }
-
-    var isFilled: Bool { active || !primaryIsVisible }
-
-    var fill: Fill {
-        if active { return .accent }
-        return isFilled ? .neutral : .plain
-    }
-
+extension ComposerVoiceStyle {
     var fillColor: Color {
         switch fill {
         case .accent: .cmuxMobileAccent

@@ -108,5 +108,40 @@ import WebKit
         await until { outcome.returned }
         #expect(outcome.returned, "a cancelled frame wait stayed parked until its deadline")
     }
+
+    /// Review F1 of #41480: a cancel that lands while the wait registers, after it read
+    /// `Task.isCancelled` and before it scheduled its deadline, still ends the wait at once. Its
+    /// cancel no longer reschedules the deadline timer the registration then replaced.
+    @Test func aCancelWhileTheFrameWaitRegistersReturns() async {
+        // No deadline timer fires, not even a zero-delay one: only the cancel can end the wait.
+        let frames = BenchFrames(clock: StoppedClock())
+        frames.beforeSchedulingDeadline = { withUnsafeCurrentTask { $0?.cancel() } }
+        let outcome = Outcome()
+        let wait = Task { @MainActor in
+            outcome.visible = await frames.settled(until: { false }, start: .now, window: 0, deadline: 60_000)
+            outcome.returned = true
+        }
+        await until { outcome.returned }
+        wait.cancel()
+        #expect(outcome.returned, "a frame wait cancelled as it registered stayed parked until its deadline")
+        #expect(outcome.visible == .some(nil), "nothing held: nil")
+    }
+}
+
+/// A clock whose time never passes: a sleep on it, even a zero-delay one, ends only when cancelled.
+private struct StoppedClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .nanoseconds(1) }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        while true { try await Task.sleep(for: .seconds(3600)) }
+    }
 }
 #endif

@@ -407,7 +407,7 @@ macro_rules! home_rule {
   the tab inside it. Home's right column (the first pane after the dock) is
   only when the user asks to see something beside the chat: then open it
   there as a new tab, or make the column once with `cmux pane <dock pane>
-  split --right --viewport-width 0.5`. Never open tabs in the dock, split
+  split --right --fit`. Never open tabs in the dock, split
   down or add another column unless the user asks.
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
@@ -959,7 +959,7 @@ report.
   `cmux action run file.open --target <beside.pane> --path FILE --where
   tab` for a file; `cmux tab create terminal --pane <beside.pane>` for a
   terminal. With no column yet, make it once with `cmux pane <caller.pane>
-  split --right --viewport-width 0.5`, then use the new pane. Never open
+  split --right --fit`, then use the new pane. Never open
   tabs in your chat's pane, split down or add another column unless the
   user asks.
 - Sidebar groups: never make a sidebar group or move a workspace into one

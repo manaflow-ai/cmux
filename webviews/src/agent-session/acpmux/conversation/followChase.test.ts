@@ -523,3 +523,45 @@ test("carry: another motion's part the reader froze is drawn by the chase, held 
   chase.carry(node, 0);
   expect(drawn()).toBe(0);
 });
+
+/// Runs a carried offset home after `resume`: every frame drawn, until the loop ends (at most 600).
+function carriedHome(arm: FollowMotionArm, px: number) {
+  const chase = createFollowChase(arm);
+  const { node, frame, drawn, pending } = fixture();
+  chase.carry(node, px);
+  chase.hold();
+  frame();
+  expect(drawn()).toBeCloseTo(px);
+  chase.resume();
+  const frames: number[] = [];
+  while (pending() > 0 && frames.length < 600) frames.push(frame());
+  return { frames, drawn: drawn(), outstanding: chase.outstanding(), pending: pending() };
+}
+
+test("carry in the `eased` arm: what the reader froze springs home when followed again, as in the default arm (#41478 F1)", () => {
+  // The eased arm chases nothing of its own, but the composer growth's rise it froze is held on the
+  // chase. Followed again it goes home on the default arm's spring, frame for frame, and rests at 0.
+  const eased = carriedHome("eased", 40);
+  const blocks = carriedHome("blocks", 40);
+  expect(eased.drawn).toBe(0);
+  expect(eased.outstanding).toBe(0);
+  expect(eased.pending).toBe(0);
+  expect(eased.frames.length).toBe(blocks.frames.length);
+  for (const [index, at] of eased.frames.entries()) expect(at).toBeCloseTo(blocks.frames[index]!, 6);
+  // Never past home, never back up.
+  let previous = 40;
+  for (const at of eased.frames) {
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    expect(at).toBeGreaterThanOrEqual(0);
+    previous = at;
+  }
+});
+
+test("carry in the `instant` arm: what the reader froze lands in the first frame it goes home in (#41478 F2)", () => {
+  // Every move in this arm lands in the frame it happens: no animation of the carried rise.
+  const instant = carriedHome("instant", 40);
+  expect(instant.frames).toEqual([0]);
+  expect(instant.drawn).toBe(0);
+  expect(instant.outstanding).toBe(0);
+  expect(instant.pending).toBe(0);
+});
