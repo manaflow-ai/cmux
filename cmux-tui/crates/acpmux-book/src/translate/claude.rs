@@ -38,7 +38,7 @@ struct Message<'a> {
     #[serde(borrow)]
     content: Option<&'a RawValue>,
     #[serde(borrow)]
-    stop_reason: Cow<'a, str>,
+    stop_reason: Option<Cow<'a, str>>,
 }
 pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
     let rec: Record<'_> = input::parse(bytes)?;
@@ -50,6 +50,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     }
     if let Some(at) = timestamp(&rec.timestamp) {
         state.at = at;
+        state.at_ms = at.saturating_mul(1000);
     }
     if rec.kind == "result" {
         state.finish(out);
@@ -72,7 +73,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             if results {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
-                    if block.kind == "tool_result" {
+                    if block.kind == "tool_result" && !block.tool_use_id.is_empty() {
                         let parts = block.content.map(|raw| (BodyField::Content, false, raw));
                         state.tool(
                             &block.tool_use_id,
@@ -97,12 +98,22 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                     }
                 }
                 let notice = !rec.origin.kind.is_empty() && rec.origin.kind != "human";
-                state.prompt(&rec.uuid, "", false, notice, Some(body), out)?;
+                state.prompt(
+                    super::PromptEvent {
+                        key: &rec.uuid,
+                        prompt_key: "",
+                        steer: false,
+                        notice,
+                        body: Some(body),
+                        images: None,
+                    },
+                    out,
+                )?;
             }
         }
         "assistant" => {
             if body.get().starts_with('"') {
-                state.text(&input::text(body)?, &message.id, false, out)?;
+                state.text(&input::text(body)?, &message.id, &message.id, false, out)?;
             } else {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
@@ -110,10 +121,16 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                         "text" | "thinking" => {
                             let thinking = block.kind == "thinking";
                             if let Some(raw) = if thinking { block.thinking } else { block.text } {
-                                state.text(&input::text(raw)?, &message.id, thinking, out)?;
+                                state.text(
+                                    &input::text(raw)?,
+                                    &message.id,
+                                    &message.id,
+                                    thinking,
+                                    out,
+                                )?;
                             }
                         }
-                        "tool_use" => {
+                        "tool_use" if !block.id.is_empty() => {
                             let parts = block.input.map(|raw| (BodyField::Input, false, raw));
                             state.tool(
                                 &block.id,
@@ -124,7 +141,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             )?;
                         }
                         "image" => {
-                            let mut row = state.row(RowKind::Image)?;
+                            let mut row = state.row(RowKind::Image, out)?;
                             out.row(&row);
                             if let Some(raw) = block.source {
                                 out.body(row.id, BodyField::Source, false, raw)?;
@@ -137,7 +154,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                     Ok(())
                 })?;
             }
-            if matches!(message.stop_reason.as_ref(), "end_turn" | "stop_sequence") {
+            if matches!(message.stop_reason.as_deref(), Some("end_turn" | "stop_sequence")) {
                 state.finish(out);
             }
         }

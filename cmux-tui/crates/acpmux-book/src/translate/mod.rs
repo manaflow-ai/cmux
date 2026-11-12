@@ -5,6 +5,7 @@ mod bench;
 mod blocks;
 mod checkpoint;
 mod claude;
+mod fold;
 mod input;
 #[cfg(test)]
 mod tests;
@@ -14,7 +15,7 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 pub const MAX_STATE_BYTES: usize = 32 * 1024;
 const MAX_KEY_BYTES: usize = 256;
 
@@ -38,8 +39,12 @@ pub struct Op {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
-    /// Create or update metadata. Never replaces an existing body's contents.
+    /// Create or update metadata. Keeps body contents, except a hidden settle
+    /// replaces the body with `{"hidden":true}` and has estimate zero. `fields`
+    /// merges into the actor-owned body; absence never removes an earlier field.
     Row(OwnedRow),
+    /// Rare replacement of a settled live-message block; rev is incremented.
+    Patch(OwnedRow),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
     /// the actor directly into its inline body or blob. Text pieces are <=16 KiB.
     Body { id: u64, field: BodyField, append: bool, source: BodySource },
@@ -87,7 +92,11 @@ impl OwnedRow {
             at: self.at,
             open: self.open,
             body,
-            est: u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX),
+            est: if self.fields.get("hidden").is_some_and(|s| s == "true") {
+                0
+            } else {
+                u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX)
+            },
         }
     }
     fn field(&mut self, key: &str, value: &str) -> Result<(), Error> {
@@ -100,9 +109,27 @@ impl OwnedRow {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
     key: String,
+    message: String,
     row: OwnedRow,
     block: blocks::Block,
-    continuation: bool,
+    facts: fold::Reply,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Prompt {
+    row: OwnedRow,
+    has_body: bool,
+    read: bool,
+}
+struct PromptEvent<'a> {
+    key: &'a str,
+    prompt_key: &'a str,
+    steer: bool,
+    notice: bool,
+    body: Option<&'a serde_json::value::RawValue>,
+    images: Option<&'a serde_json::value::RawValue>,
+}
+fn prompt_hash(key: &str) -> u64 {
+    key.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
@@ -114,10 +141,20 @@ pub struct State {
     reply: Option<Stream>,
     thought: Option<Stream>,
     tools: BTreeMap<String, OwnedRow>,
+    subs: BTreeMap<String, OwnedRow>,
     group: Option<OwnedRow>,
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
-    prompts: BTreeMap<String, OwnedRow>,
+    prompts: BTreeMap<u64, Prompt>,
+    settled_prompts: Vec<u64>,
+    replayed_prompts: u64,
+    forced_steers: u64,
+    forced_rows: u64,
+    dropped_fold_steers: u64,
+    fold: fold::Fold,
+    ignored_supersedes: u64,
+    turn_start_ms: u64,
+    at_ms: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -144,6 +181,7 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         Harness::V1 => v1::line(&mut next, bytes, &mut out)?,
         Harness::Claude => claude::line(&mut next, bytes, &mut out)?,
     }
+    next.bound_open_rows(&mut out);
     // Count live state, never settled history. A capacity failure is transactional.
     next.checkpoint()?;
     *state = next;
@@ -156,30 +194,58 @@ fn bounded(s: &str) -> Result<(), Error> {
         Ok(())
     }
 }
+/// Explicit lossy-cap/late-identity outcomes, for the actor's counters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Counters {
+    pub forced_rows: u64,
+    pub forced_steers: u64,
+    pub dropped_fold_steers: u64,
+    pub replayed_prompts: u64,
+    pub ignored_supersedes: u64,
+}
 impl State {
+    pub fn counters(&self) -> Counters {
+        Counters {
+            forced_rows: self.forced_rows,
+            forced_steers: self.forced_steers,
+            dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
+            replayed_prompts: self.replayed_prompts,
+            ignored_supersedes: self.ignored_supersedes,
+        }
+    }
     pub fn last_row_id(&self) -> u64 {
         self.last_id
     }
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
+        self.stored_rows().filter(|row| row.open)
+    }
+    fn stored_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.reply
             .iter()
             .map(|s| &s.row)
             .chain(self.thought.iter().map(|s| &s.row))
             .chain(self.tools.values())
+            .chain(self.subs.values())
             .chain(self.group.iter())
             .chain(self.plan.iter())
             .chain(self.compaction.iter())
-            .chain(self.prompts.values())
-            .filter(|row| row.open)
+            .chain(self.prompts.values().map(|p| &p.row))
     }
-    fn row(&mut self, kind: RowKind) -> Result<OwnedRow, Error> {
+    fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
+        if !matches!(kind, RowKind::User | RowKind::Group) {
+            self.bound_counted_rows(63, out);
+        }
         self.last_id = self.last_id.checked_add(1).ok_or(Error::CounterExhausted)?;
         Ok(OwnedRow {
             id: self.last_id,
             rev: 1,
             kind,
             turn: self.turn,
-            group: None,
+            group: if matches!(kind, RowKind::User | RowKind::Group) {
+                None
+            } else {
+                self.group.as_ref().map(|r| r.id)
+            },
             at: self.at,
             open: true,
             bytes: 0,
@@ -191,8 +257,8 @@ impl State {
         if let Some(row) = &self.group {
             return Ok(row.id);
         }
-        let mut row = self.row(RowKind::Group)?;
-        row.fields.insert("toolCount".into(), "0".into());
+        let mut row = self.row(RowKind::Group, out)?;
+        row.fields.insert("calls".into(), "0".into());
         let id = row.id;
         out.row(&row);
         self.group = Some(row);
@@ -213,6 +279,9 @@ impl State {
         }
     }
     fn close_text(&mut self, out: &mut input::Output<'_>) {
+        if let Some(reply) = &self.reply {
+            self.fold.reply(&reply.facts);
+        }
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
@@ -223,12 +292,87 @@ impl State {
         if let Some(group) = &mut self.group {
             group
                 .fields
-                .insert("durationSeconds".into(), self.at.saturating_sub(group.at).to_string());
+                .insert("ms".into(), self.at_ms.saturating_sub(self.turn_start_ms).to_string());
+            group.fields.insert("last".into(), self.last_id.to_string());
+            group.fields.entry("status".into()).or_insert_with(|| "\"completed\"".into());
+            if let Ok(visible) = serde_json::to_string(&self.fold.out()) {
+                group.fields.insert("out".into(), visible);
+            }
         }
         Self::close_row(&mut self.group, out);
+        self.dropped_fold_steers =
+            self.dropped_fold_steers.saturating_add(self.fold.dropped_steers);
+        self.fold = fold::Fold::default();
+        self.turn_key.clear();
         // Background tools may complete after this turn. Preserve their original IDs.
     }
-    /// Queue/read precedes the late echo, reserving the row's permanent place.
+    fn supersede(&mut self, key: &str, out: &mut input::Output<'_>) {
+        if key.is_empty() || !self.reply.as_ref().is_some_and(|s| s.message == key) {
+            self.ignored_supersedes = self.ignored_supersedes.saturating_add(1);
+            return;
+        }
+        if let Some(mut stream) = self.reply.take() {
+            self.fold.forget(&stream.facts.runs);
+            for run in &stream.facts.runs {
+                for id in run.0..=run.1 {
+                    if id == stream.row.id && stream.row.open {
+                        continue;
+                    }
+                    let mut row = stream.row.clone();
+                    row.id = id;
+                    row.rev = 2;
+                    row.at = self.at;
+                    row.bytes = 0;
+                    row.lines = 0;
+                    row.open = false;
+                    row.fields.clear();
+                    row.fields.insert("hidden".into(), "true".into());
+                    out.emit(Change::Patch(row));
+                }
+            }
+            if stream.row.open {
+                stream.row.fields.clear();
+                stream.row.fields.insert("hidden".into(), "true".into());
+                stream.row.bytes = 0;
+                stream.row.lines = 0;
+                stream.row.open = false;
+                out.row(&stream.row);
+            }
+        }
+    }
+    fn settled_prompt(&mut self, hash: u64) {
+        if self.settled_prompts.len() == 32 {
+            self.settled_prompts.remove(0);
+        }
+        self.settled_prompts.push(hash);
+    }
+    fn settle_prompt(&mut self, hash: u64, hidden: bool, out: &mut input::Output<'_>) {
+        if let Some(mut prompt) = self.prompts.remove(&hash) {
+            prompt.row.open = false;
+            if hidden || !prompt.has_body {
+                prompt.row.fields.clear();
+                prompt.row.fields.insert("hidden".into(), "true".into());
+            }
+            out.row(&prompt.row);
+            self.settled_prompt(hash);
+        }
+    }
+    fn finish_steers(&mut self, except: Option<u64>, out: &mut input::Output<'_>) {
+        let keys: Vec<_> = self
+            .prompts
+            .iter()
+            .filter(|(hash, p)| {
+                Some(**hash) != except
+                    && p.has_body
+                    && (p.read || p.row.fields.contains_key("steer"))
+            })
+            .map(|(hash, _)| *hash)
+            .collect();
+        for hash in keys {
+            self.settle_prompt(hash, false, out);
+        }
+    }
+    /// Queue/read precedes the echo and reserves the row's permanent place.
     fn reserve_prompt(
         &mut self,
         key: &str,
@@ -236,73 +380,124 @@ impl State {
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
         bounded(key)?;
-        if key.is_empty() || self.prompts.contains_key(key) {
+        let hash = prompt_hash(key);
+        if key.is_empty() || self.prompts.contains_key(&hash) {
             return Ok(());
         }
-        let mut row = self.row(RowKind::User)?;
+        if self.prompts.len() == 32 {
+            if let Some(old) =
+                self.prompts.iter().min_by_key(|(_, p)| p.row.id).map(|(hash, _)| *hash)
+            {
+                self.settle_prompt(old, false, out);
+                self.forced_steers = self.forced_steers.saturating_add(1);
+            }
+        }
+        let mut row = self.row(RowKind::User, out)?;
         row.field("state", "queued")?;
         out.row(&row);
         if let Some(raw) = body {
             out.body(row.id, BodyField::Content, false, raw)?;
         }
-        self.prompts.insert(key.into(), row);
+        self.prompts.insert(hash, Prompt { row, has_body: body.is_some(), read: false });
         Ok(())
     }
     fn steer_read(&mut self, key: &str, out: &mut input::Output<'_>) -> Result<(), Error> {
-        if self.prompts.get(key).is_some_and(|row| !row.open) {
+        if key.is_empty() {
             return Ok(());
         }
-        self.close_text(out);
+        let hash = prompt_hash(key);
+        if self.settled_prompts.contains(&hash) {
+            return Ok(());
+        }
+        let already_steer =
+            self.prompts.get(&hash).is_some_and(|p| p.row.fields.contains_key("steer"));
+        if !already_steer {
+            self.close_text(out);
+            self.fold.steer();
+        }
         self.reserve_prompt(key, None, out)?;
-        if let Some(row) = self.prompts.get_mut(key) {
-            row.field("state", "sent")?;
-            row.fields.insert("steer".into(), "true".into());
-            out.row(row);
+        if let Some(prompt) = self.prompts.get_mut(&hash) {
+            if !prompt.read {
+                prompt.row.turn = self.turn;
+            }
+            prompt.read = true;
+            prompt.row.field("state", "sent")?;
+            prompt.row.fields.insert("steer".into(), "true".into());
+            out.row(&prompt.row);
+            // A v1 read can precede both queued and echo. It has no body to settle yet.
+            if prompt.has_body {
+                self.settle_prompt(hash, false, out);
+            }
         }
         Ok(())
     }
-    fn prompt(
-        &mut self,
-        key: &str,
-        prompt_key: &str,
-        steer: bool,
-        notice: bool,
-        body: Option<&serde_json::value::RawValue>,
-        out: &mut input::Output<'_>,
-    ) -> Result<(), Error> {
+    fn prompt(&mut self, event: PromptEvent<'_>, out: &mut input::Output<'_>) -> Result<(), Error> {
+        let PromptEvent { key, prompt_key, steer, notice, body, images } = event;
         bounded(key)?;
         bounded(prompt_key)?;
-        if self.prompts.get(prompt_key).is_some_and(|row| !row.open) {
+        let hash = prompt_hash(prompt_key);
+        // An echo after a queued/read pair carries no new body or placement.
+        if steer && self.settled_prompts.contains(&hash) {
             return Ok(());
         }
+        let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
+        let steer = steer || already_read;
         if steer {
-            self.close_text(out);
+            if !already_read {
+                self.close_text(out);
+                self.fold.steer();
+            }
         } else {
             self.finish(out);
+            self.finish_steers(Some(hash), out);
+            if self.settled_prompts.contains(&hash) {
+                self.replayed_prompts = self.replayed_prompts.saturating_add(1);
+            }
         }
-        let mut row = if let Some(row) = self.prompts.remove(prompt_key) {
-            row
-        } else {
-            self.row(if notice { RowKind::Notice } else { RowKind::User })?
-        };
+        let prior = self.prompts.remove(&hash);
+        let mut row = if let Some(p) = prior { p.row } else { self.row(RowKind::User, out)? };
         row.field("state", "sent")?;
-        if steer {
-            row.fields.insert("steer".into(), "true".into());
+        if notice {
+            row.fields.insert("notice".into(), "true".into());
         }
-        if !steer {
+        if steer {
+            if !already_read {
+                row.turn = self.turn;
+            }
+            row.fields.insert("steer".into(), "true".into());
+        } else {
+            row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);
             self.turn_key = key.into();
+            self.turn_start_ms = self.at_ms;
             row.turn = self.turn;
-            self.prompts.retain(|_, row| row.open);
         }
         out.row(&row);
         if let Some(body) = body {
             out.body(row.id, BodyField::Content, false, body)?;
         }
-        row.open = false;
-        out.row(&row);
-        if !prompt_key.is_empty() {
-            self.prompts.insert(prompt_key.into(), row);
+        if let Some(images) = images {
+            out.body(row.id, BodyField::Images, false, images)?;
+        }
+        if steer && !already_read && !prompt_key.is_empty() {
+            if self.prompts.len() == 32 {
+                if let Some(old) =
+                    self.prompts.iter().min_by_key(|(_, p)| p.row.id).map(|(hash, _)| *hash)
+                {
+                    self.settle_prompt(old, false, out);
+                    self.forced_steers = self.forced_steers.saturating_add(1);
+                }
+            }
+            self.prompts.insert(hash, Prompt { row, has_body: body.is_some(), read: false });
+        } else {
+            row.open = false;
+            out.row(&row);
+            if !prompt_key.is_empty() {
+                self.settled_prompt(hash);
+            }
+        }
+        if !steer {
+            self.group(out)?;
         }
         Ok(())
     }
@@ -310,6 +505,7 @@ impl State {
         &mut self,
         text: &str,
         key: &str,
+        message: &str,
         thinking: bool,
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
@@ -317,60 +513,223 @@ impl State {
             return Ok(());
         }
         bounded(key)?;
+        bounded(message)?;
         let mut slot = if thinking { self.thought.take() } else { self.reply.take() };
         if slot.as_ref().is_some_and(|s| s.key != key) {
-            Self::close_stream(&mut slot, out);
+            if !thinking
+                && !message.is_empty()
+                && slot.as_ref().is_some_and(|s| s.message == message)
+            {
+                if let Some(stream) = &mut slot {
+                    if stream.row.open {
+                        stream.row.open = false;
+                        out.row(&stream.row);
+                    }
+                    stream.key = key.into();
+                }
+            } else {
+                if !thinking {
+                    if let Some(reply) = &slot {
+                        self.fold.reply(&reply.facts);
+                    }
+                }
+                Self::close_stream(&mut slot, out);
+            }
         }
         let mut stream = if let Some(s) = slot {
             s
         } else {
-            let group = if thinking { Some(self.group(out)?) } else { None };
-            let mut row = self.row(if thinking { RowKind::Thinking } else { RowKind::Text })?;
+            let group = Some(self.group(out)?);
+            let mut row =
+                self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, out)?;
             row.group = group;
             row.field("messageId", key)?;
             out.row(&row);
-            Stream { key: key.into(), row, block: blocks::Block::default(), continuation: false }
+            row.fields.clear();
+            let mut facts = fold::Reply::default();
+            facts.row(row.id)?;
+            Stream {
+                key: key.into(),
+                message: message.into(),
+                row,
+                block: blocks::Block::default(),
+                facts,
+            }
         };
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
             if !stream.row.open {
-                let mut row = self.row(stream.row.kind)?;
-                row.group = stream.row.group;
-                row.fields.insert("cont".into(), "true".into());
-                if let Some(marker) = stream.block.fence_marker() {
-                    row.field("fence", &marker)?;
+                let inside_line = stream.block.line_bytes() != 0;
+                self.continue_text(&mut stream, inside_line, out)?;
+            }
+            // A single line cannot retain a body in the checkpoint or wait forever
+            // for a newline. Split before this character if UTF-8 would cross 16 KiB.
+            if stream.row.id == self.last_id
+                && stream.block.line_bytes().saturating_add(ch.len_utf8() as u64) > 16 * 1024
+            {
+                if start < offset {
+                    out.text(stream.row.id, &text[start..offset], start);
                 }
-                row.field("messageId", key)?;
-                out.row(&row);
-                stream.row = row;
-                stream.continuation = true;
+                start = offset;
+                self.continue_text(&mut stream, true, out)?;
+            }
+            let boundary = stream.block.push(ch);
+            // BeforeLine is decided by this line's first byte, never lookahead.
+            // No byte has been appended to the old row when this cut is made.
+            if stream.row.id == self.last_id
+                && stream.row.bytes >= 8 * 1024
+                && boundary == blocks::Event::BeforeLine
+            {
+                if start < offset {
+                    out.text(stream.row.id, &text[start..offset], start);
+                }
+                start = offset;
+                self.continue_text(&mut stream, false, out)?;
             }
             stream.row.bytes = stream.row.bytes.saturating_add(ch.len_utf8() as u64);
-            let boundary = stream.block.push(ch);
+            stream.facts.push(ch);
             if ch == '\n' {
                 stream.row.lines = stream.row.lines.saturating_add(1);
             }
             let end = offset.saturating_add(ch.len_utf8());
-            let cut = ch == '\n'
-                && (stream.row.bytes >= 16 * 1024 || (stream.row.bytes >= 8 * 1024 && boundary));
-            // Bounded output chunks even for a single very long unclosed line.
+            let cut = stream.row.id == self.last_id
+                && ((ch == '\n' && stream.row.bytes >= 16 * 1024)
+                    || stream.block.line_bytes() >= 16 * 1024);
+            // Each inline body operation is bounded even when a newer row prevents cutting.
             if cut || end.saturating_sub(start) >= 16 * 1024 - 4 {
-                out.text(stream.row.id, &text[start..end]);
+                out.text(stream.row.id, &text[start..end], start);
                 start = end;
             }
             if cut {
-                stream.row.open = false;
-                out.row(&stream.row);
+                // Reserve the continuation now, even at the end of an event, so a
+                // notice arriving before the next chunk cannot take its place.
+                self.continue_text(&mut stream, ch != '\n', out)?;
             }
         }
         if start < text.len() {
-            out.text(stream.row.id, &text[start..]);
+            out.text(stream.row.id, &text[start..], start);
         }
         if thinking {
             self.thought = Some(stream)
         } else {
             self.reply = Some(stream)
         };
+        Ok(())
+    }
+    fn continue_text(
+        &mut self,
+        stream: &mut Stream,
+        inside_line: bool,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        if stream.row.open {
+            stream.row.open = false;
+            out.row(&stream.row);
+        }
+        let mut row = self.row(stream.row.kind, out)?;
+        row.turn = stream.row.turn;
+        row.group = stream.row.group;
+        row.fields.insert("cont".into(), "true".into());
+        if inside_line {
+            stream.block.mark_cut_inside_line();
+        }
+        if stream.block.take_cut_inside_line() {
+            row.fields.insert("insideLine".into(), "true".into());
+        }
+        if let Some(marker) = stream.block.fence_marker() {
+            row.field("fence", &marker)?;
+        }
+        row.field("messageId", &stream.message)?;
+        out.row(&row);
+        row.fields.clear();
+        stream.row = row;
+        stream.facts.row(stream.row.id)?;
+        Ok(())
+    }
+    fn bound_open_rows(&mut self, out: &mut input::Output<'_>) {
+        self.bound_counted_rows(64, out);
+    }
+    fn bound_counted_rows(&mut self, limit: usize, out: &mut input::Output<'_>) {
+        loop {
+            let mut ids: Vec<_> = self
+                .open_rows()
+                .filter(|r| !matches!(r.kind, RowKind::User | RowKind::Group))
+                .map(|r| r.id)
+                .collect();
+            if ids.len() <= limit {
+                break;
+            }
+            ids.sort_unstable();
+            let Some(id) = ids.first().copied() else {
+                break;
+            };
+            if self.reply.as_ref().is_some_and(|s| s.row.id == id) {
+                if let Some(reply) = &mut self.reply {
+                    reply.row.open = false;
+                    out.row(&reply.row);
+                }
+            } else if self.thought.as_ref().is_some_and(|s| s.row.id == id) {
+                if let Some(thought) = &mut self.thought {
+                    thought.row.open = false;
+                    out.row(&thought.row);
+                }
+            } else if self.plan.as_ref().is_some_and(|r| r.id == id) {
+                Self::close_row(&mut self.plan, out);
+            } else if self.compaction.as_ref().is_some_and(|r| r.id == id) {
+                Self::close_row(&mut self.compaction, out);
+            } else {
+                for rows in [&mut self.tools, &mut self.subs] {
+                    let key = rows.iter().find(|(_, r)| r.id == id).map(|(k, _)| k.clone());
+                    if let Some(key) = key {
+                        if let Some(mut row) = rows.remove(&key) {
+                            row.open = false;
+                            out.row(&row);
+                        }
+                    }
+                }
+            }
+            self.forced_rows = self.forced_rows.saturating_add(1);
+        }
+    }
+    fn end_session(&mut self, out: &mut input::Output<'_>) {
+        for rows in [&mut self.tools, &mut self.subs] {
+            for (_, mut row) in std::mem::take(rows) {
+                row.open = false;
+                row.fields.insert("status".into(), "\"stopped\"".into());
+                out.row(&row);
+            }
+        }
+        if let Some(group) = &mut self.group {
+            group.fields.insert("status".into(), "\"stopped\"".into());
+        }
+        self.finish(out);
+        let keys: Vec<_> = self.prompts.keys().copied().collect();
+        for key in keys {
+            self.settle_prompt(key, false, out);
+        }
+    }
+    fn sub(&mut self, key: &str, status: &str, out: &mut input::Output<'_>) -> Result<(), Error> {
+        bounded(key)?;
+        if key.is_empty() {
+            return Ok(());
+        }
+        let mut row = if let Some(row) = self.subs.remove(key) {
+            row
+        } else {
+            self.group(out)?;
+            let mut row = self.row(RowKind::Sub, out)?;
+            row.field("book", key)?;
+            row
+        };
+        if !status.is_empty() {
+            row.field("status", status)?;
+        }
+        row.open = !matches!(status, "completed" | "failed" | "cancelled" | "stopped");
+        out.row(&row);
+        if row.open {
+            row.fields.clear();
+            self.subs.insert(key.into(), row);
+        }
         Ok(())
     }
     fn tool(
@@ -382,18 +741,20 @@ impl State {
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
         bounded(key)?;
-        self.close_text(out);
+        if !self.tools.contains_key(key) {
+            self.close_text(out);
+            self.fold.work();
+        }
         let mut row = if let Some(row) = self.tools.remove(key) {
             row
         } else {
             let group = self.group(out)?;
-            let mut row = self.row(RowKind::Tool)?;
+            let mut row = self.row(RowKind::Tool, out)?;
             row.group = Some(group);
             row.field("callId", key)?;
             if let Some(group) = &mut self.group {
-                let n =
-                    group.fields.get("toolCount").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                group.fields.insert("toolCount".into(), n.saturating_add(1).to_string());
+                let n = group.fields.get("calls").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                group.fields.insert("calls".into(), n.saturating_add(1).to_string());
                 out.row(group);
             }
             row
@@ -409,6 +770,7 @@ impl State {
             row.open = false;
             out.row(&row);
         } else {
+            row.fields.clear();
             self.tools.insert(key.into(), row);
         }
         Ok(())

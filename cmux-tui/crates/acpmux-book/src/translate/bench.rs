@@ -127,7 +127,7 @@ fn measure_child() {
         p95(&mut cold_all),
         checkpoint.len()
     );
-    assert!(peak < 64 * 1024, "resident peak {peak} KiB must be under 64 MiB");
+    assert!(peak * 1024 < 64_000_000, "resident peak {peak} KiB must be under 64 MB");
 }
 fn child(harness: &str, count: usize) -> Vec<u64> {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -159,9 +159,9 @@ fn god_vs_small() {
         assert!(god[1] >= bytes, "the god shape must actually translate the specified bytes");
         for (label, i, bound) in [
             ("steady best p95", 2, 1.2),
-            ("steady all p95", 3, 2.0),
+            ("steady all p95", 3, if small[2].max(god[2]) < 100_000 { 2.0 } else { 1.2 }),
             ("cold best p95", 4, 1.2),
-            ("cold all p95", 5, 2.0),
+            ("cold all p95", 5, if small[4].max(god[4]) < 100_000 { 2.0 } else { 1.2 }),
         ] {
             let ratio = god[i] as f64 / small[i] as f64;
             println!(
@@ -170,11 +170,8 @@ fn god_vs_small() {
             );
             assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
         }
-        assert!(god[6] < 64 * 1024);
+        assert!(god[6] * 1024 < 64_000_000);
         assert!(god[6] as f64 <= small[6] as f64 * 1.2, "god RSS must stay within 1.2x small");
-        assert!(
-            god[7] as f64 <= small[7] as f64 * 1.2,
-            "checkpoint growth is limited to counter digits"
-        );
+        assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
     }
 }

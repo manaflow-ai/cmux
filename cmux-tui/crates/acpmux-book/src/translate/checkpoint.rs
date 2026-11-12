@@ -1,8 +1,9 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
 use super::{Error, MAX_STATE_BYTES, State, VERSION};
+use bincode::Options;
 impl State {
     pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
-        let bytes = serde_json::to_vec(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
+        let bytes = codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
         if bytes.len() > MAX_STATE_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
@@ -13,13 +14,29 @@ impl State {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
         let (version, state): (u32, Self) =
-            serde_json::from_slice(bytes).map_err(|_| Error::CheckpointInvalid)?;
+            codec().deserialize(bytes).map_err(|_| Error::CheckpointInvalid)?;
         if version != VERSION {
             return Err(Error::CheckpointVersion);
         }
         let mut ids = std::collections::BTreeSet::new();
+        if state.prompts.len() > 32
+            || state.settled_prompts.len() > 32
+            || state
+                .open_rows()
+                .filter(|r| {
+                    !matches!(r.kind, crate::row::RowKind::User | crate::row::RowKind::Group)
+                })
+                .count()
+                > 64
+            || state.reply.iter().chain(state.thought.iter()).any(|s| {
+                s.facts.runs.len() > 8
+                    || s.facts.runs.iter().any(|r| r.0 == 0 || r.0 > r.1 || r.1 > state.last_id)
+            })
+        {
+            return Err(Error::CheckpointInvalid);
+        }
         if state.turn.is_some_and(|id| id == 0 || id > state.last_id)
-            || state.open_rows().any(|r| {
+            || state.stored_rows().any(|r| {
                 r.id == 0
                     || r.id > state.last_id
                     || r.rev != 1
@@ -43,4 +60,11 @@ pub(super) mod kind {
         let name = String::deserialize(d)?;
         RowKind::parse(&name).ok_or_else(|| serde::de::Error::custom("row kind"))
     }
+}
+
+fn codec() -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_varint_encoding()
+        .with_limit(MAX_STATE_BYTES as u64)
+        .reject_trailing_bytes()
 }

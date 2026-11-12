@@ -171,12 +171,17 @@ impl<'a> Output<'a> {
     pub fn emit(&mut self, change: Change) {
         self.ops.push(Op { raw: RawRange { offset: 0, length: self.bytes.len() }, change });
     }
-    pub fn text(&mut self, id: u64, text: &str) {
-        self.emit(Change::Body {
-            id,
-            field: BodyField::Text,
-            append: true,
-            source: BodySource::Text(text.into()),
+    pub fn text(&mut self, id: u64, text: &str, _offset: usize) {
+        // JSON escapes mean decoded text offsets do not map byte-for-byte to input;
+        // use the complete source line as conservative provenance.
+        self.ops.push(Op {
+            raw: RawRange { offset: 0, length: self.bytes.len() },
+            change: Change::Body {
+                id,
+                field: BodyField::Text,
+                append: true,
+                source: BodySource::Text(text.into()),
+            },
         });
     }
     pub fn body(
