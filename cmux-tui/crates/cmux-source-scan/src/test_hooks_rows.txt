@@ -381,6 +381,86 @@ type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
 // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== passes hub/watches.rs :: a function-local `use super::helpers as helpers;` is no import of the module, so the module's bare `use helpers::Lock` still reaches the parent's `mod helpers` through `use super::*` (review of cmux#41769 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+    fn local() {
+        use super::helpers as helpers;
+    }
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 17 no `static HOOK_TEST: Mutex<()>` :: beside a function-local `use super::helpers as helpers;`, a bare `use helpers::Lock` whose parent's `helpers::Lock` is an RwLock is still refused (review of cmux#41769 F1)
+mod helpers {
+    pub type Lock = std::sync::RwLock<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+    fn local() {
+        use super::helpers as helpers;
+    }
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== passes hub/watches.rs :: a function-local `mod helpers` does not shadow the `mod helpers` that `use super::*` brings (review of cmux#41769 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+    fn local() {
+        mod helpers {
+            pub struct Other;
+        }
+    }
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== passes hub/watches.rs :: a function-local `trait helpers`, `struct helpers` or `fn helpers` does not shadow the `mod helpers` that `use super::*` brings (review of cmux#41769 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+    fn with_trait() {
+        trait helpers {}
+    }
+    fn with_struct() {
+        struct helpers;
+    }
+    fn with_fn() {
+        fn helpers() {}
+    }
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
