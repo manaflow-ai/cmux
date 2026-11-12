@@ -135,3 +135,55 @@ test("a hidden chat still reads a folder it never read, so its pill is there whe
   await setPageShown(true);
   expect(git.count(folder)).toBe(1);
 });
+
+test("a shown chat that comes back to a folder reads it again, as before", async () => {
+  const git = host();
+  function Probe(props: { folder?: string }) {
+    useWorktree(props.folder, git.readStatus, false);
+    return null;
+  }
+  const folder = "/repo-wt-back";
+  await setPageShown(true);
+  // The page shows another chat with no folder (a remote one) and then this chat again.
+  for (const next of [folder, undefined, folder]) {
+    await act(async () => root.render(<Probe folder={next} />));
+    await settle();
+  }
+  expect(git.count(folder)).toBe(2);
+});
+
+test("a hidden chat that left the folder of the read it held back asks nothing for it when it shows", async () => {
+  const git = host();
+  function Probe(props: { folder?: string; working: boolean }) {
+    useWorktree(props.folder, git.readStatus, props.working);
+    return null;
+  }
+  const folder = "/repo-wt-left";
+  await setPageShown(true);
+  await act(async () => root.render(<Probe folder={folder} working={false} />));
+  await settle();
+  await setPageShown(false);
+  await act(async () => root.render(<Probe folder={folder} working={true} />));
+  await settle();
+  await act(async () => root.render(<Probe working={false} />));
+  await settle();
+  await setPageShown(true);
+  expect(git.count(folder)).toBe(1);
+});
+
+test("showing or hiding the page draws nothing by itself", async () => {
+  const git = host();
+  let draws = 0;
+  function Probe(props: { folder: string }) {
+    useWorktree(props.folder, git.readStatus, false);
+    draws += 1;
+    return null;
+  }
+  await setPageShown(true);
+  await act(async () => root.render(<Probe folder="/repo-wt-still" />));
+  await settle();
+  const before = draws;
+  await setPageShown(false);
+  await setPageShown(true);
+  expect(draws).toBe(before);
+});
