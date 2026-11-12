@@ -359,6 +359,42 @@ fn wide_and_combining_glyphs_keep_their_cells() {
 }
 
 #[test]
+fn on_the_alternate_screen_the_phone_answers_reports_alone() {
+    let mut host = Projection::new(120, 40, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let segments = host.feed(b"\x1b[?1049h\x1b[6n\x1b[?6n\x1b[18t", true);
+    let raw: Vec<u8> = segments
+        .iter()
+        .filter_map(|s| if let Segment::Raw(b) = s { Some(b.clone()) } else { None })
+        .flatten()
+        .collect();
+    assert!(raw.ends_with(b"\x1b[6n\x1b[?6n\x1b[18t"), "the queries reach the phone's terminal");
+    assert!(host.take_replies().is_empty(), "and only it answers them");
+    // Back on the primary screen the projection answers (the phone's terminal never sees them).
+    let _ = host.feed(b"\x1b[?1049l\x1b[6n", true);
+    assert_eq!(host.take_replies(), b"\x1b[1;1R");
+}
+
+#[test]
+fn the_alternate_screen_is_entered_with_the_programs_own_mode() {
+    for mode in [47, 1047, 1049] {
+        let mut host = Projection::new(80, 24, 10_000);
+        let _ = host.set_viewport(40, 20);
+        let segments = host.feed(format!("$ \x1b[?{mode}hfull").as_bytes(), true);
+        let entry = format!("\x1b[?{mode}h").into_bytes();
+        assert!(
+            segments.iter().any(|s| matches!(s, Segment::Raw(b) if b.starts_with(&entry))),
+            "mode {mode}: {segments:?}"
+        );
+        assert!(
+            !segments.iter().any(|s| matches!(s, Segment::Raw(b) if mode != 1049 && b.windows(7).any(|w| w == b"?1049h"))),
+            "mode {mode} is not rewritten as 1049"
+        );
+    }
+}
+
+#[test]
 fn cursor_reports_are_in_host_cells() {
     let mut host = Projection::new(120, 40, 10_000);
     let mut phone = Phone::new(54, 38);

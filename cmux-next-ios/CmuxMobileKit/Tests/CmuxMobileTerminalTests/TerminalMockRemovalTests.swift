@@ -21,7 +21,18 @@ private final class LiveStub: TerminalSession {
         let live = LiveStub()
         for mock in [false, true] {
             let chosen = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: "Studio", programName: "zsh")
+            // The live session itself, or (projection, the default on iOS)
+            // the phone's projection of it: never the mock.
+            #expect(chosen.underlyingSession === live)
+            #if os(iOS)
+            if TerminalProjectingSession.isEnabled {
+                #expect(chosen is TerminalProjectingSession)
+            } else {
+                #expect(chosen === live)
+            }
+            #else
             #expect(chosen === live)
+            #endif
         }
     }
 

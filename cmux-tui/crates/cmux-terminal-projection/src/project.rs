@@ -3,6 +3,8 @@
 //! the phone's grid, and kept up to date by repainting only from the first
 //! row that changed.
 
+use std::collections::HashMap;
+
 use crate::style::Style;
 use crate::terminal::{Cell, Row, SPACER_HEAD, Terminal, WIDE, WIDE_TAIL};
 
@@ -171,6 +173,10 @@ pub struct View {
     /// The first host row (absolute) the last reset painted: older rows are
     /// in the model, not on the phone, until [`View::load_older`].
     window_from: u64,
+    /// Settled lines as a reset writes them at this view's width, by the
+    /// host row they start at: a reset from older rows (the reader scrolling
+    /// up) re-wraps only the rows it has not written before.
+    line_cache: HashMap<u64, (Vec<u8>, u64)>,
     /// Bytes painted since creation (for benches).
     pub bytes_out: u64,
     pub resets: u64,
@@ -190,6 +196,7 @@ impl View {
             needs_reset: true,
             keep_from: None,
             window_from: 0,
+            line_cache: HashMap::new(),
             bytes_out: 0,
             resets: 0,
         }
@@ -250,8 +257,11 @@ impl View {
     /// Brings the phone's terminal to the host's primary screen now.
     pub fn paint(&mut self, term: &mut Terminal, passthrough: &[u8]) -> Option<Paint> {
         if term.reset_needed {
+            // The scrollback was cleared or the host resized: rows are not
+            // the ones cached under their numbers.
             term.reset_needed = false;
             self.needs_reset = true;
+            self.line_cache.clear();
         }
         if self.settled_host < term.history_dropped {
             // An unsettled line longer than the scrollback lost its start.
@@ -279,7 +289,34 @@ impl View {
         let history_len = term.history.len();
         let mut first = (self.settled_host - base) as usize;
         let mut newly: Vec<ProjectedRow> = Vec::new();
-        loop {
+        if reset {
+            // Settled lines, each as it was written before at this width.
+            self.line_cache.retain(|start, _| *start >= base);
+            self.phone_style = Some(Style::default());
+            let cols = self.cols;
+            let mut count = 0;
+            loop {
+                let mut last = first;
+                while last < history_len && term.history[last].wrapped {
+                    last += 1;
+                }
+                if last >= history_len {
+                    break;
+                }
+                let (bytes, rows) =
+                    self.line_cache.entry(base + first as u64).or_insert_with(|| {
+                        let rows: Vec<&Row> = (first..=last).map(|i| &term.history[i]).collect();
+                        encode_line(term, &rows, cols)
+                    });
+                out.extend_from_slice(bytes);
+                count += *rows;
+                first = last + 1;
+            }
+            self.settled_end = count;
+            self.phone_cursor = (count, 0);
+        }
+        // Otherwise they settle as rows the phone's terminal already has.
+        while !reset && first < history_len {
             let mut last = first;
             while last < history_len && term.history[last].wrapped {
                 last += 1;
@@ -466,7 +503,7 @@ impl View {
                     if cell.ch == 0 {
                         out.push(b' ');
                     } else {
-                        out.extend_from_slice(term.cell_text(*cell).as_bytes());
+                        term.write_cell(*cell, &mut out);
                     }
                     col += cell.width();
                 }
@@ -548,6 +585,34 @@ impl View {
         }
         self.phone_cursor = (row, col);
     }
+}
+
+/// A settled line as a reset writes it: from the default style, back to
+/// it, then a line break. Its bytes and its rows at `cols`.
+fn encode_line(term: &Terminal, rows: &[&Row], cols: usize) -> (Vec<u8>, u64) {
+    let wrapped = wrap_line(term, rows, term.cols, cols, None);
+    let mut out = Vec::new();
+    let mut style = Style::default();
+    for row in &wrapped.rows {
+        // A line's rows follow by the phone's own autowrap.
+        for cell in &row.cells {
+            let next = term.styles.get(cell.style);
+            if next != style {
+                write_style(term, &mut out, Some(style), next);
+                style = next;
+            }
+            if cell.ch == 0 {
+                out.push(b' ');
+            } else {
+                term.write_cell(*cell, &mut out);
+            }
+        }
+    }
+    if style != Style::default() {
+        write_style(term, &mut out, Some(style), Style::default());
+    }
+    out.extend_from_slice(b"\r\n");
+    (out, wrapped.rows.len() as u64)
 }
 
 fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {

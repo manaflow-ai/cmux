@@ -131,6 +131,9 @@ pub struct Terminal {
     pub passthrough: Vec<u8>,
     /// Answers for the program (cursor and size reports in host cells).
     pub replies: Vec<u8>,
+    /// The private mode the alternate screen was entered with (47, 1047 or
+    /// 1049), for the phone's terminal to enter it the same way.
+    pub alt_mode: u16,
     /// The scrollback or every row changed in a way a diff cannot follow
     /// (RIS, ED 3, a host resize): the view starts over.
     pub reset_needed: bool,
@@ -178,6 +181,7 @@ impl Terminal {
             title: None,
             passthrough: Vec::new(),
             replies: Vec::new(),
+            alt_mode: 1049,
             reset_needed: true,
             state: State::Ground,
             seq: Vec::new(),
@@ -636,15 +640,17 @@ impl Terminal {
                     }
                 }
             }
-            (0, 0, b'n') if p(0) == 6 => {
+            // On the alternate screen the program's bytes reach the phone's
+            // terminal unchanged and it answers at the host's grid: one answer.
+            (0, 0, b'n') if p(0) == 6 && !self.alt_active => {
                 let (row, col) = self.report_position();
                 self.replies.extend_from_slice(format!("\x1b[{row};{col}R").as_bytes());
             }
-            (b'?', 0, b'n') if p(0) == 6 => {
+            (b'?', 0, b'n') if p(0) == 6 && !self.alt_active => {
                 let (row, col) = self.report_position();
                 self.replies.extend_from_slice(format!("\x1b[?{row};{col}R").as_bytes());
             }
-            (0, 0, b't') if p(0) == 18 => {
+            (0, 0, b't') if p(0) == 18 && !self.alt_active => {
                 self.replies
                     .extend_from_slice(format!("\x1b[8;{};{}t", self.rows, self.cols).as_bytes());
             }
@@ -710,8 +716,15 @@ impl Terminal {
             }
             7 => self.autowrap = on,
             25 => self.cursor_visible = on,
-            47 | 1047 => self.set_alternate(on, false, mode == 1047),
-            1049 => self.set_alternate(on, true, true),
+            47 | 1047 | 1049 => {
+                if on && !self.alt_active {
+                    self.alt_mode = mode;
+                }
+                match mode {
+                    1049 => self.set_alternate(on, true, true),
+                    _ => self.set_alternate(on, false, mode == 1047),
+                }
+            }
             1048 => {
                 if on {
                     self.save_cursor();
@@ -937,6 +950,18 @@ impl Terminal {
         text.push(ch);
         let id = self.graphemes.id(&text);
         self.screen()[y].cells[x].ch = GRAPHEME | id;
+    }
+
+    /// A cell's UTF-8 bytes, appended without allocating.
+    pub fn write_cell(&self, cell: Cell, out: &mut Vec<u8>) {
+        if cell.ch & GRAPHEME != 0 {
+            out.extend_from_slice(self.graphemes.get(cell.ch & !GRAPHEME).as_bytes());
+        } else if cell.ch < 0x80 {
+            out.push(cell.ch as u8);
+        } else if let Some(c) = char::from_u32(cell.ch) {
+            let mut buf = [0; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
     }
 
     pub fn cell_text(&self, cell: Cell) -> String {

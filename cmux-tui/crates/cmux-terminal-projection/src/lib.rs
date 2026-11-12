@@ -165,7 +165,9 @@ impl Projection {
                 }
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(true));
-                segments.push(Segment::Raw(b"\x1b[?1049h".to_vec()));
+                // The mode it was entered with (47 and 1047 neither save the
+                // cursor nor clear as 1049 does).
+                segments.push(Segment::Raw(format!("\x1b[?{}h", self.term.alt_mode).into_bytes()));
                 raw_start = Some(i + 1);
             } else {
                 let start = raw_start.take().unwrap_or(0);

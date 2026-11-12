@@ -60,7 +60,7 @@ fn paint_cost_is_flat_in_history() {
                         format!("output line {i} with some words in it\r\n").as_bytes(),
                         true,
                     ),
-                )
+                );
             },
             2000,
         );
@@ -114,4 +114,38 @@ fn paint_cost_is_flat_in_history() {
     ratios.sort_by(f64::total_cmp);
     println!("bench: rotation 100k / 100 rows, side by side (median of 3): {:.2}x", ratios[1]);
     assert!(ratios[1] <= 1.2, "a rotation costs the same at 100 and 100k rows ({:.2}x)", ratios[1]);
+}
+
+/// Scrolling up after a rotation: each step re-wraps 2,000 more host rows
+/// and repaints the phone's terminal from them (a terminal cannot take rows
+/// above its scrollback); lines written before come from the view's cache.
+/// The first, last and worst step at 100k rows.
+#[test]
+#[ignore = "bench"]
+fn scrolling_up_after_a_rotation() {
+    let mut projection = session(100_000);
+    drop(projection.set_viewport(116, 16));
+    let mut steps = Vec::new();
+    loop {
+        let start = Instant::now();
+        let segments = projection.load_older(2_000);
+        let us = start.elapsed().as_secs_f64() * 1e6;
+        if segments.is_empty() {
+            break;
+        }
+        steps.push((us, bytes(&segments)));
+    }
+    let worst = steps.iter().map(|s| s.0).fold(0.0, f64::max);
+    println!(
+        "bench: 100000 rows, scroll-up steps: {}, first {:.0} us ({} bytes), last {:.0} us ({} bytes), worst {:.0} us",
+        steps.len(),
+        steps[0].0,
+        steps[0].1,
+        steps[steps.len() - 1].0,
+        steps[steps.len() - 1].1,
+        worst
+    );
+    // Each step reuses the lines written before at this width: it re-wraps
+    // 2,000 rows and copies the rest, under a frame even at the oldest.
+    assert!(worst < 16_700.0, "a scroll-up step at 100k rows is under one frame ({worst:.0} us)");
 }
