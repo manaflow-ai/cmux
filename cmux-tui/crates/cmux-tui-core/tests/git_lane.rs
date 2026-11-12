@@ -15,7 +15,8 @@
 //! - a client that ends its writes still gets its replies;
 //! - a client that closed its whole end leaves at once: its reads that wait
 //!   start no git, its mutation that waits still runs, and a client that
-//!   closes later leaves when its first reply cannot be written;
+//!   closes later leaves when its first reply cannot be written; a client
+//!   that is there and does not read is not taken for one that closed;
 //! - a request that waits when the shutdown begins is refused and does not
 //!   run, and a broken connection's waiting mutation still runs;
 //! - the copies of a shared reply do not fill the connection's reply queue,
@@ -858,6 +859,44 @@ fn git_lane_a_closed_peer_is_gone_and_one_that_ended_its_writes_is_not() {
         ("sent a line and closed", true),
     ];
     assert_eq!(said, wanted, "whether each peer is gone");
+}
+
+/// A client that is there and does not read: this side's send buffer is full,
+/// so a poll for writing does not say "writable". That is not a hang-up. The
+/// client is not gone, also when it ended its writes before: it gets its
+/// replies when it reads again. Only after it closed its whole end is it gone.
+#[test]
+fn git_lane_a_peer_that_does_not_read_is_not_gone_while_the_send_buffer_is_full() {
+    use cmux_tui_core::platform::transport::Stream;
+    let mut said = Vec::new();
+    for state in ["open", "ended its writes"] {
+        let (mut near, far) = UnixStream::pair().unwrap();
+        if state == "ended its writes" {
+            far.shutdown(Shutdown::Write).unwrap();
+            // As the daemon's reader: at the end of the input.
+            let mut input = Vec::new();
+            std::io::Read::read_to_end(&mut near, &mut input).unwrap();
+        }
+        near.set_nonblocking(true).unwrap();
+        let (chunk, mut filled) = ([0u8; 4096], 0usize);
+        loop {
+            match near.write(&chunk) {
+                Ok(written) => filled += written,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("the write to a peer that is there failed: {error}"),
+            }
+        }
+        let full = near.peer_gone();
+        drop(far);
+        let closed = near.peer_gone();
+        eprintln!(
+            "git-lane: the peer {state} and does not read, {filled} bytes fill the send buffer: \
+             gone: {full}; after it closed its whole end: gone: {closed}"
+        );
+        said.push((state, full, closed));
+    }
+    let wanted = [("open", false, true), ("ended its writes", false, true)];
+    assert_eq!(said, wanted, "whether a peer that does not read is gone, then after it closed");
 }
 
 /// A script that sends a save and closes its whole end with no wait for the
