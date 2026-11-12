@@ -11,6 +11,7 @@ import type {
 } from "./ops";
 import { minutesAgo } from "../../gallery/clock";
 import { categories, homes } from "./categories";
+import { mockDevicesState } from "./mockProvider";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -1788,6 +1789,28 @@ variants["devices-failed"] = variant("devices", {
   options: { failing: { "cmux.settings.devices.state": "cmux.settings.devices.failed" } },
   steps: [{ selector: '[data-card-read="devices"][data-read="failed"]', action: "wait" }],
   note: "Settings > Devices when the device list read failed: an error line with Try Again, not a missing card.",
+});
+// Other Devices before the hub read its device list, and after that read failed or timed out
+// (DevicesState.othersRead): the placeholder, then the error with Try Again; none only once read.
+variants["devices-others-loading"] = variant("devices", {
+  devices: { ...mockDevicesState(), others: [], othersRead: "loading" },
+  steps: [{ selector: '[data-card-read="devices-others"][data-read="pending"]', action: "wait" }],
+  note: "Settings > Devices while the hub has not read its device list: a placeholder, not Sign in to cmux on your other Macs.",
+});
+variants["devices-others-failed"] = variant("devices", {
+  devices: { ...mockDevicesState(), others: [], othersRead: "failed" },
+  steps: [{ selector: '[data-card-read="devices-others"][data-read="failed"]', action: "wait" }],
+  note: "Settings > Devices when the hub's device list read failed or timed out: the error with Try Again.",
+});
+variants["devices-others-none"] = variant("devices", {
+  devices: { ...mockDevicesState(), others: [], othersRead: "listed" },
+  steps: [{ selector: '[data-devices-empty="others"]', action: "wait" }],
+  note: "Settings > Devices with the list read and no other device: Sign in to cmux on your other Macs.",
+});
+variants["updates-host-failed"] = variant("updates", {
+  options: { failing: { "cmux.settings.host.lists": "cmux.settings.host.failed" } },
+  steps: [{ selector: '[data-card-read="app-update"][data-read="failed"]', action: "wait" }],
+  note: "Settings > Updates when the host's lists did not load: one error with one Try Again.",
 });
 variants["mobile-failed"] = variant("mobile", {
   options: { failing: { "cmux.settings.host.lists": "cmux.settings.host.failed" } },

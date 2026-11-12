@@ -889,12 +889,17 @@ export type DevicesState = {
   labels: DevicesLabels;
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
+  /** Whether `others` was read (ui-state-fixes M8): `listed`, an empty list is none; `loading`, not
+   * read yet (the placeholder); `failed`, the hub or its list read failed or passed its deadline
+   * (the error with Try Again, `retryDevices`). Absent (an older host): listed. */
+  othersRead?: DevicesOthersRead;
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
   sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
 };
+export type DevicesOthersRead = "listed" | "loading" | "failed";
 export type DevicesPermissionId = "screenRecording" | "accessibility";
 export type DevicesPermission = { id: DevicesPermissionId; title: string; detail: string; granted: boolean };
 export type DevicesDevice = {
@@ -957,6 +962,9 @@ export type DevicesLabels = {
   thisDeviceBadge: string;
   othersSection: string;
   noOthers: string;
+  /** Other Devices when they could not be read, and its Try Again. */
+  othersFailed: string;
+  othersRetry: string;
   fingerprint: string;
   rename: string;
   renameTitle: string;
@@ -1024,6 +1032,8 @@ export type DevicesRelayDraft = {
 };
 export type DevicesRun =
   | { action: "refresh" }
+  /** Try Again under Other Devices' error: the hub starts again or reads its list again. */
+  | { action: "retryDevices" }
   | { action: "signIn" }
   | { action: "rename"; id: string; name: string }
   | { action: "remove"; id: string }

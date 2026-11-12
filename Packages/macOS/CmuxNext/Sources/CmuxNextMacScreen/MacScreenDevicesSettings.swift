@@ -81,6 +81,16 @@ public final class MacScreenDevicesSettings {
             var tone: String
         }
 
+        /// Whether the other devices were read (`DevicesOthersRead` in ops.ts).
+        public enum OthersRead: String, Encodable, Equatable, Sendable {
+            /// Read: an empty list is none.
+            case listed
+            /// Not read yet: the card's placeholder.
+            case loading
+            /// Not read, and the hub or the read failed or passed its deadline: the error with Try Again.
+            case failed
+        }
+
         public struct Device: Encodable, Equatable, Sendable {
             public struct Confirm: Encodable, Equatable, Sendable {
                 var title: String
@@ -191,12 +201,14 @@ public final class MacScreenDevicesSettings {
         var labels: Labels
         var thisDevice: Device?
         var others: [Device]
+        /// Whether `others` was read (``OthersRead``): an empty list is "none" only once it was.
+        var othersRead: OthersRead = .listed
         var sharing: Sharing?
         var relays: [Relay]
         var history: [HistoryRow]
 
         enum CodingKeys: String, CodingKey {
-            case available, status, signIn, error, labels, thisDevice, others, sharing, relays, history
+            case available, status, signIn, error, labels, thisDevice, others, othersRead, sharing, relays, history
         }
 
         public func encode(to encoder: any Encoder) throws {
@@ -209,6 +221,7 @@ public final class MacScreenDevicesSettings {
             try c.encode(labels, forKey: .labels)
             try c.encode(thisDevice, forKey: .thisDevice)
             try c.encode(others, forKey: .others)
+            try c.encode(othersRead, forKey: .othersRead)
             try c.encode(sharing, forKey: .sharing)
             try c.encode(relays, forKey: .relays)
             try c.encode(history, forKey: .history)
@@ -246,9 +259,27 @@ public final class MacScreenDevicesSettings {
                         enabled: relay.enabled, priority: relay.priority, hasSecret: hub.relaySecret(relay.id) != nil,
                         checking: checking.contains(relay.id), check: checks[relay.id])
         }
+        let others = hub.otherDevices.map { device(for: $0, hub: hub, me: me) }
         return State(available: true, status: Self.status(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
-                     thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
-                     relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
+                     thisDevice: this, others: others,
+                     othersRead: Self.othersRead(status: hub.status, listed: hub.devicesListed, any: !others.isEmpty,
+                                                 listFailed: hub.devicesListError != nil || hub.devicesListTimedOut),
+                     sharing: sharing, relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
+    }
+
+    /// What Other Devices is (ui-state-fixes M8), the rule of Mac Screen's Your Devices
+    /// (`MacScreenHomeSnapshot.noDevicesShown`): an empty list says "Sign in to cmux on your other
+    /// Macs…" only once the hub is registered and its device list was read; a hub not started,
+    /// starting, or registered with its list not read yet is `loading`; a hub that failed, or a
+    /// list read that failed or passed its deadline (`DeviceHub.devicesListTimedOut`) with nothing
+    /// read, is `failed` (the card's error with Try Again, `retryDevices`).
+    static func othersRead(status: DeviceHub.Status, listed: Bool, any: Bool, listFailed: Bool) -> State.OthersRead {
+        if any { return .listed }
+        switch status {
+        case .failed: return .failed
+        case .ready where listed: return .listed
+        case .idle, .starting, .ready: return listFailed ? .failed : .loading
+        }
     }
 
     static func status(_ hub: DeviceHub) -> State.Status {
@@ -465,6 +496,11 @@ public final class MacScreenDevicesSettings {
         guard let hub else { return RunResult(error: L.t("devices.error.signedOut", "Sign in to cmux first.")) }
         do {
             switch run.action {
+            case "retryDevices":
+                // Try Again under Other Devices' error: the hub starts again or reads its list again,
+                // loading under a fresh deadline (`DeviceHub.retryDevices`).
+                await hub.retryDevices()
+                return RunResult(ok: true)
             case "refresh":
                 await share.refreshPermissions()
                 await hub.refreshAll()
@@ -613,6 +649,8 @@ extension MacScreenDevicesSettings {
         }
 
         var thisDeviceSection, thisDeviceBadge, othersSection, noOthers: String
+        /// Other Devices when they could not be read, and its Try Again.
+        var othersFailed, othersRetry: String
         var fingerprint, rename, renameTitle, nameField, save, cancel, remove: String
         var access: String
         var accessOptions: [Option]
@@ -634,6 +672,8 @@ extension MacScreenDevicesSettings {
                 thisDeviceBadge: L.t("devices.thisBadge", "This Mac"),
                 othersSection: L.t("devices.section.others", "Other Devices"),
                 noOthers: L.t("devices.noOthers", "Sign in to cmux on your other Macs to see them here."),
+                othersFailed: L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."),
+                othersRetry: L.t("macScreen.card.retry", "Try Again"),
                 fingerprint: L.t("devices.fingerprint", "Key fingerprint"),
                 rename: L.t("devices.rename", "Rename…"),
                 renameTitle: L.t("devices.renameTitle", "Rename Device"),

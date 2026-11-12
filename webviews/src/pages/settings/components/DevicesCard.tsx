@@ -10,7 +10,8 @@ import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
-import { PartReadState } from "./PartReadState";
+import { PartReadRows, PartReadState } from "./PartReadState";
+import type { PartRead } from "../store";
 import type {
   DevicesDevice,
   DevicesJoinState,
@@ -158,6 +159,9 @@ function Status({ tone, children }: { tone: DevicesTone; children: ReactNode }) 
 function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinState | null }) {
   const [error, run] = useRun();
   const { labels } = state;
+  // An older host sends no `othersRead`: its list counts as read.
+  const othersRead: PartRead =
+    state.othersRead === "loading" ? "pending" : state.othersRead === "failed" ? "failed" : "read";
   const header = (
     <section className="group" data-devices-header="">
       <div className="accounts-header devices-header">
@@ -216,7 +220,19 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
       {state.sharing && <SharingGroup sharing={state.sharing} labels={labels} />}
       <section className="group" data-devices-group="others">
         <h3 className="group-title">{labels.othersSection}</h3>
-        {state.others.length === 0 ? (
+        {state.others.length === 0 && othersRead !== "read" ? (
+          // Not read yet, or the read failed: the placeholder or the error with Try Again, never
+          // "none" (ui-state-fixes M8).
+          <div className="part-read" data-card-read="devices-others" data-read={othersRead}>
+            <PartReadRows
+              card="devices-others"
+              read={othersRead}
+              message={labels.othersFailed}
+              retryLabel={labels.othersRetry}
+              onRetry={() => void run({ action: "retryDevices" })}
+            />
+          </div>
+        ) : state.others.length === 0 ? (
           <div className="row-help" data-devices-empty="others">
             {labels.noOthers}
           </div>

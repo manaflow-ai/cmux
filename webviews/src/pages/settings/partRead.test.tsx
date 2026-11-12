@@ -133,3 +133,55 @@ test("a Devices read that never answers ends in Try Again at its deadline, and a
   expect(page.container.querySelector('[data-devices-group="this"]')).not.toBeNull();
   page.unmount();
 });
+
+// Round 8 (verifier M8, blocking 3): the Devices card drew "Sign in to cmux on your other Macs…"
+// whenever the other devices were empty, though the hub had not read its list yet, or the read
+// failed or timed out. The host now says whether the list was read (`othersRead`): not read is
+// the placeholder, failed is the error with Try Again (the hub's retryDevices), and only a list
+// read empty says none.
+test("Other Devices is the placeholder before its list is read, the error with Try Again after a failure, none only once read", async () => {
+  const { mockDevicesState } = await import("./mockProvider");
+  const others = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-devices-group="others"]')!;
+  const render = (othersRead: "loading" | "failed" | "listed") =>
+    renderPage({
+      path: "/settings/devices",
+      setup: (provider) => void (provider.devices = { ...mockDevicesState(), others: [], othersRead }),
+    });
+
+  let page = await render("loading");
+  expect(readState(others(page.container), "devices-others")).toBe("pending");
+  expect(others(page.container).querySelector("[data-devices-empty]")).toBeNull();
+  page.unmount();
+
+  page = await render("failed");
+  expect(readState(others(page.container), "devices-others")).toBe("failed");
+  expect(others(page.container).querySelector('[role="alert"]')?.textContent).toBe(
+    "Couldn’t reach the device hub to load your devices.",
+  );
+  expect(others(page.container).querySelector("[data-devices-empty]")).toBeNull();
+  await click(others(page.container).querySelector('[data-part-retry="devices-others"]')!);
+  await settle();
+  expect(page.provider.deviceRuns.at(-1)).toEqual({ action: "retryDevices" });
+  // Try Again: loading again (the hub reads under a fresh deadline).
+  expect(readState(others(page.container), "devices-others")).toBe("pending");
+  page.unmount();
+
+  page = await render("listed");
+  expect(readState(others(page.container), "devices-others")).toBeNull();
+  expect(others(page.container).querySelector("[data-devices-empty]")?.textContent).toBe(
+    mockDevicesState().labels.noOthers,
+  );
+  page.unmount();
+});
+
+// Round 8 (verifier non-blocking 12): one failed host read drew two identical errors on Updates,
+// each with its own Try Again (App Update and Web UI come from the same read). It says so once.
+test("a failed host read shows one error with one Try Again on Updates", async () => {
+  const failing: Record<string, string> = { "cmux.settings.host.lists": "cmux.settings.host.failed" };
+  const page = await renderPage({ path: "/settings/updates", mock: { failing } });
+  await settle();
+  expect(page.container.querySelectorAll('[data-read="failed"]')).toHaveLength(1);
+  expect(page.container.querySelectorAll("[data-part-retry]")).toHaveLength(1);
+  expect(readState(page.container, "app-update")).toBe("failed");
+  page.unmount();
+});

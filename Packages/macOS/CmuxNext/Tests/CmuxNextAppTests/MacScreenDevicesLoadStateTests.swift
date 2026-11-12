@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextWakeups
+import Foundation
 import Testing
 
 /// ui-state-fixes M5: Your Devices said "None of your other devices share Mac Screen" while the hub
@@ -51,6 +52,38 @@ import Testing
             Issue.record("a hub never started, past its deadline, showed \(idle)")
             return
         }
+    }
+
+    /// Round 8 (verifier M8, blocking 3): Settings › Devices passed the other devices without their
+    /// list state, so a hub whose list was not read yet, failed or timed out said "Sign in to cmux
+    /// on your other Macs…" with no error and no Try Again. The card now gets `othersRead`.
+    @Test func settingsOtherDevicesSayNoneOnlyOnceTheListWasRead() {
+        typealias Settings = MacScreenDevicesSettings
+        for status in [DeviceHub.Status.idle, .starting, .ready] {
+            #expect(Settings.othersRead(status: status, listed: false, any: false, listFailed: false) == .loading,
+                    "\(status) with no list read was not loading")
+            #expect(Settings.othersRead(status: status, listed: false, any: false, listFailed: true) == .failed,
+                    "\(status) with a failed or timed-out list read was not the error")
+        }
+        #expect(Settings.othersRead(status: .failed("offline"), listed: false, any: false, listFailed: false) == .failed)
+        #expect(Settings.othersRead(status: .ready, listed: true, any: false, listFailed: false) == .listed)
+        // Devices already read stay listed while a later read fails.
+        #expect(Settings.othersRead(status: .ready, listed: true, any: true, listFailed: true) == .listed)
+    }
+
+    /// The card's state carries the list state and its error copy (the page reads `othersRead`,
+    /// `labels.othersFailed` and `labels.othersRetry`).
+    @Test func settingsStateEncodesTheOtherDevicesReadState() throws {
+        let labels = MacScreenDevicesSettings.Labels.current
+        #expect(labels.othersFailed == L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
+        var state = MacScreenDevicesSettings.State(available: true, status: .init(text: "Connected", tone: "success"), signIn: nil,
+                                                   error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil,
+                                                   relays: [], history: [])
+        state.othersRead = .failed
+        let json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        #expect(json["othersRead"] as? String == "failed")
+        let encodedLabels = try #require(json["labels"] as? [String: Any])
+        #expect(encodedLabels["othersRetry"] as? String == L.t("macScreen.card.retry", "Try Again"))
     }
 
     /// Round 2 (verifier M-1): Try Again sat flush at the card's bottom-left, a bare stack member

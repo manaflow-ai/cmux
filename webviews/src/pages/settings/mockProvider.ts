@@ -947,6 +947,10 @@ export class MockSettingsProvider {
       case "refresh":
       case "openPermission":
         return result;
+      case "retryDevices":
+        // The hub reads its list again: loading under a fresh deadline until it answers.
+        this.setDevices({ ...state, othersRead: "loading" });
+        return result;
       case "signIn":
         this.setDevices({ ...state, signIn: null, status: { text: "Connecting…", tone: "attention" } });
         return result;
@@ -1705,6 +1709,8 @@ export function mockDevicesState(): DevicesState {
       thisDeviceBadge: "This Mac",
       othersSection: "Other Devices",
       noOthers: "No other devices yet. Sign in to cmux on another device to see it here.",
+      othersFailed: "Couldn’t reach the device hub to load your devices.",
+      othersRetry: "Try Again",
       fingerprint: "Fingerprint",
       rename: "Rename…",
       renameTitle: "Rename Device",
