@@ -30,6 +30,10 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          delete sealed segments in place for --in-place-dwell seconds. The row: the registry
          lock by site (server-stats `locks`: acquisitions and hold times) and the times of an
          identify request each 0.5 s and a rename-workspace request each second.
+  in-place-kept  the delete in place of each day: a RELEASE owner on a clone of the state
+         AFTER the swap, with the kept file of that swap beside it (no rebuild for 7 days and 3
+         starts), after synth_registry appended --second-records sealed records. The same row
+         as the in-place arm, on the small file.
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
@@ -858,6 +862,72 @@ def in_place_arm(args, state, before, report):
     report["steps"].append(step)
 
 
+def in_place_kept_arm(args, state, before, report):
+    """The delete in place as a person gets it each day: on the SMALL registry after the swap,
+    with the kept file of the real swap beside it (the product then starts no rebuild for 7
+    days and 3 full starts). synth_registry --advance-checkpoints appends --second-records
+    records, moves the checkpoints to the head, seals every record and back-dates the segments
+    (what days of use do); nothing else is of this script. A RELEASE owner then deletes 8
+    sealed segments in each retention pass (30 s apart) for --in-place-dwell seconds, with the
+    same sampler as the in-place arm. The numbers: the registry lock by site and the request
+    times. Its answer to `served` is under another key: the generator added records, so no
+    verdict rule compares it with start 1."""
+    start = counts(args, state)
+    step = {"arm": "in-place-kept", "dwell_s": args.in_place_dwell,
+            "kept_name_bytes": start.get("kept_bytes"),
+            "first_name_bytes": start.get("backup_bytes")}
+    if not (start.get("kept_bytes") or start.get("backup_bytes")):
+        step["error"] = "no file of the swap is held: this state is not the one after a swap"
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    out = subprocess.run(
+        [args.synth, "--advance-checkpoints", "16", "--append-records",
+         str(args.second_records), "--out", str(state), "--session", args.session,
+         "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3600, check=False)
+    if out.returncode != 0:
+        step["error"] = "synth_registry --advance-checkpoints failed: " + out.stderr[-300:]
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    step["advanced"] = json.loads(out.stdout.strip().splitlines()[-1])
+    advanced = counts(args, state)
+    step["lost_by_the_advance"] = compare(before, advanced)
+    step["before"] = {key: advanced.get(key) for key in IN_PLACE_KEYS}
+    owner = Owner(args, state, "in-place-kept")
+    ready = owner.wait_ready()
+    step.update(ready_s=ready, load_1m=os.getloadavg()[0])
+    if ready is None:
+        step["error"] = "not ready"
+        step["exit"] = owner.stop()
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    sampler = Sampler(owner, write_every=2)
+    sampler.start()
+    deadline = time.monotonic() + args.in_place_dwell
+    while time.monotonic() < deadline and owner.child.poll() is None:
+        time.sleep(1)
+    sampler.stop()
+    step["samples"] = sampler.phase(ready, owner.elapsed())
+    step["locks"] = lock_sites(owner)
+    step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
+    step["kept_served"] = served(owner)
+    step["exit"] = owner.stop()
+    after = counts(args, state)
+    step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
+    step["segments_deleted"] = (int(advanced.get("segments") or 0)
+                                - int(after.get("segments") or 0))
+    step["lost"] = compare(before, after)
+    if not step["no_rebuild_line"]:
+        step["error"] = "the owner did not say that it starts no rebuild"
+    elif step["segments_deleted"] <= 0:
+        step["error"] = NO_DELETE_IN_DWELL
+    say("RMP", step)
+    report["steps"].append(step)
+
+
 def base_sample_arm(args, state, report):
     """The control of the lock rows: a build with NONE of this change (--base-bin) as the owner
     of a clone from before start 1, with the same sampler as the in-place arm (one
@@ -1108,8 +1178,8 @@ def table(report):
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "base-sample",
-             "second-swap"]
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-kept",
+             "base-sample", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -1132,7 +1202,8 @@ def table(report):
                                "advanced", "lost_by_the_advance", "lost_after_third",
                                "bases_after", "error", "dwell_s", "locks", "samples",
                                "locks_debug_build", "no_rebuild_line", "segments_deleted",
-                               "kept_name_bytes", "base_served", "base_error")}
+                               "kept_name_bytes", "base_served", "base_error",
+                               "kept_served", "first_name_bytes", "load_1m")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1155,7 +1226,7 @@ def main():
     parser.add_argument("--old-bin", default="")
     parser.add_argument("--arms",
                         default="control,main,kill-stage,kill-swap,kill-renamed,space,in-place,"
-                                "second-swap,old,old-raised")
+                                "in-place-kept,second-swap,old,old-raised")
     # The longest wait for an older owner to save its own roster.
     parser.add_argument("--old-dwell", type=float, default=45)
     parser.add_argument("--after-built", type=float, default=10)
@@ -1235,6 +1306,9 @@ def main():
     if "base-sample" in args.arms:
         base_sample_arm(args, scratch / "base-sample", report)
         shutil.rmtree(scratch / "base-sample")
+    if "in-place-kept" in args.arms and ok:
+        in_place_kept_arm(args, clone(args.state, scratch / "in-place-kept"), before, report)
+        shutil.rmtree(scratch / "in-place-kept")
     if "second-swap" in args.arms and ok:
         second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
         shutil.rmtree(scratch / "second-swap")

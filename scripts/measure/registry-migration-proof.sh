@@ -3,7 +3,8 @@
 # the long-lived shape (many workspaces, agent and progress records, almost no stored output).
 #   scripts/measure/registry-migration-proof.sh [size_gb=1] [workspaces=826] [seal_age_minutes=120]
 #     [young_segments=N]
-#     [arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,second-swap,old,old-raised]
+#     [arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,in-place-kept,second-swap,
+#      old,old-raised]
 #     [space_dwell=0] [in_place_dwell=150]
 #     [debug=1] [old_bin=label=/abs/older/cmux-tui[,label=/abs/other/cmux-tui]] [old_dwell=45]
 #     [ready_timeout=3600] [build_timeout=7200]
@@ -27,6 +28,9 @@
 # seconds; the row is the registry lock by site (server-stats `locks`) and the request times.
 # space_dwell= keeps the debug owner of the space arm that long after the refusal: the same
 # deletes through the product's own no-space path, with a debug build's times.
+# The in-place-kept arm: the same row on the SMALL file after the swap, with the kept file of
+# that swap held (what a person gets each day: no rebuild for 7 days and 3 starts) and
+# second_records= sealed records appended by the generator.
 # base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
 # in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
 # arm have a row that shows what the size of the file and the host cost with no delete.
@@ -46,7 +50,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=rmp
 size_gb=1 workspaces=826 seal_age_minutes=120 young_segments= debug=1 old_bin= state=
-arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,second-swap,old,old-raised
+arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,in-place-kept,second-swap,old,old-raised
 old_dwell=45 space_dwell=0 in_place_dwell=150
 ready_timeout=3600 build_timeout=7200
 records= sparse_head= sparse_records= rested_agents= live_rows= bin= synth= debug_bin=
