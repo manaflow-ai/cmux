@@ -144,7 +144,10 @@ export function ShareDialogHost({
       </Dialog>
       {/* Over the page, not the header: the header is a positioned row, so the stack's bottom
           would resolve against it and clip. */}
-      {createPortal(<NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} />, document.body)}
+      {createPortal(
+        <NoticeStack queue={shareToasts} dismissLabel={t("share.dismiss")} label={t("toast.region")} />,
+        document.body,
+      )}
     </>
   );
 }

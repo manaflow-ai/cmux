@@ -21,6 +21,7 @@ public final class ServerUpdateCoordinator {
         var handshake: ServerHandshake
         var appCapabilities: Set<String>
         var bundledBuild: String?
+        var handingOff: Bool
     }
 
     /// The notices to show now, one per server and host, oldest first.
@@ -53,11 +54,16 @@ public final class ServerUpdateCoordinator {
     }
 
     /// Records what a server said and updates its notice. The same skew again keeps the one notice.
-    public func report(_ handshake: ServerHandshake, appCapabilities: Set<String>, bundledBuild: String?) {
+    /// - Parameter handingOff: The app is already replacing this server with its bundled build (the
+    ///   launch handoff after an update): no notice, since a Restart would only race that handoff.
+    public func report(_ handshake: ServerHandshake, appCapabilities: Set<String>, bundledBuild: String?,
+                       handingOff: Bool = false) {
         let key = Key(kind: handshake.kind, host: handshake.host)
-        reported[key] = Reported(handshake: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
+        reported[key] = Reported(handshake: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild,
+                                 handingOff: handingOff)
         handshakeRevision += 1
-        let notice = policy.notice(for: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
+        let notice = handingOff ? nil
+            : policy.notice(for: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
         setNotice(notice, for: key)
     }
 
@@ -78,7 +84,7 @@ public final class ServerUpdateCoordinator {
         let ordered = reported.keys.sorted { ($0.kind.rawValue, $0.host.key) < ($1.kind.rawValue, $1.host.key) }
         let rows = ordered.compactMap { key -> ServerSettingsRow? in
             guard let entry = reported[key] else { return nil }
-            var notice = policy.notice(for: entry.handshake, appCapabilities: entry.appCapabilities,
+            var notice = entry.handingOff ? nil : policy.notice(for: entry.handshake, appCapabilities: entry.appCapabilities,
                                        bundledBuild: entry.bundledBuild)
             if let current = notice, restartedOnce.contains(current.id) { notice = nil }
             return ServerSettingsReport.row(handshake: entry.handshake, notice: notice, socketPath: socketPath,
@@ -112,7 +118,7 @@ public final class ServerUpdateCoordinator {
         }
         let previous = reported[key]
         reported[key] = Reported(handshake: successor, appCapabilities: previous?.appCapabilities ?? [],
-                                 bundledBuild: previous?.bundledBuild)
+                                 bundledBuild: previous?.bundledBuild, handingOff: false)
         handshakeRevision += 1
         let still = policy.notice(for: successor, appCapabilities: previous?.appCapabilities ?? [],
                                   bundledBuild: previous?.bundledBuild)
