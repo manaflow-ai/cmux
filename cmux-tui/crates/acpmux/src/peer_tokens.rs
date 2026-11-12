@@ -105,6 +105,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_replaced_cache_cannot_erase_or_overwrite_the_same_urls_new_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let book = Arc::new(LastGood::open(Some(dir.path())));
+        let old = TokenCache::default();
+        old.back(book.clone(), "box", "ssh://box", |_| true);
+        let stale = ("old-dashboard".into(), Some("old-peer".into()));
+        old.keep(&stale);
+        let replacement = TokenCache::default();
+        replacement.back(book.clone(), "box", "ssh://box", |_| true);
+        let fresh = ("new-dashboard".into(), Some("new-peer".into()));
+        replacement.keep(&fresh);
+
+        // Force the old connection's refusal after its replacement authenticated.
+        old.forget();
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(fresh.clone()));
+        // An old ssh read can finish late too; it must not restore stale credentials.
+        old.keep(&stale);
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(fresh.clone()));
+        assert_eq!(
+            LastGood::open(Some(dir.path())).tokens.get("box", "ssh://box"),
+            Some(fresh),
+            "the next daemon must still skip the ssh read"
+        );
+        replacement.forget();
+        assert_eq!(book.tokens.get("box", "ssh://box"), None);
+    }
+
+    #[test]
     fn keeps_only_a_read_with_a_peer_token() {
         let cache = TokenCache::default();
         cache.keep(&("dash".into(), None));
