@@ -481,7 +481,8 @@ def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, A
     if not isinstance(doc, dict) or not isinstance(doc.get("cells"), list):
         out["why"] = "the results have no cells list"
         return out
-    out.update(surface=doc.get("surface"), generated_at=doc.get("generated_at"), build=doc.get("build"),
+    surface = doc.get("surface")
+    out.update(surface=surface if surface in JOURNEY_SURFACES else None, generated_at=doc.get("generated_at"), build=doc.get("build"),
                run_url=doc.get("run_url"))
     at = parse_time(doc.get("generated_at"))
     if at is None:
@@ -497,7 +498,8 @@ def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, A
         outcome = str(c.get("outcome") or "skip").replace("-", "_")
         out["cells"] += 1
         out[outcome if outcome in ("pass", "red", "needs_account", "skip") else "skip"] += 1
-        out["steps"] += c.get("steps") if isinstance(c.get("steps"), int) else 0
+        steps = c.get("steps")
+        out["steps"] += steps if isinstance(steps, int) and not isinstance(steps, bool) else 0
         reds = [r for r in (c.get("reds") or []) if isinstance(r, dict)]
         if outcome == "red":
             out["red_cells"].append(str(c.get("cell")))
@@ -508,7 +510,8 @@ def journey_surface(doc: Any, why: Optional[str], t: dt.datetime) -> Dict[str, A
                 out["top_reds"].append({"cell": str(c.get("cell")), "rule": rule, "where": str(r.get("where") or ""),
                                         "detail": " ".join(str(r.get("detail") or "").split())[:200]})
     out["reds_by_rule"] = dict(sorted(rules.items(), key=lambda kv: (-kv[1], kv[0])))
-    out["missing_accounts"] = sorted(str(h) for h in (doc.get("missing_accounts") or []))
+    missing = doc.get("missing_accounts")
+    out["missing_accounts"] = sorted(str(h) for h in missing) if isinstance(missing, list) else []
     out["why"] = None
     return out
 
@@ -519,7 +522,8 @@ def first_user_journey(paths: List[str], t: dt.datetime) -> Dict[str, Any]:
     for i, path in enumerate(paths):
         doc, why = load_json(path)
         row = journey_surface(doc, why, t)
-        surfaces[row["surface"] or f"input{i + 1}"] = row
+        key = row["surface"] or f"input{i + 1}"
+        surfaces[key if key not in surfaces else f"input{i + 1}"] = row
     live = [v for v in surfaces.values() if v["why"] is None]
     return {"surfaces": surfaces,
             "cells": sum(v["cells"] for v in live) if live else None,
@@ -710,6 +714,10 @@ def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
     cf.pop("sessions", None)
     for env in (cf.get("by_environment") or {}).values():
         env.pop("sessions", None)
+    # A journey red's cell, screen and text name what the person saw (and the Mac walk's run is private): counts only.
+    for v in ((out.get("first_user_journey") or {}).get("surfaces") or {}).values():
+        for key in ("top_reds", "red_cells", "run_url", "build"):
+            v.pop(key, None)
     return out
 
 
@@ -808,7 +816,7 @@ def journey_markdown(fj: Dict[str, Any], public: bool) -> List[str]:
             out.append(f"| {k} | n/a ({' '.join(str(v['why']).split()).replace('|', '/')}) | | | | | | |")
             continue
         rules = ", ".join(f"{rule} {n}" for rule, n in v["reds_by_rule"].items()) or "none"
-        run = f"[run]({v['run_url']})" if v.get("run_url") else ""
+        run = f"[run]({v['run_url']})" if v.get("run_url") and not public else ""
         out.append(f"| {k} | {v['cells']} | {v['pass']} | {v['red']} | {v['needs_account']} | {v['steps']} | {rules} | {run} |")
     missing = sorted({h for v in fj["surfaces"].values() for h in v.get("missing_accounts") or []})
     if missing:

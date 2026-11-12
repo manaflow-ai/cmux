@@ -546,6 +546,22 @@ class FirstUserJourney(unittest.TestCase):
         row = qr.history_row(r)
         self.assertEqual((row["journey_red"], row["journey_cells"]), (1, 3))
         self.assertIn("| 1/3 |", qr.sticky_body(r, "md", ""))
+        pub = json.dumps(qr.public_report(r))
+        for private in ("HTTP 429", "codex/expired", "https://ci/web"):
+            self.assertNotIn(private, pub, "the public JSON carries counts only")
+        self.assertIn("https://ci/web", private)
+        self.assertNotIn("https://ci/web", public)
+
+    def test_odd_shapes_count_nothing_wrong_and_never_crash(self):
+        odd = journey(["web"], "2026-11-10T05:00:00Z", [
+            {"cell": "x", "outcome": "pass", "steps": True}, "not a cell"])
+        odd["missing_accounts"] = "cursor"
+        dup = journey("web", "2026-11-10T05:00:00Z", [{"cell": "y", "outcome": "red", "reds": [{"rule": "dead-button"}]}])
+        with tempfile.TemporaryDirectory() as d:
+            got = qr.first_user_journey([self.write(d, "a.json", self.WEB), self.write(d, "b.json", odd),
+                                         self.write(d, "c.json", dup)], T)
+        self.assertEqual(sorted(got["surfaces"]), ["input2", "input3", "web"], "a bad or repeated surface never overwrites")
+        self.assertEqual((got["surfaces"]["input2"]["steps"], got["surfaces"]["input2"]["missing_accounts"]), (0, []))
 
     def test_fetch_takes_the_newest_run_that_kept_the_artifact(self):
         calls = []
