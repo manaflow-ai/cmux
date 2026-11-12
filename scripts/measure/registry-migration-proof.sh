@@ -40,6 +40,9 @@
 # arms= can also name in-place-kept-nowatch and in-place-kept-quiet: the in-place-kept arm with no
 # read of the registry file by the script while the owner runs, and (quiet) with no probe request.
 # Each in-place row and the base-sample row has `wal`: the owner's own WAL counters.
+# arms= can also name first-fold (not in the default list): a head owner on a clone from before
+# start 1 is asked for the agent History list until the answer is complete; the row is the seconds
+# of that first fold.
 # arms= can also name kill-hold (not in the default list): kill -9 between two holds of the
 # delete in place of one segment (a part of its rows gone, its row and content there), then
 # a start that must end that delete with the counts and the served answer equal.

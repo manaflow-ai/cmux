@@ -53,6 +53,13 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          syncs, writes or reads the file, and that runs in the process. The sampler stops the
          owner for each sample, so the lock and request times of these two arms are NOT the
          times of the arms without it.
+  first-fold  (not in the default list) how long the first fold of the agent History takes: a
+         head owner on a clone from before start 1 (the saved fold is behind the head) is asked
+         for history.entries.list (the agent kind, as the app's vault asks) from its ready on,
+         again 1 s after each answer, until an answer names no pending kind. The row: the
+         seconds from the first ask to the first complete answer, the count of answers that
+         were not complete, the sessions of the first answer and of the complete one, and the
+         slowest ask. The owner runs no longer than that, so it builds and deletes nothing.
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
@@ -910,6 +917,64 @@ def build(args, state, label, timeout=None):
     result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
+
+
+# The longest time the first-fold arm asks for a complete list.
+FIRST_FOLD_SECONDS = 1800
+
+
+def first_fold_arm(args, state, report):
+    """The first fold of the agent History on a clone from before start 1: the head owner is
+    asked for the agent list from its ready on, until an answer names no pending kind. The
+    first ask starts the daemon's feed thread, which folds to the head; each ask also folds
+    for at most the daemon's own 2 s. Its counts are not compared: it is not a step of the
+    migration (the owner stops before the cleanup worker starts, 60 s after a start, unless
+    the fold is longer than that)."""
+    owner = Owner(args, state, "first-fold")
+    ready = owner.wait_ready()
+    step = {"arm": "first-fold", "ready_s": ready, "load_1m": os.getloadavg()[0]}
+    if ready is None:
+        step["error"] = "not ready"
+    else:
+        params = {"machine": "current", "session": "current", "kinds": ["agent"],
+                  "limit": HISTORY_LIST_LIMIT}
+        began = time.monotonic()
+        asks, not_complete, first, slowest = 0, 0, None, 0.0
+        while True:
+            asked = time.monotonic()
+            try:
+                reply = ask(owner, "history.entries.list", params)
+            except (OSError, ValueError) as error:
+                step["error"] = type(error).__name__
+                break
+            now = time.monotonic()
+            asks += 1
+            slowest = max(slowest, now - asked)
+            if reply.get("ok") is not True:
+                step["error"] = "refused"
+                step["refusal"] = refusal(reply)
+                break
+            result = reply.get("result") or {}
+            listed = len([entry for entry in result.get("entries") or []
+                          if isinstance(entry, dict)])
+            if first is None:
+                first = listed
+            if not result.get("pending_kinds"):
+                step["complete_s"] = round(now - began, 1)
+                step["agent_sessions"] = listed
+                break
+            not_complete += 1
+            if now - began >= FIRST_FOLD_SECONDS:
+                step["error"] = "the fold was not at the head"
+                step["agent_sessions_at_the_end"] = listed
+                break
+            time.sleep(1)
+        step.update(asks=asks, answers_not_complete=not_complete,
+                    agent_sessions_first_answer=first, slowest_ask_s=round(slowest, 2),
+                    owner_ran_s=round(owner.elapsed(), 1))
+    step["exit"] = owner.stop()
+    say("RMP", step)
+    report["steps"].append(step)
 
 
 def start_stop(args, state, label, binary=None, ask=True):
@@ -1867,7 +1932,7 @@ def main():
     if args.base_bin:
         args.arms.append("base-sample")
     for name in ("kill-stage", "space", "in-place", "in-place-stacks", "kill-hold",
-                 "base-sample"):
+                 "base-sample", "first-fold"):
         if name in args.arms:
             clone(args.state, scratch / name)
     if "main" not in args.arms:
@@ -1901,6 +1966,9 @@ def main():
     if "base-sample" in args.arms:
         base_sample_arm(args, scratch / "base-sample", report)
         shutil.rmtree(scratch / "base-sample")
+    if "first-fold" in args.arms:
+        first_fold_arm(args, scratch / "first-fold", report)
+        shutil.rmtree(scratch / "first-fold")
     for name in ("in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
                  "in-place-kept-quiet"):
         if name in args.arms and ok:
