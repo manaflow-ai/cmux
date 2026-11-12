@@ -194,6 +194,7 @@ struct Stretch {
     takeaways: Vec<bool>,
     stepped: bool,
     worked: bool,
+    work_at: usize,
     steered: bool,
 }
 struct Chat {
@@ -274,6 +275,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call_update","toolCallId":"c{calls}","status":"completed"}}"#));
                     stretch.stepped = true;
                     stretch.worked = true;
+                    stretch.work_at = stretch.replies.len();
                     open = false;
                 }
                 4 => c.progress(false),
@@ -316,9 +318,12 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
                 stretch
                     .replies
                     .iter()
+                    .enumerate()
+                    .skip(stretch.work_at)
                     .zip(&stretch.takeaways)
                     .rev()
-                    .find_map(|(s, t)| t.then_some(s))
+                    .find_map(|((_, s), t)| t.then_some(s))
+                    .or_else(|| stretch.replies.get(stretch.work_at..).and_then(|r| r.last()))
             } else {
                 stretch.replies.last()
             };
