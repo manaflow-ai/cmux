@@ -6,9 +6,13 @@ import UIKit
 /// Connects the trackpad drawer's pad to the screen it drives. `ScreenView`
 /// fills in the controller; the pad sends its touches through it, so the pad
 /// and the screen share one pointer, one click state and one cursor.
-@MainActor
+@MainActor @Observable
 public final class ScreenTrackpadLink {
-    weak var controller: ScreenViewController?
+    @ObservationIgnored weak var controller: ScreenViewController?
+    /// The size (framebuffer pixels) of the display the screen is fitted to:
+    /// one display of several, or the whole frame. The trackpad's height
+    /// leaves that display's fitted height to the screen.
+    public internal(set) var focusSize = CGSize.zero
 
     public init() {}
 }

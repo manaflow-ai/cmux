@@ -40,8 +40,9 @@ public struct ScreenFeatures: OptionSet, Sendable {
     /// the trackpad stack top to bottom, the screen fitted to the width and the
     /// trackpad filling the rest. Its notch drags down to tuck it away to a
     /// strip at the bottom edge (the screen takes the room) and up to bring it
-    /// back; a tap on the notch toggles. Up by default, remembered per computer
-    /// (`ScreenPreferences.showTrackpad`).
+    /// back; a tap on the notch toggles. Up by default in portrait and
+    /// remembered (`ScreenPreferences.showTrackpad`); in landscape, where height
+    /// is short, it starts tucked away.
     public static let trackpadOverlay = ScreenFeatures(rawValue: 1 << 12)
 
     /// A Paste Image button: pick a photo, and the Mac pastes it (⌘V) where
@@ -75,13 +76,16 @@ public struct ScreenSessionView: View {
     @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3, bounce: 0.1)))
     private var trackpadDrag: CGFloat = 0
     @State private var trackpadLink = ScreenTrackpadLink()
-    /// The drawer's measured height (above the bottom safe area).
-    @State private var trackpadDrawerHeight: CGFloat = 300
     /// The drawer's content is drawn: from opening until a close has finished sliding down
     /// (nil until the view appears, then the remembered choice).
     @State private var trackpadContentShown: Bool?
-    /// The viewer's size inside the safe area, which sizes the trackpad.
+    /// The viewer's size inside the safe area, without the software keyboard: sizes the trackpad.
     @State private var containerSize = CGSize.zero
+    /// The viewer's height above the software keyboard (the full height while it is down).
+    @State private var aboveKeyboardHeight: CGFloat = 0
+    /// In landscape the trackpad starts tucked away (height is short there) and
+    /// does not touch the remembered choice, which is for portrait.
+    @State private var landscapeTrackpadOpen = false
     /// The toolbar's measured height (with the shortcuts bar) while it shows.
     @State private var chromeHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -120,14 +124,21 @@ public struct ScreenSessionView: View {
             if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveKeyboardHeight = $0 }
+        .background {
+            // Measured inside the safe area but under the software keyboard: the keyboard
+            // covers the drawer, it does not resize the trackpad.
+            Color.clear
+                .ignoresSafeArea(.keyboard)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
+        }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
         .preferredColorScheme(.dark)
         .statusBarHidden(!chromeVisible)
         .persistentSystemOverlays(.hidden)
         .onAppear {
-            if trackpadContentShown == nil { trackpadContentShown = session.preferences.showTrackpad }
+            if trackpadContentShown == nil { trackpadContentShown = trackpadOpen }
             if features.contains(.orientationLock) { ScreenOrientation.shared.lock(orientation) }
         }
         .onChange(of: orientation) {
@@ -138,6 +149,8 @@ public struct ScreenSessionView: View {
             if features.contains(.resumeOnForeground), scenePhase == .active { session.resumeIfNeeded() }
         }
         .onChange(of: session.preferences.quality) { session.applyQuality() }
+        // Turning the phone switches between the portrait and landscape choices.
+        .onChange(of: isLandscape) { trackpadContentShown = trackpadOpen }
         // On the root, not the picker: a stall that hides the button while the picker is open keeps the pick.
         .onChange(of: pickedPhoto) { paste(pickedPhoto) }
         .onDisappear {
@@ -220,8 +233,14 @@ public struct ScreenSessionView: View {
 
     private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
 
-    /// The trackpad is up (the remembered choice; up by default).
-    private var trackpadOpen: Bool { session.preferences.showTrackpad }
+    private var isLandscape: Bool { containerSize.width > containerSize.height }
+
+    /// The trackpad is up: the remembered choice (up by default) in portrait,
+    /// tucked away in landscape until it is brought up there.
+    private var trackpadOpen: Bool { isLandscape ? landscapeTrackpadOpen : session.preferences.showTrackpad }
+
+    /// The software keyboard is up: it covers the drawer, so no room is kept for it.
+    private var softwareKeyboardUp: Bool { containerSize.height > 0 && aboveKeyboardHeight < containerSize.height - 60 }
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
@@ -233,11 +252,16 @@ public struct ScreenSessionView: View {
     private static let trackpadPeek: CGFloat = 30
     private static let trackpadBottomPadding: CGFloat = 8
 
-    /// The room kept under the screen for the drawer: all of it while up, the
-    /// notch's strip while tucked away, none before the screen connects.
+    /// The drawer's height above the bottom safe area: the notch, the pad and the padding under it.
+    private var trackpadDrawerHeight: CGFloat { Self.trackpadPeek + trackpadPadHeight + Self.trackpadBottomPadding }
+
+    /// The room kept under the screen for the drawer: as much of it as shows
+    /// (all of it while up, the notch's strip while tucked away, following the
+    /// finger while the notch drags), none before the screen connects or while
+    /// the software keyboard covers it.
     private var trackpadReserved: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
-        return trackpadOpen ? trackpadDrawerHeight : Self.trackpadPeek
+        guard hasTrackpadOverlay, case .connected = session.phase, !softwareKeyboardUp else { return 0 }
+        return trackpadDrawerHeight - trackpadOffset
     }
 
     /// The pad's height: what is left under the toolbar and the screen fitted
@@ -246,8 +270,9 @@ public struct ScreenSessionView: View {
     private var trackpadPadHeight: CGFloat {
         let size = containerSize
         guard size.width > 0, size.height > 0 else { return 240 }
-        let frame = session.frameSize
-        let aspect = frame.width > 0 ? min(max(frame.height / frame.width, 0.4), 1) : 0.625
+        // The display the screen is fitted to (one of several), else the whole frame.
+        let display = trackpadLink.focusSize.width > 0 ? trackpadLink.focusSize : session.frameSize
+        let aspect = display.width > 0 ? min(max(display.height / display.width, 0.4), 1) : 0.625
         let landscape = size.width > size.height
         let chrome = chromeVisible ? chromeHeight : 0
         let room = size.height - chrome - size.width * aspect - Self.trackpadPeek - Self.trackpadBottomPadding
@@ -269,7 +294,7 @@ public struct ScreenSessionView: View {
         // Reduce Motion: the drawer moves in one frame.
         if open { trackpadContentShown = true }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1)) {
-            session.preferences.showTrackpad = open
+            if isLandscape { landscapeTrackpadOpen = open } else { session.preferences.showTrackpad = open }
         } completion: {
             if !trackpadOpen { trackpadContentShown = false }
         }
@@ -299,7 +324,6 @@ public struct ScreenSessionView: View {
                 .fill(.regularMaterial)
                 .ignoresSafeArea(edges: .bottom)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trackpadDrawerHeight = $0 }
         .offset(y: trackpadOffset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         // The software keyboard covers the drawer instead of pushing it up.
@@ -332,7 +356,8 @@ public struct ScreenSessionView: View {
             .frame(width: 40, height: 5)
             .frame(maxWidth: .infinity)
             .frame(height: Self.trackpadPeek)
-            .contentShape(Rectangle())
+            // A 44-point target: the strip and a little above and below it.
+            .contentShape(Rectangle().inset(by: -7))
             .gesture(
                 DragGesture(minimumDistance: 4, coordinateSpace: .global)
                     .updating($trackpadDrag) { value, drag, _ in drag = value.translation.height }
@@ -363,7 +388,7 @@ public struct ScreenSessionView: View {
         }
         if hasTrackpadOverlay {
             checkItem("Show Trackpad", systemImage: "rectangle.and.hand.point.up.left",
-                      isOn: Binding(get: { session.preferences.showTrackpad }, set: { setTrackpad(open: $0) }))
+                      isOn: Binding(get: { trackpadOpen }, set: { setTrackpad(open: $0) }))
         }
         if features.contains(.fitToggle) {
             checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
@@ -580,6 +605,9 @@ public struct ScreenView: UIViewControllerRepresentable {
     public func makeUIViewController(context: Context) -> ScreenViewController {
         let controller = ScreenViewController(session: session)
         trackpadLink?.controller = controller
+        controller.onFocusSize = { [weak trackpadLink] size in
+            if trackpadLink?.focusSize != size { trackpadLink?.focusSize = size }
+        }
         return controller
     }
 

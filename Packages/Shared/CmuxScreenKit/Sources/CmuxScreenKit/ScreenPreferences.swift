@@ -18,7 +18,7 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
     public var inputMode = ScreenInputMode.direct
     /// The trackpad under the screen is up (the default): dragging its notch
     /// down tucks it away to a strip and gives the screen the room, dragging
-    /// it up brings it back. Kept per computer, like the rest.
+    /// it up brings it back. Remembered with the rest; landscape starts tucked away.
     public var showTrackpad = true
 
     public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto,

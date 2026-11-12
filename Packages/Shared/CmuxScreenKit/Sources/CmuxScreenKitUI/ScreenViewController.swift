@@ -360,6 +360,14 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    /// The size of the display the view was last fitted to (framebuffer
+    /// pixels), for chrome that sizes itself around the fitted screen.
+    var focusSize = CGSize.zero {
+        didSet { onFocusSize?(focusSize) }
+    }
+
+    var onFocusSize: ((CGSize) -> Void)?
+
     /// The display the view is pinned to: one of several, or the whole frame.
     private var focusRect: CGRect {
         screens.indices.contains(page) ? screens[page] : CGRect(origin: .zero, size: frameSize)
@@ -383,6 +391,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         paged = true
         pageControl.currentPage = page
         let rect = focusRect
+        if rect.size != focusSize { focusSize = rect.size }
         let scale = fitScale(rect)
         let apply = { [self] in
             scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
