@@ -153,7 +153,7 @@ struct Scope {
 }
 
 impl Scope {
-    fn of(items: &[syn::Item], opaque: bool) -> Self {
+    fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, opaque: bool) -> Self {
         let mut scope = Scope { opaque, ..Scope::default() };
         for item in items {
             match item {
@@ -330,21 +330,17 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
         if !is_test_attr(&m.attrs) {
             let items = m.content.as_ref().map_or(&[][..], |(_, items)| &items[..]);
-            self.scopes.push(Scope::of(items, true));
+            self.scopes.push(Scope::of(items.iter(), true));
             syn::visit::visit_item_mod(self, m);
             self.scopes.pop();
         }
     }
     fn visit_block(&mut self, b: &'ast syn::Block) {
-        let items: Vec<syn::Item> = b
-            .stmts
-            .iter()
-            .filter_map(|s| match s {
-                syn::Stmt::Item(item) => Some(item.clone()),
-                _ => None,
-            })
-            .collect();
-        self.scopes.push(Scope::of(&items, false));
+        let items = b.stmts.iter().filter_map(|s| match s {
+            syn::Stmt::Item(item) => Some(item),
+            _ => None,
+        });
+        self.scopes.push(Scope::of(items, false));
         syn::visit::visit_block(self, b);
         self.scopes.pop();
     }
@@ -451,7 +447,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 /// The rows of one file.
 fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
     let mut rows = Vec::new();
-    let root = Scope::of(&file.items, true);
+    let root = Scope::of(file.items.iter(), true);
     for item in &file.items {
         let mut scan =
             Scan { rel, paths: HashSet::new(), scopes: vec![root.clone()], rows: Vec::new() };
