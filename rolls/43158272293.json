@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43158272293",
+  "recorded_at": "2026-11-12T05:07:26Z",
+  "reason": "cmux-tui 79cbe348cd5d changes the image's cmux-tui (pinned 2303712c270c)",
+  "dry_run": false,
+  "cmux_tui": "79cbe348cd5d632ad0941c7df9caea9a9a891192",
+  "fixes": [
+    {
+      "sha": "6378a9917e2c114bc00aaeb6c6efeeea43838ca1",
+      "mergedAt": "2026-11-11T20:44:55-08:00",
+      "subject": "acpmux tests: three heavy checks a busy host decides run on their own; a by-hand detector runs the lib under load (#41564)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T05:07:26Z",
+    "snapshot_id": "sh-57f1cef5bf404c2fbb18e6355805b9bb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43158272293): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "15bb3d011e5afb7bae57ce045527ffa61f536b0f",
+    "image": "cloud-native-auto-79cbe348-43158272293-1",
+    "revision": "ci-43158272293-1",
+    "at": "2026-11-12T05:07:26Z"
+  },
+  "rolled_back": false
+}
