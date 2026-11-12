@@ -2440,7 +2440,9 @@ fn drop_call_at<'t>(
 /// the source binds no `std` or `core` of its own (`use crate::fake as std;`, `mod std`: #42111
 /// review F1). Read over the whole source rather than by scope, imports inside functions and
 /// methods included (#42111 review F2), so a shadow anywhere in it counts against every drop
-/// there: a drain it cannot place is flagged, never exempt.
+/// there: a drain it cannot place is flagged, never exempt. A definition or an import under a
+/// `#[cfg(..)]` counts as a shadow too (#41970 review F1's class): the code this scans is test
+/// code, and the gated one may be what that build runs.
 #[derive(Default)]
 struct DropNames {
     /// Each name a `use` binds, with each path it binds it to and whether that path starts
@@ -2906,6 +2908,28 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "impl Probe {\n    fn t() {\n        use std::mem::forget as drop;\n        \
              let (tx, rx) = channel::<u8>();\n        drop(tx);\n        \
              while let Ok(n) = rx.RECV {}\n    }\n}\n",
+        ),
+        (
+            "#41970 F1 (same class): a `#[cfg(test)] fn drop` that forgets shadows test code",
+            "#[cfg(test)]\nfn drop<T>(t: T) {\n    std::mem::forget(t)\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#41970 F1 (same class): a platform-gated `mod mem` may be the one that runs",
+            "#[cfg(windows)]\nmod mem {\n    pub fn drop<T>(t: T) {\n        \
+             std::mem::forget(t)\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#41970 F1 (same class): a platform-gated `use std::mem::forget as drop`",
+            "#[cfg(target_os = \"linux\")]\nuse std::mem::forget as drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
         ),
         (
             "#42023 F1: a drain whose sender another function's drop drops",
