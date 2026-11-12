@@ -45,25 +45,40 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
 /// pane keeps one message in one row across such a call, so it does not end a reply segment.
 const PLUMBING_TOOLS: &[&str] = &["ToolSearch", "tool_search", "load_tools"];
 
-/// Whether `update` is where the pane always cuts a reply's row (direct.ts `endAssistantSegment`),
-/// so the next reply text is another segment: a thought, a new tool call the person sees, or a
-/// compaction note. Not a call the pane hides or folds into the message (plumbing, a todo call that
-/// becomes the plan, a result of a call already shown), nor a background task's note, a subagent's
-/// update or a plan, beside which the message goes on in its row (Leo, 2026-11-03: "this chat's
-/// text stream got cut in the middle by a tool call which is weird"). The pane cuts in a few rarer
-/// places too (a permission card, an offer); a row after one is named by its first chunk read.
-fn cuts_reply(kind: &str, update: &Value) -> bool {
+/// Whether `update` is where the pane cuts a reply's row (direct.ts `endAssistantSegment`), so
+/// the next reply text is another segment: a thought, a new tool call the person sees, a
+/// compaction note, and the turn's first checklist (a plan, or Claude Code's TodoWrite call, which
+/// the pane shows until the turn has a checklist and hides after). `plan_shown`: this turn has
+/// drawn one (`StreamState::plan_shown`), which this updates. Not a call the pane hides or folds
+/// into the message (plumbing, a todo call that becomes the plan, a later TodoWrite or plan), nor a
+/// background task's note or a subagent's update, beside which the message goes on in its row
+/// (Leo, 2026-11-03: "this chat's text stream got cut in the middle by a tool call which is
+/// weird"). The pane cuts in a few rarer places too (a permission card, an offer); a row after one
+/// is named by its first chunk read.
+fn cuts_reply(kind: &str, update: &Value, plan_shown: &mut bool) -> bool {
     match kind {
         "agent_thought_chunk" => update.get("content").is_some_and(has_text),
         "compaction" => true,
+        "plan" => match update.get("entries").and_then(Value::as_array) {
+            // A cleared list takes the checklist away; the next one is new.
+            Some(entries) if entries.is_empty() => {
+                *plan_shown = false;
+                false
+            }
+            _ => !std::mem::replace(plan_shown, true),
+        },
         "tool_call" => {
             let tool = update
                 .pointer("/_meta/claude/tool")
                 .or_else(|| update.pointer("/_meta/claudeCode/toolName"))
                 .and_then(Value::as_str);
             let plumbing = tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t));
-            let todo = tool == Some("TodoWrite")
-                || update.get("name").and_then(Value::as_str) == Some("write_todos")
+            // The pane names a call by `_meta.claude.tool`, else its title (direct.ts).
+            let named = update.pointer("/_meta/claude/tool").or_else(|| update.get("title"));
+            if named.and_then(Value::as_str) == Some("TodoWrite") {
+                return !*plan_shown;
+            }
+            let todo = update.get("name").and_then(Value::as_str) == Some("write_todos")
                 || update.pointer("/_meta/acpmux/planTool").and_then(Value::as_bool) == Some(true);
             !plumbing && !todo
         }
@@ -144,8 +159,9 @@ impl Hub {
         let mut retrying = None;
         let mut segment = None;
         // Read before the stream lock: the turn's lock is never taken under it.
-        let turn_id =
-            (kind == "agent_message_chunk").then(|| session.turn().map(|t| t.turn_id)).flatten();
+        let turn_id = matches!(kind, "agent_message_chunk" | "plan" | "tool_call")
+            .then(|| session.turn().map(|t| t.turn_id))
+            .flatten();
         {
             let mut st = session.stream.lock().unwrap();
             match kind {
@@ -209,22 +225,27 @@ impl Hub {
                         }
                     }
                 }
-                k if NEUTRAL_UPDATES.contains(&k) => {
-                    if cuts_reply(k, update) {
-                        st.reply_segment = None;
-                    }
-                }
                 _ => {
-                    if cuts_reply(kind, update) {
+                    // A checklist is the turn's (the pane starts a new one at each prompt and turn).
+                    let turn = turn_id.as_deref().unwrap_or("-");
+                    if st.plan_turn.as_deref() != Some(turn) {
+                        st.plan_turn = Some(turn.to_owned());
+                        st.plan_shown = false;
+                    }
+                    let mut plan_shown = st.plan_shown;
+                    if cuts_reply(kind, update, &mut plan_shown) {
                         st.reply_segment = None;
                     }
-                    // A tool call, plan or user chunk ends the message: a
-                    // later retry does not abandon it.
-                    st.open_message = None;
-                    st.retry_from = None;
-                    st.trailing_text.clear();
-                    st.trailing_seqs.clear();
-                    st.trailing_overflow = false;
+                    st.plan_shown = plan_shown;
+                    if !NEUTRAL_UPDATES.contains(&kind) {
+                        // A tool call, plan or user chunk ends the message: a
+                        // later retry does not abandon it.
+                        st.open_message = None;
+                        st.retry_from = None;
+                        st.trailing_text.clear();
+                        st.trailing_seqs.clear();
+                        st.trailing_overflow = false;
+                    }
                 }
             }
         }
