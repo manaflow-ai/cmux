@@ -46,6 +46,15 @@ upstream removal of a debt line never pays for a line the branch adds (as a coun
 remote head would let it), and an upstream addition is never the push's. What the branch pushed before is in both
 and cancels; the merge's resolution and every new commit count.
 
+A push (pushed_ranges, the hook's path) first fetches the shared base (refresh_upstream): origin/feat-cmux-next is
+only as new as this clone's last fetch of it, and a branch that merges a base newer than that (its stacked parent
+fetched alone, `git fetch origin lane/parent`, after the parent merged feat-cmux-next) brought in feat-cmux-next
+commits the walk then counted as its own. On 2026-11-11 a plain base merge on lane/workflow-jobs-parser (#40784) was
+refused for release-notes/next/highlights/ios-screen-sharing-paste-image.md, a highlight feat-cmux-next had
+(e877ee43879), not the branch. One fetch per push (every check of the hook calls this; the first fetches); a clone
+without the ref is left to the fallbacks below, and a fetch that fails or runs past its limit is said in the report
+and the stale copy bounds the walk as before.
+
 Fallbacks:
 - none of those refs is in the clone (a first push from a single-branch clone, a remote named otherwise), or the
   walk reaches a shallow root or a root commit before any of them: the walk is bounded again by every ref of the
@@ -405,6 +414,59 @@ def given_range(repo: Path, base: str, head: str) -> OwnRange:
     return OwnRange(tip, start, (), int(out) if code == 0 and out.isdigit() else 0, "the base given")
 
 
+UPSTREAM_FETCH_SECONDS = 30
+UPSTREAM_REFRESH_FILE = "upstream-refresh"
+
+
+def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREAM, key: str = "") -> str:
+    """Fetch UPSTREAM_REF (`origin/feat-cmux-next`) from REMOTE into this clone, once per KEY (the pushed-refs lines:
+    every check of one push calls this, and only the first fetches). Returns "" when it is fresh, or was left alone (a
+    push to a URL, a remote whose refspecs do not map the branch there, a clone without the ref: the fallbacks), else
+    the report's note on why the stale copy bounds the walk (see the module docstring)."""
+    name = remote_name(repo, remote)
+    if not name or not upstream_ref.startswith(f"{name}/"):
+        return ""
+    branch = upstream_ref[len(name) + 1:]
+    tracked = _full_ref(upstream_ref)
+    if tracking_ref(repo, name, f"refs/heads/{branch}") != tracked or commit_of(repo, tracked) is None:
+        return ""
+    code, common = _git(repo, "rev-parse", "--git-common-dir")
+    stamp = None
+    if code == 0 and common:
+        stamp = (Path(common) if os.path.isabs(common) else Path(repo) / common) / "cmux-guardrails" / UPSTREAM_REFRESH_FILE
+    token = hashlib.sha256(f"{name}\n{upstream_ref}\n{key}".encode()).hexdigest()
+    try:
+        if key and stamp is not None and stamp.read_text().strip() == token:
+            return ""
+    except OSError:
+        pass
+    # Never a prompt or a hook's index: a fetch that would ask for credentials fails, and the note says so.
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    args = ["git", "-C", str(repo), "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", name,
+            f"+refs/heads/{branch}:{tracked}"]
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=UPSTREAM_FETCH_SECONDS,
+                                stdin=subprocess.DEVNULL)
+        why = "" if result.returncode == 0 else (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1]
+    except subprocess.TimeoutExpired:
+        why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
+    except OSError as error:
+        why = str(error)
+    if why:
+        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
+                f"clone's copy counts as the push's own: run `git fetch {name} {branch}` and push again")
+    if key and stamp is not None:
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
+            tmp.write_text(token + "\n")
+            os.replace(tmp, stamp)
+        except OSError:
+            pass
+    return ""
+
+
 def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REMOTE,
                   upstream_ref: str = UPSTREAM) -> tuple[list[OwnRange], list[str]]:
     """Pre-push stdin rows (`<local ref> <local sha> <remote ref> <remote sha>`) as (own ranges, errors).
@@ -413,8 +475,16 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
     tree or blob pushes no commit and is left out. A remote head this clone does not have (someone pushed since
     the last fetch) bounds nothing itself (the tracking ref still does); the note says so. A row whose own range
     cannot be told (own_range's ValueError) is an error line naming the ref: the caller refuses the push with it.
+    The shared base is fetched first (refresh_upstream), unless every pushed row lands on that branch itself (its
+    remote head bounds the walk) or deletes.
     """
     ranges, errors = [], []
+    branch = upstream_ref.split("/", 1)[-1]
+    rows = [line.split() for line in lines]
+    pushing = [parts for parts in rows if len(parts) == 4 and parts[1] != ZERO_SHA]
+    stale = ""
+    if any(parts[2] != f"refs/heads/{branch}" for parts in pushing):
+        stale = refresh_upstream(repo, remote, upstream_ref, key="\n".join(" ".join(parts) for parts in pushing))
     for line in lines:
         parts = line.split()
         if len(parts) != 4 or parts[1] == ZERO_SHA:
@@ -431,6 +501,8 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
         if remote_sha != ZERO_SHA and not known:
             own = dataclasses.replace(own, note=own.note + f"; the remote head {remote_sha[:11]} is not in this "
                                                           "clone (git fetch), so it bounds nothing itself")
+        if stale:
+            own = dataclasses.replace(own, note=own.note + stale)
         ranges.append(own)
     return ranges, errors
 

@@ -203,12 +203,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
@@ -224,12 +226,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),

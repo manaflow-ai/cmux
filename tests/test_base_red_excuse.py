@@ -51,7 +51,7 @@ os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
-    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path, **_: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
     receipt = unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: None)
@@ -3774,6 +3774,389 @@ class StackedChildIntoLaneParent(unittest.TestCase):
         self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
 
 
+# cmux#41235's review (dep-fleet-6, 2026-11-11): the stacked-parent rule was applied only where judge() compares a job
+# by name. F1: the web replay and cut-short shard paths returned through got.per_test(...) and cut_short_web_verdict
+# before stacked_parent was picked, so a child's web red inherited from its lane parent was checked against the lane
+# branch's own runs (it has none) and refused. F2: base_verdicts() added the lane branch's workflow_dispatch runs after
+# stacked_parent_runs() had kept only the parent head's pull_request and push runs, so a dispatch at the parent's sha
+# could supply an excuse. One class: an early return skips the rule the rest of the function applies. So the evidence
+# source is chosen once at the top of judge and passed to every verdict path; StackedOnLaneParent records which
+# source each read went to.
+CMUX_LANE = "lane/base-red-excuse-stacked-parent"
+STATUS_CONTEXT = "preview deploy"
+# The lane commit a stacked child branched from: older than its parent PR's head, which moved on after. No verdict
+# path may read it (#41403's review: the compile and ws-check paths compared the child with it).
+LANE_MERGE_BASE = "9" * 40
+SHA_IN = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
+
+
+def unhanded_shas(route: str, handed: set[str]) -> list[str]:
+    """The commits ROUTE (a GitHub route, a blob ref, a receipt read) names that are not in HANDED: the child's head
+    and the shas the judge's Evidence hands out."""
+    return [sha for sha in SHA_IN.findall(route) if sha not in handed]
+
+
+class StackedOnLaneParent:
+    """Mixed into a feat-cmux-next fixture: the same head judged as a child PR into CMUX_LANE, the head of open PR
+    #41235 at PARENT_HEAD, whose completed runs at that head are the fixture's base runs there (of the workflow
+    PARENT_WORKFLOWS maps the asked one to). The child's merge-base with CMUX_LANE is LANE_MERGE_BASE, an older lane
+    commit. Every read of a run list or a commit list is recorded in SOURCES by where it went: "parent" (the parent PR's
+    head) or "branch" (CMUX_LANE's own runs or commits, which serve LANE_RUNS and LANE_COMMITS, or another commit's
+    statuses); and any read (a route or a blob) naming a commit other than HEAD and the parent's head as "unhanded
+    sha"."""
+
+    parent_head = BASE_SHA
+    parent_workflows: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sources: list[tuple[str, str]] = []
+        self.lane_runs: list[dict] = []
+        self.lane_commits: list[str] = []
+
+    def record_shas(self, route):
+        if unhanded_shas(route, {HEAD, self.parent_head}):
+            self.sources.append(("unhanded sha", route))
+
+    def blob(self, repo, ref, path):
+        self.record_shas(f"blob {ref}:{path}")
+        parent = getattr(super(), "blob", None)
+        if parent is None:  # a fixture with no blob read: the file cannot be read, as git has no fixture commit
+            raise excuse.Refused(f"{repo}@{ref}: {path} could not be read")
+        return parent(repo, ref, path)
+
+    def json(self, route, *, paginate=False):
+        self.record_shas(route)
+        if route.startswith(f"repos/{REPO}/compare/{CMUX_LANE}...{HEAD}"):
+            # The child branched from LANE_MERGE_BASE; the parent's head (the branch tip) moved on since.
+            return {"merge_base_commit": {"sha": LANE_MERGE_BASE,
+                                          "commit": {"committer": {"date": "2026-11-10T00:00:00Z"}}},
+                    "base_commit": {"sha": self.parent_head}, "status": "diverged", "files": []}
+        if route == f"repos/{REPO}/commits/{self.parent_head}":
+            return {"sha": self.parent_head, "commit": {"committer": {"date": "2026-11-11T08:00:00Z"}}}
+        if route.startswith(f"repos/{REPO}/pulls?"):
+            assert f"head=manaflow-ai:{CMUX_LANE}" in route and "state=open" in route, route
+            return [parent_pull(41235, self.parent_head, CMUX_LANE, REPO)]
+        if route == f"repos/{REPO}/branches/{CMUX_LANE}":
+            return {"name": CMUX_LANE, "commit": {"sha": self.parent_head}}
+        if route.startswith(f"repos/{REPO}/commits?sha={CMUX_LANE}&"):
+            self.sources.append(("branch", route))
+            return [{"sha": sha} for sha in self.lane_commits]
+        if (status := re.search(r"/commits/([0-9a-f]{40})/status(?:es)?\?", route)) and status[1] != HEAD:
+            self.sources.append(("parent" if status[1] == self.parent_head else "branch", route))
+        if "/actions/workflows/" in route and "/runs?" in route:
+            workflow, query = route.split("/actions/workflows/", 1)[1].split("/runs?", 1)
+            if f"branch={CMUX_LANE}" in query:
+                self.sources.append(("branch", route))
+                event = query.split("event=", 1)[1].split("&", 1)[0] if "event=" in query else None
+                return {"workflow_runs": [copy.deepcopy(run) for run in self.lane_runs
+                                          if event is None or run.get("event") == event]}
+            if query.startswith(f"head_sha={self.parent_head}&"):
+                self.sources.append(("parent", route))
+                mapped = self.parent_workflows.get(workflow, workflow)
+                found = super().json(f"repos/{REPO}/actions/workflows/{mapped}/runs?branch=feat-cmux-next&per_page=100")
+                return {"workflow_runs": [run for run in found["workflow_runs"]
+                                          if run.get("head_sha") == self.parent_head]}
+            raise AssertionError(f"a run list of neither the parent's head nor {CMUX_LANE}: {route}")
+        return super().json(route.replace(f"/compare/{CMUX_LANE}...", "/compare/feat-cmux-next..."), paginate=paginate)
+
+
+def on_lane_parent(fixture, parent_head=BASE_SHA, parent_workflows=None):
+    """FIXTURE (a feat-cmux-next fake) judged as a child of CMUX_LANE (StackedOnLaneParent)."""
+    stacked = type(f"Stacked{fixture.__name__}", (StackedOnLaneParent, fixture),
+                   {"parent_head": parent_head, "parent_workflows": parent_workflows or {}})
+    return stacked()
+
+
+def web_on_lane_parent():
+    """WebReplayGitHub as a child of CMUX_LANE: the parent's ci.yml run at its head is the fixture's web run 40."""
+    return on_lane_parent(WebReplayGitHub, PUSHED_BASE_SHA, {"7": "cmux-next-web.yml"})
+
+
+class StatusGitHub(FakeGitHub):
+    """A jobless red status STATUS_CONTEXT on HEAD (no run tested HEAD), compared with the base's statuses
+    (base_status). BASE_STATUSES: each base commit's statuses."""
+
+    def __init__(self):
+        super().__init__()
+        self.head_status = {"context": STATUS_CONTEXT, "state": "failure", "description": "Build failed",
+                            "target_url": ""}
+        self.base_statuses: dict[str, list[dict]] = {}
+
+    def json(self, route, *, paginate=False):
+        if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+            return [{"check_runs": []}]
+        if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+            return {"statuses": [copy.deepcopy(self.head_status)]}
+        if route.endswith(f"actions/runs?head_sha={HEAD}&per_page=100"):
+            return {"workflow_runs": []}
+        for sha, statuses in self.base_statuses.items():
+            if route.endswith(f"commits/{sha}/status?per_page=100"):
+                return {"statuses": copy.deepcopy(statuses)}
+        return super().json(route, paginate=paginate)
+
+
+class CompileStatusGitHub(StatusGitHub):
+    """A red cmux-next/compile status on HEAD (a real compile fail) and the same at BASE_SHA, judged by GitHub while the
+    receipts host is down (github_compile_red)."""
+    FAIL = "The app did not compile in SwiftPM Release (-Onone); see the log"
+
+    def __init__(self):
+        super().__init__()
+        self.head_status = {"context": excuse.COMPILE_PASS_STATUS, "state": "failure", "description": self.FAIL,
+                            "target_url": ""}
+
+    def json(self, route, *, paginate=False):
+        for sha in (HEAD, BASE_SHA, "c" * 40):
+            if f"commits/{sha}/statuses?per_page=100&page=" in route:
+                return status_answer(route, [dict(self.head_status)])
+        return super().json(route, paginate=paginate)
+
+
+def ws_check_stacked_github():
+    """WsCheckGitHub with main replaced by lane/ws-parent, the head of open PR #77 at TIP; the child's merge-base is
+    MERGE_BASE, an older lane commit. Its commit list (BASE_COMMITS) is the lane branch's own; SOURCES records it as
+    "branch", the parent head's status as "parent", and any read naming another commit than HEAD or TIP as
+    "unhanded sha".
+    A factory: WsCheckGitHub is defined further down."""
+    class WsCheckStackedGitHub(WsCheckGitHub):
+        WS_LANE = "lane/ws-parent"
+
+        def __init__(self):
+            super().__init__()
+            self.sources: list[tuple[str, str]] = []
+
+        def json(self, route, *, paginate=False, per_page=100):
+            if unhanded_shas(route, {HEAD, self.TIP}):
+                self.sources.append(("unhanded sha", route))
+            if route.startswith(f"repos/{self.REPO}/pulls?"):
+                return [parent_pull(77, self.TIP, self.WS_LANE, self.REPO)]
+            if route == f"repos/{self.REPO}/branches/{self.WS_LANE}":
+                return {"name": self.WS_LANE, "commit": {"sha": self.TIP}}
+            if route.startswith(f"repos/{self.REPO}/commits?sha={self.WS_LANE}&"):
+                self.sources.append(("branch", route))
+                return [{"sha": sha} for sha in self.base_commits]
+            if route == f"repos/{self.REPO}/commits/{self.TIP}/status?per_page=100":
+                self.sources.append(("parent", route))
+            return super().json(route.replace(f"/compare/{self.WS_LANE}...", "/compare/main..."), paginate=paginate)
+    return WsCheckStackedGitHub()
+
+
+class StackedParentEvidenceOnEveryPath(unittest.TestCase):
+    """A child PR into a lane branch heading an open PR reads every base verdict from that PR's head, on every path:
+    the per-test web and gallery verdicts, the cut-short shard, the by-name comparison and its tip suite, the
+    per-step reading, a jobless status, the compile status and ws-check (cmux#41235's review, F1 and F2). No path
+    reads any commit but the child's head and the parent's: the child's merge-base, an older lane commit, is no
+    evidence (#41403's review)."""
+
+    def judge(self, gh, **kwargs):
+        return "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [10], gh, **kwargs))
+
+    def assert_parent_alone(self, gh):
+        self.assertTrue(gh.sources, "no base evidence was read")
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [],
+                         "a verdict path read the lane branch's own runs or commits, or a commit the judge's Evidence "
+                         "did not hand out (the child's merge-base), not the parent PR's head")
+
+    def test_f1_a_web_replay_red_the_parents_head_has_too_is_excused(self):
+        gh = web_on_lane_parent()
+        text = self.judge(gh)
+        self.assertIn(f"excused '{REPLAY}'", text)
+        self.assertIn(f"{CAPSULES} > {CAPSULE_TEST} ({CMUX_LANE} run 40)", text)
+        self.assert_parent_alone(gh)
+
+    def test_f1_a_cut_short_shard_whose_red_files_fail_on_the_parents_head_is_excused(self):
+        gh = web_on_lane_parent()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion="cancelled")
+        gh.jobs[3]["steps"][-1]["conclusion"] = "cancelled"
+        gh.logs[3] = cut_short_log((FOOTER, "PASS"), (CAPSULES, "FAIL"))
+        text = self.judge(gh)
+        self.assertIn(f"excused '{HEAD_SHARD}': cancelled mid-run", text)
+        self.assertIn(f"{CAPSULES} ({CMUX_LANE} run 40)", text)
+        self.assert_parent_alone(gh)
+
+    def test_f1_a_parent_web_run_where_every_test_passed_makes_the_replay_the_childs_own(self):
+        gh = web_on_lane_parent()
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, None), 8: (2, None)})
+        with self.assertRaisesRegex(excuse.Refused, f"every webview test passed on {CMUX_LANE} run 50"):
+            self.judge(gh)
+        self.assert_parent_alone(gh)
+
+    def test_f2_a_dispatch_at_the_parents_head_supplies_no_verdict(self):
+        # The parent's push run 20 at its head has no verdict for the Swift job; a tip Swift suite dispatch of the lane
+        # branch at that same sha does, red the same way. It is not the parent PR's check: refused, not excused.
+        gh = on_lane_parent(FakeGitHub)
+        gh.jobs[2] = failed_job(2, 60, BASE_SHA)
+        gh.lane_runs = [{"id": 60, "event": "workflow_dispatch", "head_branch": CMUX_LANE, "head_sha": BASE_SHA,
+                         "status": "completed", "conclusion": "failure", "created_at": "2026-11-11T09:00:00Z",
+                         "display_title": f"cmux-next tip Swift suite · {BASE_SHA}"}]
+        with self.assertRaisesRegex(excuse.Refused, f"'{SWIFT}': {CMUX_LANE} is PR #41235's head; its head "
+                                                    f"{BASE_SHA[:12]} has no completed run"):
+            self.judge(gh)
+        self.assert_parent_alone(gh)
+
+    def test_a_jobless_status_is_compared_with_the_parents_head_alone(self):
+        # The lane branch's older commit (an earlier parent head) has the same red status; the parent's head has none.
+        gh = on_lane_parent(StatusGitHub)
+        older = "c" * 40
+        gh.lane_commits = [BASE_SHA, older]
+        gh.base_statuses = {BASE_SHA: [], older: [dict(gh.head_status)]}
+        with self.assertRaisesRegex(excuse.Refused, f"'{STATUS_CONTEXT}'.*PR #41235's head {BASE_SHA[:12]}"):
+            excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[STATUS_CONTEXT])
+        self.assertFalse(any(f"commits/{older}/status" in route for route in gh.routes), gh.routes)
+        gh.base_statuses[BASE_SHA] = [dict(gh.head_status)]
+        self.assertIn(f"excused '{STATUS_CONTEXT}'",
+                      "\n".join(excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[STATUS_CONTEXT])))
+
+    def test_a_compile_red_at_the_childs_merge_base_excuses_nothing(self):
+        # The child branched from LANE_MERGE_BASE, whose compile failed the same way; the parent's head compiled.
+        def receipts(states):
+            def read(repo, sha):
+                return {"sha": sha, "repo": repo, "state": states.get(sha, "pass"),
+                        "recipe_version": excuse.COMPILE_RECEIPT_RECIPE[0],
+                        "configuration": excuse.COMPILE_RECEIPT_RECIPE[1]}
+            return read
+
+        gh = on_lane_parent(CompileStatusGitHub)
+        with unittest.mock.patch.object(excuse, "compile_receipt", receipts({HEAD: "fail", LANE_MERGE_BASE: "fail"})):
+            with self.assertRaisesRegex(excuse.Refused, f"merge-base {BASE_SHA[:12]} .*reads pass: the red is this"):
+                excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[excuse.COMPILE_PASS_STATUS])
+        with unittest.mock.patch.object(excuse, "compile_receipt", receipts({HEAD: "fail", BASE_SHA: "fail"})):
+            self.assertIn(f"so is its merge-base {BASE_SHA[:12]}'s", "\n".join(
+                excuse.judge(REPO, CMUX_LANE, HEAD, [], gh, checks=[excuse.COMPILE_PASS_STATUS])))
+
+    def test_a_ws_check_red_at_the_childs_merge_base_excuses_nothing(self):
+        # The parent's head fails ws-check another way; the child's merge-base (an older lane commit) fails it the
+        # child's way. Compared with the merge-base it read as the base's red; it is the child's own.
+        gh = ws_check_stacked_github()
+        relay = WsCheckPerTest.RELAY
+        gh.verdict(HEAD, 1, {relay: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+        gh.verdict(gh.TIP, 2, {WsCheckPerTest.DEPLOY: WsCheckPerTest.ws_deploy(WsCheckPerTest(), "test_x")})
+        gh.verdict(gh.MERGE_BASE, 3, {relay: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+        with self.assertRaisesRegex(excuse.Refused, "not on lane/ws-parent"):
+            excuse.judge(gh.REPO, "lane/ws-parent", HEAD, [], gh)
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [])
+        # A green parent head makes it the child's own too, never "fixed on base" by the merge-base's red.
+        gh.verdict(gh.TIP, 2, {}, state="success")
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(gh.REPO, "lane/ws-parent", HEAD, [], gh)
+        self.assertNotIsInstance(refused.exception, excuse.FixedOnBase)
+        self.assertEqual([route for source, route in gh.sources if source != "parent"], [])
+
+    def test_every_verdict_path_reads_the_parents_head_alone(self):
+        # The class detector: each path that reads base evidence, judged on a child of a lane parent, reads runs
+        # (and commits) at the parent PR's head and never the lane branch's own, whatever its verdict.
+        def replay():
+            return web_on_lane_parent()
+
+        def head_shard():
+            gh = web_on_lane_parent()
+            del gh.jobs[1]
+            gh.jobs[3].update(conclusion="failure")
+            gh.jobs[3]["steps"][-1]["conclusion"] = "failure"
+            return gh
+
+        def cut_short():
+            gh = head_shard()
+            gh.jobs[3].update(conclusion="timed_out")
+            gh.jobs[3]["steps"][-1]["conclusion"] = "cancelled"
+            gh.logs[3] = cut_short_log((CAPSULES, "FAIL"))
+            return gh
+
+        def gallery():
+            return on_lane_parent(GalleryGitHub)
+
+        def by_name():
+            return on_lane_parent(FakeGitHub)
+
+        def tip_suite():
+            gh = on_lane_parent(FakeGitHub)
+            gh.jobs[2] = failed_job(2, 60, BASE_SHA)
+            gh.lane_runs = [{"id": 60, "event": "workflow_dispatch", "head_branch": CMUX_LANE, "head_sha": BASE_SHA,
+                             "status": "completed", "conclusion": "failure", "created_at": "2026-11-11T09:00:00Z",
+                             "display_title": f"cmux-next tip Swift suite · {BASE_SHA}"}]
+            return gh
+
+        def green_parent():
+            gh = on_lane_parent(FakeGitHub)
+            gh.jobs[2].update(conclusion="success")
+            gh.jobs[2]["steps"][-1]["conclusion"] = "success"
+            return gh
+
+        def status():
+            gh = on_lane_parent(StatusGitHub)
+            gh.lane_commits = [BASE_SHA, "c" * 40]
+            gh.base_statuses = {BASE_SHA: [dict(gh.head_status)]}
+            return gh
+
+        def compile_receipts_down():
+            gh = on_lane_parent(CompileStatusGitHub)
+            gh.lane_commits = [BASE_SHA, "c" * 40]
+            return gh
+
+        def ws_check():
+            gh = ws_check_stacked_github()
+            gh.verdict(HEAD, 1, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            gh.verdict(gh.TIP, 2, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            return gh
+
+        def ws_check_parent_green():
+            gh = ws_check()
+            gh.verdict(gh.TIP, 2, {}, state="success")
+            gh.verdict(gh.MERGE_BASE, 3, {WsCheckPerTest.RELAY: WsCheckPerTest.relay_lint(WsCheckPerTest())})
+            return gh
+
+        def ws_check_parent_red_another_way():
+            gh = ws_check_parent_green()
+            gh.verdict(gh.TIP, 2, {WsCheckPerTest.DEPLOY: WsCheckPerTest.ws_deploy(WsCheckPerTest(), "test_x")})
+            return gh
+
+        receipt_reads: list[str] = []
+
+        def down(repo, sha):
+            receipt_reads.append(sha)
+            raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        def up(repo, sha):
+            receipt_reads.append(sha)
+            return {"sha": sha, "repo": repo, "state": "fail", "recipe_version": excuse.COMPILE_RECEIPT_RECIPE[0],
+                    "configuration": excuse.COMPILE_RECEIPT_RECIPE[1]}
+
+        paths = {"per-test web replay": (replay, {}), "per-test web head shard": (head_shard, {}),
+                 "cut-short shard": (cut_short, {}), "per-test gallery replay crash": (gallery, {}),
+                 "by-name comparison": (by_name, {}), "tip suite dispatches": (tip_suite, {}),
+                 "green parent job, update-branch (refused before the per-step reading)": (
+                     green_parent, {"purpose": "update-branch"}),
+                 "jobless status": (status, {"runs": [], "checks": [STATUS_CONTEXT]}),
+                 "compile status, receipts down": (compile_receipts_down,
+                                                   {"runs": [], "checks": [excuse.COMPILE_PASS_STATUS]}),
+                 "compile status, receipts up": (compile_receipts_down,
+                                                 {"runs": [], "checks": [excuse.COMPILE_PASS_STATUS], "receipts": up}),
+                 "ws-check status": (ws_check, {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                "base": "lane/ws-parent"}),
+                 "ws-check, parent green": (ws_check_parent_green, {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                                    "base": "lane/ws-parent"}),
+                 "ws-check, parent red another way": (ws_check_parent_red_another_way,
+                                                      {"runs": [], "repo": "teamleaderleo/leo-workspace",
+                                                       "base": "lane/ws-parent"})}
+        for path, (make, kwargs) in paths.items():
+            receipts = kwargs.pop("receipts", down)
+            with self.subTest(path), unittest.mock.patch.object(excuse, "compile_receipt", receipts):
+                gh = make()
+                receipt_reads.clear()
+                runs = kwargs.pop("runs", [10])
+                repo, base = kwargs.pop("repo", REPO), kwargs.pop("base", CMUX_LANE)
+                try:
+                    excuse.judge(repo, base, HEAD, runs, gh, **kwargs)
+                except excuse.Refused:
+                    pass
+                handed = {HEAD, getattr(gh, "parent_head", None), getattr(gh, "TIP", None)}
+                gh.sources += [("parent" if sha in handed else "unhanded sha", f"compile receipt {sha}")
+                               for sha in receipt_reads if sha != HEAD]
+                self.assert_parent_alone(gh)
+
+
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
@@ -3790,6 +4173,8 @@ if args[:2] == ["api", "graphql"]:
     blob = None
     if os.path.isfile(found):
         blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    elif os.path.isdir(found):
+        blob = {}  # a commit (a ref GitHub resolves) or a tree: none of the Blob fields
     print(json.dumps({"data": {"repository": {"object": blob}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
@@ -3955,6 +4340,34 @@ class SourceReads(unittest.TestCase):
         self.assertIn("'Skill test scope'", lines)
         self.assertEqual(gh.source_routes, [])
         self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def test_only_a_definite_graphql_absence_reads_as_no_file(self):
+        # Review of #37645 at 26bbaceb, F1: a file is absent only when GitHub resolves the ref and names nothing at
+        # the path; a ref it does not resolve, or a file it will not serve as text, is unread and refuses.
+        github = excuse.GitHub()
+        self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", github))
+        self.assertEqual(excuse.source_text_if_present(HQ, "main", ".github/workflows/skills-tests.yml", github),
+                         SKILLS_YML)
+        with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+            excuse.source_text_if_present(HQ, "gone", "no/such/file.json", github)
+        (self.tree / HQ / "main/dir.json").mkdir()
+        with self.assertRaisesRegex(excuse.Refused, "not a text file"):
+            excuse.source_text_if_present(HQ, "main", "dir.json", github)
+        with unittest.mock.patch.object(excuse.GitHub, "run", side_effect=excuse.Refused("HTTP 502")):
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 502"):
+                excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub())
+
+    def test_git_answers_a_definite_absence_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub()))
+        self.assertEqual(self.calls(), [])
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+                excuse.source_text_if_present(HQ, "gone", "no/such/file.json", excuse.GitHub())
 
     def git(self, *args, cwd=None):
         return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -5857,6 +6270,49 @@ class LostRunnerIsInfra(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
 
+class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
+    """A pull-request-only check (language-boundaries) has no base run. Its red that only asks for a re-run (cmux#41500
+    at d059d7bd, job 130862862041: the PR-files listing rate-limited, the merge-ref fallback unusable) is Infra, a
+    refusal naming the re-run; any other red of it keeps the "no base run" refusal."""
+
+    NAME = "language-boundaries"
+    STEP = "Check the changed files against the language boundaries"
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        del github.jobs[2]  # no base run has the job: it runs on pull requests only
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_red_that_only_asks_for_a_re_run_is_infra(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*re-run this check.*needs a re-run"):
+            self.judge("gh: API rate limit exceeded for installation. (HTTP 403)",
+                       "##[warning]The REST file listing failed; reading the changed files from refs/pull/41500/merge.",
+                       "##[error]Could not list the changed files; re-run this check.",
+                       "##[error]Process completed with exit code 1.")
+
+    def test_a_red_with_a_verdict_beside_the_ask_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]Could not list the changed files; re-run this check.",
+                       "##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_a_real_boundary_red_keeps_the_no_base_refusal(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_only_the_ask_line_matches(self):
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not read the reviews; re-run this check."))
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not list the changed paths; re-run this check"))
+        self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
+
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""
@@ -6654,8 +7110,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 "##[error]Process completed with exit code 1.")])
 
     class GitHub(FakeGitHub):
-        """Also answers the published base pin rule's reads: Package.swift at the head (blob), where the pinned source
-        sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
+        """Also answers the published base pin rule's reads: app-ffi-pin.json and Package.swift at the head (blob),
+        where the pinned source sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
 
         def __init__(self, case):
             super().__init__()
@@ -6663,11 +7119,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
         def blob(self, repo, ref, path):
             self.case.assertEqual((repo, ref), (REPO, HEAD))
-            self.case.assertIn(path, (excuse.FFI_PIN_MANIFEST, excuse.FFI_PIN_FILE))
+            self.case.assertIn(path, (excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST))
             text = self.case.pin_file if path == excuse.FFI_PIN_FILE else self.case.manifest
             if text is None:
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
             return text
+
+        def blob_if_present(self, repo, ref, path):
+            # pin_file None: GitHub definitely serves no file there. pin_unread: the read failed (no answer at all).
+            if self.case.pin_unread:
+                raise excuse.Refused(f"{repo}@{ref}: GitHub did not serve {ref}:{path}")
+            if path == excuse.FFI_PIN_FILE and self.case.pin_file is None:
+                return None
+            return self.blob(repo, ref, path)
 
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
@@ -6694,6 +7158,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # The published base pin rule's inputs, by default all of it but the compile pass.
         self.pin_at_head(self.STEP_B_PIN)
         self.compare, self.statuses = "behind", []
+        self.pin_unread = False
         self.releases: list[str] = []
         self.sums = None  # SHA256SUMS: by default the pinned checksum's archive entry
         published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
@@ -6708,27 +7173,23 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     CHECKSUM = "2" * 64
 
     @staticmethod
-    def target(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
-        return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-                f"    url: \"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
-                "CCmuxAppFFI.xcframework.zip\",\n"
-                f"    checksum: \"{checksum}\"\n)\n")
+    def pin_json(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
+        return json.dumps({"url": f"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                                  "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
+
+    # Package.swift as the head has it: the one fixed loader block (app_ffi_pin.loader, its checksum line the pin
+    # file's) and the fixed reference shapes.
+    MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+                "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
+                + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
+                '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
+                "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n"
+                '            linkerSettings: [.linkedFramework("CoreFoundation")]\n')
 
     def pin_at_head(self, sha, repo=REPO):
         self.pinned, self.source = sha, sha
-        self.manifest = ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
-                         + self.target(sha, repo))
-        self.pin_file = None  # the template form: the head has no app-ffi-pin.json
-
-    # cmux#37645's form: app-ffi-pin.json, and Package.swift holding only its loader block (app_ffi_pin.loader).
-    JSON_MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
-                     "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
-                     + "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
-
-    def json_pin_at_head(self, sha, checksum=CHECKSUM, manifest=None):
-        self.pinned, self.source = sha, sha
-        self.pin_file = excuse.app_ffi_pin.render_pin_file(sha, checksum)
-        self.manifest = self.JSON_MANIFEST if manifest is None else manifest
+        self.pin_file = self.pin_json(sha, repo)
+        self.manifest = self.MANIFEST
 
     def release_file(self, repo, tag, name):
         self.releases.append(tag)
@@ -6757,8 +7218,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         self.assertEqual(self.judge(), [
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
-            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
-            "step-A Rust change, pinned by the release its merge publishes"])
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, "
+            "Packages/macOS/CmuxNext/Package.swift or other Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes"])
         self.assertEqual(len(self.graphql), 1)
 
     def duplicate_rollup(self):
@@ -6799,8 +7261,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         self.assertEqual(self.judge(), [
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
-            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
-            "step-A Rust change, pinned by the release its merge publishes"])
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, "
+            "Packages/macOS/CmuxNext/Package.swift or other Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes"])
 
     def test_an_unplaced_pin_red_no_rule_covers_is_refused(self):
         self.gh.logs = {1: self.unplaced_pin_log(), 2: ""}
@@ -6828,6 +7291,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.gh.logs[1] = self.unplaced_pin_log(shared, "##[error]red check: Localization")
         with self.assertRaisesRegex(excuse.Refused, "more on this head: .*red check: Localization"):
             self.judge()
+
+    GENERATED = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
+    LINT = "Package conventions lint"
+
+    def placed_warn_only(self, listed=("Package conventions lint",)):
+        """cmux#40449 at d375f032 (job 130887709749), placed: the pin red, a continue-on-error style guard that printed
+        its own `##[error]` line, and the rollup listing LISTED as warn-only with the pin its one red check."""
+        steps = [(self.PIN, "success", 10, 11), (self.LINT, "success", 12, 13), (self.ROLLUP, "failure", 14, 15)]
+        lines = [(self.PIN, 10, "##[group]Run scripts/cmux-next/check-app-ffi-pin.sh"),
+                 (self.PIN, 10.4, f"error: the app FFI sources changed since the pinned source {self.PINNED}:"),
+                 (self.PIN, 10.6, EXIT),
+                 (self.LINT, 12, "##[group]Run scripts/ci/run-checks-concurrently.sh --wait x package-conventions"),
+                 (self.LINT, 12.3, "FAIL: convention violations found (ERROR lines above)."),
+                 (self.LINT, 12.4, "1 checks, 16 at a time: 0 passed, 1 failed"),
+                 (self.LINT, 12.5, "##[error]./scripts/lint-ios-package-conventions.sh"),
+                 (self.LINT, 12.6, EXIT),
+                 (self.ROLLUP, 14, "##[group]Run failed=()"), (self.ROLLUP, 14.1, "##[endgroup]")]
+        if listed:
+            lines += [(self.ROLLUP, 14.2, f"##[warning]{self.LINT} found issues; see that step's log"),
+                      (self.ROLLUP, 14.3, f"### {len(listed)} style guard(s) reported findings (warn-only)"),
+                      (self.ROLLUP, 14.4, "")]
+            lines += [(self.ROLLUP, 14.5, f"- {name}") for name in listed]
+            lines += [(self.ROLLUP, 14.6, "")]
+        lines += [(self.ROLLUP, 14.7, f"##[error]red check: {self.PIN}"), (self.ROLLUP, 14.8, EXIT)]
+        self.gh.jobs[1] = dict(self.gh.jobs[1], steps=framed_steps(steps))
+        self.gh.logs[1] = framed_log(lines, job_name=self.JOB)
+        self.assertIsNot(excuse.failed_view(copy.deepcopy(self.gh.jobs[1]), self.gh.logs[1], base=False, **UNKNOWN),
+                         excuse.UNPLACED)
+
+    def test_40449_generated_data_swift_and_a_warn_only_guard_leave_a_step_a_pin_excused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+
+    def test_a_guard_the_rollup_does_not_list_as_warn_only_still_sets_the_pin_aside(self):
+        self.pr_files(*self.RUST)
+        for listed in ((), (self.PIN,), ("Some other guard",)):
+            with self.subTest(listed=listed):
+                self.placed_warn_only(listed)
+                with self.assertRaises(excuse.Refused) as raised:
+                    self.judge()
+                self.assertNotIn("excused", str(raised.exception))
+
+    def test_hand_written_swift_beside_the_generated_file_is_still_refused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppActions.swift")
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*AppActions.swift\)"):
+            self.judge()
+
+    def test_data_only_swift_is_a_named_list_of_generated_files(self):
+        for path in excuse.FFI_PIN_DATA_SWIFT:
+            self.assertTrue(path.endswith(".generated.swift"), path)
+            text = (ROOT / path).read_text()
+            self.assertTrue(text.startswith("// GENERATED by "), path)
+            self.assertNotRegex(text, r"\bfunc\b|\bimport\b|\bvar\b|\binit\(|\{\s*\$|\bCCmuxAppFFI\b", path)
 
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
         # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
@@ -6868,6 +7388,13 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             with self.assertRaisesRegex(excuse.Refused, "changes the app FFI pin check's code", msg=path):
                 self.judge()
 
+    def test_a_change_that_moves_the_pin_is_refused(self):
+        for moved in ("Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"):
+            with self.subTest(moved=moved):
+                self.pr_files(*self.RUST, moved)
+                with self.assertRaisesRegex(excuse.Refused, f"changes {re.escape(moved)}: a PR that moves the pin"):
+                    self.judge()
+
     # cmux#37869's real file set (a new FFI crate): the release workflow's push paths, the router, the licence list and
     # the FFI build script change with every new crate, and none of them decides the pin check's verdict (review of
     # cmux#39471: a broad list refused every recent step-A PR).
@@ -6904,7 +7431,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
     # app compile passed at its head against that pin.
-    STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
+    STEP_B = ("Packages/macOS/CmuxNext/app-ffi-pin.json",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
 
     def unplaced_rollup_head(self):
@@ -6937,6 +7464,16 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 self.reads[("git show", path)] += 1
                 text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
                 answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
+            elif "ls-tree" in argv:
+                # The definite-absence read (git_text's MISSING): the tree names the path only when the head has it.
+                # pin_unread: git cannot list the tree either, so the read falls through to GitHub.
+                path = argv[-1]
+                self.reads[("git ls-tree", path)] += 1
+                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                if self.pin_unread:
+                    answer.returncode = 128
+                elif text is not None:
+                    answer.stdout = path.encode() + b"\n"
             return answer
         cache = tempfile.TemporaryDirectory(prefix="bre-git-")
         self.addCleanup(cache.cleanup)
@@ -7056,14 +7593,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"] * 2)
 
     def test_a_re_pin_alone_on_the_base_that_compiled_is_excused(self):
-        # cmux#37353: the re-pin bot's Package.swift-only PR, a few FFI commits behind the base tip.
-        self.pr_files("Packages/macOS/CmuxNext/Package.swift")
+        # cmux#37353: the re-pin bot's pin-only PR, a few FFI commits behind the base tip.
+        self.pr_files("Packages/macOS/CmuxNext/app-ffi-pin.json")
         self.compiled()
         self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
 
+    def json_pin_at_head(self, sha, checksum=CHECKSUM, manifest=None):
+        # The JSON form with a chosen checksum or Package.swift (pin_at_head: the default head).
+        self.pin_at_head(sha)
+        self.pin_file = excuse.app_ffi_pin.render(sha, checksum)
+        self.manifest = self.MANIFEST if manifest is None else manifest
+
     def test_a_json_pin_on_the_base_that_compiled_is_excused(self):
-        # cmux#37645 moves the pin to app-ffi-pin.json; this classifier runs from the base, so it reads that form
-        # before the PR lands. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
+        # cmux#37645 moved the pin to app-ffi-pin.json; the classifier reads that form. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
         self.json_pin_at_head(self.STEP_B_PIN)
         self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST)
         self.compiled()
@@ -7087,17 +7629,17 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
         loader = excuse.app_ffi_pin.LOADER
         for pin_file, manifest, why in (
-                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace(", ", ",  "), None,
+                (excuse.app_ffi_pin.render(self.STEP_B_PIN, self.CHECKSUM).replace(", ", ",  "), None,
                  "is not in its one format"),
-                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace("manaflow-ai/", "x/"),
+                (excuse.app_ffi_pin.render(self.STEP_B_PIN, self.CHECKSUM).replace("manaflow-ai/", "x/"),
                  None, "url is not"),
-                (None, self.JSON_MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"),
+                (None, self.MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"),
                  "is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"),
-                (None, self.JSON_MANIFEST.replace(line, ""), "lines, not one"),
-                (None, self.JSON_MANIFEST.replace(loader, loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,")),
+                (None, self.MANIFEST.replace(line, ""), "lines, not one"),
+                (None, self.MANIFEST.replace(loader, loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,")),
                  "does not hold the one fixed"),
-                (None, self.JSON_MANIFEST + self.target(self.STEP_B_PIN), "has 'releases/download/'"),
-                (None, self.JSON_MANIFEST + "enum Foundation { }\n", "names a pin loader symbol outside the loader")):
+                (None, self.MANIFEST + self.template_manifest(self.STEP_B_PIN), "has 'releases/download/'"),
+                (None, self.MANIFEST + "enum Foundation { }\n", "names a pin loader symbol outside the loader")):
             with self.subTest(why=why):
                 self.setUp()
                 self.json_pin_at_head(self.STEP_B_PIN, manifest=manifest)
@@ -7111,7 +7653,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     def test_a_template_manifest_beside_a_pin_file_is_refused(self):
         # A head with app-ffi-pin.json is read in the JSON form only: its Package.swift's own pin does not count.
-        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.manifest)
+        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.template_manifest(self.STEP_B_PIN))
         self.pr_files(excuse.FFI_PIN_FILE)
         self.compiled()
         with self.assertRaisesRegex(excuse.Refused, "has 'releases/download/'|lines, not one"):
@@ -7122,9 +7664,64 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.compiled()
         self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
 
+    # A head that predates app-ffi-pin.json (review of 6bc829a2): its Package.swift's template-form canonical block is
+    # still read, so an open PR in that form is judged as before the pin moved to data.
+    @staticmethod
+    def template_manifest(sha, repo=REPO, checksum=CHECKSUM):
+        return ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
+                "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                f"    url: \"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                "CCmuxAppFFI.xcframework.zip\",\n"
+                f"    checksum: \"{checksum}\"\n)\n"
+                "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+
+    def template_at_head(self, sha, manifest=None):
+        self.pinned, self.source = sha, sha
+        self.pin_file = None  # GitHub serves no app-ffi-pin.json at this head
+        self.manifest = self.template_manifest(sha) if manifest is None else manifest
+
+    def test_a_template_form_head_that_compiled_against_a_base_pin_is_excused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc",
+                      self.judge()[0])
+        self.assertEqual(excuse.ffi_binary_target(None, self.manifest, REPO), (self.STEP_B_PIN, self.CHECKSUM, ""))
+
+    def test_a_template_form_head_off_its_canonical_block_is_refused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        for manifest, why in (
+                (self.manifest.replace("    name:", "  name:"), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + "/* x */\n", "has '/\\*'"),
+                (self.manifest.replace("checksum: ", "checksum:  "), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + 'let b: Target = .binaryTarget(name: "X", path: "x")\n', "has 2 'binaryTarget'")):
+            with self.subTest(why=why):
+                self.refused_unread(why, manifest=manifest)
+                self.pin_file = None
+
+    def test_a_head_with_no_pin_file_but_the_loader_is_refused(self):
+        # The JSON-era Package.swift without its pin file reads in the template form, which refuses it: never looser.
+        self.pin_file = None
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 0 'releases/download/', not one"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
+    def test_an_unread_pin_file_is_refused_not_read_as_the_template_form(self):
+        # Review of 26bbaceb, F1: only a definite absence reads the head in the template form. A failed read refuses,
+        # even when the head's Package.swift is a template-form pin that would be excused.
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.pin_unread = True
+        with self.assertRaisesRegex(excuse.Refused, "GitHub did not serve"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
     def test_a_step_b_pin_with_no_compile_pass_is_refused_naming_it(self):
         self.pr_files(*self.STEP_B)
-        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift: a PR that moves "
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/app-ffi-pin.json: a PR that moves "
                                     "the pin must pin a release built from its own sources; nor is its pin a "
                                     f"published base release it compiled against: no app compile check passed at "
                                     f"{HEAD}"):
@@ -7215,7 +7812,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.STEP_B)
         self.compiled()
         self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
-        with self.assertRaisesRegex(excuse.Refused, "is not the canonical CCmuxAppFFI pin line"):
+        with self.assertRaisesRegex(excuse.Refused, "url is not manaflow-ai/cmux's own cmux-app-ffi-<40 hex> release"):
             self.judge()
         self.assertEqual(self.releases, [])
 
@@ -7296,90 +7893,138 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # The token goes to api.github.com only, and never on to the asset's storage redirect (unredirected).
         self.assertEqual(asked, [(download, 30, None), (listing, 30, "Bearer t0ken"), (asset, 30, "Bearer t0ken")])
 
-    # The pin is app_ffi_pin.py's canonical block (2026-11-07, after five lexer holes): raw text, nothing skipped. Each
-    # attack the lexer once missed now refuses on a forbidden construct, a count, or a line off the template, and no
-    # release is read for it.
+    # The pin is app-ffi-pin.json, read strictly, and Package.swift holds only the fixed loader block (2026-11-07,
+    # Leo: "why were you writing a Swift parser in regex in the first place"). Each shape off the contract refuses,
+    # and no release is read for it.
     DIVERGED = "d" * 40
-    NOT_CANONICAL = "is not the canonical CCmuxAppFFI pin line"
 
-    def refused_with(self, manifest, pattern):
+    def refused_with(self, pattern, pin_file=None, manifest=None):
         self.pr_files(*self.STEP_B)
         self.compiled()
-        self.manifest = manifest
+        if pin_file is not None:
+            self.pin_file = pin_file
+        if manifest is not None:
+            self.manifest = manifest
         with self.assertRaisesRegex(excuse.Refused, pattern):
             self.judge()
 
-    def refused_unread(self, manifest, pattern):
-        self.refused_with(manifest, pattern)
+    def refused_unread(self, pattern, pin_file=None, manifest=None):
+        self.refused_with(pattern, pin_file, manifest)
         self.assertEqual(self.releases, [])
 
-    def inline(self, sha):
-        return self.target(sha).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
+    def test_a_pin_file_off_its_one_format_is_refused(self):
+        good = self.pin_json(self.STEP_B_PIN)
+        url = json.loads(good)["url"]
+        for text, why in (
+                (json.dumps({"url": url, "checksum": self.CHECKSUM, "extra": 1}) + "\n", "must be exactly"),
+                (json.dumps({"checksum": self.CHECKSUM, "url": url}) + "\n", "must be exactly"),
+                ('{"url": "%s", "url": "%s", "checksum": "%s"}\n' % (url, url, self.CHECKSUM), "repeats a key"),
+                (json.dumps({"url": url, "checksum": self.CHECKSUM}, indent=2) + "\n", "is not in its one format"),
+                (good.rstrip("\n"), "is not in its one format"),
+                (good + "\n", "is not in its one format"),
+                ("[" + good.strip() + "]\n", "must be exactly"),
+                ("not json\n", "is not JSON"),
+                (self.pin_json(self.STEP_B_PIN, checksum="A" * 64), "checksum is not 64 lowercase hex"),
+                (self.pin_json(self.STEP_B_PIN, checksum="2" * 63), "checksum is not 64 lowercase hex"),
+                (self.pin_json(self.STEP_B_PIN, host="github.com.evil.example"), "url is not"),
+                (self.pin_json(self.STEP_B_PIN[:39]), "url is not"),
+                (good.replace("CCmuxAppFFI.xcframework.zip", "Other.zip"), "url is not")):
+            with self.subTest(text=text[:60]):
+                self.refused_unread(why, pin_file=text)
 
-    def test_a_published_target_in_a_comment_beside_a_diverged_one_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        self.refused_unread("".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED),
-                            "has 2 'binaryTarget', not one")
-        self.refused_unread("/* an old pin:\n" + published + "*/\n" + self.target(self.DIVERGED),
-                            "line 1 has '/\\*'")
+    def test_a_missing_pin_file_or_manifest_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        # A missing pin file reads the head in the template form, which refuses this loader-only Package.swift; a
+        # missing Package.swift is no answer at all.
+        for name, why in (("pin_file", "Package.swift has 0 'releases/download/', not one"),
+                          ("manifest", "is not a text file GitHub served")):
+            with self.subTest(missing=name):
+                self.pin_at_head(self.STEP_B_PIN)
+                setattr(self, name, None)
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    self.judge()
+        self.assertEqual(self.releases, [])
 
-    def test_a_pin_in_any_string_or_regex_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        for opening, closing, token in (('"""\n', '"""', '\'"""\''), ('#"', '"#', "'#\"'"), ("#/", "/#", "'#/'"),
-                                        ("#" * 64 + '"', '"' + "#" * 64, "'#\"'"),
-                                        ("#" * 200 + '"x"' + "#" * 63 + "\n", '"' + "#" * 200, "'#\"'")):
-            with self.subTest(opening=opening[:8]):
-                self.refused_unread(f"let s = {opening}{published}{closing}\nlet ffiName = \"CCmuxAppFFI\"\n"
-                                    + self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                                    f"has {re.escape(token)}, which no canonical pin file has")
+    def test_a_manifest_with_a_pin_of_its_own_is_refused(self):
+        literal = ('let other: Target = .binaryTarget(\n    name: "CCmuxAppFFI",\n    url: "https://github.com/'
+                   f'{REPO}/releases/download/cmux-app-ffi-{self.DIVERGED}/CCmuxAppFFI.xcframework.zip",\n'
+                   f'    checksum: "{self.CHECKSUM}"\n)\n')
+        self.refused_unread("has 'releases/download/': the pin lives in", manifest=self.MANIFEST + literal)
+        loader = excuse.app_ffi_pin.LOADER
+        old = loader.replace("url: appFFIPin.url,", f'url: "https://example.com/cmux-app-ffi-{self.DIVERGED}",')
+        self.refused_unread("has 'cmux-app-ffi-'", manifest=self.MANIFEST.replace(loader, old))
 
-    def test_an_interpolation_or_conditional_compilation_is_refused(self):
-        self.refused_unread(f'let s = "\\(Target.self/* ) " */{self.inline(self.STEP_B_PIN)})"\n',
-                            "has '/\\*'")
-        self.refused_unread(f'let s = "\\(Target.self{self.inline(self.STEP_B_PIN)})"\n',
-                            "line 1 is not the canonical CCmuxAppFFI pin line")
-        self.refused_unread("#if false\n" + self.target(self.STEP_B_PIN) + "#endif\n" + self.target(self.DIVERGED),
-                            "has '#if'")
+    def test_a_changed_or_missing_loader_is_refused(self):
+        loader = excuse.app_ffi_pin.LOADER
+        for changed in (loader.replace('"app-ffi-pin.json"', '"other-pin.json"'),
+                        loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,"),
+                        loader.replace("    name:", "  name:"),
+                        loader.replace("fatalError", "print"),
+                        ""):
+            with self.subTest(changed=changed[:40]):
+                self.refused_unread("does not hold the one fixed .* loader block exactly once",
+                                    manifest=self.MANIFEST.replace(loader, changed))
+        self.refused_unread("has 2 'binaryTarget'", manifest=self.MANIFEST + loader)
+        self.refused_unread("lines, not one", manifest=self.MANIFEST + excuse.app_ffi_pin.loader(self.CHECKSUM))
 
-    def test_a_target_off_the_template_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
-               "CCmuxAppFFI.xcframework.zip")
-        for manifest in (
-                published.replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                published.replace('name: "CCmuxAppFFI"', 'name: "CCmux" + "AppFFI"'),
-                published.replace('name: "CCmuxAppFFI"', 'name: "\\(prefix)AppFFI"'),
-                published.replace('url: "https', 'url: "" + "https'),
-                published.replace("    checksum:", '    path: "x",\n    checksum:'),
-                published.replace("    name:", "  name:"),
-                published.replace("let appFFI: Target = ", "let other: Target = "),
-                f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n',
-                self.target(self.STEP_B_PIN, host="github.com.evil.example"),
-                self.target(self.STEP_B_PIN, repo="someone/cmux")):
-            with self.subTest(manifest=manifest[:90]):
-                self.refused_unread(manifest, self.NOT_CANONICAL)
+    def test_a_checksum_line_that_is_not_the_pin_files_is_refused(self):
+        # SwiftPM caches an evaluated manifest by Package.swift's text: a pin file moved without the manifest's
+        # checksum line would leave a reused package path on the old pin, so the two must agree.
+        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            manifest=self.MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"))
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            pin_file=self.pin_json(self.STEP_B_PIN, checksum="4" * 64), manifest=self.MANIFEST)
+        for changed in ("", f"    // app-ffi-pin-checksum: {self.CHECKSUM}\n", f"// app-ffi-pin-checksum: {self.CHECKSUM} \n",
+                        f"// app-ffi-pin-checksum: {self.CHECKSUM[:63]}\n"):
+            with self.subTest(changed=changed):
+                self.refused_unread("app-ffi-pin-checksum", pin_file=self.pin_json(self.STEP_B_PIN),
+                                    manifest=self.MANIFEST.replace(line, changed))
+        self.refused_unread("has 2 'app-ffi-pin-checksum'", pin_file=self.pin_json(self.STEP_B_PIN),
+                            manifest=self.MANIFEST + "// see app-ffi-pin-checksum above\n")
 
-    def test_a_second_target_or_declaration_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        self.refused_unread(published + published.replace("let appFFI", "let b"), "has 2 'binaryTarget', not one")
-        self.refused_unread("let x = 1\n", "has 0 'binaryTarget', not one")
-        self.refused_unread(published + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
-                            "line 6 names CCmuxAppFFI or appFFI outside the canonical pin")
-        self.refused_unread(published + "let f = [appFFI].first!\n", "names CCmuxAppFFI or appFFI outside")
+    def test_the_rewrite_moves_the_pin_file_and_only_the_checksum_line(self):
+        pin, manifest = excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN), self.MANIFEST, "5" * 40, "6" * 64)
+        self.assertEqual(pin, self.pin_json("5" * 40, checksum="6" * 64))
+        changed = [(a, b) for a, b in zip(self.MANIFEST.split("\n"), manifest.split("\n")) if a != b]
+        self.assertEqual(changed, [(f"// app-ffi-pin-checksum: {self.CHECKSUM}", f"// app-ffi-pin-checksum: {'6' * 64}")])
+        self.assertEqual(excuse.ffi_binary_target(pin, manifest, REPO), ("5" * 40, "6" * 64, ""))
+        with self.assertRaisesRegex(excuse.app_ffi_pin.NotCanonical, "is not .*app-ffi-pin.json's checksum"):
+            excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN, checksum="7" * 64), self.MANIFEST, "5" * 40,
+                                       "6" * 64)
+        self.refused_unread("no 'import Foundation' line", manifest=self.MANIFEST.replace("import Foundation\n", ""))
+
+    def test_hiding_constructs_and_a_second_target_are_refused(self):
+        self.refused_unread("has '#if'", manifest=self.MANIFEST + "#if false\nlet x = 1\n#endif\n")
+        # It would point the loader's #filePath at an unchecked pin file (review of 0505923b, F1).
+        self.refused_unread("has '#sourceLocation'",
+                            manifest='#sourceLocation(file: "/tmp/x/Package.swift", line: 1)\n' + self.MANIFEST)
+        self.refused_unread("has '/\\*'", manifest=self.MANIFEST + "/* x */\n")
+        self.refused_unread("has '#\"'", manifest=self.MANIFEST + 'let s = #"x"#\n')
+        self.refused_unread("has 2 'binaryTarget'",
+                            manifest=self.MANIFEST + 'let b: Target = .binaryTarget(name: "X", path: "x")\n')
+        self.refused_unread("has 2 'JSONDecoder'", manifest=self.MANIFEST + "struct JSONDecoder { }\n")
+
+    def test_a_loader_symbol_used_outside_the_loader_is_refused(self):
+        for line in ("extension AppFFIPin { var other: String { url } }",
+                     "let pinned = appFFIPin",
+                     "enum Foundation { }",
+                     '        .target(name: "CCmuxAppFFI", path: "Shim"),',
+                     "let f = [appFFI].first!"):
+            with self.subTest(line=line):
+                self.refused_unread("names a pin loader symbol outside the loader",
+                                    manifest=self.MANIFEST + line + "\n")
 
     def test_the_fixed_reference_shapes_pass(self):
         self.pr_files(*self.STEP_B)
         self.compiled()
-        self.manifest = ("// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + self.target(self.STEP_B_PIN)
-                         + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
-                         '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
-                         "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n")
         self.assertEqual(len(self.judge()), 1)
 
     def test_a_checksum_that_is_not_the_releases_archive_entry_is_refused(self):
         self.sums = f"{'3' * 64}  CCmuxAppFFI.xcframework.zip\n{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip.sha256\n"
-        self.refused_with(self.manifest, "the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
-                                         "bfcbb8eb1637e48's SHA256SUMS entry")
+        self.refused_with("the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
+                          "bfcbb8eb1637e48's SHA256SUMS entry")
 
     def test_a_published_pin_beside_another_red_is_judged_as_before_and_an_unpublished_one_refused(self):
         # Review of 6e7159aa (F1): beside another red, a published base pin leaves the job to the base comparison
@@ -7394,14 +8039,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "nor is its pin a published base release"):
             self.judge()
 
-    def test_the_real_manifest_reads_its_one_pin(self):
-        # This checkout's Package.swift (the base it branched from) is canonical.
-        text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
-        pin, checksum, why = excuse.ffi_binary_target(text, REPO)
+    def test_the_real_pin_file_and_manifest_read_their_one_pin(self):
+        # This checkout's app-ffi-pin.json and Package.swift (the base it branched from) are canonical.
+        pin_file = (ROOT / excuse.FFI_PIN_FILE).read_text(encoding="utf-8")
+        manifest = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
+        pin, checksum, why = excuse.ffi_binary_target(pin_file, manifest, REPO)
         self.assertEqual(why, "")
         self.assertRegex(pin, r"^[0-9a-f]{40}$")
-        self.assertIn(f"cmux-app-ffi-{pin}/CCmuxAppFFI.xcframework.zip", text)
-        self.assertIn(f'checksum: "{checksum}"', text)
+        self.assertEqual(pin_file, excuse.app_ffi_pin.render(pin, checksum))
+        self.assertNotIn(pin, manifest)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
@@ -7453,8 +8099,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.assertNotIn("app FFI sources changed since the pinned source:", line.split("; set aside")[0])
         self.assertTrue(line.endswith(
             f"; set aside '{self.PIN}' (\"error: the app FFI sources changed since the pinned source\"): #37292 "
-            "changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a step-A Rust change, "
-            "pinned by the release its merge publishes"), line)
+            "changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, Packages/macOS/CmuxNext/Package.swift "
+            "or other Swift: a step-A Rust change, pinned by the release its merge publishes"), line)
 
     def test_a_covered_pin_beside_a_red_the_base_lacks_is_refused(self):
         self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
@@ -9218,6 +9864,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
+    "asks_only_rerun", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
@@ -9926,9 +10573,9 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
                 "    head_crash = {status for _, _, status in step_owners(head_view.job, '', step_names=None)}"),
                 None, "compare_window: calls step_owners"),
             "judge reads a log": (mutated(
-                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)",
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, evidence)",
                 "        head_log = github.log(repo, job)\n"
-                "        got = read_head(repo, base, sha, name, job, github, run_reads, base_runs)"),
+                "        got = read_head(repo, base, sha, name, job, github, run_reads, evidence)"),
                 None, "judge: reads a raw log"),
             "a new unlisted reader": (self.SOURCE + "\n\ndef new_errors(job, head_log):\n    return head_log\n",
                                       None, "new_errors: takes a raw log"),
@@ -11121,8 +11768,9 @@ class RollupJobReadsItsNamedReds(unittest.TestCase):
     FIXTURES = ROOT / "tests/fixtures/test_reds"
     LOG = (FIXTURES / "cmux-40552-checks-job-130212680188.log").read_text(encoding="utf-8").replace("﻿", "")
     EXCUSED = (f"excused '{JOB}': only '{PIN}' is red (\"error: the app FFI sources changed since the pinned "
-               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: "
-               "a step-A Rust change, pinned by the release its merge publishes")
+               "source\"), and #40552 changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, "
+               "Packages/macOS/CmuxNext/Package.swift or other Swift: a step-A Rust change, pinned by the release its "
+               "merge publishes")
     RUST = ("cmux-tui/crates/cmux-cloud-machine/src/refusals.rs", "cmux-tui/crates/cmux-cloud-start-core/src/moves/cli.rs")
 
     def setUp(self):
@@ -11852,6 +12500,9 @@ SCANNERS = {
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
     "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
     "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
+    "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
+    "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
@@ -12052,40 +12703,57 @@ def module_patterns():
                         yield f"{short}.{key}[{index}]", item
 
 
+def pattern_pin(rx):
+    """The first 12 hex digits of sha256 over RX's flags and source. One pin is one regex, so one cost on one engine:
+    whether a pinned KNOWN_SUPERLINEAR entry is still super-linear needs no clock."""
+    import hashlib
+    return hashlib.sha256(f"{rx.flags}\0{rx.pattern}".encode()).hexdigest()[:12]
+
+
 # Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
-# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
-# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+# F1's class): each reads to the line's end from every opener on it. Each is pinned (pattern_pin) at the regex that was
+# measured. A ratchet both ways, and the shrink way is never a timing verdict (cmux run 43087045630 failed a PR on
+# one fast look at STARTED): a new super-linear pattern fails the sweep, measured as assert_scales measures; a known one
+# stays known with no measurement while its regex is its pin; an edited one (or one gone) fails until it leaves this
+# list (linear now) or takes its new pin (still super-linear). The follow-up that makes them linear is cmux#41374.
 KNOWN_SUPERLINEAR = {
-    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
-    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
-    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
-    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
-    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
-    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
-    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
-    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
-    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
-    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+    "base_red_excuse.TEST_RUN_SUMMARY": ("b9ab98f93034", "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.BUN_ABSOLUTE": ("7f337d818ed0", "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash"),
+    "test_reds.BUN_PACKAGE": ("999d94fa66c8", "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`"),
+    "test_reds.CRASH": ("064f1e415ab4", "`process didn't exit successfully: .*\\(signal: \\d+` from every opener"),
+    "test_reds.FAILED[0]": ("17ecd505c4cc", "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener"),
+    "test_reds.FAILURE_MARKERS[2]": ("2e80cc2dd812", "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.STARTED": ("57352dda5830",
+                          "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener"),
+    "test_reds.SWIFT_ISSUE_LINE": ("4c22f87ac051", "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener"),
+    "test_reds.WEB_AT": ("315348257a77", "`\\bat .*?/webviews/` from every `at `"),
+    "test_reds.XCRESULT_FAILED": ("7bfba5bbb900",
+                                  "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats"),
 }
 
 
 class PrLogPatternsScale(unittest.TestCase):
     """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
-    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
-    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
-    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
-    KNOWN_SUPERLINEAR."""
+    base_red_excuse.py and test_reds.py (module_patterns) not in KNOWN_SUPERLINEAR runs through finditer on each of its
+    openers (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is
+    measured again with assert_scales' protocol (scaling_failure), and what is super-linear there fails. A
+    KNOWN_SUPERLINEAR entry is checked against its pin, not a clock; an edited one is measured SHRINK_REPEATS times
+    only to say whether to drop it or re-pin it, and fails either way."""
     LINE = 3000
     MEASURABLE = 0.0005
     MOST = 200_000
     CEILING = 10
+    SHRINK_REPEATS = 5
 
-    def superlinear(self):
+    def quick_look(self, name, rx, openers, confirm):
+        """Why RX is super-linear on its first opener over SCALING_LIMIT, else None. CONFIRM measures that opener again
+        with scaling_failure (a new pattern); without it the quick look's ratio is the answer (an edited known one,
+        whose verdict only words the message)."""
         import gc
         import signal
         import time
 
-        def once(rx, text):
+        def once(text):
             gc.disable()
             try:
                 began = time.process_time()
@@ -12097,49 +12765,105 @@ class PrLogPatternsScale(unittest.TestCase):
         def expire(signum, frame):
             raise ScalingHang()
         previous = signal.getsignal(signal.SIGALRM)
-        found, seen = {}, 0
-        for name, rx in module_patterns():
-            for opener in regex_openers(rx.pattern, rx.flags):
-                seen += 1
-                if name in found:
-                    continue  # one opener is enough
-                count = max(1, self.LINE // len(opener))
+        for opener in openers:
+            count = max(1, self.LINE // len(opener))
 
-                def build(size, rx=rx, opener=opener):
-                    text = opener * size
-                    return lambda: [None for _ in rx.finditer(text)]
-                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
-                signal.signal(signal.SIGALRM, expire)
-                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
-                try:
-                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
-                            and 16 * count * len(opener) <= self.MOST:
-                        count *= 4
-                    large = min(once(rx, opener * 4 * count) for _ in range(2))
-                except ScalingHang:
-                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
-                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
-                    continue
-                finally:
-                    signal.setitimer(signal.ITIMER_REAL, 0)
-                    signal.signal(signal.SIGALRM, previous)
-                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
-                    continue
-                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
-                if name in KNOWN_SUPERLINEAR:
-                    found.setdefault(name, f"{large / small:.1f}x")
-                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
-                    found.setdefault(name, why)
-        return found, seen
+            def build(size, opener=opener):
+                text = opener * size
+                return lambda: [None for _ in rx.finditer(text)]
+            # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+            signal.signal(signal.SIGALRM, expire)
+            signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+            try:
+                while (small := min(once(opener * count) for _ in range(2))) < self.MEASURABLE \
+                        and 16 * count * len(opener) <= self.MOST:
+                    count *= 4
+                large = min(once(opener * 4 * count) for _ in range(2))
+            except ScalingHang:
+                return (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                        f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+            if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                continue
+            if not confirm:
+                return f"{large / small:.1f}x on {opener[:30]!r}"
+            if why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                return why
+        return None
+
+    def superlinear(self):
+        """(new, edited, seen): NEW maps each super-linear module pattern outside KNOWN_SUPERLINEAR to why; EDITED maps
+        each KNOWN_SUPERLINEAR entry whose pattern is gone or no longer its pin to what to do; SEEN counts openers."""
+        patterns = dict(module_patterns())
+        openers = {name: regex_openers(rx.pattern, rx.flags) for name, rx in patterns.items()}
+        new = {}
+        for name, rx in patterns.items():
+            if name not in KNOWN_SUPERLINEAR and (why := self.quick_look(name, rx, openers[name], confirm=True)):
+                new[name] = why
+        edited = {}
+        for name, (pin, _) in KNOWN_SUPERLINEAR.items():
+            if name not in patterns:
+                edited[name] = "no such module pattern now: drop it from KNOWN_SUPERLINEAR"
+                continue
+            if (now := pattern_pin(patterns[name])) == pin:
+                continue  # the regex that was measured super-linear: no clock can make it linear
+            for _ in range(self.SHRINK_REPEATS):
+                if why := self.quick_look(name, patterns[name], openers[name], confirm=False):
+                    edited[name] = f"edited and still super-linear ({why}): pin it at {now!r}"
+                    break
+            else:
+                edited[name] = (f"edited ({pin!r} is now {now!r}) and linear on each of {self.SHRINK_REPEATS} "
+                                "sweeps: drop it from KNOWN_SUPERLINEAR")
+        return new, edited, sum(map(len, openers.values()))
 
     def test_every_pattern_costs_linear_in_a_line(self):
-        found, seen = self.superlinear()
+        new, edited, seen = self.superlinear()
         self.assertGreater(seen, 300, "the sweep found the patterns")
-        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
         self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
                          "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
-        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
-                         "linear now: drop it from KNOWN_SUPERLINEAR")
+        self.assertEqual(edited, {}, "a KNOWN_SUPERLINEAR entry whose regex changed: drop it or re-pin it")
+
+
+class SuperlinearShrinkIsNotATimingVerdict(unittest.TestCase):
+    """cmux run 43087045630 (job 130754109413): PrLogPatternsScale failed a PR with "'test_reds.STARTED' : linear now:
+    drop it from KNOWN_SUPERLINEAR" while base passed the same step (run 43089094009): one wall-clock look on a fast
+    runner called a pattern nobody had touched linear. The shrink direction of the ratchet may never be a timing
+    verdict. The detector: a clock under which every sample is fast and equal (each look costs the same at LINE and 4
+    LINE characters, so every pattern looks linear) must leave the sweep green."""
+
+    @staticmethod
+    def fast_clock():
+        ticks = iter(range(10**9))
+        return unittest.mock.patch("time.process_time", lambda: next(ticks) * PrLogPatternsScale.MEASURABLE * 2)
+
+    def test_a_clock_where_every_sample_is_fast_never_fails_the_sweep(self):
+        with self.fast_clock():
+            PrLogPatternsScale("test_every_pattern_costs_linear_in_a_line").test_every_pattern_costs_linear_in_a_line()
+
+    def test_a_pinned_entry_is_never_timed(self):
+        looked = []
+        real = PrLogPatternsScale.quick_look
+
+        def spy(case, name, *args, **kwargs):
+            looked.append(name)
+            return real(case, name, *args, **kwargs)
+        with self.fast_clock(), unittest.mock.patch.object(PrLogPatternsScale, "quick_look", spy):
+            new, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual((new, edited), ({}, {}))
+        self.assertTrue(looked, "the sweep times the patterns outside KNOWN_SUPERLINEAR")
+        self.assertEqual(set(looked) & KNOWN_SUPERLINEAR.keys(), set(), "a pinned entry was timed")
+
+    def test_an_edited_or_gone_entry_fails_whatever_the_clock_says(self):
+        known = dict(KNOWN_SUPERLINEAR, **{"test_reds.STARTED": ("000000000000", "an older STARTED"),
+                                           "test_reds.NO_SUCH_PATTERN": ("000000000000", "a removed pattern")})
+        with self.fast_clock(), unittest.mock.patch.dict(globals(), KNOWN_SUPERLINEAR=known):
+            _, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual(edited.keys(), {"test_reds.STARTED", "test_reds.NO_SUCH_PATTERN"})
+        self.assertIn(f"linear on each of {PrLogPatternsScale.SHRINK_REPEATS} sweeps: drop it",
+                      edited["test_reds.STARTED"])
+        self.assertIn("no such module pattern now", edited["test_reds.NO_SUCH_PATTERN"])
 
 
 # cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
@@ -12427,7 +13151,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
-            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "ios-shared-packages-sync.yml", "pr-checks.yml",
+            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
             "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
     }
 
@@ -12559,8 +13283,10 @@ class ReplacedWaitingBaseRed(unittest.TestCase):
         github = self.Runs(jobs, {2: [{"annotation_level": "failure", "message": note}]})
         runs = [{"id": 20, "event": "push", "status": "completed", "conclusion": "cancelled"},
                 {"id": 19, "event": "push", "status": "completed", "conclusion": "success"}]
+        evidence = excuse.Evidence(REPO, "feat-cmux-next", github)
+        evidence.listed[7] = runs
         with unittest.mock.patch.object(excuse, "REPLACED_READS", {}):
-            found = list(excuse.base_verdicts(REPO, "feat-cmux-next", 7, self.CRASH, github, {7: runs}, {}, {}))
+            found = list(excuse.base_verdicts(REPO, 7, self.CRASH, github, evidence, {}, {}))
         return [(run["id"], job["conclusion"]) for run, job in found], github.routes
 
     def test_a_red_from_a_replaced_compile_is_passed_over(self):

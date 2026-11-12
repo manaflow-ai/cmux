@@ -33,11 +33,13 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
     /// healthy peer's info answer over its link (local ones answer in milliseconds), and bounds
     /// how long a stalled peer holds one of the four slots; nothing waits on the batch as a whole.
     /// Each use is a new value with its own outstanding reads: the bridge keeps the one it reads with.
+    // timeout: bounds how long one stalled peer holds a read slot; a healthy peer answers far sooner and nothing waits on the batch
     public static var feed: AcpmuxPendingReads { AcpmuxPendingReads(width: 4, deadline: .seconds(10)) }
     /// The dialog desk's list (`feed.list`): its whole connection lives 5 s
     /// (``AcpmuxPersonLine/open(_:deadline:)``), so one read gets 2 s and the list still answers.
     /// One per list, on that list's line: the desk closes the line once the list answers, which
     /// ends its reads, so a late answer there has no one to reach and nothing outlives the list.
+    // timeout: one read's share of the list's 5 s connection, so that the list still answers when a peer stalls
     public static var dialog: AcpmuxPendingReads { AcpmuxPendingReads(width: 4, deadline: .seconds(2)) }
 
     public init(width: Int, deadline: Duration, clock: any Clock<Duration> = ContinuousClock()) {
@@ -56,10 +58,11 @@ public nonisolated struct AcpmuxPendingReads: Sendable {
     /// peers' sessions can share a raw `sessionId` and that raw id names neither (acpmux refuses it
     /// as ambiguous); this daemon's own row by its `sessionId`, which is unique here.
     public static func sessionKey(_ row: [String: Any]) -> String? {
-        guard let id = row["sessionId"] as? String, !id.isEmpty else { return nil }
+        guard let id = row["sessionId"] as? String, !id.isEmpty else { return nil } // feed-key-allow: the one key's own read
         guard !isLocal(row) else { return id }
         if let qualified = row["qualifiedSessionId"] as? String, !qualified.isEmpty { return qualified }
-        return (row["peer"] as? String).map { "\($0)/\(id)" }
+        // An acpmux before qualifiedSessionId on peer notices (#41294): its row's id, made the same way.
+        return (row["peer"] as? String).map { "\($0)/\(id)" } // feed-key-allow: the one key's fallback
     }
 
     /// `rows` with this daemon's own sessions first, each group in its listed order.

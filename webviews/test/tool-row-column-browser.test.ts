@@ -5,10 +5,15 @@
 // verb is followed by one space, and a hook's block says "blocked by hook" with no "PreToolUse" until
 // it is opened. For Codex parity a status word and a cause line draw nothing: they stay for screen
 // readers only, out of the row's flow. All displayed content is synthetic.
+//
+// The two live cases of the mixed run test the `runs` arm of live-turn-work, not the shipped `line` arm:
+// their calls are finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { pinArms } from "./support/pinArms";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -214,6 +219,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         // only; `line` draws none (live-turn-one-line.test.ts). Pinned, so the default can move.
         if (working) await pinArms(page, { "live-turn-work": "runs" });
         const port = (vite.httpServer!.address() as { port: number }).port;
+        if (working) await pinLiveTurnRuns(page);
         await page.goto(
           `http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`,
         );

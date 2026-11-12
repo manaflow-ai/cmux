@@ -179,9 +179,13 @@ test("a completed fold keeps asks, refusals, and turn context available without 
     "backgroundTask",
     "subagents",
   ];
+  // A background command that failed stays in sight; one that finished is work (the next test).
+  const extra: Record<string, Partial<AcpmuxRow>> = {
+    backgroundTask: { backgroundTask: { toolCallId: "bg", command: "bun test", state: "failed" } },
+  };
   for (const kind of kinds) {
     const rows = completedTurn();
-    const context = row(`${kind}-context`, kind);
+    const context = row(`${kind}-context`, kind, extra[kind]);
     rows.splice(2, 0, context);
     for (const expanded of [new Set<string>(), new Set([`${WORKED}-prompt`])]) {
       const shown = turnView(rows, expanded);
@@ -191,6 +195,22 @@ test("a completed fold keeps asks, refusals, and turn context available without 
         shown.findIndex((entry) => entry.id === "final"),
       );
     }
+  }
+});
+
+// Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing works for?"
+test("a completed fold holds a background command that finished or stopped, in its place when opened", () => {
+  for (const state of ["completed", "stopped"] as const) {
+    const rows = completedTurn();
+    const note = row(`bg-${state}`, "backgroundTask", {
+      backgroundTask: { toolCallId: "bg", command: "bun test", state },
+    });
+    rows.splice(2, 0, note);
+    expect(turnView(rows, new Set()).some((entry) => entry.id === note.id)).toBe(false);
+    const opened = turnView(rows, new Set([`${WORKED}-prompt`]));
+    expect(opened.findIndex((entry) => entry.id === note.id)).toBeGreaterThan(
+      opened.findIndex((entry) => entry.id === `${WORKED}-prompt`),
+    );
   }
 });
 
