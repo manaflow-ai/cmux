@@ -524,13 +524,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       ),
     ).toBe(true);
     expect(await page.locator('[data-row-id^="received-"]').count()).toBe(0);
-    // The reports came after the progress reply, so they fold below it, under the first report's
-    // fold (turns.ts foldSegments `inOrder`; turn-fold-in-order.test.ts): the prompt's stretch holds
-    // only that reply, which never folds, so it draws no line of its own.
-    expect(await page.locator('[data-row-id="worked-completed-user"]').count()).toBe(0);
-    const line = page.locator('[data-row-id="worked-received-0"] .cv-worked');
+    const line = page.locator('[data-row-id="worked-completed-user"] .cv-worked');
     expect(await line.getAttribute("aria-expanded")).toBe("false");
-    await probe(page, '[data-row-id="worked-received-0"] .cv-worked');
+    await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
     const opened = await clickAndWatch(page);
     // Opened at the end, the line holds and the reports grow down (Codex parity).
     expect(opened.moved).toBeLessThanOrEqual(1);
