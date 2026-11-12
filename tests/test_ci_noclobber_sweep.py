@@ -63,6 +63,9 @@ APP_NAMES = {
 # (path, a piece of the line[, which occurrence]): why the grep's hit is safe. The occurrence counts, in file order,
 # the hits of PATH this piece holds (approves()); left out, it is 1. An entry approves that one hit only.
 ALLOWED = {
+    ("scripts/cmux-next/austins-day/austins-day.sh", '"${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"'):
+        "a mktemp -d template; shell_tree exempts nothing in this file because it sources $repo/scripts/cmux-next/"
+        "capture-host-env.sh through a variable it cannot follow (it may redefine mktemp), and that file defines none",
     ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
         "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID"):
@@ -184,6 +187,11 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
             out.append((path, 1, first, first))
+        # A shell block shell_tree cannot parse is a hit of its own, its first line: what it runs is unknown, and its
+        # raw text is scanned besides, never read line by line (shell_tree.unparsed).
+        text_lines = text.split("\n")
+        for n in shell_tree.unparsed(path, text):
+            out.append((path, n, text_lines[n - 1].strip(), text_lines[n - 1].strip()))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         scans = shell_tree.scan_file(path, text, root=str(root))  # a source in the repository is followed
@@ -311,8 +319,10 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        # -O extglob: bash -n runs no shopt, and a FILES case turns extglob on (the upstream's extglob rows).
         bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
-                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
+                and subprocess.run(["bash", "-O", "extglob", "-n"], input=text, capture_output=True,
+                                   text=True).returncode != 0]
         self.assertEqual(bad, [])
 
     def test_a_whole_file_is_read_in_context(self):
