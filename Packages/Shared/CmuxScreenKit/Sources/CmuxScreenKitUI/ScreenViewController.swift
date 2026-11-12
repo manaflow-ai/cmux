@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxScreenKit
+import GameController
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -81,6 +82,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        for name in [NSNotification.Name.GCKeyboardDidConnect, .GCKeyboardDidDisconnect] {
+            NotificationCenter.default.addObserver(self, selector: #selector(hardwareKeyboardChanged), name: name, object: nil)
+        }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
         scrollView.accessibilityIdentifier = "screen.view"
         scrollView.frame = view.bounds
@@ -140,7 +144,16 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
-    override public var canBecomeFirstResponder: Bool { true }
+    /// The screen takes the focus only for a hardware keyboard's keys
+    /// (`pressesBegan`). Without one it stays unfocused: a focused screen
+    /// had UIKit raise the software keyboard whenever a menu opened over it.
+    override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
+
+    /// Takes the focus when a hardware keyboard connects, gives it up when it goes.
+    @objc private func hardwareKeyboardChanged() {
+        guard !keyInput.isFirstResponder else { return }
+        if GCKeyboard.coalesced != nil { becomeFirstResponder() } else if isFirstResponder { resignFirstResponder() }
+    }
 
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -902,7 +915,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     public var isKeyboardVisible: Bool {
         get { keyInput.isFirstResponder }
         set {
-            if newValue { keyInput.becomeFirstResponder() } else { keyInput.resignFirstResponder(); becomeFirstResponder() }
+            if newValue {
+                keyInput.becomeFirstResponder()
+            } else {
+                keyInput.resignFirstResponder()
+                becomeFirstResponder()
+            }
         }
     }
 

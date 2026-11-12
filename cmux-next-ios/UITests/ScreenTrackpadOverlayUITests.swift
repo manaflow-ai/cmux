@@ -29,6 +29,8 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         let drawer = app.otherElements["screen.trackpad.drawer"]
         let pad = app.descendants(matching: .any)["screen.trackpad.pad"]
         let options = app.buttons["screen.options"]
+        // The notch's touch target reaches 7 points above the drawer's top edge (a 44-point target over a 30-point strip).
+        func drawerTop() -> CGFloat { handle.frame.minY + 7 }
         let window = app.windows.firstMatch.frame
         settle(app, 1.5)
         attach(app, "01-portrait-trackpad-up-by-default")
@@ -39,7 +41,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         XCTAssertTrue(pad.isHittable, "trackpad surface not reachable")
         XCTAssertGreaterThan(pad.frame.height, window.height * 0.3, "trackpad too small (\(pad.frame))")
         XCTAssertGreaterThan(pad.frame.minY, window.midY - 120, "trackpad not in the lower part (\(pad.frame))")
-        XCTAssertLessThanOrEqual(screen.frame.maxY, handle.frame.minY + 1,
+        XCTAssertLessThanOrEqual(screen.frame.maxY, drawerTop() + 1,
                                  "screen not above the trackpad (screen \(screen.frame), notch \(handle.frame))")
         XCTAssertTrue(options.exists, "viewer settings on the top bar\n\(app.debugDescription)")
         XCTAssertLessThanOrEqual(options.frame.maxY, screen.frame.minY + 1, "toolbar covers the screen (\(options.frame), \(screen.frame))")
@@ -58,6 +60,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         options.tap()
         let showTrackpad = app.buttons["Show Trackpad"].firstMatch
         XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5), "Show Trackpad in the options menu\n\(app.debugDescription)")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "opening the options menu raised the software keyboard")
         attach(app, "03-options-menu")
         app.buttons["Refresh Screen"].firstMatch.tap()
 
@@ -69,7 +72,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         XCTAssertTrue(handle.isHittable, "notch not reachable while tucked away")
         settle(app, 1)
         XCTAssertGreaterThan(screen.frame.height, upScreenHeight + 150, "screen did not take the room")
-        XCTAssertLessThanOrEqual(screen.frame.maxY, handle.frame.minY + 1, "the notch strip covers the screen")
+        XCTAssertLessThanOrEqual(screen.frame.maxY, drawerTop() + 1, "the notch strip covers the screen")
         attach(app, "04-portrait-tucked-away")
 
         // Drag it up: back.

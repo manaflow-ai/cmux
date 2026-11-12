@@ -76,9 +76,6 @@ public struct ScreenSessionView: View {
     @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3, bounce: 0.1)))
     private var trackpadDrag: CGFloat = 0
     @State private var trackpadLink = ScreenTrackpadLink()
-    /// The drawer's content is drawn: from opening until a close has finished sliding down
-    /// (nil until the view appears, then the remembered choice).
-    @State private var trackpadContentShown: Bool?
     /// The viewer's size inside the safe area, without the software keyboard: sizes the trackpad.
     @State private var containerSize = CGSize.zero
     /// The viewer's height above the software keyboard (the full height while it is down).
@@ -138,7 +135,6 @@ public struct ScreenSessionView: View {
         .statusBarHidden(!chromeVisible)
         .persistentSystemOverlays(.hidden)
         .onAppear {
-            if trackpadContentShown == nil { trackpadContentShown = trackpadOpen }
             if features.contains(.orientationLock) { ScreenOrientation.shared.lock(orientation) }
         }
         .onChange(of: orientation) {
@@ -149,8 +145,6 @@ public struct ScreenSessionView: View {
             if features.contains(.resumeOnForeground), scenePhase == .active { session.resumeIfNeeded() }
         }
         .onChange(of: session.preferences.quality) { session.applyQuality() }
-        // Turning the phone switches between the portrait and landscape choices.
-        .onChange(of: isLandscape) { trackpadContentShown = trackpadOpen }
         // On the root, not the picker: a stall that hides the button while the picker is open keeps the pick.
         .onChange(of: pickedPhoto) { paste(pickedPhoto) }
         .onDisappear {
@@ -292,11 +286,8 @@ public struct ScreenSessionView: View {
 
     private func setTrackpad(open: Bool) {
         // Reduce Motion: the drawer moves in one frame.
-        if open { trackpadContentShown = true }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1)) {
             if isLandscape { landscapeTrackpadOpen = open } else { session.preferences.showTrackpad = open }
-        } completion: {
-            if !trackpadOpen { trackpadContentShown = false }
         }
     }
 
@@ -306,14 +297,17 @@ public struct ScreenSessionView: View {
         let progress = trackpadTravel > 0 ? 1 - trackpadOffset / trackpadTravel : (trackpadOpen ? 1 : 0)
         return VStack(spacing: 0) {
             trackpadHandle
-            // Tucked away (and not being dragged), the pad is not drawn: only its room is kept under
-            // the notch, so nothing hidden can take touches or show to VoiceOver.
-            if (trackpadContentShown ?? trackpadOpen) || trackpadDrag != 0 {
-                trackpadContent
-                    .opacity(progress)
-                    .allowsHitTesting(trackpadOpen)
-            } else {
+            // Tucked away (and not being dragged), the pad is not drawn: it fades out as it slides
+            // down and is then removed, keeping only its room under the notch, so nothing hidden can
+            // take touches or show to VoiceOver.
+            ZStack(alignment: .top) {
                 Color.clear.frame(height: trackpadPadHeight).accessibilityHidden(true)
+                if trackpadOpen || trackpadDrag != 0 {
+                    trackpadContent
+                        .opacity(progress)
+                        .allowsHitTesting(trackpadOpen)
+                        .transition(.opacity)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -339,12 +333,14 @@ public struct ScreenSessionView: View {
             .frame(maxWidth: .infinity)
             .frame(height: trackpadPadHeight)
             .background {
-                RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.07))
-                // A quiet mark of what the surface is; the pad itself is clear and takes the touches.
-                Image(systemName: "hand.point.up.left")
-                    .font(.title2)
-                    .foregroundStyle(Color.white.opacity(0.16))
-                    .accessibilityHidden(true)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.07))
+                    // A quiet mark of what the surface is; the pad itself is clear and takes the touches.
+                    Image(systemName: "hand.point.up.left")
+                        .font(.title2)
+                        .foregroundStyle(Color.white.opacity(0.16))
+                }
+                .accessibilityHidden(true)
             }
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.14)))
     }
