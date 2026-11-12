@@ -102,8 +102,11 @@ async fn a_web_device_cannot_control_a_claude_session_the_mac_started_but_can_re
     assert!(local.prompt(&s, "hello").await.get("error").is_none());
     let r = web.prompt(&s, "hi").await;
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    // The refusal says who can control the chat and what the device does next (#41629 wrote the
+    // sentence again; the refusal and its reason did not change).
     let text = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(text.contains("Start a new chat from this device"), "{text}");
+    assert!(text.contains("Only the cmux app on this Mac can control"), "{text}");
+    assert!(text.contains("From another device, start a new chat there"), "{text}");
     for (m, p) in [
         ("session/set_mode", json!({"sessionId": s, "modeId": "plan"})),
         (
