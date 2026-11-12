@@ -150,6 +150,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // override, else the separator), so a page's hairlines can match it (Settings, Lucas 2026-11-11).
             "--cmux-sidebar-line": Borders.drawsLines
                 ? Self.css(backgrounds.fill(for: .splitDivider, tokens: tokens) ?? tokens.separator) : "transparent",
+            // The window sidebar's own fill over the window's color, so a page's sidebar can match it
+            // (Settings, Lucas 2026-11-12: Lawrence did not like a lighter one): the user's sidebar
+            // color (`appearance.surfaces.sidebar`), else the separate chrome shade
+            // (`appearance.sidebarSurface` separate), else none: by default the sidebar is the
+            // window's own color, parted only by its line (`SidebarSurface.same`).
+            "--cmux-sidebar-surface": Self.sidebarSurface(tokens, backgrounds: backgrounds, windowTint: windowTint),
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
@@ -406,6 +412,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
+    /// `--cmux-sidebar-surface`: the window sidebar's own fill over the window's color, as CSS.
+    @MainActor
+    static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
+        if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
+        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+    }
+
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000

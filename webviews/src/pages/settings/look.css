@@ -63,10 +63,29 @@
   line-height: var(--text-heading--line-height);
 }
 
-/* The sidebar: its own faint fill and a hairline on its right. */
+/* The content is a rounded panel beside the sidebar, as the window's main pane sits beside the app
+   sidebar and the New Tab page's card under the tab bar (Lucas 2026-11-12). The panel's spread
+   shadow is the sidebar's fill: the window sidebar's own (WebTheme --cmux-sidebar-surface; Lawrence
+   did not like the lighter fill), none by default, the user's sidebar color or the separate chrome
+   shade when one is set. It also fills outside the panel's left corners. No line parts them: only
+   the two fills (Lucas 2026-11-12). */
+:root[data-settings-look="refined"] .settings {
+  isolation: isolate;
+}
+
 :root[data-settings-look="refined"] .settings > .sidebar {
-  border-right: 1px solid var(--look-line);
-  background: color-mix(in srgb, var(--polish-ink) 3%, transparent);
+  border-right: 0;
+  background: transparent;
+}
+
+:root[data-settings-look="refined"] .settings::before {
+  content: "";
+  position: absolute;
+  z-index: var(--layer-backdrop);
+  inset: 0 0 0 var(--sidebar-width);
+  border-radius: var(--ds-radius-lg) 0 0 var(--ds-radius-lg);
+  box-shadow: 0 0 0 100vmax var(--cmux-sidebar-surface, transparent);
+  pointer-events: none;
 }
 
 /* Its rows are the window sidebar's list rows at every density (#39984: Codex's 30 px row, 10 px
@@ -110,13 +129,15 @@
   font-weight: inherit;
 }
 
-/* A group: its muted title on the rows' text edge, then one card; its rows part by one hairline each. */
+/* A group: its muted title flush left on the card's border, then one card; its rows part by one hairline each. */
 :root[data-settings-look="refined"] .settings .group {
   margin-bottom: var(--look-section-gap);
 }
 
 :root[data-settings-look="refined"] .settings .group-title {
-  margin: 0 0 var(--ds-space-2) var(--look-row-pad-x);
+  /* Flush left on the card's border, in line with the page title ("Appearance", "General"; Lucas
+     2026-11-12), as the 2026-10-30 flush-left titles were. */
+  margin: 0 0 var(--ds-space-2);
   color: var(--polish-muted);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
@@ -124,7 +145,7 @@
 
 /* A group's lead-in line ("This Mac runs 1.0.0.") sits on its title's edge, a gap above its card. */
 :root[data-settings-look="refined"] .settings .group > .row-help {
-  margin: 0 0 var(--ds-space-2) var(--look-row-pad-x);
+  margin: 0 0 var(--ds-space-2);
 }
 
 :root[data-settings-look="refined"] .settings .rows {
@@ -390,7 +411,10 @@
   :root[data-settings-look="refined"] .settings > .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--look-line);
+    background: var(--cmux-sidebar-surface, transparent);
   }
+
+  :root[data-settings-look="refined"] .settings::before { display: none; }
 }
 
 /* Menu buttons at the comfortable control height (Lucas 2026-11-12: "a bit fatter"), each as wide as
