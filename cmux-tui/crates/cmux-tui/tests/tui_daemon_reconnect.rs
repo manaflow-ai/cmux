@@ -17,7 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -33,7 +33,7 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir = PathBuf::from("/tmp").join(format!("cmux-dr-{}-{stamp}", std::process::id()));
         fs::create_dir_all(dir.join("home")).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -367,4 +367,19 @@ fn w5r_stop_with_end_terminals_removes_terminal_state_and_keeps_chiefs_and_conve
         "stop --end-terminals removed the conversations: {stopped}"
     );
     assert_eq!(stopped["removed_terminal_state"], true, "{stopped}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

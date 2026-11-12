@@ -19,7 +19,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -38,7 +37,7 @@ impl OldDaemon {
     /// A daemon that reports `build_time` (a build newer than any CLI when
     /// it is far in the future); `None` reports none, as 316d139f does.
     fn start_as(name: &str, build_time: Option<u64>) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-old-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(dir.join("home")).unwrap();
@@ -230,4 +229,19 @@ fn daemon_upgrade_an_mcp_tool_call_names_the_older_daemon_and_the_restart() {
     assert!(answer.contains("daemon.outdated"), "no daemon.outdated: {answer}");
     assert!(answer.contains("is older than this cmux"), "no daemon version: {answer}");
     assert!(answer.contains("daemon restart"), "no restart fix: {answer}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

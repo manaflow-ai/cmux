@@ -419,6 +419,21 @@ impl std::fmt::Debug for HolderKiller {
 
 #[cfg(test)]
 mod tests {
+    /// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+    /// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+    /// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+    fn unique_nanos() -> u128 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+        let (Ok(last) | Err(last)) =
+            LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+        u128::from(now.max(last + 1))
+    }
+
     use std::io::Read;
     use std::os::fd::FromRawFd;
 
@@ -468,9 +483,7 @@ mod tests {
     #[test]
     fn an_ended_terminal_drops_its_ring_segment_for_good() {
         use cmux_holder::link::TerminalSink;
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let stamp = unique_nanos() % 1_000_000_000;
         let root = std::env::temp_dir()
             .join(format!("cmux-holder-ring-drop-{}-{stamp}", std::process::id()));
         let service = HolderService::for_root(&root).unwrap();
@@ -505,9 +518,7 @@ mod tests {
         received: &[u8],
     ) -> (Arc<HolderTerminal>, std::path::PathBuf) {
         use cmux_holder::link::TerminalSink;
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let stamp = unique_nanos() % 1_000_000_000;
         let root = std::env::temp_dir().join(format!("{name}-{}-{stamp}", std::process::id()));
         let (master, _slave) = nonblocking_pty();
         let sink = HolderSink::new(0);

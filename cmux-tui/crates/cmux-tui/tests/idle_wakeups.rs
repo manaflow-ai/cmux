@@ -18,7 +18,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 
@@ -64,7 +64,7 @@ impl Daemon {
 
     /// [`Daemon::start_with_settings`] with `env` added to the daemon's environment.
     fn start_with_env(name: &str, settings: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-idle-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -552,7 +552,7 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
 /// 5-35 s of a daemon's life.
 #[test]
 fn cmux_next_daemon_writes_its_usage_counts_when_it_stops() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = unique_nanos();
     let counts = PathBuf::from("/tmp").join(format!("cmux-usage-{}-{stamp}", std::process::id()));
     let mut daemon = Daemon::start_with_env(
         "usage",
@@ -854,4 +854,19 @@ fn assert_idle(daemon: &Daemon, during: impl FnOnce() + Send + 'static) {
         ));
     }
     assert!(failures.is_empty(), "idle processes woke up:\n{}", failures.join("\n"));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

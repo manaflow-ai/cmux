@@ -299,6 +299,7 @@ class AppReviewGateTests(unittest.TestCase):
 
     def test_a_redirect_to_a_private_address_is_refused(self) -> None:
         import unittest.mock as mock
+        # The connection and the name lookup are stand-ins: an RFC 2606 host, and nothing reaches the network.
         hops = []
 
         class Resp:
@@ -320,16 +321,16 @@ class AppReviewGateTests(unittest.TestCase):
                 pass
 
             def getresponse(self):
-                return Resp(302, "https://127.0.0.1/admin") if self.host == "cmux.com" else Resp(200)
+                return Resp(302, "https://127.0.0.1/admin") if self.host == "example.com" else Resp(200)
 
             def close(self):
                 pass
 
         with mock.patch.object(gate, "PinnedHTTPSConnection", Conn), \
                 mock.patch.object(gate.socket, "getaddrinfo",
-                                  lambda host, *a, **k: [(0, 0, 0, "", ("104.18.0.1" if host == "cmux.com" else "127.0.0.1", 443))]):
-            result = gate.fetch("https://cmux.com/support")
-        self.assertEqual(hops, ["cmux.com"])
+                                  lambda host, *a, **k: [(0, 0, 0, "", ("104.18.0.1" if host == "example.com" else "127.0.0.1", 443))]):
+            result = gate.fetch("https://example.com/support")
+        self.assertEqual(hops, ["example.com"])
         self.assertIn("not a public address", result["error"])
 
     def test_report_reads_asc_strict_warnings_as_blockers(self) -> None:

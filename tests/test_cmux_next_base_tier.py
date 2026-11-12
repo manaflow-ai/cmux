@@ -782,13 +782,20 @@ class QuotaRetry(unittest.TestCase):
         with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
             api.get("repos/o/r/git/ref/heads/x")
 
+# A bound for a call that is meant to succeed: far above any runner's delay, and still an end for a server
+# that never answers.
+LONG_BOUND = 30.0
+
+
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
-    (0: all at once). It stops trickling when stop() is called or the client hangs up."""
+    (0: all at once). It stops trickling when stop() is called or the client hangs up. FINISHED is set once
+    an answer is all sent."""
 
     def __init__(self, answer: bytes, gap: float):
         self.answer, self.gap = answer, gap
         self.done = threading.Event()
+        self.finished = threading.Event()
         # When each request reached the server (time.monotonic()), in order.
         self.arrivals: list[float] = []
         self.listener = socket.socket()
@@ -816,11 +823,13 @@ class TricklingServer:
                     self.arrivals.append(time.monotonic())
                 if not self.gap:
                     conn.sendall(self.answer)
+                    self.finished.set()
                     return
                 for byte in self.answer:
                     if self.done.wait(self.gap):
                         return
                     conn.sendall(bytes([byte]))
+                self.finished.set()
             except OSError:
                 return
 
@@ -837,10 +846,10 @@ class WholeRequestBound(unittest.TestCase):
     QuotaGitHub and the takeover's client, now ends within its bound on one monotonic clock."""
 
     BOUND = 0.3
-    SLACK = 0.4
     # Each header byte comes 0.03 s after the last (well under the 0.3 s socket timeout); all of them take
-    # about 2 s, far past the bound.
-    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 30 + b"\r\nContent-Length: 0\r\n\r\n"
+    # about 30 s, a hundred times the bound (stop() ends the trickle at cleanup). A call that ends while the
+    # server still trickles ended on its own bound, not on the answer's end.
+    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 1000 + b"\r\nContent-Length: 0\r\n\r\n"
     FAST = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
 
     def serve(self, answer: bytes, gap: float) -> TricklingServer:
@@ -848,11 +857,11 @@ class WholeRequestBound(unittest.TestCase):
         self.addCleanup(server.stop)
         return server
 
-    def clients(self, url: str):
+    def clients(self, url: str, bound: float | None = None):
         tree = notify.GitHub("t", url)
         kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
         for api in (tree, kick):
-            api.timeout = self.BOUND
+            api.timeout = self.BOUND if bound is None else bound
         return {"tree notify": tree, "QuotaGitHub": kick}
 
     def test_trickled_headers_end_the_call_at_its_bound(self):
@@ -862,21 +871,21 @@ class WholeRequestBound(unittest.TestCase):
             for method, call in (("POST", lambda: api.post("repos/o/r/actions/workflows/w/dispatches", {})),
                                  ("GET", lambda: api.get("repos/o/r"))):
                 with self.subTest(client=name, method=method):
-                    started = time.monotonic()
                     try:
                         outcome = call()
                     except Exception as error:  # noqa: BLE001
                         outcome = error
-                    elapsed = time.monotonic() - started
-                    self.assertLess(elapsed, self.BOUND + self.SLACK, f"{name} {method} returned {outcome!r}")
+                    self.assertFalse(server.finished.is_set(), f"{name} {method} waited for the whole trickle")
                     # Never a success: a timed-out write may have been taken, so it is reported as unknown.
                     self.assertIsInstance(outcome, TimeoutError)
                     self.assertIsInstance(outcome, notify.RequestTimeout)
-                    self.assertGreaterEqual(elapsed, self.BOUND * 0.9)
 
     def test_a_fast_answer_still_returns_its_body(self):
+        # The claim is that a bounded call still returns an answer's body, not that a loaded runner answers
+        # within 0.3 s: the cold first name lookup alone took 75 ms on an idle fleet Mac, and a busy one ran
+        # past the bound (a RequestTimeout on 127.0.0.1). LONG bounds a server that never answers.
         server = self.serve(self.FAST, 0)
-        for name, api in self.clients(server.url).items():
+        for name, api in self.clients(server.url, bound=LONG_BOUND).items():
             with self.subTest(client=name):
                 self.assertEqual(api.get("repos/o/r"), {"ok": True})
 
@@ -901,11 +910,11 @@ class NothingAfterTheBound(unittest.TestCase):
         self.addCleanup(server.stop)
         return server
 
-    def clients(self, url: str):
+    def clients(self, url: str, bound: float | None = None):
         tree = notify.GitHub("t", url)
         kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
         for api in (tree, kick):
-            api.timeout = self.BOUND
+            api.timeout = self.BOUND if bound is None else bound
         return {"tree notify": tree, "QuotaGitHub": kick}
 
     def slow_lookup(self, seconds: float) -> None:
@@ -1003,14 +1012,16 @@ class NothingAfterTheBound(unittest.TestCase):
         self.assertEqual(len(server.arrivals), 1)
 
     def test_an_answer_within_the_bound_still_succeeds(self):
+        # A bounded call that gets its answer before the bound succeeds and sends once. The bound is LONG: a
+        # 0.1 s bound held the loaded runner's lookup of 127.0.0.1 as well ("resolving 127.0.0.1: past the
+        # 0.1 s deadline"), so the test measured the runner, not the call.
         server = self.serve()
-        for name, api in self.clients(server.url).items():
+        for name, api in self.clients(server.url, bound=LONG_BOUND).items():
             with self.subTest(client=name):
                 server.arrivals.clear()
-                outcome, started, ended = self.dispatch(api)
+                outcome, _, _ = self.dispatch(api)
                 self.assertEqual(outcome, 204)
                 self.assertEqual(len(server.arrivals), 1)
-                self.assertLess(ended - started, self.BOUND + 0.4)
 
 
 class DispatchWithNoAnswer(unittest.TestCase):

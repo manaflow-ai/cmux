@@ -5,7 +5,7 @@ struct LoginFiles(PathBuf);
 
 impl LoginFiles {
     fn new(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let path =
             std::env::temp_dir().join(format!("pool-auth-{name}-{}-{stamp}", std::process::id()));
         std::fs::create_dir(&path).unwrap();
@@ -269,4 +269,19 @@ fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
     assert_ne!(before, switched, "another grok account");
     std::fs::remove_file(files.0.join(at)).unwrap();
     assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

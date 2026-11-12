@@ -17,7 +17,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host_runtime::{
@@ -50,7 +50,7 @@ struct Daemon {
 impl Daemon {
     /// A headless daemon whose default shell is zsh, with a home whose `.zshrc` sets the prompt to [`PROMPT`].
     fn start(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = unique_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-fresh-prompt-{name}-{}-{stamp}", std::process::id()));
         let home = dir.join("home");
@@ -341,4 +341,19 @@ fn a_prompt_survives_a_size_bounce_its_shell_never_sees() {
              {PROMPT:?} (the terminal cleared it for a redraw zsh never drew).\nbefore:\n{first}\nafter:\n{shown}"
         );
     }
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

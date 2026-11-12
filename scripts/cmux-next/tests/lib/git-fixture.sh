@@ -207,7 +207,9 @@ _git_fixture_exit_trap='_git_fixture_exit_prep "$?" "$( { _git_fixture_traps_sig
 _git_fixture_arm_exit() {
   _git_fixture_armed_pid=$(_git_fixture_pid)
   if [[ -n "${_git_fixture_caller_exit-}" ]]; then
-    builtin trap -- "$_git_fixture_exit_trap"$'\n'"$_git_fixture_caller_exit" EXIT
+    # One double-quoted word with a literal newline: the same text as $'\n', in quoting a reader can follow.
+    builtin trap -- "$_git_fixture_exit_trap
+$_git_fixture_caller_exit" EXIT
   else
     builtin trap -- "$_git_fixture_exit_trap" EXIT
   fi

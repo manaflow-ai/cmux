@@ -15,7 +15,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use journey_support::*;
@@ -39,8 +38,7 @@ struct Base {
 
 impl World {
     fn new(label: &str) -> Self {
-        let stamp =
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+        let stamp = unique_nanos() % 1_000_000_000;
         let root =
             PathBuf::from("/tmp").join(format!("csp-{label}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(root.join("remotes/o")).unwrap();
@@ -508,4 +506,19 @@ fn bring_back_pulls_a_seed_as_its_diff_and_a_copy_as_a_copy() {
     // Without --or-copy a copy has no seed to merge against.
     let (ok, none) = world.pull(&plain, "plain", None);
     assert!(!ok && none["error_code"] == "seed.no_previous", "{none}");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

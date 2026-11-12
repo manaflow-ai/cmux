@@ -9,7 +9,7 @@ use std::os::unix::fs::symlink;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
@@ -24,7 +24,7 @@ fn scaled(timeout: Duration) -> Duration {
 }
 
 fn temp_dir(label: &str) -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = unique_nanos();
     // Short: Unix socket paths are limited to about 100 bytes.
     let dir = PathBuf::from("/tmp").join(format!("cxa-{label}-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
@@ -396,4 +396,19 @@ fn old_cmux_server_lifecycle_spellings_still_run_the_daemon_lifecycle() {
     let error: Value = serde_json::from_slice(&status.stderr).unwrap();
     assert_eq!(error["code"], "server.unavailable");
     let _ = fs::remove_dir_all(dir);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

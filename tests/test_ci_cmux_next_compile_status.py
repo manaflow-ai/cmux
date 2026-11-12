@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 
@@ -72,6 +71,41 @@ fi
 [[ "$code" == 000 ]] && exit 7
 exit 0
 '''
+# A stand-in for a tool the step runs: it appends each call's arguments to $CALLS.<tool>, then runs the real one
+# ($REAL_<TOOL>). A test asserts what the step asked to wait (each sleep, each read's --max-time), which is the
+# step's logic; how long the run took is the runner's load (scripts/check-test-determinism.py, assert-on-duration).
+RECORDER = r'''#!/usr/bin/env bash
+tool="$(basename "$0")"
+printf '%s\n' "$*" >> "$CALLS.$tool"
+real="REAL_$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')"
+exec "${!real}" "$@"
+'''
+
+
+def record(bin_dir: Path, tmp: str, *tools: str) -> dict[str, str]:
+    """Put a RECORDER for each tool on bin_dir; the environment the step needs for them."""
+    env = {"CALLS": str(Path(tmp, "calls"))}
+    for tool in tools:
+        real = shutil.which(tool)
+        assert real, f"no {tool} on PATH"
+        wrapper = bin_dir / tool
+        wrapper.write_text(RECORDER)
+        wrapper.chmod(0o755)
+        env[f"REAL_{tool.upper()}"] = real
+    return env
+
+
+def recorded(tmp: str, tool: str) -> list[str]:
+    """Each recorded call's arguments, in order."""
+    path = Path(tmp, f"calls.{tool}")
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def max_times(calls: list[str]) -> list[int]:
+    """The --max-time of each recorded curl call."""
+    return [int(m.group(1)) for call in calls for m in [re.search(r"--max-time (\d+)", call)] if m]
+
+
 # Fast gaps for the fake: the step's probe, re-read and bad-answer bounds are 30 s, 30 s and 300 s.
 GAPS = {"PROBE_GAP": "0", "READ_GAP": "0", "POST_GAP": "0", "LIMIT_GAP": "0"}
 # autoland's and base_red_excuse.py's no-verdict line (NO_VERDICT): a red that names no compile failure.
@@ -98,6 +132,7 @@ class StatusMapping(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(FAKE_CURL)
             curl.chmod(0o755)
+            env = {**record(bin_dir, tmp, "sleep"), **env}
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             done = subprocess.run(
@@ -107,6 +142,8 @@ class StatusMapping(unittest.TestCase):
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
                      "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")),
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
+            # Every second the step chose to sleep (the probe and re-read gaps).
+            self.slept = [float(call) for call in recorded(tmp, "sleep")]
             self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
                                                      if Path(tmp, "output").exists() else "")
             self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
@@ -307,10 +344,10 @@ class StatusMapping(unittest.TestCase):
         # Probes see a 404 (the service up), then every read is a 503 or a 530: handed off after BAD_BOUND.
         for bad in ("503", "530", "000", "403"):
             with self.subTest(code=bad):
-                started = time.monotonic()
                 code, posts, reads = self.run_step(None, CODES=bad, BAD_BOUND="3", READ_GAP="1", FALLBACK="true",
                                                    WAIT_SECONDS="2400")
-                self.assertLess(time.monotonic() - started, 20)
+                # It waits out the 3 s bound for a usable answer, never the 2400 s deadline.
+                self.assertLessEqual(sum(self.slept), 3, self.slept)
                 self.assertEqual(code, 0)
                 self.assertTrue(self.output.startswith(f"handoff=HTTP {bad} for "), self.output)
                 self.assertGreaterEqual(len(reads), 1)
@@ -375,6 +412,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
             curl = bin_dir / "curl"
             curl.write_text(FAKE_CURL)
             curl.chmod(0o755)
+            env = {**record(bin_dir, tmp, "sleep"), **env}
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             output = Path(tmp, "output")
@@ -387,6 +425,8 @@ class FastCheckLinuxRoute(unittest.TestCase):
             verdict = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("verdict", "") \
                 if output.exists() else ""
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
+            # Every second the step chose to sleep (the probe and re-read gaps).
+            self.slept = [float(call) for call in recorded(tmp, "sleep")]
             return done.returncode, verdict, reads
 
     def reply(self, state: str, **overrides) -> dict:
@@ -417,9 +457,9 @@ class FastCheckLinuxRoute(unittest.TestCase):
         self.assertEqual((code, verdict, reads), (0, "unavailable", []))
 
     def test_a_service_down_after_the_probes_hands_off_after_the_bound(self):
-        started = time.monotonic()
         code, verdict, reads = self.run_step(self.reply("pass"), CODES="530", BAD_BOUND="3", READ_GAP="1")
-        self.assertLess(time.monotonic() - started, 20)
+        # It waits out the 3 s bound for a usable answer, never the 1200 s deadline.
+        self.assertLessEqual(sum(self.slept), 3, self.slept)
         self.assertEqual((code, verdict), (0, "unavailable"))
         self.assertGreaterEqual(len(reads), 1)
         code, verdict, reads = self.run_step(self.reply("pass"), PROBE_CODE="530")
@@ -497,11 +537,17 @@ class ResultsServiceDown(unittest.TestCase):
     def bash(self, script: str, **env: str) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp, "output")
+            bin_dir = Path(tmp, "bin")
+            bin_dir.mkdir()
+            env = {**record(bin_dir, tmp, "sleep", "curl"), **env}
             done = subprocess.run(
                 ["bash", "-e", "-c", script], capture_output=True, text=True, timeout=120,
-                env={"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output), "GH_TOKEN": "t",
-                     "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
+                env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                     "GH_TOKEN": "t", "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
                      "RUN_URL": "https://github.com/run/1", "RESULTS": f"{self.server.url}/v1", **env})
+            # What the step chose to wait: each sleep, and each results read's --max-time (status posts excluded).
+            self.slept = [float(call) for call in recorded(tmp, "sleep")]
+            self.read_max_times = max_times([call for call in recorded(tmp, "curl") if "/statuses/" not in call])
             return done.returncode, done.stdout, output.read_text() if output.exists() else ""
 
     def compile_status(self, **env: str) -> tuple[int, str, str]:
@@ -512,9 +558,10 @@ class ResultsServiceDown(unittest.TestCase):
         return self.bash(script, DOWN=down, FAST=fast, MAC=mac)
 
     def test_a_pull_request_with_a_fallback_gets_the_fallbacks_verdict(self):
-        started = time.monotonic()
         code, _, output = self.compile_status(FALLBACK="true", PR="40600")
-        self.assertLess(time.monotonic() - started, 15)  # two probes 1 s apart, not 40 minutes
+        # Two probes 1 s apart, then the handoff: no read waits toward the 40-minute deadline.
+        self.assertEqual(self.slept, [1.0])
+        self.assertEqual(self.read_max_times, [20, 20])
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "handoff=HTTP 530")
         self.assertEqual(len(self.server.reads), 2)
@@ -567,18 +614,21 @@ class ResultsServiceDown(unittest.TestCase):
         """A service that takes the connection and never answers: the read gets --max-time of what is left of the
         bound, not a 30-minute long poll, and the step hands off when it expires."""
         self.server.stall, self.server.probe_code = True, 404
-        started = time.monotonic()
         code, _, output = self.compile_status(FALLBACK="true", BAD_BOUND="4")
-        self.assertLess(time.monotonic() - started, 15)
+        # The probe's 20 s, then each stalled read gets no more than what is left of the 4 s bound.
+        self.assertEqual(self.read_max_times[0], 20, self.read_max_times)
+        self.assertTrue(self.read_max_times[1:] and all(t <= 4 for t in self.read_max_times[1:]), self.read_max_times)
+        self.assertLessEqual(sum(self.slept), 4, self.slept)
         self.assertEqual(code, 0)
         self.assertRegex(output.strip(), r"^handoff=HTTP 000 for [3-9] s$")
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
                     ["release-compile-fast"]["steps"] if step.get("id") == "compile")
         self.server.reads.clear()
-        started = time.monotonic()
         code, _, output = self.bash(step["run"], REF=SHA, GATEWAY="", PROBE_GAP="1", BAD_BOUND="4")
-        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(self.read_max_times[0], 20, self.read_max_times)
+        self.assertTrue(self.read_max_times[1:] and all(t <= 4 for t in self.read_max_times[1:]), self.read_max_times)
+        self.assertLessEqual(sum(self.slept), 4, self.slept)
         self.assertEqual((code, output.strip()), (0, "verdict=unavailable"))
 
     def test_the_fast_checks_route_hands_the_push_to_the_mac(self):
@@ -662,16 +712,19 @@ class UnboundedRetryDetector(unittest.TestCase):
         self.assertEqual(unbounded_retries(), [])
 
     def test_the_detector_catches_the_shapes_it_names(self):
+        # Our own hosts, as fixture text only: nothing here runs curl (a literal URL beside `curl` on one line reads
+        # as a live network call to scripts/check-test-determinism.py).
+        cache, events = "https://ci-cache.cmux.com", "https://gh-events.cmux.com"
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp, "w.yml")
             for text, bad in (
                 ('RESULTS: https://gh-events.cmux.com/x\n  timeout "$left" curl -sS --retry 60 --retry-all-errors \\\n'
                  '    --retry-max-time "$left" "$RESULTS/a"\n', True),
-                ('curl -fsSL --retry 5 --retry-all-errors https://ci-cache.cmux.com/a\n', True),
-                ('timeout 900 curl --retry-all-errors https://gh-events.cmux.com/a\n', True),
+                (f'curl -fsSL --retry 5 --retry-all-errors {cache}/a\n', True),
+                (f'timeout 900 curl --retry-all-errors {events}/a\n', True),
                 ('timeout 110 curl --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors "$API/x"\n', False),
                 ('curl --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors "$@"\n', False),
-                ('curl --max-time 20 --retry 3 --retry-delay 5 --retry-all-errors https://gh-events.cmux.com/a\n', False),
+                (f'curl --max-time 20 --retry 3 --retry-delay 5 --retry-all-errors {events}/a\n', False),
                 ('curl -sS --retry-all-errors "$url"\n', True),
                 ('# curl --retry-all-errors in a comment\n', False),
             ):

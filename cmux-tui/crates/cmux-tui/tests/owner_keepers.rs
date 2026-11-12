@@ -57,7 +57,8 @@ impl Owner {
     /// An owner of `session`, started as the app starts it.
     fn ensure_session(session: &str, name: &str, env: Vec<(&'static str, &'static str)>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
-        let root = PathBuf::from(format!("/tmp/okp-{name}-{}-{stamp}", std::process::id()));
+        let root =
+            PathBuf::from(format!("/tmp/okp-{name}-{}-{stamp}-{}", std::process::id(), next_id()));
         fs::create_dir_all(root.join("home")).unwrap();
         fs::create_dir_all(root.join("state")).unwrap();
         let mut owner = Self {
@@ -425,7 +426,7 @@ mod owner_keepers {
         use std::os::unix::fs::PermissionsExt;
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
         // Short: a brain's socket lives under its home (103-byte limit).
-        let files = PathBuf::from(format!("/tmp/okb-{}-{stamp}", std::process::id()));
+        let files = PathBuf::from(format!("/tmp/okb-{}-{stamp}-{}", std::process::id(), next_id()));
         fs::create_dir_all(files.join("h")).unwrap();
         // A brain that never connects (its link is down) and exits 0 when
         // the test writes `quit` in its home: a brain that ends cleanly
@@ -521,4 +522,13 @@ fn signal(pid: u32, signal: libc::c_int) {
     // SAFETY: `pid` is this test's own terminal host or its shell; the signal
     // is a constant.
     assert_eq!(unsafe { libc::kill(pid as libc::pid_t, signal) }, 0, "kill {pid}");
+}
+
+/// A number no other call in this process gets, for a temporary name that must stay short (a Unix
+/// socket path under it has a 103-byte limit). The clock's milliseconds alone gave two parallel
+/// tests one folder.
+fn next_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }

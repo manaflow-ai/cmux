@@ -411,14 +411,23 @@ class SharedDeadlineTests(unittest.TestCase):
         repo, base, head = self.two_slow_generators()
         with mock.patch.multiple(guard, CHECK_TIMEOUT_SECONDS=1, RETRY_CHECK_TIMEOUT_SECONDS=2, DEADLINE_SECONDS=2.5,
                                  create=True):
-            started = time.monotonic()
-            errors, notes = guard.check(repo.root, base, head, [])
-            took = time.monotonic() - started
+            # Each limit a check got: a timed-out run waits at least its limit, so the limits summing to no more
+            # than the deadline is the guard's own bound (how long the run took is the runner's load).
+            limits: list[float] = []
+            real = guard.run_bounded
+
+            def bounded(*args, timeout, **kwargs):
+                limits.append(timeout)
+                return real(*args, timeout=timeout, **kwargs)
+
+            with mock.patch.object(guard, "run_bounded", bounded):
+                errors, notes = guard.check(repo.root, base, head, [])
         self.assertEqual(errors, [])
         for path in (SCHEMA_OUT, OTHER_OUT):
             self.assertTrue(any(n.startswith("timed out: ") and path in n for n in notes), (path, notes))
-        # Each check alone would take its 1 s try and 2 s retry: 6 s for the two.
-        self.assertLess(took, 4.5, notes)
+        # Each check alone would take its 1 s try and 2 s retry: 6 s for the two. The shared deadline cuts them.
+        self.assertLessEqual(sum(limits), 2.5, (limits, notes))
+        self.assertLess(len(limits), 4, (limits, notes))
 
     def test_the_deadline_fits_inside_the_workflow_steps_limit(self):
         limit = step_limit_seconds()

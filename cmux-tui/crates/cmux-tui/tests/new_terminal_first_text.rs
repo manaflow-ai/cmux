@@ -19,7 +19,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 const SLOW_COMMIT_MS: u64 = 400;
 
 fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = unique_nanos();
     PathBuf::from("/tmp").join(format!("cmux-first-text-{}-{stamp}", std::process::id()))
 }
 
@@ -221,4 +221,19 @@ fn a_holder_terminals_first_text_is_timed() {
     let (first_text_ms, _) =
         new_tab_first_text(&[("CMUX_TUI_TERMINAL_HOST_MODEL", "holder".to_string())]);
     assert!(first_text_ms < 30_000, "the first text came {first_text_ms} ms after the request");
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

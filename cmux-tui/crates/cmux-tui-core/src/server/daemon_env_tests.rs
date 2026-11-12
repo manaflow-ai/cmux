@@ -51,8 +51,7 @@ fn spawn_with_options(
     caller_env: &[(&str, &str)],
 ) -> Spawned {
     // A real-runtime mux: the test runtime starts no child process.
-    let nanos =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = unique_nanos();
     let mux = Mux::new(format!("daemon-env-{}-{nanos}", std::process::id()), options);
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound, control: None });
@@ -251,8 +250,7 @@ fn frontend_integration_keys_reach_the_child_unchanged() {
 #[cfg(unix)]
 fn bundled_bin_dir(name: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt as _;
-    let nanos =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = unique_nanos();
     let bin = std::env::temp_dir()
         .join(format!("cmux-daemon-env-{name}-{}-{nanos}", std::process::id()))
         .join("Resources/bin");
@@ -333,4 +331,19 @@ fn without_a_bundled_cli_the_caller_values_stay() {
         spawned.env.get("CMUX_BUNDLED_CLI_PATH").map(String::as_str),
         Some("/Applications/Old.app/Contents/Resources/bin/cmux")
     );
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

@@ -299,7 +299,7 @@ fn packaged_ghostty_resolver_receives_matching_resources() {
     let root = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-resolver-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let resources = root.join("ghostty");
     let binary = root.join("ghostty-config-helper");
@@ -332,7 +332,7 @@ fn ghostty_resolver_drains_output_while_the_child_is_running() {
     let root = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-large-output-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let binary = root.join("ghostty-config-helper");
     std::fs::create_dir_all(&root).unwrap();
@@ -388,7 +388,7 @@ fn fallback_theme_selection_matches_ghostty_first_theme_wins() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -522,4 +522,19 @@ fn omitted_ghostty_cursor_blink_remains_unspecified() {
     assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
     assert_eq!(config.terminal_defaults.cursor_blink, None);
     assert_eq!(config.cursor_blink, None);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

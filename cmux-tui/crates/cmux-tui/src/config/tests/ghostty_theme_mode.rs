@@ -9,7 +9,7 @@ fn ghostty_automatic_window_theme_uses_detected_dark_mode_for_conditional_theme(
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-auto-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -46,7 +46,7 @@ fn ghostty_conditional_terminal_theme_ignores_ghostty_window_theme() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-window-ghostty-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -200,7 +200,7 @@ fn ghostty_window_theme_does_not_use_resolved_background_for_terminal_theme() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-source-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("Light Source Theme"), "background = #f0f1f2\nforeground = #f3f4f5\n")
@@ -230,4 +230,19 @@ fn ghostty_window_theme_does_not_use_resolved_background_for_terminal_theme() {
     assert_eq!(system.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
     assert_eq!(ghostty.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
     assert_eq!(ghostty.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

@@ -106,8 +106,7 @@ fn a_trimmed_replay_keeps_the_newest_lines_and_the_screen() {
 }
 
 fn directory(name: &str) -> std::path::PathBuf {
-    let stamp =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = unique_nanos();
     let directory = std::env::temp_dir()
         .join(format!("cmux-parked-trim-{name}-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&directory).unwrap();
@@ -160,4 +159,19 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
         fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
     assert_eq!(before, after);
     let _ = fs::remove_dir_all(&directory);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

@@ -28,9 +28,7 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "cmux-output-cleanup-puts-{label}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |time| time.as_nanos())
+        unique_nanos()
     ))
 }
 
@@ -552,4 +550,19 @@ fn a_put_without_a_session_or_created_flag_is_kept() {
     assert!(!puts.drops(5, &put), "the latest put stays");
     assert!(!puts.drops(4, &Put { session: "s".into(), droppable: false }), "a created put stays");
     assert!(!puts.drops(4, &Put { session: "t".into(), droppable: true }));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

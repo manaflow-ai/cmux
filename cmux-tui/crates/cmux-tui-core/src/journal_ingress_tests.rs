@@ -65,7 +65,7 @@ fn frontend_events_are_durable_idempotent_and_stably_scoped() {
     let root = std::env::temp_dir().join(format!(
         "cmux-frontend-journal-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("frontend-journal", crate::SurfaceOptions::default(), &root).unwrap();
@@ -116,7 +116,7 @@ fn frontend_event_id_reuse_with_different_content_is_rejected() {
     let root = std::env::temp_dir().join(format!(
         "cmux-frontend-journal-conflict-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("frontend-journal-conflict", crate::SurfaceOptions::default(), &root)
@@ -143,7 +143,7 @@ fn frontend_event_retry_after_segment_sealing_is_idempotent() {
     let root = std::env::temp_dir().join(format!(
         "cmux-frontend-journal-sealed-retry-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "frontend-journal-sealed-retry",
@@ -189,7 +189,7 @@ fn shutdown_waits_for_queued_terminal_journal_output() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-shutdown-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("terminal-journal-shutdown", crate::SurfaceOptions::default(), &root)
@@ -242,7 +242,7 @@ fn retryable_sqlite_wait_releases_mux_before_backoff() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-retry-release-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "terminal-journal-retry-release",
@@ -293,7 +293,7 @@ fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-locked-shutdown-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "terminal-journal-locked-shutdown",
@@ -341,7 +341,7 @@ fn producer_receipt_and_sqlite_retries_share_one_deadline() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-producer-locked-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("journal-producer-locked", crate::SurfaceOptions::default(), &root)
@@ -396,7 +396,7 @@ fn producer_deadline_includes_registry_connection_admission() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-producer-registry-lock-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "journal-producer-registry-lock",
@@ -457,7 +457,7 @@ fn producer_deadline_prevents_a_late_transaction_commit() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-producer-commit-deadline-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "journal-producer-commit-deadline",
@@ -521,7 +521,7 @@ fn producer_waits_for_an_admitted_commit_past_its_deadline() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-producer-admitted-commit-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "journal-producer-admitted-commit",
@@ -581,7 +581,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-producer-indeterminate-commit-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "journal-producer-indeterminate-commit",
@@ -659,7 +659,7 @@ fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-admitted-shutdown-deadline-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "journal-admitted-shutdown-deadline",
@@ -722,7 +722,7 @@ fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-reader-shutdown-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("terminal-reader-shutdown", crate::SurfaceOptions::default(), &root)
@@ -878,7 +878,7 @@ fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-descendant-shutdown-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let descendant_pid_path = root.join("descendant.pid");
     let release_gate_path = root.join("descendant.release");
@@ -1011,7 +1011,7 @@ fn terminal_output_survives_a_short_nonretryable_writer_failure() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-writer-retry-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "terminal-journal-writer-retry",
@@ -1074,7 +1074,7 @@ fn permanent_terminal_writer_failure_releases_the_final_barrier() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-writer-terminal-failure-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent(
         "terminal-journal-writer-terminal-failure",
@@ -1530,7 +1530,7 @@ fn durable_receipt_makes_exact_subject_index_immediately_readable() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-subject-receipt-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("journal-subject-receipt", crate::SurfaceOptions::default(), &root)
@@ -1577,7 +1577,7 @@ fn terminal_output_ingress_throughput_probe() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-ingress-throughput-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("journal-ingress-throughput", crate::SurfaceOptions::default(), &root)
@@ -1635,7 +1635,7 @@ fn agent_hook_ingress_throughput_probe() {
     let root = std::env::temp_dir().join(format!(
         "cmux-agent-hook-throughput-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("agent-hook-throughput", crate::SurfaceOptions::default(), &root)
@@ -1726,4 +1726,19 @@ fn agent_hook_ingress_throughput_probe() {
     }
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

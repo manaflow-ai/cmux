@@ -218,7 +218,7 @@ fn bounded_journal_read_includes_the_durable_exact_subject_head() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-subject-head-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("journal-subject-head", SurfaceOptions::default(), &root).unwrap();
@@ -403,7 +403,7 @@ fn session_journal_stream_regex_matches_exact_terminal_output_bytes() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-terminal-regex-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent("terminal-regex", SurfaceOptions::default(), &root).unwrap();
     let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000041").unwrap();
@@ -460,7 +460,7 @@ fn journal_restore_preview_satisfies_the_public_result_contract() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-restore-contract-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent("restore-contract", SurfaceOptions::default(), &root).unwrap();
     mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
@@ -497,7 +497,7 @@ fn journal_hook_list_omits_absent_optional_filters() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-hook-list-contract-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent("hook-list-contract", SurfaceOptions::default(), &root).unwrap();
     let (writer, outbound) = captured_writer();
@@ -695,7 +695,7 @@ fn persistent_journal_tail_subscribers_share_one_decoded_database_reader() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-shared-reader-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux = Mux::open_persistent("shared-journal", SurfaceOptions::default(), &root).unwrap();
     assert_eq!(mux.journal_database_reader_count_for_test(), 1);
@@ -1123,7 +1123,7 @@ fn resource_shutdown_replay_reserves_handoff_and_retries_the_post_ack_exit() {
     let root = std::env::temp_dir().join(format!(
         "cmux-resource-shutdown-replay-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let request = resource_request(
         "shutdown-replay",
@@ -1225,7 +1225,7 @@ fn session_journal_stream_delivers_a_record_published_while_it_moves_to_the_ring
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-ring-switch-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let mux =
         Mux::open_persistent("journal-ring-switch", SurfaceOptions::default(), &root).unwrap();
@@ -1325,4 +1325,19 @@ fn session_journal_stream_delivers_a_record_published_while_it_moves_to_the_ring
     assert!(disconnect_client(&mux, client, false));
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

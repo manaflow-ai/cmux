@@ -21,7 +21,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "support/private_state.rs"]
 mod private_state;
@@ -122,7 +121,7 @@ sys.stdin.readline()
 "#;
 
 fn unique_root() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let stamp = unique_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("cmux-w5r-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     // macOS /tmp is a symlink; the daemon resolves its own path.
@@ -380,4 +379,19 @@ fn w5r_agents_started_and_resumed_from_an_agent_caller_get_none_of_its_session_e
     assert_eq!(args, ["--resume", SESSION], "resume runs the launcher with the session");
     assert_person_env(&second, "agent resume");
     drop(session);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

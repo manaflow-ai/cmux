@@ -17,6 +17,8 @@ import CmuxNextDesign
 final class AgentPaneActAsMePill {
     /// The pill, once the grant was on in this pane's life.
     private(set) var badge: AgentPaneActAsMeBadge?
+    /// Whether the wait has read the grant off at least once: it waits for the grant to turn on.
+    private(set) var waiting = false
     private var wait: Task<Void, Never>?
 
     nonisolated init() {}
@@ -28,8 +30,13 @@ final class AgentPaneActAsMePill {
         if grant.isOn { return make(grant, in: pane) }
         // task-owner: this pill's `wait`, cancelled in stop() with the pane; it ends when it made the pill
         wait = Task { [weak self, weak pane] in
-            for await on in ObservationStream({ [grant] in grant.isOn }) where on {
+            for await on in ObservationStream({ [grant] in grant.isOn }) {
                 guard let self, let pane, !Task.isCancelled else { return }
+                guard on else {
+                    self.waiting = true
+                    continue
+                }
+                self.waiting = false
                 self.wait = nil
                 return self.make(grant, in: pane)
             }

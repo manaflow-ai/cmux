@@ -1306,6 +1306,21 @@ const fn class_index(value: crate::JournalClass) -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+    /// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+    /// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+    fn unique_nanos() -> u128 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{SystemTime, UNIX_EPOCH};
+        static LAST: AtomicU64 = AtomicU64::new(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+        let (Ok(last) | Err(last)) =
+            LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+        u128::from(now.max(last + 1))
+    }
+
     use super::*;
     use crate::{
         JournalClass, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
@@ -1461,10 +1476,7 @@ mod tests {
             let root = std::env::temp_dir().join(format!(
                 "cmux-jh-{}-{:x}",
                 std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
+                unique_nanos()
             ));
             std::fs::create_dir_all(&root).unwrap();
             let signal_path = root.join("detached.sock");
@@ -1522,7 +1534,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-jh-shutdown-{}-{:x}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            unique_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let signal_path = root.join("detached.sock");
@@ -1673,7 +1685,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-hook-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            unique_nanos()
         ));
         let mux =
             Mux::open_persistent("hook-delivery", crate::SurfaceOptions::default(), &root).unwrap();
@@ -1709,7 +1721,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-hook-causation-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            unique_nanos()
         ));
         let mux = Mux::open_persistent("hook-causation", crate::SurfaceOptions::default(), &root)
             .unwrap();
@@ -1832,7 +1844,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-hook-saturation-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            unique_nanos()
         ));
         let mux = Mux::open_persistent("hook-saturation", crate::SurfaceOptions::default(), &root)
             .unwrap();

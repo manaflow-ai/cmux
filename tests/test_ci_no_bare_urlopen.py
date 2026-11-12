@@ -141,13 +141,15 @@ class NoBareUrlopen(unittest.TestCase):
 
 class Server:
     """An HTTP server on 127.0.0.1 that answers each connection with ANSWER (bytes, or a callable of the
-    request), a byte every GAP seconds (0: all at once), then holds the connection open HOLD seconds, and
-    keeps the requests it received."""
+    request), its first LEAD bytes at once and then a byte every GAP seconds (0: all at once), then holds the
+    connection open HOLD seconds, and keeps the requests it received. FINISHED is set once an answer is all sent and its hold is over: a
+    call that ends while it is unset ended on its own deadline or stall, not on the server's end."""
 
-    def __init__(self, answer, gap: float = 0, hold: float = 0):
-        self.answer, self.gap, self.hold = answer, gap, hold
+    def __init__(self, answer, gap: float = 0, hold: float = 0, lead: int = 0):
+        self.answer, self.gap, self.hold, self.lead = answer, gap, hold, lead
         self.requests: list[tuple[float, bytes]] = []
         self.done = threading.Event()
+        self.finished = threading.Event()
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -175,12 +177,15 @@ class Server:
                 answer = self.answer(data) if callable(self.answer) else self.answer
                 if not self.gap:
                     conn.sendall(answer)
-                    self.done.wait(self.hold)
+                    if not self.done.wait(self.hold):
+                        self.finished.set()
                     return
-                for byte in answer:
+                conn.sendall(answer[:self.lead])
+                for byte in answer[self.lead:]:
                     if self.done.wait(self.gap):
                         return
                     conn.sendall(bytes([byte]))
+                self.finished.set()
             except OSError:
                 return
 
@@ -192,22 +197,36 @@ class Server:
 
 class Transport(unittest.TestCase):
     BOUND = 0.2
+    # A server's hold or trickle that outlasts any bound here many times over; stop() ends it at cleanup. A call
+    # that ends while the server is still at it ended on its own deadline or stall.
+    LONG = 30
     OK = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
 
-    def serve(self, answer, gap: float = 0, hold: float = 0) -> Server:
-        server = Server(answer, gap, hold)
+    def serve(self, answer, gap: float = 0, hold: float = 0, lead: int = 0) -> Server:
+        server = Server(answer, gap, hold, lead)
         self.addCleanup(server.stop)
         return server
 
-    def slow_lookup(self, seconds: float) -> None:
+    def stuck_lookup(self) -> threading.Event:
+        """Make every name lookup wait until the returned event is set (at cleanup at the latest)."""
         real = socket.getaddrinfo
+        release = threading.Event()
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            release.wait()
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
         self.addCleanup(setattr, socket, "getaddrinfo", real)
+        self.addCleanup(release.set)
+        return release
+
+    @staticmethod
+    def join_lookups() -> None:
+        """Wait for every lookup thread the transport left behind to end."""
+        for thread in threading.enumerate():
+            if thread.name == "deadline-http-resolve":
+                thread.join()
 
     def test_a_fast_answer_returns_status_body_and_headers(self):
         server = self.serve(self.OK)
@@ -230,14 +249,15 @@ class Transport(unittest.TestCase):
         self.assertEqual(raised.exception.read(), b"slow")
 
     def test_trickled_headers_end_at_the_deadline(self):
-        slow = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 40 + b"\r\nContent-Length: 0\r\n\r\n"
+        # A byte every 30 ms keeps each socket wait short; only the whole-call deadline ends it, long before the
+        # last header byte (the trickle takes LONG s).
+        slow = (b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * int(self.LONG / 0.03)
+                + b"\r\nContent-Length: 0\r\n\r\n")
         server = self.serve(slow, 0.03)
-        started = time.monotonic()
-        with self.assertRaises(deadline_http.RequestTimeout):
+        with self.assertRaisesRegex(deadline_http.RequestTimeout, "deadline") as raised:
             deadline_http.request(server.url, self.BOUND)
-        elapsed = time.monotonic() - started
-        self.assertGreaterEqual(elapsed, self.BOUND * 0.9)
-        self.assertLess(elapsed, self.BOUND + 0.3)
+        self.assertNotIsInstance(raised.exception, deadline_http.Stalled)
+        self.assertFalse(server.finished.is_set(), "the call waited for the trickle to end, not for its deadline")
 
     def test_a_trickled_body_ends_at_the_deadline(self):
         slow = b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n" + b"b" * 40
@@ -247,17 +267,20 @@ class Transport(unittest.TestCase):
 
     def test_a_lookup_past_the_deadline_sends_nothing(self):
         server = self.serve(self.OK)
-        self.slow_lookup(1.5 * self.BOUND)
+        release = self.stuck_lookup()
         request = urllib.request.Request(server.url, data=b"{}", method="POST")
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(request, self.BOUND)
-        time.sleep(self.BOUND)
+        # The lookup answers after the deadline: nothing the transport left behind sends the request.
+        release.set()
+        self.join_lookups()
         self.assertEqual(server.requests, [])
 
     def test_one_deadline_shared_by_calls_counts_time_already_spent(self):
         server = self.serve(self.OK)
-        deadline = deadline_http.Deadline(self.BOUND)
-        time.sleep(self.BOUND * 1.1)
+        now = [0.0]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: now[0])
+        now[0] += self.BOUND * 1.1  # earlier calls spent all of it
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(server.url, deadline=deadline)
         self.assertEqual(server.requests, [])
@@ -286,67 +309,76 @@ class Transport(unittest.TestCase):
         # The time left is read at the wait, not before the thread starts (Codex review of #40631, P2; the class of
         # #40574's F2): a start that takes most of the bound must not buy the lookup a fresh bound.
         server = self.serve(self.OK)
-        self.slow_lookup(3 * self.BOUND)
-        real_start = threading.Thread.start
+        self.stuck_lookup()
+        now = [0.0]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: now[0])
+        real_start, real_join = threading.Thread.start, threading.Thread.join
+        waits: list[float] = []
 
         def start(thread):
             if thread.name == "deadline-http-resolve":
-                time.sleep(0.8 * self.BOUND)
+                now[0] += 0.8 * self.BOUND  # the thread is slow to start: most of the bound goes by
             return real_start(thread)
 
-        threading.Thread.start = start
+        def join(thread, timeout=None):
+            if thread.name == "deadline-http-resolve":
+                waits.append(timeout)
+            return real_join(thread, timeout)
+
+        threading.Thread.start, threading.Thread.join = start, join
+        self.addCleanup(setattr, threading.Thread, "join", real_join)
         self.addCleanup(setattr, threading.Thread, "start", real_start)
-        started = time.monotonic()
         with self.assertRaises(deadline_http.RequestTimeout):
-            deadline_http.request(server.url, self.BOUND)
-        self.assertLess(time.monotonic() - started, self.BOUND + 0.1)
+            deadline_http.request(server.url, deadline=deadline)
+        # The lookup is waited on for what is left after the start, not for a fresh bound.
+        self.assertEqual(len(waits), 1, waits)
+        self.assertAlmostEqual(waits[0], 0.2 * self.BOUND)
 
     def test_a_stream_gives_status_and_headers_before_the_body(self):
         # The headers and the body's first bytes at once; the rest never comes.
         server = self.serve(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-39/90\r\n"
-                            b"Content-Length: 40\r\n\r\n" + b"c" * 8, hold=2)
+                            b"Content-Length: 40\r\n\r\n" + b"c" * 8, hold=self.LONG)
         with deadline_http.stream(server.url, self.BOUND) as answer:
             self.assertEqual((answer.status, answer.headers.get("content-range")), (206, "bytes 0-39/90"))
             self.assertEqual(answer.read(8), b"c" * 8)
-            started = time.monotonic()
             with self.assertRaises(deadline_http.RequestTimeout):
                 answer.read(1)
-        self.assertLess(time.monotonic() - started, self.BOUND + 0.3)
+        self.assertFalse(server.finished.is_set(), "the read waited for the server's hold, not for its deadline")
 
     def test_a_trickled_stream_body_ends_at_the_deadline_mid_stream(self):
-        # A byte every 10 ms, under the stall: only the whole-call deadline ends it, partway through the body.
+        # A byte every 10 ms, under the stall: only the whole-call deadline ends it, partway through the body
+        # (which takes LONG s to come).
         bound = 1.0
-        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 300\r\n\r\n" + b"d" * 300, gap=0.01)
-        started = time.monotonic()
+        size = int(self.LONG / 0.01)
+        head = f"HTTP/1.1 200 OK\r\nContent-Length: {size}\r\n\r\n".encode()
+        server = self.serve(head + b"d" * size, gap=0.01, lead=len(head))  # the headers at once
         received = 0
-        with self.assertRaises(deadline_http.RequestTimeout) as raised:
+        with self.assertRaisesRegex(deadline_http.RequestTimeout, "deadline") as raised:
             with deadline_http.stream(server.url, bound, stall=0.5) as answer:
                 self.assertEqual(answer.status, 200)
                 while answer.read(1):
                     received += 1
-        elapsed = time.monotonic() - started
         self.assertNotIsInstance(raised.exception, deadline_http.Stalled)
         self.assertGreater(received, 0)
-        self.assertLess(received, 300)
-        self.assertGreaterEqual(elapsed, bound * 0.9)
-        self.assertLess(elapsed, bound + 0.3)
+        self.assertLess(received, size)
+        self.assertFalse(server.finished.is_set())
 
     def test_a_stream_that_goes_silent_ends_at_its_stall(self):
-        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n" + b"e" * 4, hold=3)
+        # Past the stall the read ends as Stalled; the 2 s deadline would end it as a plain RequestTimeout.
+        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n" + b"e" * 4, hold=self.LONG)
         with deadline_http.stream(server.url, 2.0, stall=self.BOUND) as answer:
             self.assertEqual(answer.read(4), b"e" * 4)
-            started = time.monotonic()
             with self.assertRaises(deadline_http.Stalled):
                 answer.read(1)
-        self.assertLess(time.monotonic() - started, self.BOUND + 0.3)
+        self.assertFalse(server.finished.is_set())
 
     def test_a_headers_only_stream_closes_without_reading_the_body(self):
         # A probe of a big download: status and headers, then out, never waiting for the body.
-        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n" + b"f" * 4, hold=2)
-        started = time.monotonic()
+        # A close that read the body would wait on the server's hold until the 2 s deadline and raise.
+        server = self.serve(b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n" + b"f" * 4, hold=self.LONG)
         with deadline_http.stream(server.url, 2.0) as answer:
             self.assertEqual((answer.status, answer.headers.get("Content-Length")), (200, "999999"))
-        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertFalse(server.finished.is_set())
 
     def test_a_stream_returns_a_redirect_not_followed_then_streams_its_location(self):
         # The release-asset shape: the token request answers with a redirect, the signed URL is streamed.

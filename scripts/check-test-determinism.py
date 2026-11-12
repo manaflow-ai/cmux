@@ -4110,7 +4110,12 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    # A sleep call spelled inside a string or a regex literal (`/sleep (?!1;)\d/`, a script's text) sleeps
+    # nowhere in this file. Shell keeps the raw match: its quoting runs commands too (`bash -c "sleep(…)"`).
+    is_sleep = any(
+        path_suffix == ".sh" or not _is_inside_string_literal(line, match.start(), path_suffix)
+        for match in _SLEEP_CALL.finditer(line)
+    )
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -7685,6 +7690,15 @@ def _self_test() -> int:
         (
             "webviews/test/configured_window.test.ts",
             "      expect(config.retryDelay <= RETRY_DELAY_MS).toBe(true);\n",
+        ),
+        # A sleep call's spelling inside a regex literal or a string is no sleep (web/tests/vm-image-cmux-vm-commands.test.ts).
+        (
+            "web/tests/regex_sleep.test.ts",
+            "expect(wait).not.toMatch(/sleep (?!1;)\\d/);\nexpect(wait).toContain(\"done\");\n",
+        ),
+        (
+            "tests/string_sleep.py",
+            "script = \"import time\\ntime.sleep(300)\\n\"\nassert script.startswith(\"import\")\n",
         ),
         # A temp git repo whose test imports the auto-maintenance opt-out.
         (

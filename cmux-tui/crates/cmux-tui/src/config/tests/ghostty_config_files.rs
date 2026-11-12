@@ -222,7 +222,7 @@ fn ghostty_fallback_theme_selection_skips_unreadable_themes() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-missing-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -250,7 +250,7 @@ fn ghostty_included_config_cannot_replace_successful_root_theme() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-include-first-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     let themes = dir.join("themes");
@@ -296,7 +296,7 @@ fn ghostty_parent_explicit_color_wins_over_theme_loaded_by_include() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-include-overrides-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     let themes = dir.join("themes");
@@ -333,7 +333,7 @@ fn ghostty_included_window_theme_does_not_control_parent_conditional_theme() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-include-window-theme-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     let themes = dir.join("themes");
@@ -377,7 +377,7 @@ fn ghostty_window_theme_does_not_control_conditional_terminal_theme() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-invalid-window-theme-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -415,7 +415,7 @@ fn ghostty_config_file_expands_required_and_optional_home_relative_paths() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-home-include-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = dir.join("home");
     let ghostty_dir = dir.join("ghostty");
@@ -449,7 +449,7 @@ fn ghostty_relative_theme_path_uses_declaring_config_directory() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-relative-theme-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     let nested_dir = ghostty_dir.join("nested");
@@ -479,7 +479,7 @@ fn ghostty_config_file_skips_non_regular_includes() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-nonregular-include-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(ghostty_dir.join("not-a-file")).unwrap();
@@ -505,7 +505,7 @@ fn ghostty_config_file_depth_limit_bounds_include_chain() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-depth-limit-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
@@ -538,7 +538,7 @@ fn ghostty_config_file_count_limit_bounds_broad_include_graph() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-file-count-limit-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
@@ -571,7 +571,7 @@ fn ghostty_config_file_size_limit_skips_oversized_includes() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-size-limit-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
@@ -605,7 +605,7 @@ fn ghostty_config_parse_deadline_discards_partial_defaults() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-deadline-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     std::fs::create_dir_all(&ghostty_dir).unwrap();
@@ -635,7 +635,7 @@ fn ghostty_theme_deadline_keeps_parsed_overrides() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-deadline-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
@@ -686,7 +686,7 @@ fn ghostty_theme_loader_skips_non_regular_and_oversized_candidates() {
     let dir = std::env::temp_dir().join(format!(
         "cmux-tui-ghostty-theme-size-limit-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let ghostty_dir = dir.join("ghostty");
     let themes = ghostty_dir.join("themes");
@@ -716,4 +716,19 @@ fn ghostty_theme_loader_skips_non_regular_and_oversized_candidates() {
 
     assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
     assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }

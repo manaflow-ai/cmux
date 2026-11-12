@@ -44,7 +44,7 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-write-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let repo = root.join("repo");
     let remote = root.join("remote.git");
@@ -191,7 +191,7 @@ fn git_worktree_create_makes_a_branch_worktree_and_leaves_the_checkout_alone() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -267,7 +267,7 @@ fn a_worktree_chats_status_and_branch_diff_follow_its_recorded_base() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-base-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -345,7 +345,7 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-apply-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -441,7 +441,7 @@ fn removing_a_worktree_chat_keeps_unsaved_work_unless_told_to_discard_it() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-remove-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -546,7 +546,7 @@ fn applying_a_worktree_runs_no_clean_filter_from_the_main_checkouts_config() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-apply-filter-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -598,7 +598,7 @@ fn an_edit_in_the_second_the_worktree_was_made_is_applied_a_second_later() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-apply-racy-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -651,7 +651,7 @@ fn a_worktree_whose_index_is_read_only_still_applies() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-apply-readonly-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -697,7 +697,7 @@ fn the_worktree_remove_guard_runs_no_clean_filter_from_a_submodules_config() {
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-remove-submodule-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -774,7 +774,7 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     let root = std::env::temp_dir().join(format!(
         "cmux-git-worktree-setup-{}-{:x}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        unique_nanos()
     ));
     let home = root.join("home");
     let repo = root.join("project");
@@ -871,4 +871,19 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     assert!(read["run"]["output"].as_str().unwrap().contains("broke"), "{read}");
     assert!(bad.join(".git").exists());
     let _ = fs::remove_dir_all(root);
+}
+
+/// A stamp for a temporary name that no other call in this process gets: the clock's nanoseconds,
+/// moved past the last stamp when two calls read the same nanosecond. Parallel tests did, and one
+/// then used or deleted the other's folder ("File exists", a fixture gone mid-test).
+fn unique_nanos() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX));
+    let (Ok(last) | Err(last)) =
+        LAST.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| Some(now.max(last + 1)));
+    u128::from(now.max(last + 1))
 }
