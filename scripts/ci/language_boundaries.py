@@ -7,7 +7,9 @@ swift." #37777 deleted the native Swift Chief transcript for a React page and sh
 nightly; this check fails that diff (tests/fixtures/language-boundaries/pr-37777-name-status.tsv).
 
 A `keep` area fails when the pull request loses files of the area's language there (more deleted or renamed away
-than added) or adds a file of a foreign language there. A `minimal` area fails when the pull request adds a Swift
+than added) or adds a file of a foreign language there. A web or Rust area's loss counts only when the pull request
+also brings in a file of a language that area refuses, anywhere: deleting dead code is no port. A Swift area's
+loss always counts. A `minimal` area fails when the pull request adds a Swift
 file there. The header of .github/language-boundaries.toml is the schema and the rules in full.
 
 Leo's approval, the only way through, needs all three:
@@ -312,6 +314,14 @@ def violations(areas: list[Area], records: list[Record]) -> list[str]:
     """One line per broken boundary, empty when the pull request keeps every area in its language."""
     out = [f"changes the language-boundaries check itself: {rec.path}" for rec in records
            if rec.path in SELF_PATHS or rec.old in SELF_PATHS]
+    # The languages the pull request brings in anywhere: a new file, or one renamed or copied from another
+    # language. A web or Rust area's lost files are a port only when they went somewhere, into a language
+    # the area refuses; deleting dead code there with nothing in its place is not one (#41593 deleted four
+    # dead React experiments and was refused as a port). A Swift area's lost files always count: a deleted
+    # native surface is the shape #37777 shipped.
+    arrived_langs = {language_of(r.path) for r in records
+                     if r.status in ("added", "copied")
+                     or (r.status == "renamed" and language_of(r.old) != language_of(r.path))}
     for area in areas:
         lost, gained, foreign, new_swift = [], [], [], []
         for rec in records:
@@ -333,7 +343,8 @@ def violations(areas: list[Area], records: list[Record]) -> list[str]:
             elif new_in and language_of(rec.path) == "swift" and (
                     arrived or (rec.status == "renamed" and language_of(rec.old) != "swift")):
                 new_swift.append(rec.path if rec.status == "added" else f"{rec.old} -> {rec.path}")
-        if len(lost) > len(gained):
+        ported = area.language == "swift" or any(lang in arrived_langs for lang in FOREIGN[area.language])
+        if len(lost) > len(gained) and ported:
             shown = ", ".join(lost[:8]) + (f" and {len(lost) - 8} more" if len(lost) > 8 else "")
             out.append(f"{area.name}: loses {len(lost) - len(gained)} {area.language} file(s) net "
                        f"({len(lost)} deleted or moved away, {len(gained)} added): {shown}")
