@@ -1,16 +1,15 @@
-// Codex-style tool runs while a turn runs (cx-ncc.108): a running turn keeps each run's calls in
-// sight, as they arrive, and nothing folds until the turn ends (cmux#38339); the ended turn folds
-// each run into one summary line ("Read 2 files and ran a command") that opens to its calls. The
-// call in flight leaves the run for the turn's live line, which names it and replaces itself as
-// calls go by.
+// Codex-style tool runs while a turn runs (cx-ncc.108): the Codex desktop app never lets a running
+// turn's tool calls pile up as a list. Each run folds into one summary line ("Read 2 files and ran a
+// command") that opens to its calls, the latest run too as its calls finish; the call in flight
+// leaves the run for the turn's live line, which names it and replaces itself as calls go by.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
-// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
-// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
 // turn) is covered by live-turn-one-line.test.ts.
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {
@@ -47,8 +46,9 @@ const live = [
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
 
-/// The text each drawn activity row shows, by row id: of the running turn, or of `shaped`.
-function drawnRuns(shaped: AcpmuxRow[] = turnView(live, new Set(), { working: true })): Record<string, string> {
+/// The text each drawn activity row shows, by row id.
+function drawnRuns(): Record<string, string> {
+  const shaped = turnView(live, new Set(), { working: true });
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
@@ -62,21 +62,11 @@ function drawnRuns(shaped: AcpmuxRow[] = turnView(live, new Set(), { working: tr
   );
 }
 
-test("a running turn's run that text followed keeps its calls in sight; ended, it reads as one summary line", () => {
+test("a run that text followed reads as one summary line", () => {
   const reads = drawnRuns().reads!;
-  expect(reads).not.toContain("Read 2 files and ran a command");
-  expect(reads).toContain("README.md");
-  expect(reads).toContain("ls src");
-  const ended = [
-    ...live.slice(0, 4),
-    run("commands", [call("git log", "execute"), call("wc", "execute")]),
-    text("done"),
-    row("s", "turnSummary", { status: "completed", toolCount: 5 }),
-  ];
-  const folded = drawnRuns(turnView(ended, new Set(["worked-u", "worked-between"]))).reads!;
-  expect(folded).toContain("Read 2 files and ran a command");
-  expect(folded).not.toContain("README.md");
-  expect(folded).not.toContain("ls src");
+  expect(reads).toContain("Read 2 files and ran a command");
+  expect(reads).not.toContain("README.md");
+  expect(reads).not.toContain("ls src");
 });
 
 test("the call in flight leaves the run for the live line", () => {
@@ -147,4 +137,24 @@ test("a pending harness prompt keeps one thinking line in place", () => {
   expect(readyThinking[0]).toMatchObject({ id: "thinking-live", version: 1 });
   expect(readyThinking[0]?.status).toBeUndefined();
   expect(ready.filter((entry) => entry.status !== undefined)).toHaveLength(0);
+});
+
+// Review of #41213 (codex, read-only): a short note joins an earlier run to the latest one while a
+// call of the earlier run still runs in the background; the merged run is the latest, whose calls in
+// flight are the live line's, but the line names only the latest call, so the earlier one keeps its row.
+test("a background call still running keeps its row when a short note joins its run to the latest", () => {
+  const rows = [
+    row("u2", "user"),
+    run("watch", [call("cargo watch", "execute", "in_progress"), call("git status", "execute")]),
+    row("note", "assistant", { text: "Now the tests." }),
+    run("tests", [call("bun test", "execute"), call("tsc", "execute", "in_progress")]),
+  ];
+  const shaped = turnView(rows, new Set(), { working: true });
+  const ids = shaped
+    .filter((entry) => entry.kind === "activity")
+    .flatMap((entry) => (entry.items ?? []).map((item) => item.tool?.id));
+  expect(ids).toContain("cargo watch");
+  expect(ids).toContain("bun test");
+  // The latest call in flight is the live line's alone.
+  expect(ids).not.toContain("tsc");
 });

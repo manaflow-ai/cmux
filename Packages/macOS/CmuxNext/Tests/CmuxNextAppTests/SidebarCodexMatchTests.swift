@@ -36,15 +36,15 @@ struct SidebarCodexMatchTests {
         try Self.at(.cozy) {
             let m = SidebarLayoutMetrics.standard
             #expect(m.rowHeight == 30, "Codex's --height-token-nav-row")
-            #expect(m.rowSpacing == 0, "Codex's rows touch")
+            #expect(m.rowSpacing == 2, "2 pt between rows, so two lit fills do not touch")
             #expect(SidebarStyle.contentInset == 8, "Codex's --padding-row-x")
             #expect(SidebarStyle.horizontalInset < SidebarStyle.contentInset, "the fill sits inside the sidebar edge, the title further in")
             #expect(SidebarStyle.rowCornerRadius == 10, "Codex's --radius-token-row")
-            // The pitch did not change: the fill took the old gap.
+            // The row keeps Codex's 30 pt; 2 pt between rows.
             let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: m)
             let a = try #require(layout.row(for: .workspace(WorkspaceID("a"))))
             let b = try #require(layout.row(for: .workspace(WorkspaceID("b"))))
-            #expect(b.y - a.y == 30)
+            #expect(b.y - a.y == 32)
         }
     }
 
