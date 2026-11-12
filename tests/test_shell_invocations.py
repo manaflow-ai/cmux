@@ -549,6 +549,7 @@ class GrammarAgainstBash(unittest.TestCase):
         from shell_invocations import may_run_nested
         rows = (
             'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"',  # #41398 F1
+            "f0() ( : ${y/$[ ${x2:-\"\"${x3:-'$(gh release create v1 dist/x)'}\"\"}0 + 1 ]/r}; ) --",  # legacy $[ ] inside a parameter pattern
             "function publish { gh release create v1 dist/x; }; publish",  # #41133 BLOCK F1
             'echo "${X:-$(case x in x) gh release create v1 dist/x;; esac)}"',  # #41768 F2
             "echo $(case x in x) gh release create v1 dist/x;; esac)",

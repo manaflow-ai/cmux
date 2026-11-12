@@ -248,6 +248,15 @@ def _backtick_script(body: str) -> str:
     return re.sub(r"\\([$`\\])", r"\1", body)
 
 
+def _arithmetic_body(text: str) -> str | None:
+    """The body of a ``$((..))`` or legacy ``$[..]`` arithmetic expansion, or None for another expansion."""
+    if text.startswith("$(("):
+        return text[3:-2]
+    if text.startswith("$["):
+        return text[2:-1]
+    return None
+
+
 def _tree_subs(source: str, words: list) -> list[str] | None:
     """The scripts of the command and process substitutions in WORDS (shell_tree Words of SOURCE), at any depth of
     parameter expansion, arithmetic and array subscript; one inside another is in its outer script. None when a
@@ -264,10 +273,13 @@ def _tree_subs(source: str, words: list) -> list[str] | None:
         for part in _expansions(word.parts):
             if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
                 return None
-            # bash reads an arithmetic body as double-quoted text, wherever the $(( )) is; shell_tree reads a ${ }
-            # inside one unquoted, so `$(( ${x:-'$(a)'} ))` is read again as bash does (a shorter text each time).
-            if isinstance(part, shell_tree.Arith) and source.startswith("$((", part.start):
-                inner = _body_subs(source[part.start + 3:part.end - 2])
+            # bash reads an arithmetic body as double-quoted text, wherever the $(( )) or $[ ] is; shell_tree reads
+            # a ${ } inside one unquoted, so `$(( ${x:-'$(a)'} ))` is read again as bash does (a shorter text each time).
+            if isinstance(part, shell_tree.Arith):
+                body = _arithmetic_body(source[part.start:part.end])
+                if body is None:
+                    continue
+                inner = _body_subs(body)
                 if inner is None:
                     return None
                 found.extend(script for script in inner if script not in found)
@@ -282,13 +294,14 @@ def _expansions(parts: list):
 
 
 def _expansion_subs(text: str, in_double: bool) -> list[str] | None:
-    """The scripts of the substitutions a `${..}` or `$((..))` expansion (TEXT, whole) may run, read by shell_tree.
+    """The scripts of the substitutions a `${..}`, `$((..))` or `$[..]` expansion (TEXT, whole) may run, read by shell_tree.
     Both readings count, because a context this lexer does not track can change which applies: unquoted, and as
     bash reads it inside double quotes or arithmetic, where a ${ }'s single quote is literal (`(( ${x:-'`a`'} ))`
     runs a). An arithmetic body is also read the way bash reads it, as double-quoted text. None when either reading
     fails: the caller then stops, so whatever follows may run anything (fail closed)."""
     found = _read_expansion(text, in_double)
-    other = _body_subs(text[3:-2]) if text.startswith("$((") else _read_expansion(text, not in_double)
+    arithmetic_body = _arithmetic_body(text)
+    other = _body_subs(arithmetic_body) if arithmetic_body is not None else _read_expansion(text, not in_double)
     if found is None or other is None:
         return None
     return found + [script for script in other if script not in found]
