@@ -286,18 +286,25 @@ extension PaletteModel {
     }
 
     /// `sections` with each of the page's `notices` (`PaletteItem.showsForEveryQuery`; the ranker never finds
-    /// one for a typed query) after the rows of its section, or in a last section of its own. A page with no
-    /// notice (nearly every page) costs one check; a notice costs a lookup of its section and one append.
+    /// one for a typed query), each as a block of its own: right under the rows of its section with no header,
+    /// or last with its section's header when the query found no row of that section. No row of `sections` is
+    /// read or copied: a page with no notice (nearly every page) costs one check, a notice costs one lookup
+    /// among the sections and one insert of a one-row block.
     static func withNotices(_ sections: [PaletteResultSection], _ notices: [PaletteItem]) -> [PaletteResultSection] {
         guard !notices.isEmpty else { return sections }
         var sections = sections
         for notice in notices {
-            let row = PaletteRow(item: notice, highlights: [], score: 0)
-            if let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) {
-                sections[index] = PaletteResultSection(section: sections[index].section, rows: sections[index].rows + [row])
-            } else {
-                sections.append(PaletteResultSection(section: notice.section, rows: [row]))
+            let rows = [PaletteRow(item: notice, highlights: [], score: 0)]
+            guard let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) else {
+                sections.append(PaletteResultSection(section: notice.section, rows: rows))
+                continue
             }
+            // After the notices this section already has, so they keep the page's order.
+            let prefix = "\(notice.section.id)#notice:"
+            var place = index + 1
+            while place < sections.count, sections[place].section.id.hasPrefix(prefix) { place += 1 }
+            let under = PaletteSection(id: prefix + notice.id, title: "", order: notice.section.order)
+            sections.insert(PaletteResultSection(section: under, rows: rows), at: place)
         }
         return sections
     }
