@@ -834,7 +834,8 @@ public final class MacHomeFeed {
         if wantsAll || windows != true || wantedIDs.count > MacHomeRows.idsLimit {
             wantsAll = false
             wantedIDs = []
-            let reply = try await MacHomeReply.read(client, ["owners": ["local"]])
+            // Below the first window's priority: it never slows the first screen down.
+            let reply = try await MacHomeReply.read(client, ["owners": ["local"]], priority: MacHomeReply.wholeListPriority)
             guard mine == generation else { return }
             applyRows(reply, asked: [])
             return
@@ -899,7 +900,7 @@ public final class MacHomeFeed {
     private func listed(_ client: DaemonClient) async throws {
         // The owner's whole list of conversations, parsed off the main actor.
         let line = try await client.request("conversation-list", params: [:])
-        let (seqs, chief) = try await Task.detached(priority: .userInitiated) { () throws -> ([String: Int], String?) in
+        let (seqs, chief) = try await Task.detached(priority: MacHomeReply.wholeListPriority) { () throws -> ([String: Int], String?) in
             let list = try Self.data(line, "conversation-list")
             let summaries = list["conversations"] as? [[String: Any]] ?? []
             var seqs: [String: Int] = [:]

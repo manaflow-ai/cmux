@@ -184,6 +184,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var refreshAfterTUI = false
     private(set) var started = false
     private var fling: FlingAnimator?
+    /// Jump to bottom's animated scroll, while it runs (CMUX-10).
+    private var glide: BottomGlide?
     /// What the dock shows (key row, composer) and the soft keyboard's state.
     private var dock = TerminalDockVisibility()
     private var tuiSizing = TerminalTUISizing()
@@ -663,14 +665,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A deceleration stopped by a touch that never became a drag ends no
         // gesture: settle it here.
         if scroll.isInteracting, !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating,
-           fling == nil, !dragPinsToComposer, !model.isTUI, cell.height > 0 {
+           fling == nil, glide == nil, !dragPinsToComposer, !model.isTUI, cell.height > 0 {
             scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
             #if DEBUG
             sizingLog.notice("scroll: settled by applyScroll -> \(String(describing: self.scroll.state), privacy: .public)")
             #endif
         }
-        // UIKit is moving the page: leave it alone.
+        // UIKit (or Jump to bottom's glide) is moving the page: leave it alone.
         if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating, !dragPinsToComposer { return }
+        if glide != nil { return }
         guard !model.isTUI, cell.height > 0,
               let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
                                          bottomOffsetY: maxOffsetY) else { return }
@@ -1301,6 +1304,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// stops so the restore can land. Near the bottom, nothing: follow.
     private func markReadingPosition() {
         guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        // Mid Jump to bottom: the reader asked for the bottom, not the row
+        // the glide was passing.
+        if glide != nil {
+            stopGlide(thenFollow: true)
+            restoredMark = nil
+            return
+        }
         let anchor: TerminalScrollModel.Anchor?
         switch scroll.state {
         case .following:
@@ -1321,6 +1331,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if scrollView.isDecelerating || fling != nil {
             fling?.stop()
             fling = nil
+            stopGlide()
             settingOffset = true
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
             settingOffset = false
@@ -1729,6 +1740,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard cell.height > 0, !model.isTUI else { return }
         fling?.stop()
         fling = nil
+        stopGlide()
         scroll.input()
         applyScroll()
     }
@@ -1753,8 +1765,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A move waiting for its frame asks only for its target's rows (qa11
         // wt-fling-c/d: a report or an inset change asked again for the
         // reader's rows, and that frame came after the end's).
-        let visibleMinY = TerminalScrollGate.requestOffset(awaiting: followAwaitsPresent, current: requested,
-                                                           target: followAwaitsPresent ? pendingTarget : nil)
+        // Jump to bottom's glide waiting for its entry's frame asks for the
+        // entry's rows the same way (a report in between asked again for the
+        // reader's rows, and the entry was never drawn).
+        let entry = glide?.pendingEntry
+        let visibleMinY = TerminalScrollGate.requestOffset(awaiting: followAwaitsPresent || entry != nil, current: requested,
+                                                           target: entry ?? (followAwaitsPresent ? pendingTarget : nil))
         let maxTop = max(0, scrollbar.total - surfaceRows)
         let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
         let visibleBottom = originRow + Int(ceil((max(0, visibleMinY) + view.bounds.height) / cell.height))
@@ -2083,6 +2099,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
         }
         if tui {
+            stopGlide(thenFollow: true)
             copyMode.exit()
             selection.clear()
             tuiSizing.tuiStarted()
@@ -2222,6 +2239,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         awaitStarted = nil
         fling?.stop()
         fling = nil
+        stopGlide()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -2283,7 +2301,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Following (a Jump to bottom tap, typing) hides the row at once,
         // while the page may still wait for the end's frame: the composer
         // shrinks before the page lands, not in the frames after (qa11 wt-fling-b).
-        let visible = requested && !following
+        let visible = requested && !following && glide == nil
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
         // The stack's top row shows Jump to bottom (`TerminalJumpToBottomRow`).
@@ -2308,7 +2326,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func scrollToBottom(animated: Bool) {
         fling?.stop()
         fling = nil
-        scroll.jumpToBottom()
+        stopGlide()
         if scrollView.isTracking || scrollView.isDragging {
             let pan = scrollView.panGestureRecognizer
             pan.isEnabled = false
@@ -2319,12 +2337,73 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
             settingOffset = false
         }
+        // An animated scroll to the live bottom (CMUX-10: the tap snapped
+        // there). Reduce Motion, a TUI or a page already at the bottom keep
+        // the direct move.
+        if animated, !UIAccessibility.isReduceMotionEnabled, !model.isTUI, cell.height > 0,
+           maxOffsetY - scrollView.contentOffset.y > cell.height {
+            startGlide()
+            return
+        }
+        scroll.jumpToBottom()
         setScrollButton(visible: false)
         applyScroll()
         #if DEBUG
         sizingLog.notice("scroll: jump to bottom (decelerating \(self.scrollView.isDecelerating, privacy: .public), tracking \(self.scrollView.isTracking, privacy: .public)) -> offset \(Int(self.scrollView.contentOffset.y), privacy: .public) of \(Int(self.maxOffsetY), privacy: .public)")
         #endif
     }
+
+    /// Glides to the live bottom over one short ease-out, per display frame
+    /// through the same delegate path as a fling (the rows the page passes
+    /// are asked for as it moves). Far up, it starts a glide's length above
+    /// the bottom once that frame is drawn, so the page never shows rows it
+    /// has not rendered. A drag, typing, find, Scroll to Top, a selection's
+    /// autoscroll, a reset or a full-screen app stops it (a tap does not, and
+    /// opens no link while it runs); its end follows the bottom, as the
+    /// direct jump did.
+    private func startGlide() {
+        // The page is owned by the glide: no settle, no placement (applyScroll).
+        scroll.began()
+        let viewport = max(scrollView.bounds.height, 1)
+        let animator = BottomGlide(
+            scrollView: scrollView,
+            bottom: { [weak self] in self?.maxOffsetY ?? 0 },
+            maxDistance: viewport * BottomGlide.maxViewports,
+            covered: { [weak self] y in self?.targetCovered(y) ?? true },
+            prepare: { [weak self] y in self?.updateViewport(visibleMinY: y) })
+        animator.onEnd = { [weak self] in
+            guard let self, glide === animator else { return }
+            glide = nil
+            scroll.jumpToBottom()
+            // Output during the glide only grew the end (updateDocument);
+            // measure it now, as a gesture's end does (settleScroll).
+            if measureAfterGesture {
+                measureAfterGesture = false
+                outputSinceProbe = true
+                updateDocument()
+            }
+            applyScroll()
+        }
+        glide = animator
+        // The pill goes at once: the stack is laid out before the first step,
+        // so the glide aims at the bottom without it.
+        setScrollButton(visible: false)
+        animator.start()
+        #if DEBUG
+        sizingLog.notice("scroll: jump to bottom, glide from \(Int(self.scrollView.contentOffset.y), privacy: .public) to \(Int(self.maxOffsetY), privacy: .public)")
+        #endif
+    }
+
+    /// Stops Jump to bottom's glide where it is. The caller sets the state;
+    /// `thenFollow` leaves it following first (the glide's own `interacting`
+    /// would refuse a reveal: find, Scroll to Top).
+    private func stopGlide(thenFollow: Bool = false) {
+        guard let animator = glide else { return }
+        glide = nil
+        animator.cancel()
+        if thenFollow { scroll.jumpToBottom() }
+    }
+
 
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
@@ -2457,6 +2536,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let topY = document.contentY(ofRow: top, cellHeight: cell.height) - scrollView.adjustedContentInset.top
         fling?.stop()
         fling = nil
+        stopGlide(thenFollow: true)
         if topY >= maxOffsetY - 0.5 {
             scroll.jumpToBottom()
         } else {
@@ -2527,6 +2607,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI, let document, cell.height > 0 else { return }
         fling?.stop()
         fling = nil
+        stopGlide(thenFollow: true)
         scroll.reveal(row: document.originRow, delta: -scrollView.adjustedContentInset.top)
         placesFromReport = false
         applyScroll()
@@ -2670,6 +2751,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             fling?.stop()
             fling = nil
+            stopGlide()
             placesFromReport = false
             restoredMark = nil
             scroll.began()
@@ -3060,7 +3142,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// A tap on the shell notes whether it landed on a moving scroll (that tap only stops it).
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === shellTap {
-            tapStoppedScroll = fling != nil || scrollView.isDecelerating
+            tapStoppedScroll = fling != nil || glide != nil || scrollView.isDecelerating
         }
         return true
     }
@@ -3078,6 +3160,101 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
 
 final class TerminalScrollView: UIScrollView {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
+}
+
+/// Jump to bottom's scroll (CMUX-10): from the page's offset to the live
+/// bottom over `duration`, ease-out, re-reading the bottom every frame so
+/// output that arrives meanwhile is where it lands. Farther than
+/// `maxDistance`, it first waits (up to `waitFrames`) for the frame that draws
+/// the rows `maxDistance` above the bottom, moves there, then glides.
+@MainActor
+final class BottomGlide {
+    /// The farthest glide, in viewports; a longer scroll starts this far up.
+    static let maxViewports: CGFloat = 1.5
+    static let duration: CFTimeInterval = 0.32
+    static let waitFrames = 8
+
+    private weak var scrollView: UIScrollView?
+    private let bottom: () -> CGFloat
+    private let covered: (CGFloat) -> Bool
+    private let prepare: (CGFloat) -> Void
+    private let maxDistance: CGFloat
+    private var from: CGFloat = 0
+    private var startTime: CFTimeInterval = 0
+    private var waitingFor: CGFloat?
+    private var waited = 0
+    private var link: CADisplayLink?
+    var onEnd: (() -> Void)?
+
+    init(scrollView: UIScrollView, bottom: @escaping () -> CGFloat, maxDistance: CGFloat,
+         covered: @escaping (CGFloat) -> Bool, prepare: @escaping (CGFloat) -> Void) {
+        self.scrollView = scrollView
+        self.bottom = bottom
+        self.maxDistance = maxDistance
+        self.covered = covered
+        self.prepare = prepare
+    }
+
+    func start() {
+        guard let scrollView else { return finish() }
+        let current = scrollView.contentOffset.y
+        let end = bottom()
+        if end - current > maxDistance {
+            let entry = end - maxDistance
+            waitingFor = entry
+            prepare(entry)
+        } else {
+            from = current
+        }
+        let link = CADisplayLink(target: self, selector: #selector(step(_:)))
+        link.preferredFrameRateRange = .terminal
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    /// The offset whose rows the glide waits to be drawn before it moves.
+    var pendingEntry: CGFloat? { waitingFor }
+
+    /// Stopped by a drag, typing or another scroll: no `onEnd`.
+    func cancel() {
+        link?.invalidate()
+        link = nil
+        onEnd = nil
+    }
+
+    private func finish() {
+        link?.invalidate()
+        link = nil
+        let end = onEnd
+        onEnd = nil
+        end?()
+    }
+
+    /// Ease-out cubic: fast off the mark, settling onto the bottom.
+    static func progress(elapsed: CFTimeInterval, duration: CFTimeInterval) -> CGFloat {
+        let t = CGFloat(min(max(elapsed / duration, 0), 1))
+        return 1 - pow(1 - t, 3)
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        guard let scrollView else { return finish() }
+        if let entry = waitingFor {
+            guard covered(entry) || waited >= Self.waitFrames else {
+                waited += 1
+                return
+            }
+            waitingFor = nil
+            scrollView.contentOffset.y = entry
+            from = entry
+            startTime = link.targetTimestamp
+            return
+        }
+        if startTime == 0 { startTime = link.timestamp }
+        let p = Self.progress(elapsed: link.targetTimestamp - startTime, duration: Self.duration)
+        let end = bottom()
+        scrollView.contentOffset.y = from + (end - from) * p
+        if p >= 1 { finish() }
+    }
 }
 
 /// Decelerates like UIScrollView (rate 0.998 per millisecond) on the display link.
