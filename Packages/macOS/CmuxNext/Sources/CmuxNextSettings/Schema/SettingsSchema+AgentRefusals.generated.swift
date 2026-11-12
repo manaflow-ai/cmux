@@ -120,6 +120,8 @@ extension SettingsSchema {
         "diagnostics.hangReports": .privacy,
         // Whether this computer counts how the person uses cmux: the person's choice only.
         "diagnostics.usagePatterns": .privacy,
+        // Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.
+        "diagnostics.shareInstallCounts": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.

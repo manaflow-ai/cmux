@@ -11,6 +11,9 @@ extension HangReportsSettingsSchema {
     /// `diagnostics.usagePatterns`: Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour, and the registry names of packages agents' shell calls install (acpmux hub/tool_installs.rs; the Cloud image's package list is chosen from them). Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).
     nonisolated static let usagePatternsPath = ["diagnostics", "usagePatterns"]
     nonisolated static let usagePatternsDefault = false
+    /// `diagnostics.shareInstallCounts`: Leo 2026-11-05: "Like just an option in settings, like, Hey, you can do this to improve CMux". Whether this Mac and the person's Cloud machines send cmux the registry names and counts of packages agents' shell calls install (acpmux install_share.rs; cmux-platform /v1/install-counts), so the Cloud image bake pre-downloads the common ones. Off by default; a Cloud machine asks the platform for the person's choice. Never prompts, commands, paths, project names or identity. Agents may not change it (privacy).
+    nonisolated static let shareInstallCountsPath = ["diagnostics", "shareInstallCounts"]
+    nonisolated static let shareInstallCountsDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -47,6 +50,17 @@ nonisolated enum HangReportsSettingsSchema {
                 kind: .toggle,
                 default: .bool(HangReportsSettingsSchema.usagePatternsDefault),
                 keywords: ["usage", "patterns", "stats", "statistics", "analytics", "tracking", "metrics", "privacy", "counts", "habits"]
+            ),
+            SettingDescriptor(
+                HangReportsSettingsSchema.shareInstallCountsPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.diagnostics.shareInstallCounts", "Share Package Installs to Improve cmux"),
+                help: SettingsText.keyed("settings.diagnostics.shareInstallCounts.help", "Sends cmux how often agents install each package, by registry name (like react or numpy), from this Mac and your Cloud machines, so new Cloud machines come with the common ones already downloaded. Never prompts, commands, file or project names, or anything that identifies you. Turning it off drops what was not sent yet."),
+                summary: SettingsText.keyed("settings.diagnostics.shareInstallCounts.summary", "Package names and counts only."),
+                kind: .toggle,
+                default: .bool(HangReportsSettingsSchema.shareInstallCountsDefault),
+                keywords: ["share", "improve", "packages", "installs", "cloud", "image", "privacy", "telemetry", "analytics"]
             ),
         ]
     }

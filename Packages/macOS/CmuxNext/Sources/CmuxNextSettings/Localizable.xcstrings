@@ -219391,6 +219391,84 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Mẫu sử dụng"}}
       }
     },
+    "settings.diagnostics.shareInstallCounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Share Package Installs to Improve cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مشاركة تثبيت الحزم لتحسين cmux"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Paketinstallationen teilen, um cmux zu verbessern"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compartir instalaciones de paquetes para mejorar cmux"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Partager les installations de paquets pour améliorer cmux"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージのインストール情報を共有して cmux を改善"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 설치 정보를 공유해 cmux 개선"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "共享软件包安装情况以改进 cmux"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "分享套件安裝情況以改進 cmux"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dijeli instalacije paketa za poboljšanje cmuxa"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallationer for at forbedre cmux"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Condividi le installazioni di pacchetti per migliorare cmux"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចែករំលែកការដំឡើងកញ្ចប់ ដើម្បីកែលម្អ cmux"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallasjoner for å forbedre cmux"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Udostępniaj instalacje pakietów, by ulepszyć cmux"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Compartilhar instalações de pacotes para melhorar o cmux"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Делиться установками пакетов, чтобы улучшать cmux"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชร์การติดตั้งแพ็กเกจเพื่อปรับปรุง cmux"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "cmux'u geliştirmek için paket kurulumlarını paylaş"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Ділитися встановленнями пакетів, щоб покращувати cmux"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chia sẻ lượt cài gói để cải thiện cmux"}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends cmux how often agents install each package, by registry name (like react or numpy), from this Mac and your Cloud machines, so new Cloud machines come with the common ones already downloaded. Never prompts, commands, file or project names, or anything that identifies you. Turning it off drops what was not sent yet."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يرسل إلى cmux عدد مرات تثبيت الوكلاء لكل حزمة، باسمها في السجل (مثل react أو numpy)، من هذا الـ Mac وأجهزة Cloud الخاصة بك، لكي تأتي أجهزة Cloud الجديدة وفيها الحزم الشائعة منزّلة مسبقًا. لا يرسل أبدًا المطالبات أو الأوامر أو أسماء الملفات أو المشاريع أو أي شيء يعرّف بك. إيقافه يحذف ما لم يُرسل بعد."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sendet cmux, wie oft Agenten jedes Paket installieren, mit seinem Registry-Namen (etwa react oder numpy), von diesem Mac und deinen Cloud-Maschinen, damit neue Cloud-Maschinen die üblichen Pakete schon heruntergeladen haben. Sendet nie Prompts, Befehle, Datei- oder Projektnamen oder etwas, das dich identifiziert. Beim Ausschalten wird verworfen, was noch nicht gesendet wurde."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Envía a cmux cuántas veces los agentes instalan cada paquete, por su nombre en el registro (como react o numpy), desde este Mac y tus máquinas Cloud, para que las nuevas máquinas Cloud vengan con los paquetes habituales ya descargados. Nunca envía prompts, comandos, nombres de archivos o proyectos ni nada que te identifique. Al desactivarlo se descarta lo que aún no se envió."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoie à cmux le nombre de fois où les agents installent chaque paquet, par son nom dans le registre (comme react ou numpy), depuis ce Mac et vos machines Cloud, pour que les nouvelles machines Cloud arrivent avec les paquets courants déjà téléchargés. N’envoie jamais de prompts, de commandes, de noms de fichiers ou de projets, ni rien qui vous identifie. Le désactiver supprime ce qui n’a pas encore été envoyé."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが各パッケージをインストールした回数を、レジストリ名（react や numpy など）で、この Mac とあなたの Cloud マシンから cmux に送信します。新しい Cloud マシンによく使われるパッケージをあらかじめダウンロードしておくためです。プロンプト、コマンド、ファイル名やプロジェクト名、あなたを特定できる情報は一切送信しません。オフにすると、まだ送信していない分は破棄されます。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트가 각 패키지를 설치한 횟수를 레지스트리 이름(react, numpy 등)으로 이 Mac과 내 Cloud 머신에서 cmux로 보냅니다. 새 Cloud 머신에 자주 쓰는 패키지를 미리 내려받아 두기 위해서입니다. 프롬프트, 명령, 파일 이름이나 프로젝트 이름, 나를 식별할 수 있는 정보는 절대 보내지 않습니다. 끄면 아직 보내지 않은 내용은 삭제됩니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "从这台 Mac 和你的 Cloud 机器向 cmux 发送智能体安装各软件包的次数（按注册表名称，如 react 或 numpy），让新的 Cloud 机器预先下载好常用软件包。绝不发送提示词、命令、文件名或项目名，也不发送任何能识别你的信息。关闭后会丢弃尚未发送的内容。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "從這台 Mac 和你的 Cloud 機器向 cmux 傳送代理程式安裝各套件的次數（依登錄名稱，如 react 或 numpy），讓新的 Cloud 機器預先下載好常用套件。絕不傳送提示詞、指令、檔案名稱或專案名稱，也不傳送任何能識別你的資訊。關閉後會捨棄尚未傳送的內容。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalje cmuxu koliko često agenti instaliraju svaki paket, po nazivu iz registra (npr. react ili numpy), s ovog Maca i tvojih Cloud mašina, kako bi nove Cloud mašine dolazile s uobičajenim paketima već preuzetim. Nikad ne šalje promptove, naredbe, nazive datoteka ili projekata niti išta što te identificira. Isključivanjem se briše ono što još nije poslano."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sender cmux, hvor ofte agenter installerer hver pakke, efter navnet i registret (f.eks. react eller numpy), fra denne Mac og dine Cloud-maskiner, så nye Cloud-maskiner kommer med de almindelige pakker allerede hentet. Sender aldrig prompts, kommandoer, fil- eller projektnavne eller noget, der identificerer dig. Når du slår det fra, slettes det, der endnu ikke er sendt."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia a cmux quante volte gli agenti installano ogni pacchetto, con il nome del registro (come react o numpy), da questo Mac e dalle tue macchine Cloud, così le nuove macchine Cloud arrivano con i pacchetti comuni già scaricati. Non invia mai prompt, comandi, nomi di file o progetti né nulla che ti identifichi. Disattivandolo si scarta ciò che non è ancora stato inviato."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើទៅ cmux នូវចំនួនដងដែលភ្នាក់ងារដំឡើងកញ្ចប់នីមួយៗ តាមឈ្មោះក្នុងបញ្ជី (ដូចជា react ឬ numpy) ពី Mac នេះ និងម៉ាស៊ីន Cloud របស់អ្នក ដើម្បីឱ្យម៉ាស៊ីន Cloud ថ្មីមានកញ្ចប់ទូទៅទាញយករួចជាស្រេច។ មិនដែលផ្ញើប្រអប់បញ្ចូល ពាក្យបញ្ជា ឈ្មោះឯកសារ ឬគម្រោង ឬអ្វីដែលសម្គាល់អ្នកឡើយ។ ការបិទវានឹងលុបអ្វីដែលមិនទាន់បានផ្ញើ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sender cmux hvor ofte agenter installerer hver pakke, etter navnet i registeret (som react eller numpy), fra denne Macen og Cloud-maskinene dine, slik at nye Cloud-maskiner kommer med de vanlige pakkene allerede lastet ned. Sender aldri prompter, kommandoer, fil- eller prosjektnavn eller noe som identifiserer deg. Når du slår det av, forkastes det som ikke er sendt ennå."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyła do cmux, jak często agenci instalują każdy pakiet, według nazwy w rejestrze (np. react lub numpy), z tego Maca i Twoich maszyn Cloud, aby nowe maszyny Cloud miały popularne pakiety już pobrane. Nigdy nie wysyła promptów, poleceń, nazw plików ani projektów ani niczego, co Cię identyfikuje. Wyłączenie odrzuca to, co nie zostało jeszcze wysłane."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Envia ao cmux quantas vezes os agentes instalam cada pacote, pelo nome no registro (como react ou numpy), deste Mac e das suas máquinas Cloud, para que novas máquinas Cloud já venham com os pacotes comuns baixados. Nunca envia prompts, comandos, nomes de arquivos ou projetos nem nada que identifique você. Ao desativar, o que ainda não foi enviado é descartado."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправляет в cmux, сколько раз агенты устанавливают каждый пакет, по его имени в реестре (например, react или numpy), с этого Mac и ваших машин Cloud, чтобы новые машины Cloud сразу содержали популярные пакеты. Никогда не отправляет промпты, команды, имена файлов или проектов и ничего, что вас идентифицирует. При выключении неотправленное удаляется."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งให้ cmux ว่าเอเจนต์ติดตั้งแต่ละแพ็กเกจบ่อยแค่ไหน ตามชื่อในรีจิสทรี (เช่น react หรือ numpy) จาก Mac เครื่องนี้และเครื่อง Cloud ของคุณ เพื่อให้เครื่อง Cloud ใหม่มีแพ็กเกจที่ใช้บ่อยดาวน์โหลดไว้แล้ว ไม่ส่งพรอมต์ คำสั่ง ชื่อไฟล์หรือโปรเจกต์ หรือสิ่งใดที่ระบุตัวคุณ การปิดจะทิ้งข้อมูลที่ยังไม่ได้ส่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajanların her paketi ne sıklıkla kurduğunu, kayıt defterindeki adıyla (react veya numpy gibi), bu Mac'ten ve Cloud makinelerinden cmux'a gönderir; böylece yeni Cloud makineleri yaygın paketler önceden indirilmiş olarak gelir. İstemleri, komutları, dosya veya proje adlarını ya da seni tanımlayan hiçbir şeyi asla göndermez. Kapatınca henüz gönderilmemiş olanlar silinir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилає в cmux, скільки разів агенти встановлюють кожен пакет, за його назвою в реєстрі (наприклад, react або numpy), з цього Mac і ваших машин Cloud, щоб нові машини Cloud одразу мали популярні пакети. Ніколи не надсилає промпти, команди, назви файлів чи проєктів або будь-що, що вас ідентифікує. Вимкнення видаляє ще не надіслане."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi cho cmux số lần tác tử cài mỗi gói, theo tên trong registry (như react hoặc numpy), từ máy Mac này và các máy Cloud của bạn, để máy Cloud mới có sẵn các gói phổ biến. Không bao giờ gửi prompt, lệnh, tên tệp hay dự án hoặc bất cứ thứ gì nhận dạng bạn. Tắt đi sẽ bỏ những gì chưa gửi."}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Package names and counts only."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أسماء الحزم وأعدادها فقط."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nur Paketnamen und Anzahlen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Solo nombres de paquetes y cantidades."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Noms de paquets et nombres uniquement."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージ名と回数のみ。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 이름과 횟수만."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "仅包含软件包名称和次数。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "僅包含套件名稱和次數。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Samo nazivi paketa i brojevi."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kun pakkenavne og antal."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Solo nomi dei pacchetti e conteggi."}},
+        "km": {"stringUnit": {"state": "translated", "value": "តែឈ្មោះកញ្ចប់ និងចំនួនប៉ុណ្ណោះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bare pakkenavn og antall."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tylko nazwy pakietów i liczby."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Somente nomes de pacotes e contagens."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Только названия пакетов и счётчики."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เฉพาะชื่อแพ็กเกจและจำนวนเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yalnızca paket adları ve sayılar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Лише назви пакетів і лічильники."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chỉ tên gói và số lần."}}
+      }
+    },
     "settings.diagnostics.usagePatterns": {
       "extractionState": "manual",
       "localizations": {
