@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { settleReact } from "./support/domTeardown";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -31,8 +32,9 @@ beforeAll(() => {
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
-afterAll(() => {
+afterAll(async () => {
   AcpmuxDirectClient.scheduleFrame = savedSchedule;
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

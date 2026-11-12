@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 628,
+  "count": 629,
   "sections": [
     {
       "id": "general",
@@ -2764,6 +2764,19 @@
           "range": {
             "min": 0,
             "max": 6,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.sidebarRowHeight",
+          "title": "Workspace Row Height",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 20,
+            "max": 48,
             "unit": "points"
           }
         },

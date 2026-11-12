@@ -39,7 +39,18 @@ done
 min_minutes="${CMUX_NIGHTLY_NEXT_CONTINUE_MIN_MINUTES:-30}"
 max_age_hours="${CMUX_NIGHTLY_NEXT_CONTINUE_MAX_AGE_HOURS:-6}"
 [[ "$min_minutes" =~ ^[0-9]+$ && "$max_age_hours" =~ ^[0-9]+$ ]] || { echo "error: the limits must be whole numbers" >&2; exit 2; }
-now="${CMUX_NOW_EPOCH:-$(date +%s)}"
+# CMUX_NOW_EPOCH follows scripts/ci/cmux_now_epoch.py's rule, kept here because main has no copy
+# of that file: digits only, 0 to 253402300799; unset is the real clock; anything else, empty
+# included, exits 2 (tests/test_cmux_now_epoch.py runs both on one table of values).
+if [[ -n "${CMUX_NOW_EPOCH+set}" ]]; then
+  if [[ ! "$CMUX_NOW_EPOCH" =~ ^[0123456789]{1,12}$ ]] || (( 10#$CMUX_NOW_EPOCH > 253402300799 )); then
+    echo "error: CMUX_NOW_EPOCH='$CMUX_NOW_EPOCH' is not an epoch: whole seconds since 1970 UTC, 0 to 253402300799 (4133980800 is 2101-01-01); unset it for the real clock" >&2
+    exit 2
+  fi
+  now=$((10#$CMUX_NOW_EPOCH))
+else
+  now="$(date +%s)"
+fi
 
 if ! runs="$(gh api "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=30")"; then
   echo "warning: could not list nightly-next runs; not requesting a continuation" >&2
