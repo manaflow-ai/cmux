@@ -689,7 +689,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             "no Blacksmith twin": {k: v for k, v in both.items() if k != twin_name},
             "must carry claim": {**both, "build-sign-notarize": {**good, "outputs": {}}},
             "must have the same steps": {**both, twin_name: {**both[twin_name], "steps": good["steps"][1:]}},
-            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": good["runs-on"]}},
+            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": workflow_jobs.single_runs_on(good)}},
             "if must be exactly": {**both, twin_name: {**both[twin_name], "if": "always()"}},
             "needs must be": {**both, twin_name: {**both[twin_name], "needs": ["pick"]}},
             "but not build-sign-notarize-blacksmith": {**both, "publish": workflow_jobs.copy_job(reader, {"needs": ["build-sign-notarize"]})},
@@ -1314,7 +1314,7 @@ class ClassificationTests(unittest.TestCase):
         documents = workflows()
         base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
         base = keychain_guard.bracketed(base)
-        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", str(base["runs-on"]))
+        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", workflow_jobs.single_runs_on(base))
         found, _, _ = classification_failures(self._with(documents, "release.yml", "sign-split-fixture", base))
         self.assertTrue(any(why.startswith("release.yml sign-split-fixture:") and "not in GLAEDA_EXCLUSIVE_JOBS" in why
                             for why in found), found)
@@ -1745,9 +1745,10 @@ class ClaimScriptTests(unittest.TestCase):
         security.write_text('#!/bin/sh\n[ "$1" = delete-keychain ] && rm -f "$KEYCHAINS/$2-db"\n'
                             'echo "$@" >> "$KEYCHAINS/calls"\n')
         security.chmod(0o755)
-        environ = {"PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "KEYCHAINS": os.fspath(tmp / "keychains"),
-                   "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
-                   "CMUX_FLEET_DIR": os.fspath(tmp / "no-fleet"), **env}
+        environ = git_fixture_env.fixture_env({
+            "PATH": "/usr/bin:/bin", "HOME": os.fspath(tmp), "KEYCHAINS": os.fspath(tmp / "keychains"),
+            "CMUX_SECURITY_TOOL": os.fspath(security), "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
+            "CMUX_FLEET_DIR": os.fspath(tmp / "no-fleet"), **env})
         return subprocess.run(["bash", os.fspath(ROOT / CLAIM)], env=environ, capture_output=True, text=True,
                               timeout=30, check=False)
 
@@ -1895,8 +1896,9 @@ class ClaimGateTests(unittest.TestCase):
             def gate(**env: str) -> subprocess.CompletedProcess:
                 output.write_text("")
                 return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", CLAIM_GATE],
-                                      env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
-                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SHA": "a" * 40, **env},
+                                      env=git_fixture_env.fixture_env({
+                                          "PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
+                                          "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SHA": "a" * 40, **env}),
                                       capture_output=True, text=True, timeout=30, check=False)
 
             fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()

@@ -95,6 +95,23 @@ struct ServerUpdateNoticeTests {
         #expect(center.supports("tab-groups-v1", kind: .cmuxTUI, host: .local))
     }
 
+    /// The first launch after an update attaches to the older build's daemon while the launch check
+    /// hands it off by itself: no "Update ready for cmux-tui" toast and no Restart row for it. The
+    /// same daemon reported again without the handoff shows the notice.
+    @Test func aDaemonTheLaunchIsHandingOffShowsNoNotice() throws {
+        let restarter = FakeRestarter(next: Self.newDaemon())
+        let center = Self.coordinator(restarter)
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: nil, handingOff: true)
+        #expect(center.notices.isEmpty)
+        #expect(!center.supports("tab-groups-v1", kind: .cmuxTUI, host: .local), "its capabilities still count")
+        let row = try #require(center.settingsReport(socketPath: nil, tailnetAddress: nil).rows.first)
+        #expect(row.restart == nil)
+        #expect(restarter.calls.isEmpty)
+
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: nil)
+        #expect(center.notices.count == 1)
+    }
+
     /// Reporting skew never restarts anything: only a confirmed restart does.
     @Test func skewAloneNeverRestarts() {
         let restarter = FakeRestarter(next: Self.newDaemon())

@@ -260,7 +260,7 @@ try:
     check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
 
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
-    print("note: agent open", reply, flush=True)
+    safe_print("note: agent open", reply, flush=True)
     wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
     time.sleep(max(3, 2 * fill_time))  # twice as long as the person's tab took to fill
     agent = reports.get("agent") or {}
