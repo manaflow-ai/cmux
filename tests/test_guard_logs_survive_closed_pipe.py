@@ -23,6 +23,8 @@ it kills (about 30 s; needs bash, curl, xargs, pgrep and ps).
 
 from __future__ import annotations
 
+import builtins
+import importlib.util
 import os
 import re
 import shutil
@@ -35,6 +37,7 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -164,6 +167,29 @@ def alive(pid: int) -> bool:
     return bool(state) and not state.startswith("Z")
 
 
+class NoProcfs:
+    """No /proc and no pidfd, as on macOS: the probe must still see a live process."""
+
+    def __enter__(self) -> "NoProcfs":
+        real_open, real_isdir, real_exists = builtins.open, os.path.isdir, os.path.exists
+
+        def no_proc(path, *args, **kwargs):
+            if str(path).startswith("/proc"):
+                raise FileNotFoundError(2, "No such file or directory", str(path))
+            return real_open(path, *args, **kwargs)
+        self.patches = [mock.patch.object(os, "pidfd_open", side_effect=AttributeError, create=True),
+                        mock.patch("builtins.open", no_proc),
+                        mock.patch.object(os.path, "isdir", lambda p: False if str(p).startswith("/proc") else real_isdir(p)),
+                        mock.patch.object(os.path, "exists", lambda p: False if str(p).startswith("/proc") else real_exists(p))]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        for patch in reversed(self.patches):
+            patch.stop()
+
+
 class GuardFixture(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory(prefix="cmux-guard-pipe.")
@@ -177,6 +203,8 @@ class GuardFixture(unittest.TestCase):
                                 stderr=subprocess.DEVNULL, start_new_session=True)
         self.addCleanup(self._stop, proc)
         time.sleep(0.3)  # let bash install its traps and exec
+        # The probe's self-check: a process this test just started must read as alive, or assert_gone proves nothing.
+        self.assertTrue(alive(proc.pid), f"the probe cannot see live pid {proc.pid}; assert_gone would pass on any target")
         return proc.pid
 
     @staticmethod
@@ -364,6 +392,20 @@ class SeedZigWatchdog(GuardFixture):
                               capture_output=True, text=True).stdout.split()
         self.assertEqual(left, [], "the watchdog died at its message; the downloads it should stop live on")
         self.assertIsNotNone(seed.poll(), "the seed is still waiting on downloads past its deadline")
+
+
+class ProbeWithoutProcfs(GuardFixture):
+    """Review of cmux#41850 F1: on macOS there is no /proc; the probe must still see a live process."""
+
+    def test_a_live_process_reads_as_alive_with_procfs_hidden(self) -> None:
+        target = self.start("exec sleep 600")
+        with NoProcfs():
+            self.assertTrue(alive(target), "with /proc hidden, a live process read as gone")
+
+    def test_a_surviving_target_fails_assert_gone_with_procfs_hidden(self) -> None:
+        target = self.start("exec sleep 600")
+        with NoProcfs(), self.assertRaises(AssertionError, msg="assert_gone passed with its target still running"):
+            self.assert_gone(target, "the target lives on", within=1)
 
 
 class ScanLogThenKill(unittest.TestCase):
