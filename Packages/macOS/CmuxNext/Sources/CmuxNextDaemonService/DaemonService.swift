@@ -62,6 +62,10 @@ public final class DaemonService {
     /// replaces it on every handshake, so capabilities follow a daemon that
     /// restarted or was handed off to a newer build after the first connect.
     public var identity: DaemonIdentity? { store.identity }
+    /// The local daemon (its pid) that this launch is handing off to the bundled build, set before
+    /// its identity is published. The update already reaches it, so its skew offers no restart
+    /// (`ServerUpdatePresenter`: no "Update ready for cmux-tui" toast during a normal start).
+    public private(set) var launchHandoffPID: Int32?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
@@ -250,11 +254,15 @@ public final class DaemonService {
         let logger = logger
         // task-owner: one `--version --json` run per start; the handoff check awaits it
         let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
-        let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
+        let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { [weak self] connection, identity in
             let bundled = await bundledBuild.value
             var decision = DaemonService.launchVersionCheck(identity: identity, bundled: bundled)
             if case .restart = decision {
                 decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
+            }
+            switch decision {
+            case .restart, .handOffAfterPremigrate: await self?.noteLaunchHandoff(pid: identity.pid)
+            case .keep: break
             }
             guard case .restart(let running, let target) = decision else {
                 if case .keep(let reason) = decision, reason != "same build" {
@@ -558,6 +566,11 @@ public final class DaemonService {
     /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
     /// The handoff can come after the first deadline already showed a failure, so the
     /// successor gets a fresh `.connecting` window and the old failure is dropped.
+    /// The launch check is handing the daemon `pid` off to the bundled build (``launchHandoffPID``).
+    func noteLaunchHandoff(pid: Int32) {
+        launchHandoffPID = pid
+    }
+
     func noteIncompatibleOwnerHandoff() {
         Self.launchMark("daemon_version_handoff")
         logger.info("cmux-tui daemon handoff: the running owner is incompatible; starting the bundled build")

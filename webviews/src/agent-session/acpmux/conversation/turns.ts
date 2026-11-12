@@ -1520,7 +1520,9 @@ function shapeTurn(
         // the turn's tick where the closed fold draws no prompt (threadMinimap/model.ts minimapTurns).
         ...(foldsPrompt && { foldedPrompt: user }),
         tokens: summary.tokens,
-        durationMs: summary.durationMs ?? Math.max(0, summary.at - user.at),
+        // Unknown stays unknown (the label counts calls instead): a turn whose prompt is in an older
+        // page starts at a row inside it, and the time since that row is too short.
+        durationMs: summary.durationMs ?? (user.kind === "user" ? Math.max(0, summary.at - user.at) : undefined),
         // Codex's header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix
         // and the worked for is if it's one contiguous thing ... let's follow those"): work with the
         // agent's own messages between it reads "N previous messages", one stretch of work alone
