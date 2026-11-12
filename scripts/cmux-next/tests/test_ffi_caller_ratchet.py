@@ -217,6 +217,24 @@ class GateLayerTests(unittest.TestCase):
         self.fx.write(HEADER, HEADER_TEXT + "/* cmux_demo_called */\n")
         self.assertEqual(self.drift(self.fx.commit("touch the header")), [])
 
+    def test_a_comment_wrapping_the_last_caller_is_judged(self) -> None:
+        self.fx.write(SWIFT, SWIFT_TEXT.replace("let url", "/*\nlet url").replace('let symbol', '*/\nlet symbol'))
+        found = self.drift(self.fx.commit("comment out the caller"))
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("cmux_demo_called", found[0])
+
+    def test_drift_already_on_the_integration_branch_is_not_a_merges(self) -> None:
+        # Upstream lost cmux_demo_called's caller (a base red); a branch merges it in with an unrelated header edit.
+        self.fx.write(SWIFT, SWIFT_TEXT.replace("cmux_demo_called()", "0"))
+        tip = self.fx.commit("upstream drift")
+        self.fx.git("update-ref", "refs/remotes/origin/feat-cmux-next", tip)
+        self.fx.write(HEADER, HEADER_TEXT + "/* cmux_demo_note */\n")
+        head = self.fx.commit("branch work on top")
+        self.assertEqual(self.drift(head), [])
+        # Without the tip ref the same push is refused for it.
+        self.fx.git("update-ref", "-d", "refs/remotes/origin/feat-cmux-next")
+        self.assertEqual(len(self.drift(head)), 1)
+
     def test_a_swift_push_naming_no_ffi_function_skips_the_check(self) -> None:
         self.fx.write(SWIFT, SWIFT_TEXT + "let plain = 1\n")
         head = self.fx.commit("plain swift")

@@ -310,6 +310,7 @@ PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C
 PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
 PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
 PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
+PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -1580,7 +1581,8 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
             return []
         diff = git(repo, "diff", "--no-renames", "--no-ext-diff", "-U0", base, head, "--", *swift,
                    check=False).decode("utf-8", "replace")
-        if not any(PORT_DRIFT_NAME.search(line) for line in diff.splitlines()
+        # A comment opened or closed on a changed line can hide or reveal an unchanged caller below it.
+        if not any(PORT_DRIFT_NAME.search(line) or "/*" in line or "*/" in line for line in diff.splitlines()
                    if line[:1] in "+-" and not line.startswith(("+++", "---"))):
             return []
     with tempfile.TemporaryDirectory(prefix="cmux-port-drift-") as tmp:
@@ -1603,7 +1605,23 @@ def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = 
         if not head_lines:
             return []
         base_lines, base_stopped = findings(base)
-        return [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        fresh = [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        # Drift already on the integration branch is not the push's: a branch that merged it in would otherwise be
+        # refused for a finding it cannot fix (the baseline never takes a line back), e.g. two PRs that each passed,
+        # one dropping a baseline entry and one removing that function's last caller. That is a base red for its
+        # owner, not a refusal of every later push.
+        tip = rev_or_none(repo, PORT_DRIFT_TIP)
+        if fresh and tip and tip not in (base, head):
+            tip_lines, tip_stopped = findings(tip)
+            if not tip_stopped:
+                fresh = [line for line in fresh if line not in set(tip_lines)]
+        return fresh
+
+
+def rev_or_none(repo: Path, ref: str) -> str | None:
+    result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() or None
 
 
 def out_tail(lines: list[str]) -> str:
@@ -3008,6 +3026,7 @@ def advisory_port_drift(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding]
     for own in ranges:
         found += gate_own(repo, own, {"port-drift"}, False, None)
     return _record_findings(ADVISORY_PORT_DRIFT, repo, found), []
+
 
 def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
     if not summary:
