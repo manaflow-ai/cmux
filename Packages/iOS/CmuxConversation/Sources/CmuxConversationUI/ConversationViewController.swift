@@ -421,9 +421,14 @@ public final class ConversationViewController: UIViewController {
         rebuild(change: .reset)
     }
 
+    /// The conversation draws its own header, so it hides its navigation
+    /// controller's bar. False when it is shown inside another screen that
+    /// keeps its bar (New Message's existing conversation under To:).
+    public var hidesNavigationBar = true
+
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationController?.setNavigationBarHidden(true, animated: animated)
+        if hidesNavigationBar { navigationController?.setNavigationBarHidden(true, animated: animated) }
         // In front: the theme takes this conversation's text size.
         ConversationThemeOwners.appeared(self)
     }

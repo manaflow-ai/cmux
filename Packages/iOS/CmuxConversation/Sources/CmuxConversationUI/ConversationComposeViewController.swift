@@ -223,6 +223,8 @@ public final class ConversationComposeViewController: UIViewController {
 
         session.onChange = { [weak self] change in self?.sessionDidChange(change) }
         sessionDidChange(.recipients)
+        // The listing's rows were made before this handler was set: show them now.
+        sessionDidChange(.rows)
         if let pendingDraft {
             self.pendingDraft = nil
             setDraft(pendingDraft)
@@ -272,12 +274,12 @@ public final class ConversationComposeViewController: UIViewController {
 
     /// The tokens changed: show the conversation the chosen people already
     /// have (the host's controller), else the blank page with the sheet's
-    /// composer. Typed text in To: or a red or unresolved token means no one
-    /// is settled yet: the blank page.
+    /// composer. A red or unresolved token means no one is settled yet: the
+    /// blank page. Text being typed in To: changes nothing (the Mac's
+    /// `existingConversation` reads the tokens only); the list shows over it.
     private func updateExisting() {
         let draft = session.draft
-        let settled = draft.canSend && draft.query.isEmpty
-        let key = settled ? draft.recipients.map(\.id) : []
+        let key = draft.canSend ? draft.recipients.map(\.id) : []
         guard key != existingKey else { return }
         existingKey = key
         let carrying = currentMessage()

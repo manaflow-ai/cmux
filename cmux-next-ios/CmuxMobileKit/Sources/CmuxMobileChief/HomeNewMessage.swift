@@ -148,8 +148,13 @@ public final class HomeNewMessage {
             return nil
         }
         guard let session else { return nil }
+        // That conversation is open under New Message (Forward from inside it): its screen owns the
+        // store's updates, so the blank page sends there instead of showing a second copy.
+        if let id = session.conversationID, ChiefSession.conversationOnScreen == id { return nil }
         if !carrying.text.isEmpty { session.carryComposerText(carrying.text) }
         let conversation = ConversationViewController(store: session.store, options: .chief)
+        // New Message keeps its title and X.
+        conversation.hidesNavigationBar = false
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         container.focusesComposerOnAppear = !carrying.text.isEmpty
         // A message sent there: New Message is done, and the conversation opens on Home.
@@ -168,11 +173,8 @@ public final class HomeNewMessage {
     }
 
     private func finish(_ route: HomeConversationRoute) {
-        dismissSheet { [context] in
-            if case let .chief(place) = route, let id = context.sources.session(for: place).conversationID,
-               ChiefSession.conversationOnScreen == id { return }
-            context.open(route)
-        }
+        // Never embedded over its own open screen (``existing``), so it always opens on Home.
+        dismissSheet { [context] in context.open(route) }
     }
 
     // MARK: The first send

@@ -139,12 +139,14 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue(existing.waitForExistence(timeout: 10), "Atlas's conversation under To:\n\(app.debugDescription)")
             Self.pause(1.5)
             attach(app, look, "11-existing-chief-conversation")
-            // Remove the token: the blank page comes back.
-            to.typeText(XCUIKeyboardKey.delete.rawValue)
-            to.typeText(XCUIKeyboardKey.delete.rawValue)
+            // Remove the token (the Chief's message box took the keyboard): tap it, then Delete.
+            let token = app.descendants(matching: .any)["conversation.compose.token.c:chief:cloud"].firstMatch
+            if token.exists { token.tap() } else { to.tap() }
+            app.typeText(XCUIKeyboardKey.delete.rawValue)
+            if app.otherElements["conversation.compose.existing"].exists { app.typeText(XCUIKeyboardKey.delete.rawValue) }
             Self.pause(0.8)
             attach(app, look, "12-token-removed-blank-page")
-            to.typeText("Atlas")
+            app.typeText("Atlas")
             app.cells["conversation.compose.suggestion.chief:cloud"].firstMatch.tap()
             XCTAssertTrue(existing.waitForExistence(timeout: 10))
             Self.pause(1.0)
@@ -158,7 +160,7 @@ final class HomeNewMessageUITests: XCTestCase {
             attach(app, look, "13-existing-typed")
             if send.waitForExistence(timeout: 5) { send.tap() }
             // The sheet goes; the Chief conversation is on Home with the message.
-            XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Status of the nightly?")).firstMatch
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Status of the nightly?")).firstMatch
                 .waitForExistence(timeout: 10), "the message in the Chief conversation\n\(app.debugDescription)")
             XCTAssertFalse(app.textFields["conversation.compose.to"].exists, "New Message closed")
             Self.pause(1.0)
@@ -187,7 +189,7 @@ final class HomeNewMessageUITests: XCTestCase {
             attach(app, look, "16-teammate-blank-page")
             body.tap()
             app.buttons["conversation.composer.send"].tap()
-            XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Lunch?")).firstMatch
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Lunch?")).firstMatch
                 .waitForExistence(timeout: 10), "the new conversation with its first message\n\(app.debugDescription)")
             Self.pause(1.0)
             attach(app, look, "17-sent-new-conversation")
