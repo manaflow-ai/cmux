@@ -204,3 +204,12 @@ test("each chat remembers a bounded number of rows, the newest drawn kept", asyn
   // "a" was opened longest ago: past two chats it is forgotten.
   expect(page.drewAny("a")).toBe(false);
 });
+
+test("a row's host time is read on this computer's clock: a skewed host neither replays history nor holds back a new row", async () => {
+  const { happenedAfterOpen } = await import("../src/agent-session/acpmux/conversation/openBreakpoint");
+  const openedAt = 1_000_000;
+  // The host's clock runs 5 minutes behind this computer's: a row it sent just now reads as old.
+  expect(happenedAfterOpen({ at: openedAt - 300_000 + 10 }, openedAt, 300_000)).toBe(true);
+  // The host's clock runs 5 minutes ahead: a row from before the open reads as new.
+  expect(happenedAfterOpen({ at: openedAt + 300_000 - 10 }, openedAt, -300_000)).toBe(false);
+});

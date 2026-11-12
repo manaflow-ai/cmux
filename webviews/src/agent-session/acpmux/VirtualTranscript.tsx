@@ -1253,6 +1253,7 @@ function TranscriptView({
   coldOpen,
   onColdOpenShown,
   loading = false,
+  clockOffset = 0,
   afterLatest,
   sinceKey,
   promptAuthor,
@@ -1351,6 +1352,9 @@ function TranscriptView({
   /// once on their first mount (shared/loadFade.ts) instead of popping in. Rows drawn at the first
   /// paint, rows a scroll mounts and rows already on screen never fade.
   loading?: boolean;
+  /// How far this computer's clock is ahead of the agent host's (the snapshot's `clockOffsetMs`):
+  /// a row's time is the host's, and the open's breakpoint is this computer's (openBreakpoint.ts).
+  clockOffset?: number;
   /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
   /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
   onColdOpenShown?: (open: number) => void;
@@ -2190,7 +2194,7 @@ function TranscriptView({
       // History the chat held before the reader opened it (the read behind the first slice, a
       // reconnect's replay) is not live: it draws in place (Leo, 2026-11-12: "you don't bother
       // trying to replay the animations").
-      else if (happenedAfterOpen(row, opened.current.at)) arrived.push(row);
+      else if (happenedAfterOpen(row, opened.current.at, clockOffset)) arrived.push(row);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit

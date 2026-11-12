@@ -84,8 +84,11 @@ export const chatDrawn = new ChatDrawn();
 export const drawnKey = (row: Pick<AcpmuxRow, "id" | "at" | "below">): string =>
   row.below ? `${row.id}@${row.at}` : row.id;
 
-/// Whether a row that arrived now happened after the chat was opened (`openedAt`, the open's
-/// wall-clock tick), and so may take a live entrance. One the page already drew never gets here.
-export function happenedAfterOpen(row: { at: number }, openedAt: number): boolean {
-  return row.at >= openedAt;
+/// Whether a row that arrived now happened after the chat was opened (`openedAt`, the open's tick on
+/// this computer's clock), and so may take a live entrance. A row's time is the agent host's clock;
+/// `clockOffset` (the snapshot's `clockOffsetMs`) moves it onto this computer's, so a host whose
+/// clock runs behind or ahead neither replays history nor holds back what came after the open.
+/// One the page already drew never gets here.
+export function happenedAfterOpen(row: { at: number }, openedAt: number, clockOffset = 0): boolean {
+  return row.at + clockOffset >= openedAt;
 }
