@@ -150,6 +150,8 @@ impl TurnState {
 #[derive(Debug, Default)]
 pub(crate) struct State {
     pub(crate) initialized: bool,
+    /// A background seed is reading the journal (`views.rs` `seed_time_breakdown`): at most one.
+    pub(crate) seeding: bool,
     reducer: Reducer,
 }
 
@@ -172,6 +174,11 @@ impl State {
         }
         self.reducer.last_seq = record.seq;
         self.reducer.record(record);
+    }
+
+    /// The newest record folded in so far.
+    pub(crate) fn last_seq(&self) -> u64 {
+        self.reducer.last_seq
     }
 
     pub(crate) fn snapshot(&self, now: u64) -> TimeBreakdown {

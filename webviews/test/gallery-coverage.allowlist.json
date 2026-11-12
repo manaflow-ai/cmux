@@ -198,7 +198,6 @@
     "ui/PickerPrimitives.tsx#PickerOptionList",
     "ui/Sheet.tsx#Sheet",
     "ui/SignInButton.tsx#SignInButton",
-    "ui/Tooltip.tsx#AnchoredCard",
     "ui/Tooltip.tsx#TooltipProvider",
     "ui/UiProvider.tsx#UiProvider",
     "viewer-empty/DiffEmptyState.tsx#DiffEmptyState",

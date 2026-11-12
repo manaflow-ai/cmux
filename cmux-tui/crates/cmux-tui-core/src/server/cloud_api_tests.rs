@@ -288,6 +288,32 @@ fn a_preview_refresh_goes_through_the_platform_client() {
 }
 
 #[test]
+fn share_with_me_puts_the_grant_through_the_platform_client() {
+    let access = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":true,"grants":["user_me"]}"#;
+    let (origin, seen) = fake(move |_| (200, access.into()));
+    let daemon = Daemon::start("chat-grants");
+    let result = daemon
+        .send(
+            "cloud.machine.share_chat",
+            params(&origin, "worker", json!({"machine": "vm_team", "user": "user_me", "me": true})),
+            Some("share-1"),
+        )
+        .unwrap();
+    assert_eq!(result["value"]["chatStart"], "granted");
+    assert!(
+        seen.lock().unwrap()[0].line.starts_with("PUT /v1/machines/vm_team/chat-grants/user_me ")
+    );
+    let read = daemon
+        .send(
+            "cloud.machine.chat_access",
+            params(&origin, "worker", json!({"machine": "vm_team"})),
+            None,
+        )
+        .unwrap();
+    assert_eq!(read["canShare"], true);
+}
+
+#[test]
 fn a_classic_machine_exec_is_refused_before_any_request() {
     let (origin, seen) = fake(|_| (200, r#"{"exitCode":0,"stdout":"ok","stderr":""}"#.into()));
     let daemon = Daemon::start("machine");

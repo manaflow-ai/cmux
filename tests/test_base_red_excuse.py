@@ -2,7 +2,7 @@
 import ast
 import contextlib
 import copy
-import re
+import hashlib
 import io
 import importlib.util
 import json
@@ -38,6 +38,21 @@ if str(ROOT / "scripts/ci") not in sys.path:
 # (GlaedaKeptLog).
 os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
+import git_tree  # noqa: E402
+
+
+def tree_blob(tree):
+    """A GitHub.blob that reads TREE (git_tree.GitTree): a path the tree cannot serve as text is Refused as GitHub's
+    blob would be, but a blob a partial clone lacks raises NeedsFullTree, never a Refused a caller could take for a
+    missing file."""
+    def blob(repo, ref, path):
+        try:
+            return tree.text(path)
+        except git_tree.NeedsFullTree:
+            raise
+        except git_tree.Unreadable as why:
+            raise excuse.Refused(f"{repo}@{ref}: {why}") from None
+    return blob
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
@@ -4171,11 +4186,22 @@ if args[:2] == ["api", "graphql"]:
     ref, _, path = fields["expression"].partition(":")
     found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
     blob = None
-    if os.path.isfile(found):
-        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    if os.path.islink(found):  # GitHub serves a symlink's blob: its target's name
+        blob = {"text": os.readlink(found), "isBinary": False, "isTruncated": False}
+    elif os.path.isfile(found):
+        data = open(found, "rb").read()
+        blob = {"text": None if b"\\0" in data else data.decode(), "isBinary": b"\\0" in data, "isTruncated": False}
     elif os.path.isdir(found):
         blob = {}  # a commit (a ref GitHub resolves) or a tree: none of the Blob fields
-    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    parent = None
+    if "parent" in fields:
+        where = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref,
+                             fields["parent"].partition(":")[2])
+        if os.path.isdir(where) and not os.path.islink(where):
+            parent = {"entries": [{"name": entry, "mode": 0o120000 if os.path.islink(os.path.join(where, entry))
+                                   else 0o40000 if os.path.isdir(os.path.join(where, entry)) else 0o100644}
+                                  for entry in sorted(os.listdir(where))]}
+    print(json.dumps({"data": {"repository": {"object": blob, "parent": parent}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
 sys.exit(1)
@@ -4240,7 +4266,7 @@ class GhReadByMethod(unittest.TestCase):
     def test_the_clients_own_reads_are_reads(self):
         owner, _, name = REPO.partition("/")
         blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
-                "-f", f"expression={HEAD}:Package.swift"]
+                "-f", f"expression={HEAD}:Package.swift", "-f", f"parent={HEAD}:"]
         self.assertTrue(excuse.gh_read(blob))
         self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
 
@@ -4258,7 +4284,8 @@ class OneReadPerJudgement(unittest.TestCase):
             def __init__(self, argv, stdout, stderr, **kwargs):
                 calls[tuple(argv)] += 1
                 blob = {"text": "t", "isBinary": False, "isTruncated": False}
-                stdout.write(json.dumps({"data": {"repository": {"object": blob}}} if "graphql" in argv
+                parent = {"entries": [{"name": "Package.swift", "mode": 0o100644}]}
+                stdout.write(json.dumps({"data": {"repository": {"object": blob, "parent": parent}}} if "graphql" in argv
                                         else {"workflow_run_id": 5}).encode())
                 self.returncode = 0
 
@@ -4401,6 +4428,74 @@ class SourceReads(unittest.TestCase):
             text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
         self.assertEqual(text, SKILLS_YML)
         self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_graphql_follows_a_symlink_inside_the_repository_and_refuses_one_out_of_it(self):
+        workflows = self.tree / HQ / "main/.github/workflows"
+        (workflows / "linked.yml").symlink_to("skills-tests.yml")
+        (workflows / "out.yml").symlink_to("../../../../elsewhere.yml")
+        (workflows / "bin.yml").write_bytes(b"\x00\x01")
+        self.assertEqual(excuse.GitHub().blob(HQ, "main", ".github/workflows/linked.yml"), SKILLS_YML)
+        for path, said in (("out.yml", "is a symlink to ../../../../elsewhere.yml, outside the repository"),
+                           ("bin.yml", "is not a text file GitHub served (binary)"),
+                           ("none.yml", "is not a text file GitHub served (missing, or not a file)")):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, re.escape(said)):
+                excuse.GitHub().blob(HQ, "main", f".github/workflows/{path}")
+
+    def test_git_follows_a_symlink_to_its_target(self):
+        work = self.origin()
+        (work / ".github/workflows/linked.yml").symlink_to("skills-tests.yml")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "link", cwd=work)
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/linked.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(self.calls(), [])
+
+    def git_reads(self, *paths):
+        """Each of PATHS at HQ@main through the real git_text, against self.origin() with the links below committed:
+        its text, or the Refused it raised. GraphQL is never asked (self.calls())."""
+        work = self.origin()
+        workflows = work / ".github/workflows"
+        (workflows / "linked-dir").symlink_to(".")
+        (work / ".github/flows").symlink_to("workflows")
+        (workflows / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (workflows / "bin.yml").symlink_to("bin.dat")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "links", cwd=work)
+        said = {}
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            for path in paths:
+                try:
+                    said[path] = excuse.source_text_if_present(HQ, "main", path, excuse.GitHub())
+                except excuse.Refused as why:
+                    said[path] = why
+        self.assertEqual(self.calls(), [], "git answered each read; GraphQL was never asked")
+        return said
+
+    def test_review_f1_git_refuses_a_symlink_to_a_directory_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): git_text showed a symlink to a directory as git's tree listing, text no file has.
+        # GitTree refuses a directory by name; git_text reads through it, so it says the same.
+        said = self.git_reads(".github/workflows/linked-dir")[".github/workflows/linked-dir"]
+        self.assertIsInstance(said, excuse.Refused, said)
+        self.assertIn("is a directory, not a file", str(said))
+
+    def test_review_f1_git_reads_a_file_through_a_symlinked_parent_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): `git ls-tree` does not follow a symlinked parent, so git_text read
+        # .github/flows/skills-tests.yml as absent. GitTree follows it to the file, as a checkout's filesystem does.
+        said = self.git_reads(".github/flows/skills-tests.yml")[".github/flows/skills-tests.yml"]
+        self.assertIsInstance(said, str, said)
+        self.assertIn("From git", said)
+
+    def test_review_f2_git_refuses_a_symlink_to_a_binary_blob(self):
+        # Review of cmux#41314 (F2): following a link to a binary blob returned its bytes decoded. The binary
+        # refusal GitTree and GraphQL apply holds through a link and on the blob itself.
+        said = self.git_reads(".github/workflows/bin.yml", ".github/workflows/bin.dat")
+        for path, answer in said.items():
+            with self.subTest(path=path):
+                self.assertIsInstance(answer, excuse.Refused, answer)
+                self.assertIn("is binary, not text", str(answer))
 
     def test_no_code_path_sets_the_shims_source_override(self):
         sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
@@ -5574,60 +5669,6 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
         return self.files[path]
 
 
-class TrackedTree:
-    """This checkout's tree as the classifier reads a tree at a sha: every path git tracks, its text from the working
-    tree when it is checked out, else from the index. A sparse checkout leaves whole folders (cmux-next-ios among
-    them) out of the working tree, so a reader of the working tree alone sees a cargo root the code under test reaches
-    as missing. Nothing here names a root: whatever the code discovers, the tree serves."""
-
-    def __init__(self, root: Path):
-        self.root = root
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, check=True).stdout
-        self.blobs = {}
-        for entry in out.decode().split("\0"):
-            if entry:
-                meta, path = entry.split("\t", 1)
-                mode, blob, _stage = meta.split()
-                if mode != "160000":  # a submodule has no text here
-                    self.blobs[path] = blob
-        self.cache: dict[str, str] = {}
-
-    def __contains__(self, path: str) -> bool:
-        return path in self.blobs
-
-    def files(self, under: str, suffix: str = "") -> list[str]:
-        return sorted(p for p in self.blobs if p.startswith(f"{under}/") and p.endswith(suffix))
-
-    def texts(self, paths) -> dict[str, str]:
-        """{path: its text} of the tracked PATHS, the ones not checked out read in one `git cat-file --batch`."""
-        missing = [p for p in paths if p in self.blobs and p not in self.cache and not (self.root / p).is_file()]
-        for path in paths:
-            if path in self.blobs and path not in self.cache and path not in missing:
-                self.cache[path] = (self.root / path).read_text(errors="replace")
-        if missing:
-            out = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], check=True, capture_output=True,
-                                 input="".join(f"{self.blobs[p]}\n" for p in missing).encode()).stdout
-            at = 0
-            for path in missing:
-                end = out.index(b"\n", at)
-                size = int(out[at:end].split()[2])
-                self.cache[path] = out[end + 1:end + 1 + size].decode(errors="replace")
-                at = end + 1 + size + 1
-        return {p: self.cache[p] for p in paths if p in self.cache}
-
-    def text(self, path: str) -> str | None:
-        return self.texts([path]).get(path)
-
-    def write(self, dest: Path, under: list[str], suffixes: tuple[str, ...]) -> Path:
-        """DEST holding every tracked file below UNDER that ends in one of SUFFIXES: a tree a reader of files
-        (cargo_test_verdict.crate_inputs) walks as it walks a full checkout."""
-        paths = sorted({p for d in under for p in self.files(d) if p.endswith(suffixes)})
-        for path, text in self.texts(paths).items():
-            (dest / path).parent.mkdir(parents=True, exist_ok=True)
-            (dest / path).write_text(text)
-        return dest
-
-
 class PackageFixedOnBase(unittest.TestCase):
     """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
 
@@ -5821,23 +5862,17 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
-        # The fake serves this checkout's whole tree, read the way the classifier reads a sha's tree (TrackedTree):
-        # the cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
-        tree = TrackedTree(ROOT)
-
-        def served(repo, ref, path):
-            text = tree.text(path)
-            if text is None:
-                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return text
-        github.blob = served
+        # The commit's tree from git's objects, never the working tree: a sparse checkout (wt new leaves
+        # cmux-next-ios/ out) refused cmux-next-ios/rust/Cargo.toml as "not a text file GitHub served" (2026-11-11).
+        # The cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
+        tree = git_tree.GitTree(ROOT)
+        self.addCleanup(tree.close)
+        github.blob = tree_blob(tree)
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
-        built = tree.write(Path(tempfile.mkdtemp()), crates + [cargo.WORKSPACE], (".rs", "Cargo.toml"))
-        self.addCleanup(shutil.rmtree, built)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(built, crate)
+            dirs, files = cargo.crate_inputs(ROOT, crate, tree)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -5849,13 +5884,160 @@ class PackageFixedOnBase(unittest.TestCase):
                        if root == "cmux-next-ios/CmuxMobileKit" or "Tests" not in source.split("/")]
             # the job runs the kit's own tests; the packages it reaches build only their sources
             self.assertTrue(sources, f"{root} has no Swift in this tree")
-            for source, text in tree.texts(sources).items():
-                for found in literal.finditer(text):
+            for source in sources:
+                for found in literal.finditer(tree.text(source, errors="replace")):
                     path = found.group(1)
-                    if path in tree:
+                    if tree.is_file(path):
                         with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
+
+
+class SparseTreeReads(unittest.TestCase):
+    """The class behind PackageFixedOnBase.test_the_declared_reads_cover_the_tree's red (2026-11-11): a tree reader
+    that takes every declared path for a plain text file on disk. In a sparse checkout (wt new leaves cmux-next-ios/
+    out) the commit has the path and the working tree does not, and the reader said "not a text file GitHub served".
+    git_tree.GitTree reads the commit instead; here a sparse fixture missing a declared directory, a symlink, a binary
+    file, a submodule and a partial clone each get the right answer or the right refusal."""
+
+    def git(self, *args, cwd=None):
+        done = subprocess.run(["git", *args], cwd=cwd or self.repo, capture_output=True, text=True,
+                              env=git_fixture_env.fixture_env(), stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-sparse-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "repo"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'b = { path = "crates/b" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\nb = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": "",
+            "cmux-tui/crates/b/Cargo.toml": '[package]\nname = "b"\n',
+            "cmux-tui/crates/b/src/lib.rs": 'const SPEC: &str = include_str!("../../../../schemas/spec.json");\n',
+            "schemas/spec.json": "{}\n",
+            "kit/Sources/Kit.swift": 'let spec = "schemas/spec.json"\n',
+        }
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text)
+        (self.repo / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (self.repo / "workspace.toml").symlink_to("cmux-tui/Cargo.toml")
+        (self.repo / "kit/Spec").symlink_to("../schemas")
+        (self.repo / "outside.toml").symlink_to("../elsewhere/Cargo.toml")
+        (self.repo / "loop").symlink_to("loop")
+        self.git("init", "-q", "-b", "main", str(self.repo), cwd=self.tmp)
+        self.git("add", ".")
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{'a' * 40},vendored")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree")
+        self.git("config", "uploadpack.allowFilter", "true")
+        # The sparse set wt new uses: top-level files and the named directories only; cmux-tui/ and kit/ are left out.
+        self.git("sparse-checkout", "set", "--no-cone", "/*", "!/*/", "/schemas/")
+        self.assertFalse((self.repo / "cmux-tui/Cargo.toml").exists(), "the fixture is sparse")
+        self.tree = git_tree.GitTree(self.repo)
+        self.addCleanup(self.tree.close)
+
+    def test_a_path_the_sparse_checkout_leaves_out_is_read_from_the_commit(self):
+        self.assertTrue(self.tree.is_file("cmux-tui/crates/a/Cargo.toml"))
+        self.assertIn('name = "a"', self.tree.text("cmux-tui/crates/a/Cargo.toml"))
+        self.assertEqual(self.tree.files("cmux-tui", ".rs"),
+                         ["cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"])
+        self.assertEqual(self.tree.files("kit", ".swift"), ["kit/Sources/Kit.swift"])
+
+    def test_the_classifiers_blob_reads_a_sparse_tree(self):
+        blob = tree_blob(self.tree)
+        self.assertIn("[workspace]", blob(REPO, HEAD, "cmux-tui/Cargo.toml"))
+        with self.assertRaisesRegex(excuse.Refused, "cmux-next-ios/rust/Cargo.toml is not in the tree"):
+            blob(REPO, HEAD, "cmux-next-ios/rust/Cargo.toml")
+
+    def test_crate_inputs_reads_a_sparse_tree(self):
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a", self.tree),
+                         (["cmux-tui/crates/a", "cmux-tui/crates/b"], ["schemas/spec.json"]))
+        # With no tree given it reads the repository's HEAD the same way.
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a")[1], ["schemas/spec.json"])
+
+    def test_an_absolute_path_is_outside_the_tree(self):
+        """Codex on #41314 (F1): GitTree.resolve stripped a leading "/", so a path dependency `path = "/dep"` read as
+        the repository's `dep`, and a change to that unrelated crate counted as an input. An absolute path is outside
+        the tree, as Path.resolve put it: a manifest's, a workspace's or an include's."""
+        repo = self.tmp / "absolute"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'w = { path = "/w" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\ndep = { path = "/dep" }\n'
+                                            'w = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": 'const S: &str = include_str!("/schemas/spec.json");\n',
+            "dep/Cargo.toml": '[package]\nname = "dep"\n',
+            "dep/src/lib.rs": "",
+            "w/Cargo.toml": '[package]\nname = "w"\n',
+            "schemas/spec.json": "{}\n",
+            "cmux-tui/Cargo.lock": 'version = 3\n[[package]]\nname = "a"\n[[package]]\nname = "dep"\n'
+                                   '[[package]]\nname = "w"\n',
+        }
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+        self.git("init", "-q", "-b", "main", str(repo), cwd=self.tmp)
+        self.git("add", ".", cwd=repo)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree", cwd=repo)
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        with git_tree.GitTree(repo) as tree:
+            self.assertEqual(cargo.crate_inputs(repo, "cmux-tui/crates/a", tree), (["cmux-tui/crates/a"], []))
+            self.assertEqual(cargo.touches(repo, "cmux-tui/crates/a", ["dep/src/lib.rs", "w/Cargo.toml"]), [])
+            for path in ("/schemas/spec.json", "/dep/Cargo.toml", "//schemas/spec.json"):
+                with self.subTest(path=path):
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.resolve(path)
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.text(path)
+                    self.assertFalse(tree.is_file(path))
+            with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                tree.files("/schemas")
+            self.assertEqual(tree.text("schemas/spec.json"), "{}\n")  # the same path, relative, still reads
+            # The classifier's own crate walk (cargo_crates) refuses the absolute path dependency by name.
+            github = unittest.mock.Mock(blob=tree_blob(tree))
+            with self.assertRaisesRegex(excuse.Refused, r"a path crate of cmux-tui/Cargo.lock is outside the "
+                                                        r"repository \(/(dep|w)\)"):
+                excuse.cargo_crates(REPO, HEAD, "cmux-tui/Cargo.lock", github)
+
+    def test_a_symlink_is_followed_inside_the_tree(self):
+        self.assertEqual(self.tree.text("workspace.toml"), self.tree.text("cmux-tui/Cargo.toml"))
+        self.assertTrue(self.tree.is_file("kit/Spec/spec.json"))  # through a symlinked directory
+        self.assertEqual(self.tree.text("kit/Spec/spec.json"), "{}\n")
+
+    def test_each_path_that_is_not_a_text_file_is_refused_by_name(self):
+        for path, said in (("bin.dat", "bin.dat is binary"),
+                           ("outside.toml", "outside.toml is a symlink to ../elsewhere/Cargo.toml, outside the tree"),
+                           ("loop", "loop is a symlink loop"),
+                           ("vendored", "vendored is a submodule"),
+                           ("cmux-tui", "cmux-tui is a directory"),
+                           ("no/such.toml", "no/such.toml is not in the tree")):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(git_tree.Unreadable, re.escape(said)):
+                    self.tree.text(path)
+                # A binary file is still a regular file of the tree (rglob lists it); only its text is refused.
+                self.assertEqual(self.tree.is_file(path), path == "bin.dat")
+
+    def test_a_blob_a_partial_clone_lacks_needs_a_full_tree(self):
+        partial = self.tmp / "partial"
+        self.git("clone", "-q", "--filter=blob:none", "--no-checkout", self.repo.as_uri(), str(partial),
+                 cwd=self.tmp)
+        self.git("remote", "set-url", "origin", (self.tmp / "gone").as_uri(), cwd=partial)  # no lazy fetch can answer
+        with git_tree.GitTree(partial) as tree:
+            self.assertTrue(tree.files("cmux-tui", ".toml"))  # trees are there: the paths are listed
+            with self.assertRaisesRegex(git_tree.NeedsFullTree, "this check needs a full tree"):
+                tree.text("cmux-tui/Cargo.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # a link it cannot read is unknown, never "not a file"
+                tree.is_file("workspace.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # never a Refused a caller reads as a missing file
+                tree_blob(tree)(REPO, HEAD, "cmux-tui/Cargo.toml")
 
 
 class FixedOnBase(unittest.TestCase):
@@ -7465,15 +7647,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
                 answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
             elif "ls-tree" in argv:
-                # The definite-absence read (git_text's MISSING): the tree names the path only when the head has it.
-                # pin_unread: git cannot list the tree either, so the read falls through to GitHub.
-                path = argv[-1]
-                self.reads[("git ls-tree", path)] += 1
-                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                # The tree listing git_text reads paths by (git_tree_entries): the head's files and their directories,
+                # so a file the head lacks is a definite absence (git_text's MISSING). pin_unread: git cannot list the
+                # tree either, so the read falls through to GitHub.
+                self.reads[("git ls-tree", argv[-1])] += 1
+                files = {path: text for path, text in {excuse.FFI_PIN_MANIFEST: self.manifest,
+                                                       excuse.FFI_PIN_FILE: self.pin_file}.items() if text is not None}
+                dirs = {"/".join(path.split("/")[:at]) for path in files for at in range(1, path.count("/") + 1)}
                 if self.pin_unread:
                     answer.returncode = 128
-                elif text is not None:
-                    answer.stdout = path.encode() + b"\n"
+                else:
+                    answer.stdout = b"".join([f"040000 tree {'d' * 40}\t{path}\0".encode() for path in sorted(dirs)]
+                                             + [f"100644 blob {hashlib.sha1(text.encode()).hexdigest()}\t{path}\0".encode()
+                                                for path, text in sorted(files.items())])
             return answer
         cache = tempfile.TemporaryDirectory(prefix="bre-git-")
         self.addCleanup(cache.cleanup)
@@ -9868,7 +10054,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed"})
+    "owned_unnamed", "compile_errors_verdict"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -9895,7 +10081,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -9988,6 +10174,7 @@ ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("base_red_excuse", "compile_base_evidence"): (True,),  # a red base job compile_errors_verdict compares
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -10203,6 +10390,214 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
             self.judge(github)
         self.assertNotIn("its one red is the 'stale' verdict", str(caught.exception))
         self.assertIsNone(excuse.generated_stale_host("##[error]The action catalog checks fail on daemon-test"))
+
+
+def clippy_dead_variant(at, line, column=5, variant="RootEntries", path="crates/acpmux/src/chats/watch.rs"):
+    """Clippy's `dead_code` error as the cmux-tui jobs print it, with each line's own timestamp (AT, seconds)."""
+    stamp = f"2026-11-12T11:{43 + at // 60:02d}:{at % 60:02d}.1339335Z "
+    return [stamp + text for text in (
+        f"error: variant `{variant}` is never constructed",
+        f"  --> {path}:{line}:{column}",
+        "   |",
+        f"{line - 3} | enum Message {{",
+        "   |      ------- variant in this enum",
+        "...",
+        f"{line} |     {variant}(usize),",
+        "   |     ^^^^^^^^^^^",
+        "   |",
+        "   = note: `-D dead-code` implied by `-D warnings`",
+        "   = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`",
+        "")]
+
+
+def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40"):
+    """A clippy step's log: its errors (BLOCKS, from clippy_dead_variant), cargo's summaries, then what
+    .github/scripts/cmux-tui-clippy-changed.py prints after them (its scope and each red file outside the diff)."""
+    lines = [f"2026-11-12T11:38:{n:02d}.0000000Z     Checking crate-{n} v0.1.0 "
+             f"(/home/runner/_work/cmux/cmux/cmux-tui/crates/crate-{n})" for n in range(3)]
+    for block in blocks:
+        lines += block
+    lines += [f"2026-11-12T11:44:0{n}.7339343Z error: could not compile `acpmux` ({kind}) due to {len(blocks)} "
+              f"previous error{'s' if len(blocks) > 1 else ''}" for n, kind in enumerate(summary)]
+    lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
+                 f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
+                 "allow needs a comment saying why)")
+    lines += [f"2026-11-12T11:44:11.0000000Z ##[error]cmux-tui/{path} is red and this change does not touch it: most "
+              f"likely the base {base} already fails here (last changed on the base by {base[:8]} some commit). Then "
+              "fix it on the base branch in its own pull request and update this one once that lands" for path in base_red]
+    lines.append("2026-11-12T11:44:12.0000000Z ##[error]Process completed with exit code 101.")
+    return "\n".join(f"{job}\t{step}\t{line}" for line in lines)
+
+
+class CompileErrorGitHub(FakeGitHub):
+    """cmux#40935 at d2e676e6: head 'acpmux simulation (seeds)' (job 1, run 10) fails its clippy step on the base's
+    RootEntries dead_code error; the base's newest verdict of that job (job 2, run 20) passed and skipped the step, and
+    'clippy (changed cmux-tui packages)' (job 3, run 20) fails on the same error, at another line, time and order,
+    beside an error of its own."""
+
+    SIM, CLIPPY = "acpmux simulation (seeds)", "clippy (changed cmux-tui packages)"
+    SIM_STEP, CLIPPY_STEP = ("cargo clippy -p acpmux --features sim --test sim",
+                             "cargo clippy --all-targets on changed cmux-tui packages")
+    GATE = "Does the change touch an input of acpmux's tests"
+    WATCH = "cmux-tui/crates/acpmux/src/chats/watch.rs"
+    PR_FILES = ["cmux-tui/crates/acpmux/src/hub/peers.rs", "cmux-tui/crates/acpmux/src/hub/remote_rows.rs"]
+
+    def __init__(self, head=None, base_step="skipped", files=PR_FILES):
+        super().__init__()
+
+        def job(job_id, run, sha, name, steps, conclusion="failure"):
+            return {"id": job_id, "run_id": run, "head_sha": sha, "name": name, "status": "completed",
+                    "conclusion": conclusion,
+                    "steps": [{"name": "Set up runner", "status": "completed", "conclusion": "success"}]
+                    + [{"name": step, "status": "completed", "conclusion": state} for step, state in steps]}
+        self.jobs = {1: job(1, 10, HEAD, self.SIM, [(self.GATE, "success"), (self.SIM_STEP, "failure")]),
+                     2: job(2, 20, BASE_SHA, self.SIM, [(self.GATE, "success"), (self.SIM_STEP, base_step)],
+                            conclusion="success"),
+                     3: job(3, 20, BASE_SHA, self.CLIPPY, [(self.CLIPPY_STEP, "failure")])}
+        self.logs = {1: clippy_log(self.SIM, self.SIM_STEP, *(head or [clippy_dead_variant(45, 61)])),
+                     3: clippy_log(self.CLIPPY, self.CLIPPY_STEP,
+                                   clippy_dead_variant(0, 18, variant="Stale", path="crates/acpmux/src/hub/rows.rs"),
+                                   clippy_dead_variant(32, 63), summary=("lib", "lib test"),
+                                   scope="acpmux, cmux-tui", base_red=("crates/acpmux/src/chats/watch.rs",))}
+        self.base_runs = [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-12T12:34:00Z"}]
+        self.files = list(files)
+        self.graphql: list = []
+
+    def run(self, args):
+        return pr_graphql(unittest.TestCase(), self.graphql, self.files, number=40935)(args)
+
+
+class CompileErrorsAreComparedBySignature(unittest.TestCase):
+    """2026-11-12, cmux#40935 at d2e676e6 and #41633: both clippy reds were the base's RootEntries error in a file
+    neither PR touches, and merge_hold refused them: the job's own base verdict skipped the step, and the base's clippy
+    log never matched line for line. An error is compared by its signature (code, file, message), never its line."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_same_error_at_another_line_and_time_is_excused(self):
+        said = self.judge(CompileErrorGitHub(head=[clippy_dead_variant(45, 61, column=9)]))
+        self.assertIn(f"excused '{CompileErrorGitHub.SIM}': every compiler error it prints is one feat-cmux-next run "
+                      f"20's red '{CompileErrorGitHub.CLIPPY}' prints", said)
+        self.assertIn("crates/acpmux/src/chats/watch.rs: variant `RootEntries` is never constructed", said)
+
+    def test_the_signature_keeps_code_file_and_message_and_drops_line_time_and_order(self):
+        job = CompileErrorGitHub().jobs[1]
+        one = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(1, 61),
+                                                                         clippy_dead_variant(9, 18, variant="B"))), job)
+        two = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(50, 18, 2, "B"),
+                                                                         clippy_dead_variant(7, 70))), job)
+        self.assertEqual(one.located, two.located)
+        self.assertEqual(one.other, ())
+        self.assertIn(("", "crates/acpmux/src/chats/watch.rs", "variant `RootEntries` is never constructed"),
+                      one.located)
+        moved = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log(
+            "j", "s", clippy_dead_variant(1, 61, path="crates/acpmux/src/chats/watch2.rs"))), job)
+        self.assertNotEqual(one.located & moved.located, moved.located)  # another file is another error
+        coded = excuse.compile_errors(["error[E0425]: cannot find value `x` in this scope",
+                                       "  --> crates/a/src/lib.rs:3:9"], job)
+        self.assertEqual(coded.located, {("E0425", "crates/a/src/lib.rs", "cannot find value `x` in this scope")})
+
+    def test_an_error_only_the_pr_prints_is_its_own(self):
+        mine = [clippy_dead_variant(45, 61), clippy_dead_variant(50, 12, variant="Fresh",
+                                                                 path="crates/acpmux/src/chats/index.rs")]
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(head=mine))
+
+    def test_an_error_in_a_file_the_pr_changes_is_its_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(files=CompileErrorGitHub.PR_FILES + [CompileErrorGitHub.WATCH]))
+
+    def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(base_step="success"))
+
+    def test_an_error_line_that_is_no_located_diagnostic_is_never_matched(self):
+        github = CompileErrorGitHub()
+        github.logs[1] += f"\n{CompileErrorGitHub.SIM}\t{CompileErrorGitHub.SIM_STEP}\t2026-11-12T11:44:13.0Z " \
+                          "##[error]the sim seeds diverged"
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(github)
+
+    def test_a_base_job_that_passed_since_never_counts(self):
+        github = CompileErrorGitHub()
+        github.jobs[4] = dict(copy.deepcopy(github.jobs[3]), id=4, run_id=21, conclusion="success",
+                              steps=[{"name": CompileErrorGitHub.CLIPPY_STEP, "status": "completed",
+                                      "conclusion": "success"}])
+        github.jobs[5] = dict(copy.deepcopy(github.jobs[2]), id=5, run_id=21)
+        github.base_runs.insert(0, {"id": 21, "event": "push", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                                    "created_at": "2026-11-12T12:50:00Z"})
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_the_same_job_red_on_base_with_other_wrapper_lines_is_excused(self):
+        # The PR's own 'clippy (changed cmux-tui packages)': the wrapper names another scope and base commit, so the
+        # job's log is never the base's line for line; its one error is.
+        github = CompileErrorGitHub()
+        github.jobs = {1: dict(copy.deepcopy(github.jobs[3]), id=1, run_id=10, head_sha=HEAD), 3: github.jobs[3]}
+        github.logs = {1: clippy_log(CompileErrorGitHub.CLIPPY, CompileErrorGitHub.CLIPPY_STEP,
+                                     clippy_dead_variant(40, 61), summary=("lib", "lib test"),
+                                     scope="acpmux, cmux-tui", base_red=("crates/acpmux/src/chats/watch.rs",),
+                                     base="0123456789ab"),
+                       3: github.logs[3]}
+        said = self.judge(github)
+        self.assertIn(f"excused '{CompileErrorGitHub.CLIPPY}'", said)
+        github.files = CompileErrorGitHub.PR_FILES + [CompileErrorGitHub.WATCH]
+        github.graphql.clear()
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_an_error_printed_more_often_than_on_base_is_the_prs_own(self):
+        # The review's F2: a second `mismatched types` in the same untouched file is a new error, not the base's one.
+        mine = [clippy_dead_variant(45, 61), clippy_dead_variant(48, 90)]
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(head=mine))
+
+    def test_a_second_failed_step_without_a_located_error_is_the_prs_own(self):
+        # The review's F3: a step that exits 1 on text no parser reads is never excused by the clippy step's errors.
+        github = CompileErrorGitHub()
+        run = "Run the seeds"
+        github.jobs[1]["steps"].append({"name": run, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + "\n".join(f"{CompileErrorGitHub.SIM}\t{run}\t2026-11-12T11:45:0{n}.0Z {line}"
+                                           for n, line in enumerate(["seed 42 diverged",
+                                                                     "##[error]Process completed with exit code 1."]))
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_an_unlocated_error_never_takes_the_next_errors_file(self):
+        # The review's F4.
+        job = CompileErrorGitHub().jobs[1]
+        said = excuse.compile_errors(["error: linking with `cc` failed: exit status: 1",
+                                      "error: variant `RootEntries` is never constructed",
+                                      "  --> crates/acpmux/src/chats/watch.rs:61:5"], job)
+        self.assertEqual(said.other, ("error: linking with `cc` failed: exit status: 1",))
+        self.assertEqual(len(said.located), 1)
+
+    def test_an_unlocated_error_never_takes_a_later_warnings_location(self):
+        # Codex F1 on #42028 at 41133513: an unlocated error followed by a warning's `-->` is not located.
+        job = CompileErrorGitHub().jobs[1]
+        said = excuse.compile_errors(["error: linking with `cc` failed: exit status: 1",
+                                      "warning: unused variable: `x`",
+                                      "  --> crates/acpmux/src/chats/watch.rs:61:5"], job)
+        self.assertEqual(said.located, frozenset())
+        self.assertEqual(said.other, ("error: linking with `cc` failed: exit status: 1",))
+        github = CompileErrorGitHub()
+        github.logs[1] = clippy_log(CompileErrorGitHub.SIM, CompileErrorGitHub.SIM_STEP, [
+            f"2026-11-12T11:45:0{n}.0Z {line}" for n, line in enumerate((
+                "error: linking with `cc` failed: exit status: 1", "warning: variant `RootEntries` is never constructed",
+                "  --> crates/acpmux/src/chats/watch.rs:61:5"))])
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_two_failed_steps_of_one_name_against_the_bases_one_are_the_prs_own(self):
+        # Codex F2 on #42028: step names compared by multiplicity, never as dictionary keys.
+        github = CompileErrorGitHub(base_step="failure")
+        github.jobs[1]["steps"].append({"name": CompileErrorGitHub.SIM_STEP, "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
 
 
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
@@ -12146,7 +12541,8 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
     both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
     those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
 
-    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml",
+             "cmux-41790-checks": ".github/workflows/cmux-next.yml"}
     FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
              "seconds with 1 issue.")
     # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
@@ -12272,6 +12668,81 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         self.not_job_error()
         with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+    # cmux#41790's "cmux-next checks" (head: run 43192236591, job 131108244808 at f2f5e3a9; base: feat-cmux-next run
+    # 43196103785, job 131107474882 at 38651ff1), both on Blacksmith runners whose "Set up runner" and "Complete
+    # runner" job hooks each print RUNNER_HOOK_NOTICE before their `Run '/...sh'` header. The base's notice is stamped
+    # 10:04:42.0000405 after its checkout post step ended at 10:04:41, so _aligned_starts found no fit and every PR's
+    # red of that job was refused with "does not map one to one onto its steps". Trimmed to each step's header, its
+    # first and last stamped line, every `##[error]` line and the notices, as served.
+    CHECKS = "cmux-41790-checks"
+    CHECKS_FAILED = {"Scrollbars thin, one style": "errored",
+                     "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)": "errored",
+                     "Fail on any red check": "failed"}
+    COMPLETED_NOTICE = "A job completed hook has been configured by the self-hosted runner administrator"
+
+    def checks_view(self, side, log=None):
+        github = self.github(self.CHECKS, self.fixture(self.CHECKS, "head"), self.fixture(self.CHECKS, "base"))
+        job = copy.deepcopy(github.jobs[1 if side == "head" else 2])
+        names = excuse.workflow_step_names(REPO, job, self.PATHS[self.CHECKS], github, {})
+        self.assertIsNotNone(getattr(names, "headers", None))
+        return excuse.failed_view(job, github.logs[1 if side == "head" else 2] if log is None else log,
+                                  step_names=names, base=side == "base")
+
+    def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
+        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
+        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
+        for side, sections in (("head", self.CHECKS_FAILED),
+                               ("base", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"})):
+            with self.subTest(side=side):
+                view = self.checks_view(side)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, sections)
+
+    def test_cmux_41790_a_base_check_its_rollup_does_not_name_is_no_evidence(self):
+        # The same base log with its rollup's list taken away (no `red check:` line, so rollup_log_reds parses none):
+        # the continue-on-error check's ERRORED section is shown, never evidence, as before.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        red = "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"
+        self.assertIn(red, base_log)
+        view = self.checks_view("base", base_log.replace(red, "red check list withheld"))
+        self.assertIsNot(view, excuse.UNPLACED)
+        self.assertEqual({str(view.steps[k]["name"]) for k, _, _ in view.sections}, {"Fail on any red check"})
+
+    def test_cmux_41790_only_the_runners_own_notice_is_untimed(self):
+        # The same line with any other text, at the same stamp past the post step's end, still places nothing: the
+        # untimed line is the runner's fixed notice alone, never a step's output out of its times.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        self.assertIn(self.COMPLETED_NOTICE, base_log)
+        for other in ("A job completed hook has been configured", "ok", "##[error]red check: Type scale"):
+            with self.subTest(other=other):
+                self.assertIs(self.checks_view("base", base_log.replace(self.COMPLETED_NOTICE, other)),
+                              excuse.UNPLACED)
+
+    def test_cmux_41790_the_bases_red_check_is_excused(self):
+        said = self.judge(self.github(self.CHECKS, self.fixture(self.CHECKS, "head"),
+                                      self.fixture(self.CHECKS, "base")))
+        self.assertIn("excused 'cmux-next checks (god files, concurrency, crash safety, l10n)'", said)
+        self.assertNotIn("does not map one to one", said)
+
+    def test_cmux_41790_a_red_check_the_head_adds_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)",
+                           "##[error]red check: Type scale")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("Type scale", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41790_an_error_the_head_adds_in_the_rolled_up_check_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]bash scripts/cmux-next/tests/generated-ownership.test.sh",
+                           "##[error]bash scripts/cmux-next/tests/pin-cmux-tui.test.sh")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("pin-cmux-tui.test.sh", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
 
 
 def one_step_flood(headers, steps):
@@ -12484,6 +12955,7 @@ SCANNERS = {
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.compile_errors": lambda f: excuse.compile_errors(f.lines, f.job),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
     "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
@@ -13152,7 +13624,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
-            "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
+            "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml",
+            # The bundle-size budget (scripts/cmux-next/bundle-size-pr.py): reads the pull request's own diff and body.
+            "cmux-next-size-budget.yml"),
     }
 
     @classmethod
@@ -13304,6 +13778,93 @@ class ReplacedWaitingBaseRed(unittest.TestCase):
                 self.assertEqual(found, [(20, crash), (19, "success")])
                 if conclusion != "cancelled" or crash != "failure":
                     self.assertFalse(any(route.endswith("/annotations") for route in routes))
+
+
+
+class HeadCheckNamedAnotherWay(unittest.TestCase):
+    """A red check the caller names another way than its check run is still at the exact head (2026-11-12, cmux#38644
+    at 8e957427): coord-deputy-2, "base_red_excuse says 'Web tests (2/4)' 'has not run on exact head', but it did: job
+    131026209923". Its check run and job are 'web / Web tests (2/4)', the caller job's prefix on a called workflow's
+    job, and head_jobs looked the name up only as written. The fixtures are that job and check run as GitHub served
+    them (runner fields scrubbed). Every other spelling of one check at one head is matched too: the checks page's
+    '<workflow> / <check>' form, a short or upper-case head sha; a name two check runs answer to stays refused."""
+
+    FIXTURES = ROOT / "tests/fixtures/base_red_excuse_head_match"
+    SHA = "8e9574276379d4faeaa11c5c6bbc2ce228d32e90"
+
+    class Fake:
+        def __init__(self, checks, jobs, statuses=()):
+            self.checks, self.jobs, self.statuses, self.routes = checks, jobs, list(statuses), []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            sha = HeadCheckNamedAnotherWay.SHA
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                # GitHub answers a short or upper-case sha of the head as the head, as it does here.
+                asked = route.split("/commits/", 1)[1].split("/", 1)[0]
+                assert len(asked) >= 7 and sha.startswith(asked.lower()), route
+                return [{"check_runs": copy.deepcopy(self.checks)}]
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": copy.deepcopy(self.statuses)}
+            if "/actions/runs?head_sha=" in route:
+                return {"workflow_runs": []}
+            if "/commits/" in route and sha.startswith(route.rsplit("/", 1)[1].lower()):
+                return {"sha": sha}
+            raise AssertionError(route)
+
+    def setUp(self):
+        self.job = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-job-131026209923.json").read_text())
+        self.check = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-check-run-131026209923.json").read_text())
+
+    def found(self, name, sha=None, checks=None, statuses=()):
+        gh = self.Fake(checks or [self.check], {self.job["id"]: self.job}, statuses)
+        audit: list[str] = []
+        jobs = excuse.head_jobs(REPO, sha or self.SHA, [], [name], gh, excused=audit)
+        return jobs, audit
+
+    def test_the_fixture_is_the_called_workflows_job_at_the_head(self):
+        self.assertEqual((self.job["name"], self.check["name"]), ("web / Web tests (2/4)",) * 2)
+        self.assertEqual((self.job["head_sha"], self.check["head_sha"], self.job["run_attempt"]), (self.SHA, self.SHA, 1))
+
+    def test_cmux_38644_the_shard_named_without_its_caller_is_its_job(self):
+        jobs, audit = self.found("Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+        self.assertTrue(any("'Web tests (2/4)'" in line and "'web / Web tests (2/4)'" in line for line in audit), audit)
+
+    def test_the_checks_page_name_with_its_workflow_is_its_job(self):
+        jobs, _ = self.found("CI / web / Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_its_own_name_is_still_its_job(self):
+        jobs, audit = self.found("web / Web tests (2/4)")
+        self.assertEqual(([job["id"] for job in jobs], audit), ([131026209923], []))
+
+    def test_a_short_or_upper_case_head_sha_is_the_exact_head(self):
+        for sha in (self.SHA[:8], self.SHA[:12], self.SHA.upper()):
+            with self.subTest(sha=sha):
+                jobs, _ = self.found("web / Web tests (2/4)", sha=sha)
+                self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_a_name_two_check_runs_answer_to_is_refused_naming_both(self):
+        other = dict(self.check, id=131026209999, name="mobile / Web tests (2/4)",
+                     details_url=self.check["details_url"].replace("131026209923", "131026209999"))
+        with self.assertRaisesRegex(excuse.Refused, r"2 check runs.*mobile / Web tests \(2/4\).*web / Web tests"):
+            self.found("Web tests (2/4)", checks=[self.check, other])
+
+    def test_another_shard_or_a_partial_name_has_not_run(self):
+        for name in ("Web tests (3/4)", "tests (2/4)", "eb / Web tests (2/4)", "Web tests"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+                    self.found(name)
+
+    def test_a_status_of_the_name_as_written_wins_over_a_check_run_of_another_spelling(self):
+        status = {"context": "Web tests (2/4)", "state": "failure", "description": "x",
+                  "target_url": "https://example.invalid/status"}
+        # A status no Actions job gave, with no base to compare: refused as the status, never judged as the check run.
+        with self.assertRaisesRegex(excuse.Refused, "a status"):
+            self.found("Web tests (2/4)", statuses=[status])
 
 
 if __name__ == "__main__":

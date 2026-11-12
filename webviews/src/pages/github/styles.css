@@ -154,6 +154,8 @@ html[data-cmux-page="github"],
 
 .gh-failure { margin: 0; color: var(--agent-status-failure); }
 .gh-muted { color: var(--page-text-3); }
+/* No pull request routed: the Moon, the line and a way to find one, a little down the page. */
+.gh-empty { margin-block-start: var(--ds-space-48); }
 
 /* The body: one column, or main and rail side by side on a wide pane. Narrow keeps the DOM order
    (main, then rail), so nothing moves between the two but the columns. */

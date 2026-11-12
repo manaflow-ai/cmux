@@ -4,8 +4,21 @@ fn row(id: &str, status: &str) -> Value {
     json!({"sessionId": id, "name": id, "status": status, "updatedAt": 5, "tags": ["a"]})
 }
 
+fn id_of(row: &Value) -> Option<&str> {
+    row.get("sessionId").and_then(Value::as_str)
+}
+
 fn list(rows: &[Value]) -> String {
     json!({"sessions": rows}).to_string()
+}
+
+/// Rows as the link reads them: each one's compact JSON.
+fn texts(rows: &[Value]) -> Vec<Arc<str>> {
+    rows.iter().map(|row| Arc::from(serde_json::to_string(row).unwrap())).collect()
+}
+
+fn parsed(rows: &[Arc<str>]) -> Vec<Value> {
+    rows.iter().map(|row| serde_json::from_str(row).unwrap()).collect()
 }
 
 fn ids(rows: &[Value]) -> Vec<String> {
@@ -19,8 +32,9 @@ fn round(known: &mut Known, now: &[Value]) -> (Value, Vec<Value>) {
     let param = known.to_param();
     let reply: Value =
         serde_json::from_str(&delta(&list(now), param.as_object().unwrap()).unwrap()).unwrap();
-    let (rows, removed) = read_delta(&reply).expect("a delta");
-    let whole = known.patched(rows, &removed);
+    let removed = read_delta(&reply).expect("a delta");
+    let rows = texts(reply["sessions"].as_array().unwrap());
+    let whole = parsed(&known.patched(rows, &removed));
     (reply, whole)
 }
 
@@ -28,7 +42,7 @@ fn round(known: &mut Known, now: &[Value]) -> (Value, Vec<Value>) {
 fn a_reconnect_reads_only_new_and_changed_rows_and_the_removed_ids() {
     let mut known = Known::default();
     assert!(known.is_empty());
-    known.listed(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]);
+    known.listed(&texts(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]));
     let now = [row("a", "idle"), row("b", "working"), row("d", "idle")];
     let (reply, whole) = round(&mut known, &now);
     assert_eq!(ids(reply["sessions"].as_array().unwrap()), ["b", "d"]);
@@ -50,11 +64,39 @@ fn a_reconnect_reads_only_new_and_changed_rows_and_the_removed_ids() {
 #[test]
 fn a_row_changed_back_is_made_whole_from_the_kept_row() {
     let mut known = Known::default();
-    known.listed(&[row("a", "idle"), row("b", "idle")]);
+    known.listed(&texts(&[row("a", "idle"), row("b", "idle")]));
     let (reply, whole) = round(&mut known, &[row("a", "idle"), row("b", "idle")]);
     assert_eq!(reply["sessions"], json!([]));
     assert_eq!(reply["unchanged"], 2);
     assert_eq!(whole.iter().filter(|r| r["status"] == "idle").count(), 2);
+}
+
+/// A delta made whole hands on the kept rows' text itself, shared with `Known`: no row is
+/// parsed or copied again, so a link's whole list costs its text once, however many links
+/// reconnect at once.
+#[test]
+fn a_delta_made_whole_shares_the_kept_rows_text() {
+    let mut known = Known::default();
+    let listed = texts(&[row("a", "idle"), row("b", "idle")]);
+    known.listed(&listed);
+    let changed = texts(&[row("b", "working")]);
+    let whole = known.patched(changed.clone(), &[]);
+    assert_eq!(whole.len(), 2);
+    let a = whole.iter().find(|r| id_of_text(r).as_deref() == Some("a")).unwrap();
+    assert!(Arc::ptr_eq(a, &listed[0]), "the kept row is the text the list held");
+    let b = whole.iter().find(|r| id_of_text(r).as_deref() == Some("b")).unwrap();
+    assert!(Arc::ptr_eq(b, &changed[0]), "the delta's row is the text it came as");
+    assert!(Arc::ptr_eq(&known.rows["b"].1, &changed[0]), "and is the one kept");
+}
+
+/// A row with no string `sessionId`, or text that is not an object, is never kept.
+#[test]
+fn a_row_with_no_id_is_not_kept() {
+    let mut known = Known::default();
+    let rows: Vec<Arc<str>> =
+        ["7", "\"x\"", "not json", r#"{"sessionId": 3}"#].into_iter().map(Arc::from).collect();
+    known.listed(&rows);
+    assert!(known.is_empty());
 }
 
 #[test]
@@ -73,4 +115,51 @@ fn a_whole_list_reply_is_no_delta() {
     assert!(read_delta(&json!({"sessions": []})).is_none());
     assert!(read_delta(&json!({"sessions": [], "delta": false})).is_none());
     assert!(delta("not json", &Map::new()).is_none());
+}
+
+/// The parsed-list delta this one replaced, as it was: the reply must stay byte for byte the same.
+fn delta_parsed(list: &str, known: &Map<String, Value>) -> Option<String> {
+    let list: Value = serde_json::from_str(list).ok()?;
+    let rows = list.get("sessions")?.as_array()?;
+    let mut listed = HashSet::new();
+    let mut sessions = Vec::new();
+    for row in rows {
+        let Some(id) = id_of(row) else {
+            sessions.push(row);
+            continue;
+        };
+        listed.insert(id);
+        let held = known.get(id).and_then(Value::as_str);
+        if held.is_none_or(|held| held != digest(row)) {
+            sessions.push(row);
+        }
+    }
+    let removed: Vec<&str> =
+        known.keys().map(String::as_str).filter(|id| !listed.contains(id)).collect();
+    let unchanged = rows.len().saturating_sub(sessions.len());
+    Some(
+        json!({"sessions": sessions, "removed": removed, "unchanged": unchanged, "delta": true})
+            .to_string(),
+    )
+}
+
+#[test]
+fn a_delta_read_row_by_row_is_the_parsed_lists_byte_for_byte() {
+    let mut known = Known::default();
+    known.listed(&texts(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]));
+    let param = known.to_param();
+    let known = param.as_object().unwrap();
+    let odd =
+        json!({"name": "no id", "n": 1.5, "nested": {"z": [1, {"y": null}], "a": "\u{e9}\"\n"}});
+    let lists = [
+        list(&[row("a", "idle"), row("b", "working"), row("d", "idle"), odd.clone()]),
+        list(&[]),
+        list(&[json!({"sessionId": 7}), json!("text"), json!(null)]),
+        list(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]),
+    ];
+    for text in &lists {
+        assert_eq!(delta(text, known), delta_parsed(text, known), "{text}");
+    }
+    assert_eq!(delta("{\"other\": 1}", known), None);
+    assert_eq!(delta("not json", known), None);
 }

@@ -673,9 +673,10 @@ async fn hosted_agent(
     agent
 }
 
-/// Review 87 of #23322: a fenced request whose connection another controller took is answered
-/// here with this side's own "agent process closed", which proves nothing about its line: it
-/// stays unsettled, also past any fixed wait, until its host's death is proven.
+/// Review 87 of #23322: a fenced request whose connection another controller took stays
+/// unsettled, also past any fixed wait, until its host's death is proven. The request itself is
+/// kept for a reattach while its host lives (a lost link of a live host no longer fails its open
+/// requests), and ends with this side's "agent process closed" once that death is proven.
 #[tokio::test]
 async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host() {
     let dir = scratch("fenced-taken");
@@ -692,14 +693,15 @@ async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host
     };
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (_second, _) = connected(&record, 0).await;
-    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
-    assert!(answered.expect("the request ends").unwrap().is_err());
-    assert!(!fence.is_settled(), "a line its host still has counted written");
-    tokio::time::sleep(Duration::from_secs(7)).await;
+    let mut request = request;
+    let kept = tokio::time::timeout(Duration::from_secs(7), &mut request).await;
+    assert!(kept.is_err(), "a request of a living host ended: {kept:?}");
     assert!(!fence.is_settled(), "a line its living host still has settled");
     // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
     unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
     wait_dead(lock).await;
+    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
+    assert!(answered.expect("the request ends once its host is gone").unwrap().is_err());
     tokio::time::timeout(Duration::from_secs(10), fence.settled())
         .await
         .expect("the line settles once its host is gone");

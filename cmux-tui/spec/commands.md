@@ -1655,7 +1655,8 @@ with error code `input.overflow` and queues nothing. When the creation committed
 the queue is written to it in order. Until that write ended, input by `terminal_id` still joins the queue
 (`{queued:true}`), and input to the new terminal by any other path (`send {surface}`, `send-key`, the
 `terminal.input.*` resource operations, an image paste commit, `clear-history`) waits for it, so queued bytes precede all later input. When the
-creation fails, its connection closes first, or it has not ended 10 seconds after the first queued byte,
+creation fails, its connection closes first, or it has not ended 120 seconds after the first queued byte (a backstop for
+a creation that never ends: a slow one keeps its queue until it commits),
 nothing of the queue is written: each connection that queued bytes gets them back, in order, in one
 `terminal-input-unclaimed` control event ([events.md](events.md#terminal-input-unclaimed)) with `reason`
 `failed`, `cancelled` or `expired`, so the client can give them to the terminal that has focus. When a write
@@ -2821,6 +2822,8 @@ Params:
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
 | `expected_revision` | `uint64` | optional | Compare-and-swap guard for the resource projection revision |
 | `detached` | `boolean` | default false | `detached-terminals-v1`; create a kept terminal with no workspace, pane, screen, or tab |
+| `create_workspace` | `boolean` | default false | `create-terminal-workspace-v1`; make the workspace first when no workspace has `key` (a workspace and its first terminal in one request). Needs `key` and `mutation_id`; forbids `workspace` and `detached`. The workspace is made once under `mutation_id` with `:workspace` appended. A terminal that fails to start leaves the workspace: send the same request again |
+| `workspace_name` | `string` | default null | The name of the workspace `create_workspace` makes |
 
 Result:
 
