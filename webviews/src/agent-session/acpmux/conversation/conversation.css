@@ -5152,6 +5152,28 @@ a.cv-sha:focus-visible {
 .cv-recap[data-look="line"] {
   padding-left: var(--cv-tool-text-inset);
 }
+/* Claude Code's own recap line ("※ recap: The goal is ... Next, ..."): one quiet italic run in the
+   dim text color, lead included, set where the answer's text starts. No card, no fill: it reads as a
+   margin note, never as a message. Its × stays out of the way until the row is hovered or focused. */
+.cv-recap[data-terminal] {
+  align-items: flex-start;
+  font-style: italic;
+}
+.cv-recap[data-terminal] .cv-recap__label {
+  color: inherit;
+}
+.cv-recap__mark {
+  color: var(--cv-text-muted);
+  font-style: normal;
+}
+.cv-recap[data-terminal] .cv-recap__close {
+  opacity: 0;
+  transition: opacity var(--agent-motion-hover) var(--agent-ease-out);
+}
+.cv-recap[data-terminal]:hover .cv-recap__close,
+.cv-recap[data-terminal]:focus-within .cv-recap__close {
+  opacity: 1;
+}
 .cv-recap__text {
   flex: 1;
   min-width: 0;

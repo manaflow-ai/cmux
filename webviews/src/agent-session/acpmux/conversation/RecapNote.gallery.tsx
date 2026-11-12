@@ -1,12 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample recaps and prompts), not shipped UI.
-// The session recap row (RecapNote.tsx) in three looks beside Claude's own recap card
-// (cmux-design-references claude/web/october-recap-card): a hairline card with a × (shipped), a
-// tool-row line and a left rule. A compact row, never a user or assistant bubble.
+// The session recap row (RecapNote.tsx). Leo, 2026-11-12: "and also a gui enableable recap
+// feature", pointing at Claude Code's terminal line "※ recap: The goal is ... Next, I'll ...". Three
+// looks of that quiet italic line (terminal, shipped; plain; mark) beside the earlier hairline card
+// after Claude's own recap card (cmux-design-references claude/web/october-recap-card), a tool-row
+// line and a left rule. A compact row, never a user or assistant bubble.
 import { componentEntry } from "../../../gallery/format";
 import { RecapNote, type RecapLook } from "./RecapNote";
 
 const SHORT =
-  "Goal: make the parser in foo.rs tolerate missing fields. Next: open foo.rs and see how absent fields fail.";
+  "The goal is to make the parser in foo.rs tolerate missing fields. Next, I'll open foo.rs and see how absent fields fail.";
 const LONG =
   "We're moving the Cloud machine resize onto the platform API so a busy chat never waits on it; the API route and its tests are in. Next: wire the app's resize button to the new route and check a real resize end to end.";
 
@@ -39,8 +41,20 @@ export default componentEntry<{ look: RecapLook; readOnly?: boolean }>({
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   load: async () => RecapLooks,
   variants: {
+    terminal: {
+      note: 'Chosen: Claude Code\'s own line, "※ recap:" then the text, all italic in the dim text color, the × showing on hover or focus. Reads as a margin note, quietest of the looks that still name themselves.',
+      props: { look: "terminal" },
+    },
+    plain: {
+      note: "The italic line with no lead: quietest, but a lone italic sentence mid-transcript can read as the agent's own aside.",
+      props: { look: "plain" },
+    },
+    mark: {
+      note: "The ※ alone as the lead: compact, but the mark means nothing to someone who never saw the terminal's line.",
+      props: { look: "mark" },
+    },
     card: {
-      note: "Chosen: a hairline card with a ×, as Claude's own recap card; muted text, the lead-in in the body color.",
+      note: "The earlier look: a hairline card with a ×, as Claude's own recap card; heavier than the terminal's line.",
       props: { look: "card" },
     },
     line: {
@@ -52,8 +66,8 @@ export default componentEntry<{ look: RecapLook; readOnly?: boolean }>({
       props: { look: "rule" },
     },
     "read-only": {
-      note: "A shared chat's guest or a replay: the card with no ×, which would do nothing there.",
-      props: { look: "card", readOnly: true },
+      note: "A shared chat's guest or a replay: the line with no ×, which would do nothing there.",
+      props: { look: "terminal", readOnly: true },
     },
   },
 });

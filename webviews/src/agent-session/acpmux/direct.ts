@@ -12702,8 +12702,11 @@ export class AcpmuxDirectClient {
   }
   /// The recap's ×: it stays dismissed on this device, and its row goes. `key` is the recap the
   /// person pressed; the row goes only when it is that recap, not another chat's with the same seq
-  /// (a press on the chat a switch still shows).
-  dismissRecap(rowId: string, key: string): void {
+  /// (a press on the chat a switch still shows). With no key it is the row's own recap; a row with
+  /// none dismisses nothing (#37818).
+  dismissRecap(rowId: string, key?: string): void {
+    key ??= rowId === SINCE_DIVIDER ? this.since?.recap?.key : this.rows.get(rowId)?.recap?.key;
+    if (!key) return;
     rememberRecapDismissed(key);
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
       this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
