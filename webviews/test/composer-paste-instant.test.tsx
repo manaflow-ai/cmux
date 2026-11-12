@@ -143,6 +143,9 @@ function imageEngine() {
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
+/// A screenshot whose read waits for `release`; each its own size, as two screenshots are (one of a
+/// type and size is read for its twin first: attachments.ts filesOnce).
+let slowScreenshots = 0;
 function slowScreenshot() {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
@@ -152,7 +155,10 @@ function slowScreenshot() {
       return super.arrayBuffer();
     }
   }
-  return { file: new Slow([PNG], "image.png", { type: "image/png" }), release };
+  return {
+    file: new Slow([PNG, new Uint8Array(++slowScreenshots)], "image.png", { type: "image/png" }),
+    release,
+  };
 }
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.

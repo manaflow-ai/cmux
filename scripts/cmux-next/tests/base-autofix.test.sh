@@ -159,4 +159,22 @@ git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
 bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
 python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
 grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
+# The display suite list follows a suite's display skip trait on every run, with no flag: a direct
+# push (8d01c87e13c) added HeaderTerminalSplitAtOnceTests with a display trait, no pull request ran
+# tooling-tests' display_suites.py --check first, and base stayed red until a hand-made list fix.
+git -C "$repo" checkout -q -- .
+mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests"
+cp "$ROOT_DIR/scripts/ci/display_suites.py" "$repo/scripts/ci/"
+python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --fix
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm display-list
+bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a current display list"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "a current display list must stay unchanged"
+printf '@Suite(.enabled(if: NSScreen.main != nil, "needs a display")) struct SplitAtOnceTests {}\n' \
+  > "$repo/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SplitAtOnceTests.swift"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm display-suite
+bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a stale display list"
+grep -qxF 'Packages/macOS/CmuxNext CmuxNextAppTests.SplitAtOnceTests' "$repo/scripts/ci/display-suites.txt" \
+  || fail "a new display suite must be added to the list"
+python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --check || fail "the list must pass --check after the fixer"
+grep -q '^fixed: regenerated scripts/ci/display-suites.txt' "$tmp/out" || fail "a regenerated display list must be reported"
 echo "base autofix: ok"

@@ -11,7 +11,8 @@ name: cmux-next base autofix
 # docs reference pages (web/scripts/export-next-docs.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
-# ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
+# ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the display suite
+# list (scripts/ci/display_suites.py --fix), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), cargo fmt
 # in cmux-tui and the OptChat crates, and every tracked Cargo.lock that no longer
@@ -133,6 +134,9 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - scripts/cmux-next/cargo-locks.py
+      # The display suite list (base-autofix.sh's display_suites.py --fix).
+      - scripts/ci/display_suites.py
+      - scripts/ci/display-suites.txt
 
 permissions: {}
 

@@ -263,6 +263,38 @@ test("an automatic retry stays in its original chat after a plain chat switch", 
   input.restore();
 });
 
+test("a paste whose twin screenshots are compared after a chat switch uploads through its own chat", async () => {
+  const handle: { current: Probe | null } = { current: null };
+  const calls: string[] = [];
+  const makeOptions = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => ({ uploads: true }),
+    upload: async () => {
+      calls.push(scope);
+      return { paths: [`/${scope}/shot.png`] };
+    },
+  });
+  const [a, b] = [makeOptions("chat-a"), makeOptions("chat-b")];
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  // One screenshot twice (attachments.ts filesOnce): its bytes are compared after the paste's task.
+  const bytes = new Uint8Array(600).fill(7);
+  const files = [
+    new File([bytes], "shot.png", { type: "image/png" }),
+    new File([bytes], "copy.png", { type: "image/png" }),
+  ];
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  act(() => {
+    dom.window.document.dispatchEvent(event);
+  });
+  // The person moves to chat B before the compare answers, and stays there while A's file uploads.
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  await until(() => calls.length > 0);
+  expect(calls).toEqual(["chat-a"]);
+});
+
 test("an intentionally carried upload retries through its destination chat", async () => {
   const input = personInput();
   const handle: { current: Probe | null } = { current: null };

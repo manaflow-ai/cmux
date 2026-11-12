@@ -169,7 +169,10 @@ test("a bare /plan drops a send waiting for originals: it never goes on its own 
   const field = host.querySelector<HTMLElement>('[role="combobox"]')!;
 
   // Twenty screenshots pasted: each is its preview chip at once while its original still uploads.
-  const files = Array.from({ length: 20 }, (_, index) => new File(["png"], `Shot ${index}.png`, { type: "image/png" }));
+  const files = Array.from(
+    { length: 20 },
+    (_, index) => new File([`png ${index}`], `Shot ${index}.png`, { type: "image/png" }),
+  );
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
     value: { files, types: ["Files"], getData: () => "" },
