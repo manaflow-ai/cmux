@@ -35,6 +35,14 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          starts), after synth_registry appended --kept-records sealed records. The row: the
          registry lock by site, each pass that deleted (seconds, segments), and the request
          times in two groups: while a pass deleted, and with no pass.
+  in-place-stacks, in-place-kept-stacks  (not in the default list) the same two arms, each on
+         its own clone, with the macOS stack sampler (/usr/bin/sample, each --stack-ms
+         milliseconds) on the owner: of the samples inside the delete of one segment (the
+         registry lock is held there), the share that waits for another writer of the file
+         (SQLite's busy handler: the transaction has not taken its first write yet), that
+         syncs, writes or reads the file, and that runs in the process. The sampler stops the
+         owner for each sample, so the lock and request times of these two arms are NOT the
+         times of the arms without it.
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
@@ -443,6 +451,157 @@ class PassProbe(threading.Thread):
 HISTORY_LIST_LIMIT = 5000
 # How many times `served` asks while the History fold is not at the head (3 s apart).
 SERVED_TRIES = 200
+
+
+SAMPLE_TOOL = "/usr/bin/sample"
+STACK_CHUNK_SECONDS = 30
+STACK_LINE = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
+# The delete of one segment (the registry lock is held from its first line to its commit), and
+# the pass around it when the compiler put the delete inside the pass.
+STACK_FRAME = "prune_oldest_journal_segment"
+STACK_OUTER = "retain_journal"
+STACK_FOLD = ("fold_for_retention", "history_ops")
+STACK_LOCK_WAIT = ("psynch_mutexwait", "pthread_mutex_lock", "pthread_mutex_firstfit")
+# Where a sample is, by the names on its stack below the delete: the first group that matches.
+STACK_GROUPS = (
+    ("waits_for_another_writer", ("BusyCallback", "BusyHandler", "sqlite3OsSleep", "unixSleep",
+                                  "usleep", "nanosleep", "__semwait_signal")),
+    ("file_sync", ("unixSync", "full_fsync", "fsync")),
+    ("file_lock_call", ("unixShmLock", "unixLock", "unixUnlock", "posixUnlock", "walLock",
+                        "unixFileLock")),
+    ("file_write", ("unixWrite", "seekAndWrite", "pwrite")),
+    ("file_read", ("unixRead", "seekAndRead", "pread")),
+    ("fcntl_sync_or_file_lock", ("fcntl",)),
+)
+# Parts of the delete by a name anywhere on the stack (a sample can be in several). A name that
+# the compiler put inside another function is absent: 0 here proves nothing.
+STACK_MARKS = {
+    "save_reducer_bases": ("save_reducer_bases",),
+    "json_of_the_states": ("jsonParse", "jsonExtract", "jsonValid", "json_valid", "json_extract"),
+    "begin_write": ("sqlite3BtreeBeginTrans", "sqlite3PagerBegin",
+                    "sqlite3WalBeginWriteTransaction"),
+    "row_delete": ("sqlite3BtreeDelete",),
+    "freed_or_overflow_pages": ("clearCell", "freePage"),
+    "commit": ("sqlite3VdbeHalt", "sqlite3BtreeCommit", "sqlite3PagerCommitPhaseOne",
+               "pagerWalFrames", "sqlite3WalFrames", "walFrames"),
+    "checkpoint": ("sqlite3Checkpoint", "walCheckpoint", "sqlite3WalCheckpoint"),
+    "schema_read": ("sqlite3InitOne", "sqlite3ReadSchema", "sqlite3InitCallback"),
+    "trigger_drop_or_create": ("sqlite3DropTrigger", "sqlite3BeginTrigger",
+                               "sqlite3FinishTrigger", "sqlite3NestedParse"),
+}
+
+
+def stack_shares(texts):
+    """The samples of `sample` call graphs that are inside the delete of one segment, by group.
+    A sample is counted where its stack ends (a node's count less the counts of its callees).
+    Symbol names only: no path, no address, no data."""
+    groups, marks, tops = {}, {}, {}
+    inside_total = lock_wait = 0
+    frames = set()
+    # With the delete as a function of its own in one stack, only its stacks count; a stack of
+    # the pass outside it is another lock hold (the floor read) or no hold.
+    own_frame = any(STACK_FRAME in text for text in texts)
+    for text in texts:
+        graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+        nodes, path = [], []
+        for line in graph.splitlines():
+            found = STACK_LINE.match(line)
+            if not found:
+                continue
+            depth, count = len(found.group(1)), int(found.group(2))
+            symbol = found.group(3).split("  (in ", 1)[0].strip()
+            while path and nodes[path[-1]][0] >= depth:
+                path.pop()
+            if path:
+                nodes[path[-1]][3] += count
+            nodes.append([depth, count, symbol, 0, list(path)])
+            path.append(len(nodes) - 1)
+        for _, count, symbol, below, chain in nodes:
+            own = count - below
+            if own <= 0:
+                continue
+            names = [nodes[index][2] for index in chain] + [symbol]
+            start = next((i for i, name in enumerate(names) if STACK_FRAME in name), None)
+            frame = STACK_FRAME
+            if start is None:
+                start = next((i for i, name in enumerate(names) if STACK_OUTER in name), None)
+                frame = STACK_OUTER + " (the delete is inside it: the fold is left out)"
+                if start is None:
+                    continue
+                inside = names[start + 1:]
+                if any(word in name for name in inside for word in STACK_FOLD):
+                    continue
+                if any(word in name for name in inside for word in STACK_LOCK_WAIT):
+                    lock_wait += own
+                    continue
+                if own_frame:
+                    continue
+            inside = names[start:]
+            frames.add(frame)
+            inside_total += own
+            group = next((key for key, words in STACK_GROUPS
+                          if any(word in name for name in inside for word in words)),
+                         "runs_in_the_process")
+            groups[group] = groups.get(group, 0) + own
+            for key, words in STACK_MARKS.items():
+                if any(word in name for name in inside for word in words):
+                    marks[key] = marks.get(key, 0) + own
+            top = re.sub(r"::h[0-9a-f]{16}$", "", symbol)[:90]
+            tops[top] = tops.get(top, 0) + own
+    share = {key: round(value / inside_total, 3) for key, value in groups.items()}
+    return {"frame": sorted(frames), "samples_in_the_delete": inside_total,
+            "by_group": groups, "share": share, "by_part_not_exclusive": marks,
+            "pass_waits_for_a_lock_outside_the_delete": lock_wait,
+            "top_of_stack_first_12": sorted(tops.items(), key=lambda row: -row[1])[:12]}
+
+
+class StackSampler(threading.Thread):
+    """/usr/bin/sample on the owner in chunks of 30 s, until stop(). The files of `sample` are
+    read and removed: only the counts and the symbol names of stack_shares() are kept."""
+
+    def __init__(self, owner, interval_ms):
+        super().__init__(daemon=True)
+        self.owner, self.interval_ms = owner, max(1, int(interval_ms))
+        self.done = threading.Event()
+        self.texts, self.errors = [], []
+        self.sampled_s = 0.0
+
+    def run(self):
+        if not os.path.exists(SAMPLE_TOOL):
+            self.errors.append("no " + SAMPLE_TOOL + " on this host")
+            return
+        index = 0
+        while not self.done.is_set() and self.owner.child.poll() is None:
+            path = Path(self.owner.home) / f"stacks-{index}.txt"
+            began = time.monotonic()
+            try:
+                out = subprocess.run(
+                    [SAMPLE_TOOL, str(self.owner.child.pid), str(STACK_CHUNK_SECONDS),
+                     str(self.interval_ms), "-file", str(path)],
+                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                    timeout=STACK_CHUNK_SECONDS + 600, check=False)
+                note = (out.stderr or out.stdout or "").strip().splitlines()[-1:]
+            except subprocess.TimeoutExpired:
+                note = ["sample did not end"]
+            if not path.exists():
+                self.errors.append("no sample file: " + " ".join(note)[:200])
+                return
+            self.texts.append(path.read_text(errors="replace"))
+            path.unlink()
+            self.sampled_s += min(STACK_CHUNK_SECONDS, time.monotonic() - began)
+            index += 1
+
+    def stop(self):
+        self.done.set()
+        self.join()
+
+    def result(self):
+        value = stack_shares(self.texts)
+        value.update(interval_ms=self.interval_ms, chunks=len(self.texts),
+                     sampled_s=round(self.sampled_s, 1))
+        if self.errors:
+            value["errors"] = self.errors
+        return value
 
 
 def ask(owner, operation, params):
@@ -916,7 +1075,7 @@ KEPT_QUIET_SECONDS = 75
 NO_DELETE_IN_DWELL = "no segment was deleted in place in the dwell"
 
 
-def in_place_arm(args, state, before, report):
+def in_place_arm(args, state, before, report, name="in-place"):
     """The delete in place at this size, by a RELEASE owner that starts no rebuild. THIS SCRIPT
     writes an empty file with the kept name beside the registry of a clone from before start 1:
     the product then starts no cleanup worker (`backup_held`), and each retention pass (30 s
@@ -928,9 +1087,9 @@ def in_place_arm(args, state, before, report):
     sdir = registry_of(state).parent
     (sdir / KEPT).touch()
     start = counts(args, state)
-    owner = Owner(args, state, "in-place")
+    owner = Owner(args, state, name)
     ready = owner.wait_ready()
-    step = {"arm": "in-place", "ready_s": ready, "load_1m": os.getloadavg()[0],
+    step = {"arm": name, "ready_s": ready, "load_1m": os.getloadavg()[0],
             "dwell_s": args.in_place_dwell,
             "before": {key: start.get(key) for key in IN_PLACE_KEYS}}
     if ready is None:
@@ -939,14 +1098,20 @@ def in_place_arm(args, state, before, report):
         say("RMP", step)
         report["steps"].append(step)
         return
+    stacks = StackSampler(owner, args.stack_ms) if name.endswith("-stacks") else None
     sampler = Sampler(owner, write_every=2)
     sampler.start()
+    if stacks:
+        stacks.start()
     deadline = time.monotonic() + args.in_place_dwell
     while time.monotonic() < deadline and owner.child.poll() is None:
         time.sleep(1)
     sampler.stop()
     step["samples"] = sampler.phase(ready, owner.elapsed())
     step["locks"] = lock_sites(owner)
+    if stacks:
+        stacks.stop()
+        step["stacks"] = stacks.result()
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
     # In the verdict as each other answer of the head build: `served` waits for the History
     # fold at the head (the retention pass folds before it deletes).
@@ -969,7 +1134,7 @@ def in_place_arm(args, state, before, report):
     report["steps"].append(step)
 
 
-def in_place_kept_arm(args, state, before, report):
+def in_place_kept_arm(args, state, before, report, name="in-place-kept"):
     """The delete in place as a person gets it each day: on the SMALL registry after the swap,
     with the kept file of the real swap beside it (the product then starts no rebuild for 7
     days and 3 full starts). synth_registry --advance-checkpoints appends --second-records
@@ -983,7 +1148,7 @@ def in_place_kept_arm(args, state, before, report):
     answer to `served` is in the verdict: the appended kind changes no agent and no session,
     and this is the arm that deletes in place on the migrated file."""
     start = counts(args, state)
-    step = {"arm": "in-place-kept", "kept_name_bytes": start.get("kept_bytes"),
+    step = {"arm": name, "kept_name_bytes": start.get("kept_bytes"),
             "first_name_bytes": start.get("backup_bytes")}
     if not (start.get("kept_bytes") or start.get("backup_bytes")):
         step["error"] = "no file of the swap is held: this state is not the one after a swap"
@@ -1007,7 +1172,7 @@ def in_place_kept_arm(args, state, before, report):
     advanced = counts(args, state)
     step["lost_by_the_advance"] = compare(before, advanced)
     step["before"] = {key: advanced.get(key) for key in IN_PLACE_KEYS}
-    owner = Owner(args, state, "in-place-kept")
+    owner = Owner(args, state, name)
     ready = owner.wait_ready()
     step.update(ready_s=ready, load_1m=os.getloadavg()[0])
     if ready is None:
@@ -1019,7 +1184,8 @@ def in_place_kept_arm(args, state, before, report):
     # Memory and CPU by the sampler (it sends no rename here); the request times by the probe.
     sampler, probe = Sampler(owner, write_every=0), PassProbe(owner)
     watch = SegmentWatch(registry_of(state))
-    for thread in (watch, sampler, probe):
+    stacks = StackSampler(owner, args.stack_ms) if name.endswith("-stacks") else None
+    for thread in (watch, sampler, probe, *([stacks] if stacks else [])):
         thread.start()
     began = time.monotonic()
     deadline = began + dwell
@@ -1044,6 +1210,9 @@ def in_place_kept_arm(args, state, before, report):
     step["probe_requests"] = len(probe.rows)
     step["requests"] = probe.split(passes, watch.period)
     step["locks"] = lock_sites(owner)
+    if stacks:
+        stacks.stop()
+        step["stacks"] = stacks.result()
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
     # The appended kind changes no agent and no session (synth_sparse.rs), so this answer must
     # equal start 1's: it is in the verdict as each other answer of the head build.
@@ -1312,8 +1481,8 @@ def table(report):
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-kept",
-             "base-sample", "second-swap"]
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-stacks",
+             "in-place-kept", "in-place-kept-stacks", "base-sample", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -1340,7 +1509,7 @@ def table(report):
                                "first_name_bytes", "load_1m",
                                "appended_records", "ended_by", "ran_s", "passes",
                                "pass_rows_first_40", "watch_period_s", "probe_requests",
-                               "requests")}
+                               "requests", "stacks")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1379,6 +1548,8 @@ def main():
     # first (0: --in-place-dwell and --second-records).
     parser.add_argument("--kept-dwell", type=float, default=0)
     parser.add_argument("--kept-records", type=int, default=0)
+    # The in-place-stacks and in-place-kept-stacks arms: milliseconds between two stack samples.
+    parser.add_argument("--stack-ms", type=int, default=10)
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--build-timeout", type=float, default=7200)
     args = parser.parse_args()
@@ -1419,7 +1590,7 @@ def main():
             shutil.rmtree(scratch / name)
     if args.base_bin:
         args.arms.append("base-sample")
-    for name in ("kill-stage", "space", "in-place", "base-sample"):
+    for name in ("kill-stage", "space", "in-place", "in-place-stacks", "base-sample"):
         if name in args.arms:
             clone(args.state, scratch / name)
     if "main" not in args.arms:
@@ -1443,15 +1614,17 @@ def main():
             kill_at_file_arm(args, scratch / name, before, report, name)
     if "space" in args.arms:
         space_arm(args, scratch / "space", before, report)
-    if "in-place" in args.arms:
-        in_place_arm(args, scratch / "in-place", before, report)
-        shutil.rmtree(scratch / "in-place")
+    for name in ("in-place", "in-place-stacks"):
+        if name in args.arms:
+            in_place_arm(args, scratch / name, before, report, name)
+            shutil.rmtree(scratch / name)
     if "base-sample" in args.arms:
         base_sample_arm(args, scratch / "base-sample", report)
         shutil.rmtree(scratch / "base-sample")
-    if "in-place-kept" in args.arms and ok:
-        in_place_kept_arm(args, clone(args.state, scratch / "in-place-kept"), before, report)
-        shutil.rmtree(scratch / "in-place-kept")
+    for name in ("in-place-kept", "in-place-kept-stacks"):
+        if name in args.arms and ok:
+            in_place_kept_arm(args, clone(args.state, scratch / name), before, report, name)
+            shutil.rmtree(scratch / name)
     if "second-swap" in args.arms and ok:
         second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
         shutil.rmtree(scratch / "second-swap")
