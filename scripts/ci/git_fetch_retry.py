@@ -41,8 +41,6 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, Sequence
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 # git aborts a transfer slower than this many bytes per second for LOW_SPEED_SECONDS.
 LOW_SPEED_BYTES = 1024
@@ -323,12 +321,12 @@ def run_once(command: Sequence[str], timeout: float) -> int:
     # SIGTERM the whole group, give it a grace period, then SIGKILL whatever of the group is
     # left, whether or not the leader has exited: a child that ignored SIGTERM must not keep
     # writing into the repository while the cleanup and the next try run.
-    signal_group(process.pid, signal.SIGTERM)
+    signal_group(process, signal.SIGTERM)
     try:
         process.wait(timeout=KILL_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         pass
-    signal_group(process.pid, signal.SIGKILL)
+    signal_group(process, signal.SIGKILL)
     process.wait()
     deadline = time.monotonic() + KILL_GRACE_SECONDS
     while group_alive(process.pid) and time.monotonic() < deadline:
@@ -336,8 +334,16 @@ def run_once(command: Sequence[str], timeout: float) -> int:
     return TIMEOUT_EXIT
 
 
-def signal_group(pgid: int, sig: int) -> None:
-    kill_group(pgid, sig)
+def signal_group(process: subprocess.Popen, sig: int) -> None:
+    """The process's group; a refused killpg (macOS EPERM) signals the leader by its handle, which is a no-op once it
+    was reaped (cmux#41880 review F1). The nightly copies this file alone into a temp folder and runs it there, so
+    the fallback is inline rather than ci_process_tree.kill_group."""
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        process.send_signal(sig)
 
 
 def group_alive(pgid: int) -> bool:

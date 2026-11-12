@@ -84,8 +84,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from collections import Counter
 from typing import Callable, NamedTuple
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 _http_spec = importlib.util.spec_from_file_location("deadline_http", Path(__file__).with_name("deadline_http.py"))
 deadline_http = importlib.util.module_from_spec(_http_spec)
@@ -413,7 +411,14 @@ class GitHub(_evidence.GitHub):
                                        stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
 
             def kill() -> None:
-                kill_group(process, signal.SIGKILL)
+                # Loaded from a vendored module list without ci_process_tree, so the fallback is inline: a refused
+                # killpg (macOS EPERM) kills gh by its handle (cmux#41880 review F1).
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    process.kill()
 
             fired = threading.Event()
 

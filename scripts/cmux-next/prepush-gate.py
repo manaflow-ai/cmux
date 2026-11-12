@@ -2817,7 +2817,7 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
     try:
         code = process.wait(timeout=max(0.0, seconds - (time.monotonic() - t0)))
     except subprocess.TimeoutExpired:
-        # This file is installed alone into the hooks folder, so it cannot import group_kill.kill_group: a refused
+        # This file is installed alone into the hooks folder, so it cannot import ci_process_tree.kill_group: a refused
         # killpg (macOS EPERM) kills the leader by its handle here, a no-op once it was reaped (cmux#41880 review F1).
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:

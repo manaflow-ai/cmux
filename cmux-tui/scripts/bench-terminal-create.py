@@ -420,14 +420,23 @@ def main():
             daemon.wait(timeout=20)
         except Exception:  # noqa: BLE001
             pass
+        # A refused killpg (macOS EPERM) signals the daemon by its handle instead of dropping the kill
+        # (cmux#41880 review F1).
         try:
             os.killpg(daemon.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            daemon.terminate()
+        try:
             daemon.wait(timeout=20)
-        except Exception:  # noqa: BLE001
+        except subprocess.TimeoutExpired:
             try:
                 os.killpg(daemon.pid, signal.SIGKILL)
-            except Exception:  # noqa: BLE001
+            except ProcessLookupError:
                 pass
+            except OSError:
+                daemon.kill()
         if args.spans and os.path.exists(spans_path):
             print_marks(args.label, spans_path)
             if args.out:
