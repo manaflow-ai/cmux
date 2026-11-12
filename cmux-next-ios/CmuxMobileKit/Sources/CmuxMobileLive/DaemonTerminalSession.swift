@@ -221,7 +221,8 @@ public final class DaemonTerminalSession: TerminalSession {
         // again) shows its last screen too.
         if attached || ended { return .attached }
         if macOffline { return .offline(mac: macName) }
-        if gaveUp { return .failed(message: lastError ?? "Can't attach to this terminal") }
+        // Plain words: the transport's error (`lastError`) goes to the log only.
+        if gaveUp { return .failed(message: Self.unreachableMessage(macName)) }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
@@ -347,7 +348,8 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background). Leaving releases the phone's size on the Mac at once, so
+    /// background past its grace, `TerminalSizeClaimDebounce`). Leaving
+    /// releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
@@ -745,8 +747,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 draining = false
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
             }
-            if everAttached, attachRetries < reattachBackoff.count, handler != nil, !ended {
-                // A reattach: keep the last frame and try again (bounded backoff).
+            if attachRetries < reattachBackoff.count, handler != nil, !ended {
+                // Keep the last frame and try again (bounded backoff). A first
+                // attach too: a fresh session (a tab back from the warm set, a cold
+                // launch) whose link blipped gave up at once and wrote the error
+                // over its cached frame (Leo's phone on LTE, 2026-11-12).
                 let delay = reattachBackoff[attachRetries]
                 attachRetries += 1
                 if let client = self.client { self.client = nil; Task { await client.close() } }
@@ -764,15 +769,13 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = nil
             inbox?.close()
             inbox = nil
-            if everAttached {
-                // Retries ran out: say what happened and how to go on.
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
-            } else {
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
-            }
-            // Diagnostic bytes preserve the last frame, but do not mean attach succeeded.
+            // Retries ran out. Nothing is written into the terminal: transport
+            // words ("[daemon channel closed]") are not the Mac's output, and bytes
+            // on the stream read as live content (the page dropped its cached
+            // frame for them and saved the blank page over it). The state says
+            // it instead: the composer's quiet line with Retry, and a keystroke
+            // tries again.
+            gaveUp = true
             handler?(.connection(connectionState))
         }
     }
@@ -852,6 +855,17 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox?.setPaused(paused)
     }
 
+    /// What a terminal whose attach retries ran out says (the composer's
+    /// notice and quiet line), never the transport's error text.
+    nonisolated static func unreachableMessage(_ mac: String?) -> String {
+        let name = mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac"
+        return "Can't reach this terminal on \(name). Retry, or type to try again."
+    }
+
+    /// Writes a line into the terminal itself: only for facts about the
+    /// terminal (its process exited, the Mac closed it, the daemon detached
+    /// it), never for the connection to it. Transport states travel as
+    /// `.connection` events (a quiet line by the composer).
     private func emitText(_ text: String) {
         handler?(.output(Data(text.utf8)))
     }
