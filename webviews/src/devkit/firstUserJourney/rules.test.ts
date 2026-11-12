@@ -105,6 +105,16 @@ test("dead-button: a disabled control needs a reason a person can see", () => {
   expect(disabledWithoutReason(titled!)).toEqual([]);
   const [enabled] = body(`<button>Update</button>`).children;
   expect(disabledWithoutReason(enabled!)).toEqual([]);
+  // The row's status says why: an environment that is Ready has nothing to build.
+  const row = body(
+    `<div class="row"><b>web</b> Ready <span class="row-control"><button disabled>Build</button></span></div>`,
+  );
+  expect(disabledWithoutReason(row.querySelector("button")!)).toEqual([]);
+  // Undo with no history and Reset at the default say "nothing to do" by their own name.
+  for (const label of ["Undo", "Redo", "Reset appearance"]) {
+    const [control] = body(`<button disabled>${label}</button>`).children;
+    expect(disabledWithoutReason(control!)).toEqual([]);
+  }
 });
 
 test("permanent-spinner: loading indicators and Loading… words are found, and reported after the grace", () => {
@@ -114,6 +124,9 @@ test("permanent-spinner: loading indicators and Loading… words are found, and 
   expect(found).toContain("Loading…");
   expect(permanentSpinners(found)[0]?.rule).toBe("permanent-spinner");
   expect(spinners(body(`<p>All set</p>`))).toEqual([]);
+  // A heading that names a setting is not a status.
+  expect(spinners(body(`<h3>Loading Indicator</h3>`))).toEqual([]);
+  expect(spinners(body(`<span>Checking for updates…</span>`))).toEqual(["Checking for updates…"]);
 });
 
 test("console-error: the page's own errors count, dev-server chatter does not", () => {

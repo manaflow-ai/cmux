@@ -192,6 +192,8 @@ export function disabledWithoutReason(control: Element): Red[] {
   if (COMMIT.test(labelOf(control))) return [];
   const reason =
     REASON_WORDS.test(visibleText(control)) ||
+    // The row's own status says why ("web Ready" beside a disabled Build).
+    ROW_STATUS.test(visibleText(control.closest('li, tr, [role="row"], .row') ?? control)) ||
     control.getAttribute("title") ||
     control.getAttribute("data-tooltip") ||
     control.getAttribute("aria-describedby") ||
@@ -200,11 +202,17 @@ export function disabledWithoutReason(control: Element): Red[] {
   return reason ? [] : [{ rule: "dead-button", detail: `"${labelOf(control)}" is disabled with no reason shown` }];
 }
 
-const COMMIT = /^(?:save|save changes|revert|apply|discard|reset|cancel|send|submit|done|update all)$/i;
+/// Undo and Redo with no history, and a Reset when nothing differs from the default, follow the
+/// platform convention: disabled means "nothing to do", which the control's own name says.
+const COMMIT =
+  /^(?:save|save changes|revert|apply|discard|reset(?: [a-z ]+)?|cancel|send|submit|done|update all|undo|redo)$/i;
 
 /// A disabled control whose own words say why (a row that reads "Offline", "Not installed").
 const REASON_WORDS =
   /\b(?:offline|unavailable|not installed|not signed in|signed out|requires?|needs?|coming soon|disabled|managed by|read[- ]only|no [a-z]+ (?:yet|to))\b/i;
+
+/// A status a row shows that explains its disabled actions.
+const ROW_STATUS = /\b(?:ready|building|running|in progress|up to date|already [a-z]+)\b/i;
 
 const SPINNER =
   '[role="progressbar"], [aria-busy="true"], [class*="spinner" i], [class*="loading" i], [class*="skeleton" i], [data-loading="true"]';
@@ -216,9 +224,13 @@ export function spinners(root: Element): string[] {
   const words = [...root.querySelectorAll("body *")].filter(
     (node) =>
       node.children.length === 0 &&
-      /^(?:Loading|Checking|Connecting|Starting)\b.{0,30}…?$/.test((node.textContent ?? "").trim()) &&
+      /^(?:Loading|Checking|Connecting|Starting)(?:…|\.{3}|\s.{0,30}(?:…|\.{3}))?$/.test(
+        (node.textContent ?? "").trim(),
+      ) &&
       shown(node),
   );
+  // Words count only as a status ("Loading…", "Checking for updates…"), never a heading
+  // ("Loading Indicator" names a setting).
   return [...found, ...words.map((node) => (node.textContent ?? "").trim())];
 }
 

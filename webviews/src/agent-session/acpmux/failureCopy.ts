@@ -105,7 +105,27 @@ const ADC_WORDS = /application[ _-]default|aiplatform\.googleapis|\bvertex\b|CLA
 const CONTEXT_FULL =
   /prompt is too long|input is too long|context[ _-]?length[ _-]?exceeded|maximum context length|exceeds? (?:the )?(?:model's )?(?:maximum )?context(?: window| length| limit)?|context (?:window|limit) (?:is )?(?:full|exceeded)/i;
 const RATE =
-  /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
+  /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|hit your (?:\w+ )?limit|(?:weekly|session) limit|quota|\b503\b|service unavailable/i;
+/// A plan's usage window ran out, not a moment's capacity: Claude Code's "You've hit your limit · resets
+/// 3pm", Codex's "You've hit your usage limit. … try again in 4 days", a daily quota spent (acpmux's
+/// `is_usage_limit_error`, hub/turn_errors.rs). "Try again in a moment" is wrong for it: it lasts until
+/// the window resets, so its card says so, with when when the agent's words name it.
+const PLAN_LIMIT =
+  /hit your (?:\w+ )?limit|usage limit|(?:weekly|session|daily) limit|exhausted your (?:\w+ )?quota|quota exceeded|exceeded your (?:\w+ )?quota/i;
+/// A capacity answer is the provider's, whatever account asks: never a plan limit.
+const CAPACITY = /\b(?:529|503)\b|overloaded|at capacity|no non-exhausted|service unavailable/i;
+/// When the limit resets, in the agent's own words: "resets 3pm (America/Los_Angeles)", "try again in 4
+/// days 2 hours", "refreshes in 5 hours", "try again at 3:05 PM".
+const RESETS = /\b(?:resets?|refreshes|try again)\s+((?:at|in|on|after)\s+)?([^.·\n]{1,60}?)\s*(?:[.·\n]|$)/i;
+
+/// When a plan's usage limit resets, as the agent said it; undefined when it did not say, or for
+/// any failure that is not a plan limit.
+export function usageLimitReset(message: string | undefined): string | undefined {
+  if (!message || !PLAN_LIMIT.test(message) || CAPACITY.test(message)) return undefined;
+  const found = RESETS.exec(message);
+  if (!found?.[2]) return undefined;
+  return `${found[1] ?? ""}${found[2]}`.trim();
+}
 const UNREACHABLE =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out/i;
 /// The connection-drop words acpmux retries by itself (`hub/turn_errors.rs` `says_connection_dropped`)
@@ -365,8 +385,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
         ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
     }
-    case "rate-limited":
+    case "rate-limited": {
+      if (message && PLAN_LIMIT.test(message) && !CAPACITY.test(message)) {
+        const when = usageLimitReset(message);
+        return when ? t("turn.failure.usageLimitResets", { harness, when }) : t("turn.failure.usageLimit", { harness });
+      }
       return t("turn.failure.rateLimited", { harness });
+    }
     case "unreachable":
       return via ? t("turn.failure.unreachableVia", { harness, via }) : t("turn.failure.unreachable", { harness });
     case "invalid-key":

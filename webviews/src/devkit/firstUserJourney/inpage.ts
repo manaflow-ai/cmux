@@ -72,6 +72,8 @@ export function mark(key: string, scope?: string): boolean {
     const index = seen.get(label) ?? 0;
     seen.set(label, index + 1);
     if (`${label}#${index}` === key) {
+      // An earlier click disabled it (a form opened, a row moved first): the disabled rule judges it.
+      if ((node as HTMLButtonElement).disabled || node.getAttribute("aria-disabled") === "true") return false;
       node.setAttribute("data-fuj-target", "");
       return true;
     }

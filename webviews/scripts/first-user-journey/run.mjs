@@ -48,6 +48,10 @@ const ALLOWED = [
   },
 ];
 const SPINNER_GRACE_MS = 10_000;
+const PLACEHOLDER_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+  "base64",
+);
 const VIEWPORT = { width: 1280, height: 800 };
 const SMALL = { width: 800, height: 600 };
 
@@ -110,6 +114,11 @@ async function runCell(cell) {
   });
   // Nothing leaves this machine: a link to the web is a way out of the app, recorded, not followed.
   await context.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort());
+  // Settings draws menu symbols and wallpaper thumbnails from the app host (cmux-page://cmux.settings/
+  // symbol/<name>, backdrop/<id>); the dev server has none, so a 404 there is the mock, not the page.
+  await context.route(/\/settings\/(?:symbol|backdrop)\//, (route) =>
+    route.fulfill({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }),
+  );
   const page = await context.newPage();
   const walk = new Walk(cell, page, dir);
   try {
@@ -295,9 +304,19 @@ class Walk {
 
 /// Loads the in-page checks (src/devkit/firstUserJourney/inpage.ts) through the dev server.
 async function eyes(page) {
-  await page.evaluate(async () => {
-    window.__fuj = await import("/src/devkit/firstUserJourney/inpage.ts");
-  });
+  // A page that reloads itself while loading (Settings' first open) drops the helpers: load them again.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForLoadState("load").catch(() => undefined);
+    const ready = await page
+      .evaluate(async () => {
+        window.__fuj = await import("/src/devkit/firstUserJourney/inpage.ts");
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return !!window.__fuj;
+      })
+      .catch(() => false);
+    if (ready) return;
+  }
+  throw new Error("the page kept reloading; the journey helpers could not load");
 }
 
 /// A surface's first paint: errors, raw codes, disabled controls, spinners that never end, and layout at
@@ -382,7 +401,9 @@ async function walkSurface(walk, where, open, { scope, each = "click", reopenEac
       if (each === "click")
         await target.click({ timeout: 3_000 }).catch(async (error) => {
           // A control a hover reveals (a message's actions): a person points at its row first.
-          for (const up of ["xpath=..", "xpath=../..", "xpath=../../.."]) {
+          for (const up of ["..", "../..", "../../..", "../../../..", "../../../../.."].map(
+            (path) => `xpath=${path}`,
+          )) {
             await target
               .locator(up)
               .hover({ timeout: 1_000 })
