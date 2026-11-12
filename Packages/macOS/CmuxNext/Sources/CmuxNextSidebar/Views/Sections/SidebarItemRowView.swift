@@ -324,6 +324,7 @@ class SidebarItemRowView: NSView {
             : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
+        pill.cornerCurve = isRailButton ? .continuous : Metrics.tabCornerCurve // one curve with the tabs
         // A text-only workspace with a color draws it as its list row does: a dot before the title. A pinned row's dot
         // in the leading column centers there, as Home's glyph does (#38061).
         let dot = SidebarStyle.dotSize, dotInk = CGRect(x: 0, y: 0, width: dot, height: dot)

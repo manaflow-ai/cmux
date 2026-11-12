@@ -132,7 +132,10 @@
 .acpmux-md > * {
   margin: 0;
 }
-.acpmux-md > * + * {
+/* `:not(:first-child)`, not `* + *`: a sibling rule whose subject is any element restyles the whole
+   thread on every row a send inserts (test/css-invalidation-scope.test.ts). In `:where()`, so it keeps
+   `* + *`'s weight and `.acpmux-md p` below still wins. */
+.acpmux-md > :where(:not(:first-child)) {
   margin-top: 6px;
 }
 .acpmux-md strong {

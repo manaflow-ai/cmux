@@ -5,6 +5,7 @@
 // card showed "GitHub rate limit · resets 9:11 PM" because every hover called GitHub.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -45,7 +46,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

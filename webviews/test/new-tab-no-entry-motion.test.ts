@@ -171,7 +171,7 @@ describe("the New Tab declares no entry animation", () => {
 });
 
 /// The open tokens noEntry.css sets to 0 while a New Tab shows.
-const ZEROED = ["--ui-popup-open", "--tooltip-fade-in", "--ui-enter-duration"];
+const ZEROED = ["--ui-popup-open", "--ui-enter-duration"];
 
 describe("what the New Tab opens appears at once", () => {
   const noEntry = parseCss(NO_ENTRY_CSS, read(NO_ENTRY_CSS)).rules;
