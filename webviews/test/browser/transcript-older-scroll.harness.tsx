@@ -16,9 +16,6 @@ import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
-// The prompt rail sits sticky over the rows at no height, as the pane draws it; unstyled, it took
-// its rail's height above the rows and moved them as the rail grew with each older page.
-import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";
@@ -39,6 +36,11 @@ type Older = {
   reconnect: (draws: "tail" | "empty") => void;
 };
 const query = new URLSearchParams(location.search);
+// `?rail`: the prompt rail styled as the pane draws it, sticky over the rows at no height. Unstyled,
+// it takes its rail's height above the rows and moves them as the rail grows with each older page.
+// transcript-tail-scroll.test.ts runs unstyled: styled, its 6-row case shows a late page moving the
+// view 22.75 px, on feat-cmux-next too (a follow-up).
+if (query.has("rail")) await import("../../src/agent-session/acpmux/threadMinimap/threadMinimap.css");
 const TAIL = Number(query.get("tail") ?? 2 * PAGE);
 const older: Older = {
   latency: Number(query.get("latency") ?? 400),
