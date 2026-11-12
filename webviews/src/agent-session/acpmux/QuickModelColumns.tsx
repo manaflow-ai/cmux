@@ -1429,8 +1429,6 @@ function Columns({
         data-popup-open={open ? "" : undefined}
         aria-label={chip.label}
         title={chip.title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
@@ -1448,6 +1446,7 @@ function Columns({
         {children}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next, details) => {
           // Escape first closes the account card, then clears a search, then closes the menu.

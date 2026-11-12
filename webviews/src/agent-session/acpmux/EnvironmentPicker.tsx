@@ -845,8 +845,6 @@ export function EnvironmentPicker({
       type="button"
       className="acpmux-location-button ui-ghost ui-ghost-sm"
       aria-label={label + ": " + value}
-      aria-haspopup="dialog"
-      aria-expanded={open}
       {...press}
       onPointerDown={(event) => {
         altAtPress.current = event.altKey;
@@ -874,6 +872,7 @@ export function EnvironmentPicker({
         button
       )}
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
