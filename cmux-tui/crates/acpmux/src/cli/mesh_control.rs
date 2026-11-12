@@ -1,5 +1,13 @@
 //! Explicit mesh lifecycle commands. They enqueue once and show a receipt; the daemon's
 //! shared mesh client owns authentication, transport and execution status.
+//!
+//! A start always names its permission policy. With no `--policy` it takes the policy the
+//! starter runs under (the session this shell runs in, `ACPMUX_SESSION_ID`): its own, else the
+//! daemon default it follows, and approve-all when it runs in a mode that skips every approval.
+//! Run outside a session, it is refused and names the flag. A start with none got the remote
+//! daemon's default, `ask`, and sat on its first tool call with nobody shown the prompt: eight
+//! lanes on a GCP host waited over an hour that way (2026-11-12). The owner's side refuses a
+//! start with no policy too (`server/mesh_relay.rs`).
 
 use crate::cli::command::SessionCmd;
 use crate::rpc::method;
@@ -58,9 +66,34 @@ fn target(key: &str, id: bool) -> Value {
     }
 }
 
-fn request(command: SessionCmd) -> Result<Value> {
+/// The policy a start names when `--policy` is left out: the starter's effective one, from its
+/// `_acpmux/info` (`info`). A mode that skips every approval (`hub/start_mode.rs`
+/// `FULL_ACCESS_MODES`) is approve-all whatever the policy says; else the session's own policy,
+/// else the daemon default it follows (`enforcement.policy`). `None` when `info` names none.
+pub(crate) fn starter_policy(info: &Value) -> Option<String> {
+    let mode = info.get("currentModeId").and_then(Value::as_str);
+    if mode.is_some_and(|m| crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m)) {
+        return Some("approve-all".to_owned());
+    }
+    info.get("policy")
+        .and_then(Value::as_str)
+        .or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str))
+        .filter(|p| p.parse::<crate::config::PermissionPolicy>().is_ok())
+        .map(str::to_owned)
+}
+
+/// The refusal for a start that names no policy and runs in no session to take one from.
+const NO_POLICY: &str = "mesh start needs --policy (ask, approve-reads, approve-edits, \
+     approve-all, deny-all or review): run outside a session, it has no starter's policy to \
+     take, and a session started with none waits on its first tool call for a person who is \
+     not shown it";
+
+fn request(command: SessionCmd, inherited: Option<String>) -> Result<Value> {
     let (op, to, params, key) = match command {
-        SessionCmd::Start(args) => {
+        SessionCmd::Start(mut args) => {
+            if args.policy.is_none() {
+                args.policy = Some(inherited.ok_or_else(|| anyhow::anyhow!(NO_POLICY))?);
+            }
             let mut meta = json!({"name": args.name});
             if let Some(model) = args.model {
                 let (harness, model) = crate::cli::orchestrate::split_target(&model);
@@ -109,9 +142,25 @@ fn request(command: SessionCmd) -> Result<Value> {
 }
 
 pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
-    let request = request(command)?;
     // The daemon keeps its token. The CLI uses only its normal local socket.
     let client = crate::daemon::connect(true).await?;
+    let inherited = match &command {
+        SessionCmd::Start(args) if args.policy.is_none() => {
+            match std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.trim().is_empty()) {
+                Some(id) => {
+                    let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                    let policy = starter_policy(&info);
+                    if let Some(p) = &policy {
+                        eprintln!("mesh start: no --policy given; taking this session's: {p}");
+                    }
+                    policy
+                }
+                None => None,
+            }
+        }
+        _ => None,
+    };
+    let request = request(command, inherited)?;
     let reply = match client.request(method::MUX_MESH_CONTROL, request.clone()).await {
         Ok(reply) => reply,
         Err(error) => {
@@ -159,7 +208,52 @@ mod tests {
         let Command::Session(command) = flatten(command) else {
             panic!("mesh command flattened away")
         };
-        request(command).unwrap()
+        request(command, None).unwrap()
+    }
+
+    fn start_without_policy(inherited: Option<&str>) -> Result<Value> {
+        let command = Cli::try_parse_from([
+            "acpmux",
+            "session",
+            "start",
+            "lane",
+            "--machine",
+            "worker",
+            "-m",
+            "claude",
+        ])
+        .unwrap()
+        .command
+        .unwrap();
+        let Command::Session(command) = flatten(command) else { panic!("flattened away") };
+        request(command, inherited.map(str::to_owned))
+    }
+
+    /// 2026-11-12: eight mesh-started lanes sat over an hour on their first permission prompt
+    /// (the remote default, ask) on a GCP host. A start with no --policy takes the starter's,
+    /// and with no starter it is refused, never sent policy-less.
+    #[test]
+    fn a_start_without_policy_takes_the_starters_or_is_refused() {
+        let start = start_without_policy(Some("approve-all")).unwrap();
+        assert_eq!(start["params"]["_meta"]["acpmux"]["policy"], "approve-all");
+        let refused = start_without_policy(None).unwrap_err().to_string();
+        assert!(refused.contains("--policy"), "{refused}");
+    }
+
+    #[test]
+    fn the_starters_policy_counts_its_mode() {
+        // The helper that started the stuck lanes: daemon default ask, in bypassPermissions.
+        let bypass = json!({"policy": null, "currentModeId": "bypassPermissions",
+                            "enforcement": {"policy": "ask"}});
+        assert_eq!(starter_policy(&bypass).as_deref(), Some("approve-all"));
+        let own = json!({"policy": "approve-edits", "currentModeId": "default",
+                         "enforcement": {"policy": "approve-edits"}});
+        assert_eq!(starter_policy(&own).as_deref(), Some("approve-edits"));
+        let default = json!({"policy": null, "currentModeId": "default",
+                             "enforcement": {"policy": "deny-all"}});
+        assert_eq!(starter_policy(&default).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&json!({"policy": "bogus"})), None);
+        assert_eq!(starter_policy(&json!({})), None);
     }
 
     #[test]
