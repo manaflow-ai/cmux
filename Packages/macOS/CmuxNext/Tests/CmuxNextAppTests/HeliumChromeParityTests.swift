@@ -26,17 +26,19 @@ import Testing
         return chrome
     }
 
-    /// layout-constants.patch: `kToolbarButtonHeight` 28 (Chrome 34), `TOOLBAR_BUTTON` insets 4,
-    /// so the 20 pt icon fills a 28 pt square. toolbar.patch: the hover shape is a rounded square,
-    /// `Emphasis::kHigh` (8), not Chrome's circle (`kMaximum`).
+    /// The buttons are the window's one chrome row (a sidebar row, a tab pill: Lawrence 2026-11-09,
+    /// in place of Helium's `kToolbarButtonHeight` 28), and the glyph's ink is a tab icon's side.
+    /// toolbar.patch: the hover shape is a rounded square, `Emphasis::kHigh` (8), not Chrome's circle
+    /// (`kMaximum`).
     @Test func toolbarButtonsAreHeliumsSquareWithAnEightPointHover() {
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = chrome(in: window)
         let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-        #expect(reload.width == 28 && reload.height == 28, "the reload button is \(reload.size)")
+        let row = Metrics.chromeRowHeight
+        #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
         #expect(chrome.reloadButton.layer?.cornerRadius == 8, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
-        #expect(OmnibarStyle.toolbarIconSize == 20)
+        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio - Metrics.iconSize) < 0.001)
     }
 
     /// layout-constants.patch: `kToolbarElementPadding` and `kToolbarIconDefaultMargin` are the
@@ -53,11 +55,12 @@ import Testing
         #expect(abs(reload.minX - forward.maxX - 3) <= 0.01, "forward to reload \(reload.minX - forward.maxX)")
     }
 
-    /// layout-constants.patch: `kLocationBarTrailingIconSize` 18 (Chrome 20), `kLocationBarHeight`
-    /// 28, `kLocationBarChildCornerRadius` 6, `kLocationBarMargin` 6 (twice the base padding).
+    /// layout-constants.patch: `kLocationBarTrailingIconSize` 18 (Chrome 20),
+    /// `kLocationBarChildCornerRadius` 6, `kLocationBarMargin` 6 (twice the base padding). The bar is
+    /// the chrome row (in place of `kLocationBarHeight` 28).
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
         #expect(OmnibarStyle.trailingIconSize == 18)
-        #expect(OmnibarStyle.barHeight == 28)
+        #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
         #expect(OmnibarStyle.chipCornerRadius == 6)
         #expect(OmnibarStyle.barMargin == 6)
         #expect(OmnibarStyle.buttonSpacing == 3)

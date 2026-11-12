@@ -103,7 +103,7 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
         (CREDENTIAL_FILE, "credential"),
         (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"),
     ] {
-        match std::fs::remove_file(home.join(file)) {
+        match crate::home_fs::remove_file(home.join(file)) {
             Ok(()) => removed.push(label),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(anyhow::Error::from(e).context(format!("remove {file}"))),

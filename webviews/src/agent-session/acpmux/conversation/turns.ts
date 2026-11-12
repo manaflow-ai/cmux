@@ -1986,7 +1986,10 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
-  row.kind === "backgroundTask" ||
+  // A background command that finished or was stopped is the turn's work, and folds with it as its
+  // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing
+  // works for?"). One that failed stays in sight, as it does in a run of them (backgroundRuns.ts).
+  (row.kind === "backgroundTask" && row.backgroundTask?.state === "failed") ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
   row.kind === "permission" ||
@@ -2116,6 +2119,12 @@ function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
   ];
 }
 
+/// The person's own message into a running turn that the agent took (a steer that landed, or one sent
+/// now): the stretch before it ends there, on its own footer (``supersededFooters``). Another agent's
+/// message, and a steer still waiting to be read, end nothing.
+const personCameIn = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && continuesTurn(row) && row.steer !== "waiting";
+
 /// `drawn` with an end-of-turn footer (copy, pin, read aloud, its time) under each stretch of the
 /// turn the person came in on: the agent's replies and work before a steer that landed (a message sent
 /// into the running turn, or one sent now), and the end of a turn with no summary that a new prompt
@@ -2138,7 +2147,8 @@ function supersededFooters(
 ): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   let from = 0;
-  const close = (to: number, at: number | undefined, key: string) => {
+  // Settles whether a footer went in over the stretch that ends at `to`.
+  const close = (to: number, at: number | undefined, key: string): boolean => {
     const stretch = turn.slice(from, to).filter((row) => row.kind !== "turnSummary");
     const began = from > 0 ? turn[from - 1]!.at : startedAt;
     from = to + 1;
@@ -2148,9 +2158,9 @@ function supersededFooters(
       if (isReply(stretch[back]!)) answer = stretch[back];
     const list = out ?? drawn;
     const place = at ?? list.length;
-    if (!answer || answer.streaming || list[place - 1]?.kind === "turnSummary") return;
+    if (!answer || answer.streaming || list[place - 1]?.kind === "turnSummary") return false;
     const parts = turnCopyParts(stretch);
-    if (!parts) return;
+    if (!parts) return false;
     out ??= [...drawn];
     out.splice(place, 0, {
       id: `${SUPERSEDED}-${key}`,
@@ -2166,16 +2176,40 @@ function supersededFooters(
       turnCopy: parts,
       ...withWork(stretch),
     });
+    return true;
   };
+  // The person's last message into the turn whose stretch ended on its footer. A message right after
+  // it (nothing said between) keeps it: the check below reads everything said since.
+  let lastSteer = -1;
   for (let index = 0; index < turn.length; index += 1) {
     const row = turn[index]!;
-    if (row.kind !== "user" || row.incoming || row.received || !continuesTurn(row) || row.steer === "waiting") continue;
+    if (!personCameIn(row)) continue;
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
     if (at < 0) from = index + 1;
-    else close(index, at, row.id);
+    else if (close(index, at, row.id)) lastSteer = index;
   }
   if (endedByPerson && !turn.some((row) => row.kind === "turnSummary"))
     close(turn.length, undefined, turn.at(-1)?.id ?? "end");
+  // The turn's own footer under that message, when the agent said nothing after it: everything it
+  // would copy or read aloud is the footer's over his message, so it draws no row at rest
+  // (``isEmptyFooter``). Leo, 2026-11-12: "COPY SHOULDN'T DO ANYTHING IF ALL THAT CHANGED WAS I SENT
+  // A MESSAGE THERE'S NO POINT HAVING THE SECOND BUTTON ROW AFTER MY MESSAGE". acpmux ends a Claude
+  // turn the person's message came into and carries the message to the next turn, so that footer
+  // came right under his bubble. A turn that answered him after it keeps its row, and what it copies.
+  if (lastSteer >= 0) {
+    const end = turn.findIndex((row, index) => index > lastSteer && row.kind === "turnSummary");
+    if (end > lastSteer && !turnCopyParts(turn.slice(lastSteer + 1, end))) {
+      const list = out ?? drawn;
+      const at = list.findIndex((row) => row.id === turn[end]!.id);
+      const footer = list[at];
+      if (footer && (footer.text || footer.turnCopy)) {
+        out ??= [...drawn];
+        const { text: _text, turnCopy: _turnCopy, answerId: _answerId, ...rest } = footer;
+        // A new version, so the memoized footer and its measured height draw again.
+        out[at] = { ...rest, version: footer.version * 2 + 1 };
+      }
+    }
+  }
   return out ?? drawn;
 }
 

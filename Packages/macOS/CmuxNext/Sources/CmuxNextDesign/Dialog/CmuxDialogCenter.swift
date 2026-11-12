@@ -41,8 +41,8 @@ public final class CmuxDialogCenter {
         case app
     }
 
-    /// The host that places dialogs. The app's composition root gives the shared center a host that draws
-    /// them (CmuxNextPages `OverlayDialogDrawing`); a dialog shown before that moves to the new host.
+    /// The host that places dialogs: the overlay host with the native card (``CmuxDialogNativeDrawing``) by
+    /// default. A dialog shown before the host changes moves to the new host.
     public var host: any CmuxDialogHosting {
         didSet { rehost(from: oldValue) }
     }

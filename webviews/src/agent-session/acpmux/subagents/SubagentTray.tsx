@@ -746,6 +746,10 @@ export const SubagentTray = memo(function SubagentTray({
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
                 <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
+              ) : loneEnd.status === "running" && !loneEnd.retry && since !== undefined ? (
+                // The run's clock, not the item's own: left the one running after a longer one ended,
+                // the header's time never goes back (trayHeadOrder.ts `runSince`; review of cmux#41078).
+                <Elapsed since={since} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
                 loneEnd.time
               ) : (

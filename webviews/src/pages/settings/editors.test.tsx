@@ -1,14 +1,18 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mockManagedKey } from "./mockProvider";
-import { categories } from "./categories";
+import { categories, homes } from "./categories";
 import { DENSITY_ROWS } from "./density";
-import type { SchemaRow } from "./schema";
+import { rowsByKey, type SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, ops, renderPage, rowElement, run, settle } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
+const { isDuration } = await import("./editors/DurationEditor");
+const { ROW_LEVELS } = await import("./rowLevelsData");
+const { PERSONALIZATION_KEYS } = await import("./components/PersonalizationCard");
+const { DENSITY_CARD_ROWS } = await import("./density");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -18,22 +22,20 @@ afterEach(() => {
 
 /** What the editor of each kind must contain; returns a failure description or null. */
 function editorProblem(row: SchemaRow, control: Element): string | null {
-  // The editor's own controls, not the Reset control in the slot every row reserves.
-  const has = (selector: string, count = 1) =>
-    [...control.querySelectorAll(selector)].filter((element) => !element.closest(".reset-slot")).length === count;
+  const has = (selector: string, count = 1) => control.querySelectorAll(selector).length === count;
   const choices = row.choices?.length ?? 0;
   switch (row.kind) {
     case "toggle":
       return has("[role=switch]") ? null : "no switch";
     case "choice":
-      if (choices <= 3 && row.default !== null)
-        return has('input[type="radio"]', choices) ? null : "no segmented control";
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
     case "choice_or_url":
       return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
+      // A time row with a wide range is a menu of durations (DurationEditor), not a slider.
+      if (isDuration(row)) return has("select") && !has('input[type="range"]') ? null : "no duration menu";
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":
       return has('input[type="color"]') && has("input.hex") ? null : "no swatch + hex field";
@@ -79,6 +81,18 @@ describe("editors", () => {
       const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
+        // A hidden row is not on its page (search, the palette, the CLI and cmux.json have it;
+        // rowLevelsData.ts), and Personalization is the one page that draws what it holds.
+        const hub =
+          category.id !== "personalization" &&
+          (PERSONALIZATION_KEYS.includes(row.key) || DENSITY_CARD_ROWS.has(row.key));
+        // The Machines card draws machine colors as a color well per machine (checked below).
+        const hidden = ROW_LEVELS.levels[row.key] === "hidden" && row.key !== "appearance.machineColors";
+        if (hidden || hub) {
+          if (page.container.querySelector(`[data-row-key="${row.key}"]`))
+            failures.push(`${row.key}: drawn on ${category.id}`);
+          continue;
+        }
         // The Theme section draws appearance.theme as its theme picker.
         if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
@@ -131,7 +145,8 @@ describe("editors", () => {
     });
 
   test("the window material is a material choice, never a radius slider", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const material = rowElement(page.container, "appearance.backgroundBlur");
     expect(material.querySelector('input[type="range"]')).toBeNull();
     const values = [...material.querySelectorAll("option")].map((option) => option.getAttribute("value"));
@@ -143,7 +158,8 @@ describe("editors", () => {
   });
 
   test("opacity is a percent slider: preview while dragging, one settings.set on release", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     expect(row.querySelector(".unit")?.textContent).toBe("%");
     const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
@@ -167,7 +183,9 @@ describe("editors", () => {
           op !== "cmux.settings.snapshot" &&
           op !== "cmux.settings.host.lists" &&
           op !== "cmux.settings.section.actions" &&
-          op !== "cmux.settings.backdrop.image.screen_saver",
+          op !== "cmux.settings.backdrop.image.screen_saver" &&
+          // Personalization's theme studio reads its colors when the page opens.
+          op !== "cmux.settings.theme.colors",
       );
     expect(order).toEqual([
       "cmux.settings.preview",
@@ -179,7 +197,8 @@ describe("editors", () => {
   });
 
   test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // Personalization is the one page that draws the background rows.
+    page = await renderPage({ path: "/settings/personalization" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
     await run(() =>
@@ -193,7 +212,7 @@ describe("editors", () => {
   });
 
   test("a number field commits on Return, clamped to the range", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    page = await renderPage({ path: "/settings/terminal" });
     const field = rowElement(page.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
     await changeValue(field, "500");
     await fire(field, "keydown", { key: "Enter" });
@@ -221,38 +240,34 @@ describe("editors", () => {
     expect(control.disabled).toBe(true);
     expect(control.getAttribute("aria-checked")).toBe("false");
     expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Managed by your organization");
-    expect(row.querySelector("[data-reset]")).toBeNull();
     expect(page.container.querySelector('[data-section-link="browser"] [data-badge="lock"]')).not.toBeNull();
   });
 
-  test("the reset button appears only when the row is customized", async () => {
+  test("rows have no Reset button; the row menu resets a customized row", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     const row = () => rowElement(page!.container, "history.terminalCommands");
-    expect(row().querySelector("[data-reset]")).toBeNull();
+    expect(page.container.querySelector("[data-reset], .reset-slot")).toBeNull();
     await click(row().querySelector("[role=switch]")!);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "history.terminalCommands", value: true }]);
     expect(row().querySelector("[role=switch]")!.getAttribute("aria-checked")).toBe("true");
-    await click(row().querySelector("[data-reset]")!);
+    expect(page.container.querySelector("[data-reset], .reset-slot")).toBeNull();
+    await resetRow(page.container, "history.terminalCommands");
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "history.terminalCommands" }]);
-    expect(row().querySelector("[data-reset]")).toBeNull();
   });
 
-  test("unset browser.hibernation shows Never Discard; a written value shows Reset, which unsets it", async () => {
+  test("unset browser.hibernation shows Never Discard; Never Discard or the row's reset unsets it", async () => {
     const key = "browser.hibernation";
     page = await renderPage({ path: "/settings/browser" });
     const row = () => rowElement(page!.container, key);
     const select = () => row().querySelector<HTMLSelectElement>("select")!;
     expect(select().value).toBe("");
     expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
-    expect(row().querySelector("[data-reset]")).toBeNull();
     await changeValue(select(), "moderate");
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "moderate" }]);
     expect(select().selectedOptions[0]?.textContent).toBe("After 30 Minutes");
-    expect(row().querySelector("[data-reset]")).not.toBeNull();
     await changeValue(select(), "");
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
     expect(select().value).toBe("");
-    expect(row().querySelector("[data-reset]")).toBeNull();
     // A custom timeout, then Reset: the menu shows Never Discard again, not an empty Custom… field.
     await changeValue(select(), "__custom__");
     const field = row().querySelector<HTMLInputElement>("input.number")!;
@@ -263,11 +278,25 @@ describe("editors", () => {
       { key, value: 45 },
     ]);
     expect(select().value).toBe("__custom__");
-    await click(row().querySelector("[data-reset]")!);
+    await resetRow(page.container, key);
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }, { key }]);
     expect(select().value).toBe("");
     expect(select().selectedOptions[0]?.textContent).toBe("Never Discard");
     expect(row().querySelector("input.number")).toBeNull();
+  });
+
+  // Lucas 2026-11-12: segments in a card read as "containers inside containers"; every choice is a
+  // menu, a short one too.
+  test("every choice row is a menu, a short one too", async () => {
+    for (const key of ["app.quitBehavior", "diff.layout"]) {
+      const choice = rowsByKey.get(key)!;
+      page = await renderPage({ path: `/settings/${homes.get(choice.key)?.category ?? choice.section}` });
+      const row = rowElement(page.container, choice.key);
+      expect(row.querySelector('input[type="radio"]')).toBeNull();
+      expect(row.querySelector("select")).not.toBeNull();
+      page.unmount();
+      page = null;
+    }
   });
 
   test("the hidden native select behind each menu is not a Tab stop", async () => {
@@ -277,25 +306,13 @@ describe("editors", () => {
     for (const mirror of mirrors) expect(mirror.tabIndex).toBe(-1);
   });
 
-  test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
+  test("changing a value moves no other control in its row", async () => {
     page = await renderPage({ path: "/settings/privacy" });
-    for (const element of page.container.querySelectorAll("[data-row-key]")) {
-      const slot = element.querySelector(".row-control > .reset-slot");
-      expect({ key: element.getAttribute("data-row-key"), slot: slot !== null }).toEqual({
-        key: element.getAttribute("data-row-key"),
-        slot: true,
-      });
-      // At the default the control is in place but inert and hidden from assistive technology.
-      const button = slot!.querySelector("button")!;
-      expect(button.hasAttribute("inert")).toBe(true);
-      expect(button.getAttribute("aria-hidden")).toBe("true");
-    }
     const row = () => rowElement(page!.container, "history.terminalCommands");
     const before = [...row().querySelector(".row-control")!.children].map((child) => child.className);
     await click(row().querySelector("[role=switch]")!);
     const after = [...row().querySelector(".row-control")!.children].map((child) => child.className);
     expect(after).toEqual(before);
-    expect(row().querySelector(".reset-slot button")!.hasAttribute("inert")).toBe(false);
   });
 
   test("Escape drops a typed address instead of saving it on blur", async () => {
@@ -318,7 +335,7 @@ describe("editors", () => {
     await changeValue(field(), "not an address");
     await fire(field(), "keydown", { key: "Enter" });
     expect(row().querySelector("[role=alert]")).not.toBeNull();
-    await click(row().querySelector("[data-reset]")!);
+    await resetRow(page.container, "browser.newTabPage");
     expect(row().querySelector("[role=alert]")).toBeNull();
     expect(field().value).not.toBe("not an address");
   });
@@ -338,7 +355,7 @@ describe("editors", () => {
     await changeValue(field(), "not an address");
     await fire(field(), "focusout");
     expect(row().querySelector("[role=alert]")).not.toBeNull();
-    await click(row().querySelector("[data-reset]")!);
+    await resetRow(page.container, "home.server");
     expect(row().querySelector("[role=alert]")).toBeNull();
     expect(row().querySelector("input.text")).toBeNull();
     expect(row().querySelector<HTMLSelectElement>("select")!.value).toBe("hosted");
@@ -423,7 +440,7 @@ describe("editors", () => {
   });
 
   test("the font list opens on a click in the first moments after the page loads", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    page = await renderPage({ path: "/settings/terminal" });
     const now = performance.now;
     performance.now = () => 50;
     try {
@@ -438,13 +455,13 @@ describe("editors", () => {
   test("a diagnostic shows an inline notice and a warning badge", async () => {
     page = await renderPage({
       mock: { diagnostics: [{ path: "terminal.fontSize", message: "fontSize must be a number" }] },
-      path: "/settings/appearance",
+      path: "/settings/terminal",
     });
     const notice = rowElement(page.container, "terminal.fontSize").querySelector("[data-notice]")!;
     expect(notice.textContent).toContain("fontSize must be a number");
     await click([...notice.querySelectorAll("button")][0]!);
     expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.openCmuxSettingsFile" }]);
-    expect(page.container.querySelector('[data-section-link="appearance"] [data-badge="warning"]')).not.toBeNull();
+    expect(page.container.querySelector('[data-section-link="terminal"] [data-badge="warning"]')).not.toBeNull();
   });
 
   test("unavailable: read-only banner, disabled controls, writes refused and not queued", async () => {
@@ -464,7 +481,7 @@ describe("editors", () => {
   });
 
   test("a write from another client (CLI, hand edit) shows up live through cmux.settings.changed", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    page = await renderPage({ path: "/settings/terminal" });
     const field = () =>
       rowElement(page!.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
     expect(field().value).not.toBe("19");

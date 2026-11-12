@@ -1495,7 +1495,8 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
         check = Path(tmp) / "cargo-locks.py"
         check.write_bytes(script)
-        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
+        # 30 workspaces resolve offline in parallel (about 4 s on a warm index); any the cached index cannot answer
+        # then resolve with the network one at a time, each with its own 120 s limit, inside a 300 s budget.
         code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
     if code == 124:
         log(f"prepush-gate: Cargo.lock check skipped: {out}")
@@ -2921,8 +2922,11 @@ def main(argv: list[str] | None = None) -> int:
             pushed_lines = sys.stdin.read().splitlines()
             ranges, errors = push_range.pushed_ranges(repo, pushed_lines, args.remote)
         else:
+            # A run by hand fetches the shared base first, as a push does (push_range.manual_range); an installed
+            # copy older than it has only own_range.
+            manual = getattr(push_range, "manual_range", None) or push_range.own_range
             ranges, errors = [push_range.given_range(repo, args.base, args.head) if args.base
-                              else push_range.own_range(repo, args.head)], []
+                              else manual(repo, args.head)], []
     except ValueError as error:  # a git call failed (a commit gone between two reads)
         ranges, errors = [], [str(error)]
     if errors:
