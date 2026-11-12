@@ -1,16 +1,24 @@
 import Foundation
 
-/// Which transport carries the link. Users switch it in Settings → Connection.
+/// Which transport carries the link. Users switch Mac links between WebRTC
+/// and WireGuard in Settings → Connection; `cloudCarrier` is a Cloud
+/// machine's own carrier (`CloudCarrierLink`), never a choice there.
 public enum TransportKind: String, CaseIterable, Codable, Sendable {
     case webRTC = "webrtc"
     case wireGuard = "wireguard"
+    /// A Cloud machine's carrier: Noise over the Cloud relay to the machine's daemon.
+    case cloudCarrier = "cloud"
 
     public var displayName: String {
         switch self {
         case .webRTC: "WebRTC"
         case .wireGuard: "WireGuard"
+        case .cloudCarrier: "Cloud"
         }
     }
+
+    /// The transports a person picks for a Mac link (Settings → Connection).
+    public static let macChoices: [TransportKind] = [.webRTC, .wireGuard]
 }
 
 /// How the bytes currently travel.
@@ -20,6 +28,8 @@ public enum LinkPathKind: String, Sendable {
     case turnTLS
     /// No working route at the moment (WireGuard).
     case noPath
+    /// A Cloud machine's carrier, through the Cloud relay.
+    case carrier
 }
 
 /// The WebRTC media session beside a WireGuard link, which carries browser
@@ -53,6 +63,7 @@ extension LinkPathKind {
         case .turn: "TURN"
         case .turnTLS: "TURN over TLS"
         case .noPath: "no path"
+        case .carrier: "Cloud relay"
         }
     }
 }
@@ -67,8 +78,9 @@ public enum LinkState: Equatable, Sendable {
     case disconnected(reason: String)
 }
 
-/// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
-/// (Rust cmux-mobile-link over WebRTC or WireGuard) and `MockMacLink`.
+/// A transport-agnostic connection to one Mac (or Cloud machine). Implementations:
+/// `FFIMacLink` (Rust cmux-mobile-link over WebRTC or WireGuard), `CloudCarrierLink`
+/// (a Cloud machine's carrier, `daemon` only) and `MockMacLink`.
 public protocol MacLink: AnyObject, Sendable {
     var transport: TransportKind { get }
     var states: AsyncStream<LinkState> { get }
