@@ -130,6 +130,53 @@ import Testing
         #expect(store.transcript(for: id).count > 1)
     }
 
+    /// Round 5 (verifier non-blocking 1): over drawn rows the load state sat 12 pt under the header
+    /// with no background, so a bubble could draw under its label, and it moved there only when the
+    /// transcript's own rows callback ran. It follows rows that arrive while the first page loads (a
+    /// send meanwhile), sits on a filled chip, and keeps a band of its own that the rows' top
+    /// clearance covers, so the oldest row rests below it.
+    @Test func overDrawnRowsTheLoadStateKeepsABandTheRowsStayClearOf() async throws {
+        let source = GatedHomeSource(EmptyChiefSource())
+        let store = HomeStore(source: source)
+        let me = try await source.inbox().me.id
+        store.start()
+        defer { store.stop() }
+        await settle { store.isOnline && !store.rows.isEmpty }
+        source.hold()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
+        defer { view.stop() }
+        view.frame = CGRect(x: 0, y: 0, width: 640, height: 720)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.debugTranscriptLoadState == "loading")
+        #expect(!view.loadState.overRows, "an empty transcript's load state is centered, not in a band")
+        #expect(view.loadState.overRowsBand == 0)
+
+        // A send while the first page loads draws a row: the load state moves above it, into its band.
+        let sending = Task { try? await store.send(conversation: id, text: "Are you there?", attachments: []) }
+        await settle { !store.transcript(for: id).isEmpty && view.loadState.overRows }
+        #expect(!store.transcript(for: id).isEmpty)
+        #expect(view.loadState.overRows, "a row that arrived while loading left the load state centered over it")
+        view.layoutSubtreeIfNeeded()
+        view.loadState.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        #expect(view.debugTranscriptLoadState == "loading")
+        #expect(view.loadState.overRowsBand > 0)
+        #expect(!view.loadState.chip.isHidden, "the load state over rows has no fill under its text")
+        let chip = view.convert(view.loadState.chip.frame, from: view.loadState)
+        let label = view.convert(view.loadState.label.frame, from: view.loadState)
+        #expect(chip.contains(label), "the label sits outside its chip")
+        let rowsStart = view.transcript.headerHeight + view.transcript.rowsTopClearance
+        #expect(rowsStart >= chip.maxY, "the rows' top clearance (\(rowsStart)) does not clear the load state (\(chip.maxY))")
+
+        source.release()
+        _ = await sending.value
+        await view.binding.opened()
+        await settle { view.debugTranscriptLoadState == nil }
+        view.layoutSubtreeIfNeeded()
+        #expect(view.loadState.overRowsBand == 0)
+        #expect(view.transcript.rowsTopClearance == 0, "the band outlived the load state")
+    }
+
     /// Round 2 (verifier low): Try Again on a failed older page started a Task nobody held, so
     /// `stop()` could not end it. The view keeps it and `stop()` cancels it.
     @Test func stopCancelsTheOlderPageRetry() async throws {

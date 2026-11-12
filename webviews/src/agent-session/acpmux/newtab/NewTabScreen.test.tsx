@@ -732,6 +732,48 @@ test("the `/` menu says Couldn't load commands. with Try Again when the list cou
   expect(promptValue()).toBe("/zzz");
 });
 
+// Round 5 (verifier M7): "Loading commands…" had no end while the list never came. Past the
+// deadline (injected timers) it says it couldn't load them, with Try Again, which asks again and
+// shows loading under a fresh deadline.
+test("the `/` menu's Loading commands… ends in Couldn't load commands. with Try Again after its deadline (M7)", async () => {
+  const cmux = { name: "model", description: "", source: "cmux" as const };
+  const armed: (() => void)[] = [];
+  const schedule = (fire: () => void) => {
+    let live = true;
+    armed.push(() => live && fire());
+    return () => void (live = false);
+  };
+  let retries = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [cmux], commandsPending: true })}
+        onRetryCommands={() => void retries++}
+        commandsDeadline={{ schedule }}
+      />,
+    );
+  });
+  const field = await typePrompt("/zzz");
+  const empty = () => container.querySelector("#acpmux-slash-menu .acpmux-slash-empty");
+  expect(empty()?.textContent).toBe(translate("composer.loadingCommands"));
+  expect(container.querySelector("#acpmux-slash-menu .acpmux-slash-retry")).toBeNull();
+  await act(async () => armed.splice(0).forEach((fire) => fire()));
+  expect(empty()?.textContent).toContain(translate("composer.loadCommandsFailed"));
+  const retry = container.querySelector<HTMLButtonElement>("#acpmux-slash-menu .acpmux-slash-retry");
+  expect(retry?.textContent).toBe(translate("composer.retryCommands"));
+  await act(async () => retry!.click());
+  expect(retries).toBe(1);
+  expect(empty()?.textContent).toBe(translate("composer.loadingCommands"));
+  expect(armed.length).toBe(1);
+  // The fresh deadline ends it again; Tab runs Try Again from the keyboard.
+  await act(async () => armed.splice(0).forEach((fire) => fire()));
+  expect(empty()?.textContent).toContain(translate("composer.loadCommandsFailed"));
+  await press(field, "Tab");
+  expect(retries).toBe(2);
+  expect(promptValue()).toBe("/zzz");
+});
+
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
   const asks: unknown[][] = [];
   await act(async () => {

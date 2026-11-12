@@ -3,7 +3,7 @@
 // summary has no turn count is still loading until its attach answers, not new; a chat with no
 // session yet, one whose summary counts no turns, and one attached with no rows still are.
 import { expect, test } from "bun:test";
-import { isNewChat, shownChatName } from "./emptyStateModel";
+import { chatLoad, isNewChat, shownChatName } from "./emptyStateModel";
 import { slashMenuEmptyLabel } from "./composerModel";
 import { mergedCommands } from "./cmuxCommands";
 
@@ -67,4 +67,24 @@ test("the / menu says No commands when the agent listed none, though cmux's own 
   expect(slashMenuEmptyLabel(mergedCommands([{ name: "review", description: "" }]), undefined)).toBe(
     "composer.noMatchingCommands",
   );
+});
+
+// Round 5 (verifier M3, blocking): an existing chat attaching drew a blank transcript. It is loading
+// until its attach answers, then its rows (or, read empty, the new-chat hero); a refused open or a
+// wait past the deadline is the error with Try Again.
+test("an existing chat attaching is loading, not blank; a refused or late open is the error", () => {
+  expect(chatLoad(existing())).toBe("loading");
+  expect(chatLoad(existing({ connection: "connecting" }))).toBe("loading");
+  expect(chatLoad(existing(), false, true)).toBe("failed");
+  expect(chatLoad(existing({ connection: "failed" }))).toBe("failed");
+  // Read: rows, or read empty (the hero); neither is loading.
+  expect(chatLoad(existing({ chatRead: true }))).toBeUndefined();
+  expect(chatLoad(existing({ chatRead: true, rows: [{}] }))).toBeUndefined();
+  // Rows already drawn (a kept tail) stay without a load state over them.
+  expect(chatLoad(existing({ rows: [{}] }))).toBeUndefined();
+  // A new chat has its hero, never a load state; nor does a chat that is not here.
+  expect(chatLoad(existing({ sessionId: undefined, summary: undefined }), true)).toBeUndefined();
+  const counted = existing({ summary: { sessionId: "chat-1", title: "Fix the build", turnCount: 0 } });
+  expect(chatLoad(counted)).toBeUndefined();
+  expect(chatLoad(existing({ unavailable: { reason: "offline" } }))).toBeUndefined();
 });

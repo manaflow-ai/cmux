@@ -83,6 +83,45 @@ import CmuxHomeCoreTestSupport
         store.stop()
     }
 
+    /// Round 5 (verifier non-blocking 2): a deadline woken from its sleep and cancelled before it
+    /// ran again (a Try Again armed a fresh one meanwhile) still dropped the fresh deadline from the
+    /// map and failed the page. It now checks for cancellation: the page stays loading under the
+    /// fresh deadline, which alone fails it when it passes.
+    @Test func aDeadlineCancelledAfterItWokeLeavesTheRetrysFreshDeadline() async throws {
+        let source = GatedHomeSource(MockHomeSource(options: .immediate))
+        let clock = ManualClock()
+        let blobs = FileManager.default.temporaryDirectory.appendingPathComponent("home-first-page-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: blobs) }
+        let store = HomeStore(source: source, blobCacheDirectory: blobs, clock: clock)
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        await waitUntil { clock.pendingSleepers == 1 }
+        source.hold()
+        let opening = store.beginOpen(chief)
+        await waitUntil { source.waiting == 1 && clock.pendingSleepers == 2 }
+        let first = try #require(store.firstPageDeadlines[chief])
+
+        // The deadline wakes; before it runs on the main actor again, Try Again arms a fresh one
+        // (the read is still out, so the retry keeps it and only re-arms the deadline).
+        clock.advance(by: HomeStore.firstPageDeadline)
+        _ = store.retryTranscript(chief)
+        let fresh = try #require(store.firstPageDeadlines[chief])
+        await first.value
+        #expect(store.transcriptFirstPage(chief) == .loading, "a cancelled deadline failed the page early")
+        #expect(store.firstPageDeadlines[chief] == fresh, "a cancelled deadline dropped the retry's fresh one")
+
+        // The fresh deadline still ends the wait.
+        await waitUntil { clock.pendingSleepers == 2 }
+        clock.advance(by: HomeStore.firstPageDeadline)
+        await waitUntil { store.transcriptFirstPage(chief) == .failed }
+        #expect(store.transcriptFirstPage(chief) == .failed)
+
+        source.release()
+        await opening.value
+        #expect(store.transcriptFirstPage(chief) == .loaded)
+        store.stop()
+    }
+
     @Test func aRetryOfATranscriptShownNowhereReadsNothing() async {
         let (store, source) = await started()
         await store.retryTranscript(chief).value
