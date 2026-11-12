@@ -35,6 +35,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import pr_media_privacy as privacy  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
@@ -1133,7 +1135,7 @@ class FeatWorkflowTests(unittest.TestCase):
         """The environment can be pr-media: GitHub matches names without case, and an expression whose value
         comes from outside it could be anything."""
         names = [""]
-        for i, piece in enumerate(re.split(r"\$\{\{(.*?)\}\}", name, flags=re.S)):
+        for i, piece in enumerate(gh_expressions.EXPRESSION.split(name)):
             values = self.outcomes(piece) if i % 2 else [piece]
             if values is None:
                 return True

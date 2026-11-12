@@ -20,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
@@ -367,7 +369,8 @@ ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (
 
 # One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
 # (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
-ONE_MINI_THEN = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+) \}\}")
+# The contents of one whole expression (gh_expressions finds it).
+ONE_MINI_THEN = re.compile(r"vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+)", re.DOTALL)
 
 
 def mode_off_timeout(value: object) -> str:
@@ -375,7 +378,8 @@ def mode_off_timeout(value: object) -> str:
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
     if one_mini:
         return one_mini.group(1)
-    then = ONE_MINI_THEN.fullmatch(str(value))
+    whole = gh_expressions.STRIPPED.fullmatch(str(value))
+    then = ONE_MINI_THEN.fullmatch(whole.group(1)) if whole else None
     return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 

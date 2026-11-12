@@ -46,6 +46,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
@@ -109,7 +111,7 @@ GROUP_EXPRESSION = re.compile(
 # The prefix every workflow-guard-tests step carries so a red guard does not
 # skip the rest of its group.
 KEEP_GOING = re.compile(r"!cancelled\(\)\s*&&\s*(.+)")
-EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+EXPRESSION = gh_expressions.STRIPPED  # a tokenizer: a `}}` in a string literal does not end it
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
 # stops queued steps and kills the running ones' process groups.

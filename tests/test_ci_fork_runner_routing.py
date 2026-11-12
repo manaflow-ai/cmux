@@ -18,6 +18,9 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,7 +82,7 @@ FORK_BRANCHES = (
     FORK_LINUX_ARM64_BRANCH,
 )
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
+EXPRESSION = gh_expressions.EXPRESSION
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 # (workflow, stripped line) -> why a Blacksmith label there may stay ungated.

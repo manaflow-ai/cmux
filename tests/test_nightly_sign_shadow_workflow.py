@@ -39,6 +39,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 import nightly_sign_admit  # noqa: E402
 import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
 CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
@@ -96,7 +98,7 @@ def gate_is_shadow_conjunct(expression: str) -> bool:
 
 def contexts(text: str) -> set[str]:
     found: set[str] = set()
-    for expression in re.findall(r"\$\{\{(.*?)\}\}", text, re.DOTALL):
+    for expression in gh_expressions.EXPRESSION.findall(text):
         found.update(re.findall(r"\b(?:github|inputs|vars|secrets|env|steps|needs|matrix|runner|job)\.[A-Za-z0-9_.]+", expression))
     return found
 

@@ -40,15 +40,30 @@ OPEN, CLOSE = r"\$\{\{", r"\}\}"
 # A body that can stop at a `}}` inside a string literal (or at any `}`): any-char runs and `[^}]` classes.
 GENERIC = re.compile(r"\.\*|\.\+|\[\^\\?\}")
 
-# (file relative to the repository, the regex source): why it is safe. Each pins one exact shape, so text a cut
-# would misread does not match it and the check goes red instead of passing.
-ALLOWED: dict[tuple[str, str], str] = {}
+# (file relative to the repository, the start of the regex source): why it is safe. Each pins one exact shape, so
+# text a cut would misread does not match it and the check goes red instead of passing. This file's own sources (the
+# entries here) are not scanned.
+ALLOWED: dict[tuple[str, str], str] = {
+    ("tests/test_ci_change_areas.py", r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?'):
+        "reads one setup-bun pin to compare with devEngines: a cut leaves `${{`, which is neither "
+        "`${{ steps.X.outputs.version }}` nor the pin, so the test goes red",
+    ("tests/test_nightly_delivery_concurrency.py",
+     r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "):
+        "asserts the concurrency group is this exact text: a `}` inside the first expression makes it not match, "
+        "so the assertion fails rather than passes",
+}
+
+
+def _allowed(path: str, source: str) -> str | None:
+    return next((key for key in ALLOWED if key[0] == path and source.startswith(key[1])), None)
 
 
 def _scanning_regexes() -> list[tuple[str, int, str]]:
     found = []
     for base in ("scripts", "tests"):
         for path in sorted((ROOT / base).rglob("*.py")):
+            if path.resolve() == Path(__file__).resolve():
+                continue
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except (SyntaxError, UnicodeDecodeError):
@@ -125,11 +140,11 @@ class GuardScripts(unittest.TestCase):
 class NoRegexScans(unittest.TestCase):
     def test_no_regex_scans_an_expression(self) -> None:
         named = [f"{path}:{line}: {source}" for path, line, source in _scanning_regexes()
-                 if (path, source) not in ALLOWED]
+                 if _allowed(path, source) is None]
         self.assertEqual(named, [], "scan `${{ }}` with gh_expressions (EXPRESSION, STRIPPED), not a regex")
 
     def test_every_allowed_entry_still_matches(self) -> None:
-        found = {(path, source) for path, _, source in _scanning_regexes()}
+        found = {_allowed(path, source) for path, _, source in _scanning_regexes()}
         self.assertEqual(sorted(set(ALLOWED) - found), [])
 
     def test_the_detector_names_the_old_scans(self) -> None:

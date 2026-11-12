@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import workflow_jobs
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -82,7 +84,7 @@ def _name_patterns(job: Mapping[str, Any], job_id: str) -> tuple[set[str], list[
         if "${{" not in part:
             patterns.append(re.compile(r".*", re.DOTALL))
             continue
-        pieces = re.split(r"\$\{\{.*?\}\}", part, flags=re.DOTALL)
+        pieces = gh_expressions.EXPRESSION.split(part)[::2]
         patterns.append(re.compile(".*".join(re.escape(piece) for piece in pieces), re.DOTALL))
     return values, patterns
 
