@@ -109,11 +109,12 @@ public final class CmuxToastView: NSView {
         // Room past the row's own width goes to the message (no gravity gap after close). A
         // toast with Details off is exactly its row's width, so this changes nothing there.
         row.distribution = .fill
-        row.spacing = tuning.buttonSpacing
+        row.spacing = Metrics.scale(tuning.buttonSpacing)
         // Room around the message; the buttons' hover fills stop one step short of the edge,
         // so the toast reads as one surface with text in it.
-        row.edgeInsets = NSEdgeInsets(top: tuning.verticalPadding, left: tuning.horizontalPadding,
-                                      bottom: tuning.verticalPadding, right: tuning.trailingPadding)
+        // The tuned points follow the interface scale, as the grid steps they replace did.
+        row.edgeInsets = NSEdgeInsets(top: Metrics.scale(tuning.verticalPadding), left: Metrics.scale(tuning.horizontalPadding),
+                                      bottom: Metrics.scale(tuning.verticalPadding), right: Metrics.scale(tuning.trailingPadding))
         row.translatesAutoresizingMaskIntoConstraints = false
         if let action = toast.action {
             let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
