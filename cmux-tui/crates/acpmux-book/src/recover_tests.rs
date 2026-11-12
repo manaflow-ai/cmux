@@ -237,11 +237,16 @@ fn killed_around_a_segment_roll() {
         fs::remove_dir_all(&copy).unwrap();
     }
 
-    // A torn record in a segment that is not the last cannot come from a kill (a segment is
-    // synced before the next is made). It is reported; the owner rebuilds the book from raw.
+    // A failed record in an earlier segment cuts every later record too. With no
+    // checkpoint, all records are replayable; the raw replay restores both lost rows.
     let first = fs::read(segment(&book)).unwrap();
     fs::write(segment(&book), &first[..first.len() - 1]).unwrap();
-    assert!(matches!(Log::open(&book, options), Err(Error::Corrupt(_))));
+    let (mut log, recovered) = Log::open(&book, options).unwrap();
+    assert!(recovered.truncated > 0);
+    assert!(!second.exists());
+    assert_rows(&mut log, last - 2);
+    settle(&mut log, last - 1, last);
+    assert_rows(&mut log, last);
 }
 
 #[test]
