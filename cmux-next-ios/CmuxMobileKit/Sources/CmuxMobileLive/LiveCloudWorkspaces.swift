@@ -32,8 +32,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     @ObservationIgnored var busyPoll: Duration = LiveCloudWorkspaces.busyPoll
 
     /// How often the list is read while nothing changes, and while a machine is changing.
-    static let idlePoll: Duration = .seconds(60)
-    static let busyPoll: Duration = .seconds(4)
+    nonisolated static let idlePoll: Duration = .seconds(60)
+    nonisolated static let busyPoll: Duration = .seconds(4)
     /// How long New Cloud Workspace waits for its machine to run, then for its daemon.
     static let startBudget: Duration = .seconds(300)
     static let daemonBudget: Duration = .seconds(60)
@@ -106,8 +106,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         return Self.pollInterval(busy: busy, busyFor: busySince.map { .now - $0 }, busyPoll: busyPoll)
     }
 
-    static let stuckAfter: Duration = .seconds(120)
-    static let stuckPoll: Duration = .seconds(15)
+    nonisolated static let stuckAfter: Duration = .seconds(120)
+    nonisolated static let stuckPoll: Duration = .seconds(15)
 
     nonisolated static func pollInterval(busy: Bool, busyFor: Duration?, busyPoll: Duration = LiveCloudWorkspaces.busyPoll) -> Duration {
         guard busy else { return idlePoll }
