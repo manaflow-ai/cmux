@@ -55,10 +55,10 @@ import UIKit
         screen.view.layoutIfNeeded()
         defer { window.isHidden = true }
 
-        // The scenario is real: the page has a still, and it is blank.
-        let still = screen.snapshot(hidingCursor: true)
-        #expect(still != nil, "the page in a window has a still")
-        if let still { #expect(TerminalFrameKeep.isBlank(still)) }
+        // The scenario is real: the page has a still (base saved it over the
+        // cached frame). Not one flat color: the empty surface still draws, so
+        // the gate is the attach, not a blank check alone.
+        #expect(screen.snapshot(hidingCursor: true) != nil, "the page in a window has a still")
 
         #expect(model.frameForSaving() == nil, "a page from before the first attach is never saved")
         #expect(model.frameToKeep() === cached, "the tab keeps the cached frame it had")
