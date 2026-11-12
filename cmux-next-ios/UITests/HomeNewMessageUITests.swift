@@ -153,7 +153,11 @@ final class HomeNewMessageUITests: XCTestCase {
             // Send in the Chief's own message box.
             let send = existing.buttons["conversation.composer.send"].firstMatch
             let field = existing.textViews["conversation.composer.text"].firstMatch
-            if field.exists, (field.value as? String ?? "").isEmpty {
+            // The text typed before the token moved with it and came back after it (the box's
+            // value is its placeholder while empty).
+            XCTAssertTrue((field.value as? String ?? "").contains("nightly"),
+                          "the typed text stayed through the token's removal: \(field.value ?? "")")
+            if !(field.value as? String ?? "").contains("nightly") {
                 field.tap()
                 field.typeText("Status of the nightly?")
             }

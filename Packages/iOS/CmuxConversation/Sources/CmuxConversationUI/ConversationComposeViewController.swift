@@ -310,6 +310,9 @@ public final class ConversationComposeViewController: UIViewController {
         let carrying = currentMessage()
         let next = key.isEmpty ? nil : existingConversation?(draft.recipients, carrying)
         guard next !== existingController else { return }
+        // The leaving conversation's typed text comes back to the blank page's box.
+        let returning = (existingController as? any ConversationComposeEmbeddable)?.composeDraftText
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let old = existingController {
             old.willMove(toParent: nil)
             old.view.removeFromSuperview()
@@ -325,6 +328,7 @@ public final class ConversationComposeViewController: UIViewController {
             if !carrying.isEmpty { composer.clearAfterSend() }
         } else {
             existingContainer.embedded = nil
+            if !returning.isEmpty, composer.text.isEmpty { composer.text = returning }
         }
         existingContainer.isHidden = next == nil
         updateComposerVisibility()
@@ -763,10 +767,14 @@ final class ComposeExistingContainer: UIView {
 @MainActor
 public protocol ConversationComposeEmbeddable: AnyObject {
     var composeHeaderHeight: CGFloat { get }
+    /// What its own message box holds: it comes back to the sheet's when the conversation leaves
+    /// (the recipients changed), as the Mac's New Message keeps the typed text.
+    var composeDraftText: String { get }
 }
 
 extension ConversationViewController: ConversationComposeEmbeddable {
     public var composeHeaderHeight: CGFloat { headerMaxY }
+    public var composeDraftText: String { composer.text }
 }
 
 /// + (Add Contact): a stacked "Contacts" sheet, sectioned by last name

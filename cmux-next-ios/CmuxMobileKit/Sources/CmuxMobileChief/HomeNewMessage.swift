@@ -286,6 +286,7 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
     required init?(coder: NSCoder) { nil }
 
     var composeHeaderHeight: CGFloat { conversation.composeHeaderHeight }
+    var composeDraftText: String { conversation.composeDraftText }
 
     override func viewDidLoad() {
         super.viewDidLoad()
