@@ -79,16 +79,29 @@ fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     })
 }
 
+/// A loaded source: its path, its syntax, and the scopes of the modules around it (outermost
+/// first), so a `super::` in a file-backed child sees the module that declares it.
+type Loaded = (PathBuf, syn::File, Vec<Scope>);
+
 /// `file` and the files of the modules it declares (not under a test `cfg`), recursively. `dir`:
-/// where its `mod x;` finds `x.rs`.
-fn load(file: &Path, dir: &Path, out: &mut Vec<(PathBuf, syn::File)>) {
+/// where its `mod x;` finds `x.rs`; `around`: the scopes of the modules that declare it.
+fn load(file: &Path, dir: &Path, around: &[Scope], out: &mut Vec<Loaded>) {
     let text = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
     let parsed = syn::parse_file(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-    load_items(&parsed.items, file, dir, out);
-    out.push((file.to_path_buf(), parsed));
+    let mut chain = around.to_vec();
+    chain.push(Scope::of(parsed.items.iter(), true));
+    load_items(&parsed.items, file, dir, &mut chain, out);
+    out.push((file.to_path_buf(), parsed, around.to_vec()));
 }
 
-fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathBuf, syn::File)>) {
+/// `chain`: the scopes of the modules `items` sit in, theirs last.
+fn load_items(
+    items: &[syn::Item],
+    file: &Path,
+    dir: &Path,
+    chain: &mut Vec<Scope>,
+    out: &mut Vec<Loaded>,
+) {
     for item in items {
         let syn::Item::Mod(m) = item else { continue };
         if is_test_attr(&m.attrs) {
@@ -96,7 +109,9 @@ fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathB
         }
         let name = m.ident.to_string();
         if let Some((_, inline)) = &m.content {
-            load_items(inline, file, &dir.join(&name), out);
+            chain.push(Scope::of(inline.iter(), true));
+            load_items(inline, file, &dir.join(&name), chain, out);
+            chain.pop();
             continue;
         }
         let (child, child_dir) = match path_attr(&m.attrs) {
@@ -109,20 +124,20 @@ fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathB
             }
             None => (dir.join(&name).join("mod.rs"), dir.join(&name)),
         };
-        load(&child, &child_dir, out);
+        load(&child, &child_dir, chain, out);
     }
 }
 
-/// The store's sources: `src/store.rs` and its modules.
-fn store_sources() -> Vec<(String, syn::File)> {
+/// The store's sources: `src/store.rs` and its modules, each with the scopes around it.
+fn store_sources() -> Vec<(String, syn::File, Vec<Scope>)> {
     let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src = crate_dir.join("src");
     let mut out = Vec::new();
-    load(&src.join("store.rs"), &src.join("store"), &mut out);
+    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
     out.into_iter()
-        .map(|(path, file)| {
+        .map(|(path, file, around)| {
             let rel = path.strip_prefix(&crate_dir).unwrap_or(&path);
-            (rel.to_string_lossy().replace('\\', "/"), file)
+            (rel.to_string_lossy().replace('\\', "/"), file, around)
         })
         .collect()
 }
@@ -296,8 +311,17 @@ fn resolve_within(scopes: &[Scope], segments: &[String], steps: usize) -> Vec<St
             None => path,
         };
     }
+    let mut replaced = false;
     for _ in 0..4 {
         let Some(first) = path.first() else { break };
+        if matches!(first.as_str(), "self" | "super") && replaced {
+            // An import named a `self::`/`super::` path (`use self::symlink_metadata as sm;`):
+            // resolve it from its module, as a call written that way is (#42003 review).
+            return match steps.checked_sub(1) {
+                Some(left) => resolve_within(scopes, &path, left),
+                None => path,
+            };
+        }
         if matches!(first.as_str(), "std" | "core" | "crate" | "self" | "super") {
             break;
         }
@@ -306,6 +330,7 @@ fn resolve_within(scopes: &[Scope], segments: &[String], steps: usize) -> Vec<St
             break;
         }
         path.splice(0..1, full);
+        replaced = true;
     }
     path
 }
@@ -513,11 +538,18 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
 /// The rows of one file.
 fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
+    rows_in_module(rel, file, &[])
+}
+
+/// The rows of one file whose module sits in the modules `around` (outermost first): a
+/// `super::` in it resolves in theirs.
+fn rows_in_module(rel: &str, file: &syn::File, around: &[Scope]) -> Vec<String> {
     let mut rows = Vec::new();
-    let root = Scope::of(file.items.iter(), true);
+    let mut scopes = around.to_vec();
+    scopes.push(Scope::of(file.items.iter(), true));
     for item in &file.items {
         let mut scan =
-            Scan { rel, paths: HashSet::new(), scopes: vec![root.clone()], rows: Vec::new() };
+            Scan { rel, paths: HashSet::new(), scopes: scopes.clone(), rows: Vec::new() };
         scan.visit_item(item);
         rows.append(&mut scan.rows);
     }
@@ -528,16 +560,17 @@ fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
 fn nothing_in_the_store_checks_a_file_by_path() {
     let sources = store_sources();
     assert!(
-        sources.iter().any(|(rel, _)| rel == "src/store/cold.rs")
-            && sources.iter().any(|(rel, _)| rel == "src/store/journal_store/meta.rs"),
+        sources.iter().any(|(rel, ..)| rel == "src/store/cold.rs")
+            && sources.iter().any(|(rel, ..)| rel == "src/store/journal_store/meta.rs"),
         "the lint reads the store's modules: {:?}",
-        sources.iter().map(|(rel, _)| rel).collect::<Vec<_>>()
+        sources.iter().map(|(rel, ..)| rel).collect::<Vec<_>>()
     );
     assert!(
-        !sources.iter().any(|(rel, _)| rel.ends_with("_tests.rs")),
+        !sources.iter().any(|(rel, ..)| rel.ends_with("_tests.rs")),
         "a test module is left out"
     );
-    let rows: Vec<String> = sources.iter().flat_map(|(rel, file)| rows_in(rel, file)).collect();
+    let rows: Vec<String> =
+        sources.iter().flat_map(|(rel, file, around)| rows_in_module(rel, file, around)).collect();
     assert!(
         rows.is_empty(),
         "{} existence or metadata check(s) by path in the store: read each in the held home \
@@ -793,12 +826,12 @@ fn the_lint_resolves_self_super_through_aliases() {
 /// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
 fn tree_rows(src: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    load(&src.join("store.rs"), &src.join("store"), &mut out);
+    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
     let mut rows: Vec<String> = out
         .iter()
-        .flat_map(|(path, file)| {
+        .flat_map(|(path, file, around)| {
             let rel = path.strip_prefix(src).unwrap_or(path).to_string_lossy().replace('\\', "/");
-            rows_in(&rel, file)
+            rows_in_module(&rel, file, around)
         })
         .collect();
     rows.sort();
