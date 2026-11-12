@@ -28,6 +28,7 @@ on:
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - scripts/cmux-next/test-shim-switches-cpp.sh
       - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
@@ -55,6 +56,7 @@ on:
       - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - scripts/cmux-next/test-shim-switches-cpp.sh
       - scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - scripts/cmux-next/test-local-file-handoff-cpp.sh
       - schemas/local-file-handoff/vectors.json
       - scripts/cmux-next/test-local-file-scope-cpp.sh
@@ -106,6 +108,9 @@ jobs:
       - name: Sign-in session callbacks end only their own session
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-auth-callback-policy-cpp.sh
+      - name: A notification request is refused at once, never left pending
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-permission-prompt-policy-cpp.sh
       - name: Local file handoff (shared vectors)
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-local-file-handoff-cpp.sh

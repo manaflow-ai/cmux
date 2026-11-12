@@ -34,6 +34,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_perf;
 mod classic;
 mod events;
 mod group_create;
@@ -128,8 +129,8 @@ pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
     if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
-/// An app that says the run never started (`busy`, an early `timeout`, a
-/// reconnecting daemon) is asked again after the delay it names
+/// An app that did not get to the request (`busy`, an early `timeout`, a
+/// reconnecting daemon; never a refusal the app decided) is asked again after the delay it names
 /// (`retry_after_ms`, else this default, doubled each time), until the
 /// request's deadline (`run::not_run_deadline`), never a fixed count of tries.
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
@@ -178,6 +179,12 @@ pub(super) enum AppCommand {
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
+    },
+    /// `app chat perf`: `agent.chat.perf`, one chat page's frames and record-to-paint times over
+    /// `seconds` (app/chat_perf.rs).
+    ChatPerf {
+        params: Value,
+        seconds: u64,
     },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
@@ -299,6 +306,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
+            chat_perf::parse(rest)?
+        }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
         // or a pixel of the screen.
@@ -956,6 +966,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Renderers { params } => {
             return Ran::Done(renderers::run(global, stream, params));
         }
+        AppCommand::ChatPerf { params, seconds } => {
+            return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
@@ -1137,13 +1150,23 @@ fn names_a_target(error: &Value) -> bool {
     error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
-/// A refusal the CLI asks again for instead of showing it: the app says nothing ran
-/// (`not_run`) and the cause passes (`busy`, a `timeout` before the work started, or an
-/// `unavailable` read barrier on a daemon connection that was reconnecting, #32724). One that
-/// may have started (`in_progress`) is reported.
+/// A refusal the CLI asks again for instead of showing it: the app did not get to the request
+/// and the cause passes. A `busy` or a `timeout` before the work started (`not_run`) is one. An
+/// `unavailable` is one only when the app says so in `data.state: "not_run"`: the read barrier on
+/// a daemon connection that was reconnecting (#32724). Every other `unavailable` is a refusal the
+/// app decided (`state: "rejected"`, or no state from an app before it said one: a pane that
+/// cannot split, a person-only action, a window that is not ready). The same request gets the
+/// same answer, so it is reported at once, never held to the request's deadline
+/// (`cmux action run splitDown` on the agent chat took 45 s to say why); its text says when a
+/// new request can pass. One that may have started (`in_progress`) is reported too.
 fn retry_before_running(error: &Value) -> bool {
-    matches!(error_code(error), Some("busy" | "timeout" | "unavailable"))
-        && refused_before_running(error)
+    match error_code(error) {
+        Some("busy" | "timeout") => refused_before_running(error),
+        Some("unavailable") => {
+            error.pointer("/data/state").and_then(Value::as_str) == Some("not_run")
+        }
+        _ => false,
+    }
 }
 
 /// The app says nothing ran (`data.not_run`): it refused before the

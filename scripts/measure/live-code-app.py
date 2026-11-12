@@ -15,12 +15,12 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import BenchApp  # noqa: E402
 
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift")
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
-# Home's page fills the view (layout sets its frame to bounds) and covers the layer's color, so the
+# Home's transcript fills the view (layout sets its frame to bounds) and covers the layer's color, so the
 # first patch also insets it: the color then shows as a border around the chat (a fleet still of
 # try-pr-live-code.sh at 71936c52 counted 0 red pixels without it).
-FILL, INSET = "page.frame = bounds\n", "page.frame = bounds.insetBy(dx: 80, dy: 80)\n"
+FILL, INSET = "transcript.frame = bounds\n", "transcript.frame = bounds.insetBy(dx: 80, dy: 80)\n"
 
 
 def pixels(png):

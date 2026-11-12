@@ -76,18 +76,22 @@ const godChat = () =>
 
 /// Scrolls the transcript so the first loaded row sits a little under the header, with a band of the
 /// room for older history above it: the moment the reader reaches the top of the loaded page.
+/// The arm draws after the scroll: an arm that waits on the first loaded row (`earlier-row`) can only
+/// find it once the row is mounted, and the transcript mounts the rows at its bottom first.
 async function toLoadedTop(ctx: PlayContext, arm?: Arm) {
-  if (arm) await showArm(ctx, arm);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-spacer[data-older-room]"));
   const spacer = ctx.document.querySelector<HTMLElement>(".acpmux-spacer[data-older-room]");
   const room = Number(spacer?.dataset.olderRoom ?? 0);
   await ctx.scroll({ selector: ".acpmux-scroll" }, Math.max(0, room - 96));
+  if (arm) await showArm(ctx, arm);
 }
 
-/// The first loaded row (aria-posinset 1): the arms draw at its top edge.
-const FIRST_ROW = '.acpmux-spacer[data-older-room] .acpmux-row[aria-posinset="1"]';
+/// The first loaded row (aria-posinset 1) while older history is left to load: the arms draw at its
+/// top edge. Keyed on `data-loads-older`, not the room: the room goes as the reader reaches the loaded
+/// top (VirtualTranscript.tsx `giveRoomNearTop`), the moment these arms are for.
+const FIRST_ROW = '.acpmux-spacer[data-loads-older] .acpmux-row[aria-posinset="1"]';
 /// The transcript while older history is still left to load.
-const LOADING_OLDER = ".acpmux-scroll:has(.acpmux-spacer[data-older-room])";
+const LOADING_OLDER = ".acpmux-scroll:has(.acpmux-spacer[data-loads-older])";
 
 export const ARMS = arms({
   /// The shared scroll-edge blur-fade band (foundations.md) pinned at the transcript's top while older

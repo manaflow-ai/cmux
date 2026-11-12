@@ -482,6 +482,7 @@
           "title": {"section": "development"},
           "symbol": "hammer",
           "groups": [
+            {"group": "settings.group.internalDeveloperMode", "note": "Debug commands in the Command Palette (DEV and NIGHTLY)."},
             {"group": "settings.group.macScreen"},
             {"group": "settings.group.deviceHub"}
           ],

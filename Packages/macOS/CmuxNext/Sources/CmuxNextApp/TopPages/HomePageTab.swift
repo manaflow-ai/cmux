@@ -8,7 +8,8 @@ extension InternalPageID {
     static let homeTab = InternalPageID(rawValue: "home-tab")
 }
 
-/// Home's Messages page (``HomeMessagesPage``, the React `home-messages` page) as an internal page tab, so it sits in a split next to any other tab, the
+/// The native Home (MessagesLab's list and transcript, `TopHomePageView`)
+/// as an internal page tab, so it sits in a split next to any other tab, the
 /// channels Home among them. Every tab reads the one `HomeService`
 /// (`services.home`): a message sent in one Home shows in every other Home
 /// at once. Each `home.tab` run opens one more tab; each tab has its own
@@ -17,9 +18,12 @@ extension InternalPageID {
 @MainActor
 final class HomePageTab: InternalPageProvider {
     private weak var services: AppServices?
-    private var views: [String: HomeMessagesPage] = [:]
+    private var views: [String: TopHomePageView] = [:]
     /// The order the tabs opened in (`debug.home` lists them so).
     private var order: [String] = []
+    /// The saved list width every Home tab shares (`HomeSidebarWidth` keeps
+    /// one width per key; one key per tab would grow without bound).
+    static let widthKey = "home-tab"
 
     init(services: AppServices) {
         self.services = services
@@ -31,20 +35,30 @@ final class HomePageTab: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
-        guard let view = HomeMessagesPage.make(services: services, widthKey: "home-tab") else { return NSView() }
+        let view = TopHomePageView(services: services, windowKey: { Self.widthKey })
         views[key] = view
         order.append(key)
         return view
     }
 
     func tabClosed(_ key: String) {
-        views.removeValue(forKey: key)?.close()
+        views[key] = nil
         order.removeAll { $0 == key }
     }
 
     /// Open Home tabs by provider key, in the order they opened.
-    var tabs: [(key: String, view: HomeMessagesPage)] {
+    var tabs: [(key: String, view: TopHomePageView)] {
         order.compactMap { key in views[key].map { (key, $0) } }
+    }
+
+    /// The transcript a Home tab shows (its conversation's native view).
+    static func transcript(in view: NSView) -> HomeNativeTranscriptView? {
+        var stack = [view]
+        while let next = stack.popLast() {
+            if let home = next as? HomeNativeTranscriptView { return home }
+            stack.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     /// `home.tab`: one more Home tab in the active window, after the focused

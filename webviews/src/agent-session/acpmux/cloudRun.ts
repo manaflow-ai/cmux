@@ -20,6 +20,8 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
+  mode?: string;
   environment?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
@@ -172,6 +174,16 @@ export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined 
   return offered ? undefined : "cloud_not_now";
 }
 
+/// Whether the composer's agent runs on this Mac, given that the chat itself is this Mac's
+/// (`chatLocal`): a new chat with Cloud picked runs its agent on the Cloud machine, whose sign-in the
+/// start handles (the login copy, or the machine's own sign-in). This Mac's harness health and sign-in
+/// then neither show nor hold Send: a Mac with no agent CLI signed in, whose composer then names a
+/// built-in such as UniiChat, kept every Cloud send under "unii isn't signed in", for a harness the
+/// start never runs (Cloud composer journey, run 42953585969).
+export function composerAgentLocal(chatLocal: boolean, runMode: string | undefined, sessionId?: string | null) {
+  return chatLocal && !(runMode === "cloud" && !sessionId);
+}
+
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
 /// chat opens on the machine (a new machine boots in minutes), or with why it didn't.
 export async function startCloudChat(
@@ -185,6 +197,9 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
+  // person's own machine (AgentPaneCloudStart `mode`).
+  if (start.mode) params.mode = start.mode;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
@@ -254,6 +269,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.environment ?? null,
     // Only a send that switches team names it, so every other start keeps the key it had.
     ...(start.team ? [start.team] : []),
+    // A start in another mode is another start; one with no pick keeps the key it had.
+    ...(start.mode ? [`mode:${start.mode}`] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;

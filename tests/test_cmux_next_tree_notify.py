@@ -392,32 +392,27 @@ class Notify(unittest.TestCase):
         """A 404 (or any read error) is no record: the failed state stands."""
         seen = []
 
-        class Response(io.BytesIO):
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-        def urlopen(request, timeout):
-            seen.append(request.full_url)
-            if "missing" in seen[-1]:
-                raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
-            if "truncated" in seen[-1]:  # the connection drops mid-body
+        def request(url, seconds):
+            seen.append(url)
+            self.assertEqual(seconds, notify.REQUEST_TIMEOUT_S)
+            if "missing" in url:
+                return 404, b"Not Found", {}
+            if "truncated" in url:  # the connection drops mid-body
                 raise http.client.IncompleteRead(b"{")
-            return Response(json.dumps(completion_json()).encode())
+            if "timeout" in url:
+                raise notify.RequestTimeout("no full answer")
+            return 200, json.dumps(completion_json()).encode(), {}
 
-        original = notify.urllib.request.urlopen
-        notify.urllib.request.urlopen = urlopen
+        original = notify.deadline_http.request
+        notify.deadline_http.request = request
         try:
             self.assertEqual(notify.fetch_completion(KEY), completion_json())
             self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
             self.assertIsNone(notify.fetch_completion("missing"))
             self.assertIsNone(notify.fetch_completion("truncated"))
+            self.assertIsNone(notify.fetch_completion("timeout"))
         finally:
-            notify.urllib.request.urlopen = original
+            notify.deadline_http.request = original
 
     def test_a_failed_tree_is_reported_once_per_marker(self):
         """2026-11-02: tree 4e172926 could not build (a stale Cargo.lock on the base its commits came
@@ -493,6 +488,61 @@ class Notify(unittest.TestCase):
                           fetch_completion=lambda _key: None)
         self.assertEqual(len(api.dispatched), 2)
         self.assertTrue(any("could not read cmux-next.yml's run history" in line for line in messages))
+
+    def test_the_failed_reason_names_the_tree(self):
+        """cmux_next_same_tree_failed.py reads the key from the red run's reason, its only key input."""
+        api = FakeApi([push_marker()])
+        notify.notify(api, repo="o/r", key=KEY, state="failed", reason="the run ended without publishing",
+                      log=lambda _line: None, fetch_completion=lambda _key: None)
+        reason = api.dispatched[0]["inputs"]["same_tree_reason"]
+        self.assertIn(f"tree {KEY}", reason)
+        self.assertIn("ended without publishing", reason)
+        named = FakeApi([push_marker()])
+        run(named, state="failed")  # "publish failed: u3" names no tree: it is prefixed once
+        self.assertEqual(named.dispatched[0]["inputs"]["same_tree_reason"].count(f"tree {KEY}"), 1)
+
+    def test_a_publish_redispatches_every_tier_a_same_tree_run_reported_red(self):
+        """2026-11-11, cmux#40449 at ec4a30d2: run 43009515785 reported the tree red for the daemon
+        tests and the scheme compile. The tree's publication dispatched only the daemon tests (the pull
+        request's marker); the scheme compile's red stayed. The red run leaves a reported marker
+        (cmux_next_same_tree_failed.py), and the publication starts it with every tier."""
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import cmux_next_same_tree_failed as failed
+
+        args = failed.parse(["--repo", "o/r", "--ref", "lane/x", "--reason", f"tree {KEY}: publish failed",
+                             "--commit", HEAD, "--status-sha", HEAD, "--tiers", "daemon,scheme",
+                             "--origin", "dispatch", "--origin-run", "11"])
+        reported = failed.reported_marker(args, KEY, "43009515785")
+        api = FakeApi([pr_marker(), reported], branch_head=HEAD)
+        self.assertEqual(run(api), 2)
+        tiers = {body["inputs"]["same_tree_origin"]: body["inputs"]["same_tree_tiers"] for body in api.dispatched}
+        self.assertEqual(tiers, {"pull_request": "daemon", "dispatch": "daemon,scheme"})
+        scheme = next(body for body in api.dispatched if body["inputs"]["same_tree_origin"] == "dispatch")
+        self.assertEqual((scheme["ref"], scheme["inputs"]["same_tree_status_sha"]), ("lane/x", HEAD))
+        self.assertEqual(scheme["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(sorted(api.deleted), [100, 101])
+
+    def test_a_reported_marker_is_never_reported_red_again(self):
+        """Its red is posted; only a publication starts it (no red loop on a key that cannot build)."""
+        api = FakeApi([push_marker(reported=True, reported_run=5)])
+        for _ in range(3):
+            self.assertEqual(run(api, state="failed"), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.deleted, [])
+        self.assertEqual(run(api, state="ready"), 1)
+        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertIsNone(notify.read_marker(FakeApi([push_marker(reported="yes")]),
+                                             {"archive_download_url": "zip/100"}, KEY))
+
+    def test_markers_of_one_run_start_it_once_with_every_tier(self):
+        """The marker that started a red run and the red run's reported marker are one same-tree run."""
+        api = FakeApi([push_marker(tiers=["daemon"]), push_marker(tiers=["scheme"], reported=True)])
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertEqual(sorted(api.deleted), [100, 101])
+        failed = FakeApi([push_marker(tiers=["daemon"]), push_marker(tiers=["daemon"])])
+        self.assertEqual(run(failed, state="failed"), 1)
 
     def test_a_malformed_marker_is_ignored(self):
         for bad in (push_marker(sha="not-a-sha"), push_marker(key="e" * 40), push_marker(tiers=["rm -rf"]),

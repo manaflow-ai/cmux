@@ -67,6 +67,7 @@ extension PaneController {
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
+            if source != .cli, ActionRunScope.isPersonsAction() { state?.selection.closeRule.personSelects(id.rawValue, in: paneKey) } // a click, a shortcut, the palette: not a script
         }
         guard let workspace else {
             guard ActionRunScope.viewChangeAllowed() else { return }
@@ -286,7 +287,7 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
-            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
+            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
             surfaces.append(tab.surface)
             keys.append(tab.id)

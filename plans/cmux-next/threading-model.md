@@ -143,7 +143,7 @@ A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here 
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
-- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
+- Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
 - Cloud credentials: `cmux.cloud.link-credential`, `cmux.cloud.hands.stdin` (the hands engine's JSON lines into
@@ -151,7 +151,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
+- Settings and files: `com.cmuxterm.next.settings.watcher`, `com.cmuxterm.next.settings.file-lock` (the app's
+  waits for the write lock of `cmux-next.json`, which the daemon also takes; user-initiated, serial: it blocks in
+  `flock` only while another writer holds the lock, one wait at a time in call order, and the write is suspended
+  meanwhile, never a caller's thread or the main thread; a write hears `SettingsFileBusy` after 5 s, and a wait
+  given up on before its turn is skipped; SettingsFileLock), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
   `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
@@ -180,7 +184,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Dictation: `com.cmuxterm.dictation.recording` (one dictation session's recording file, utility, serial: its
   file writes block this queue, never the audio tap or main; one write per second of audio heard, each
   one second of 16 kHz PCM, so it keeps up by orders of magnitude; the finish's header patch and read of a
-  recording within 4 MiB run here too)
+  recording within 4 MiB run here too), `com.cmuxterm.dictation.microphone-activity` (the composer's
+  outside-dictation mark, CoreAudioMicrophoneSource, utility, serial: its CoreAudio property listeners fire here
+  and its property reads, each a synchronous message to the audio server, block this queue, never main (the
+  NIGHTLY 85b0999 30 s main-thread hang, 2026-11-10); it runs only while a composer watches; one read runs and
+  at most one more waits, as reads asked for meanwhile join it, so no back-pressure)
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)

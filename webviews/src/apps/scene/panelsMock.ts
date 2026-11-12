@@ -213,7 +213,7 @@ export class MockAppPanelsClient implements PageClient {
     for (const listener of this.changed) listener(undefined, ++this.seq);
   }
 
-  /** Mounts the mock holds now (a hidden New Tab page holds none). */
+  /** Mounts the mock holds now (a closed New Tab page holds none). */
   get mounted(): number {
     return this.mounts.size;
   }

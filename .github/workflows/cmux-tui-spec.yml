@@ -41,6 +41,8 @@ on:
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
+      - "scripts/ci/webviews_test_results.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
   # the change touches a `push` path above; when it touches none, every job is skipped,
@@ -558,7 +560,7 @@ jobs:
           rc=0
           python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
           if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
-            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            # The script already printed a ::warning file=<the file>,line= annotation for each unformatted file.
             exit 0
           fi
           exit "$rc"

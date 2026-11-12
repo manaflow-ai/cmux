@@ -319,6 +319,10 @@ path = "tests/test_ci_no_single_size_pins.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_noclobber_sweep.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
@@ -593,7 +597,16 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_single_host_fallbacks.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/check-single-host-fallbacks.py, which CI runs only with --advisory (warnings) and the pre-push gate runs strictly; run python3 tests/test_ci_single_host_fallbacks.py yourself after changing the checker or .github/single-host-fallbacks.json (about 10 s, no build)."
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_sparse_checkout_imports.py"
 lane = "linux-guard"
 
 [[test]]
@@ -671,11 +684,20 @@ path = "tests/test_ci_web_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_webviews_affected.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_paths_cover_inputs.py"
 lane = "linux-guard"
 
 [[test]]
@@ -701,8 +723,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_webviews_affected.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."

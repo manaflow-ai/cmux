@@ -90,13 +90,15 @@ extension ScreenContentView {
             let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let change = CGSize(width: then.width - now.width, height: then.height - now.height)
-            if change != .zero { host.drawAhead(sizeChange: change) }
+            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
         }
     }
 
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
-    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
+    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest. A closing
+    /// pane's side is an edge of the motion too: the landing moves it no more than that quarter point from where this
+    /// frame's step put it (`landingMovesAClosingPane`), or it would take what is left of the pane's ground away at once.
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
@@ -116,7 +118,8 @@ extension ScreenContentView {
             if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
             dividerFrames[key] = frame
         }
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest),
+           !landingMovesAClosingPane(snap: AnimatedFrame.landingDistance) {
             for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
             for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
         } else {
@@ -211,10 +214,12 @@ extension ScreenContentView {
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
-        if context.holdsPresentations {
+        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
+        if context.holdsPresentations || frameInput.snapWaitsForContent {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
+        releaseSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1

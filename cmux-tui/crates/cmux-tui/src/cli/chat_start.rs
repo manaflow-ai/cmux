@@ -125,7 +125,7 @@ Starts an agent chat, right here unless --on names another target:
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
-  --model MODEL      The agent's model (a chat here)
+  --model MODEL      The agent's model (here or on a Cloud machine)
   --cwd DIR          The chat's folder (absolute); for a Cloud chat, a folder on the VM
   --from-folder DIR  A Cloud chat in a copy of DIR, a folder on this Mac (`.` is this
                      one): copied as New Cloud chat copies it, .env files, keys and
@@ -137,6 +137,7 @@ Starts an agent chat, right here unless --on names another target:
                      a clone of it already there is used as it is
   --name NAME        The chat's name (a chat here)
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files (a Cloud chat)
   -w, --wait         Wait for the chat's turn to end and print the reply
   --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
                      default 15m, at most 4h)
@@ -189,6 +190,8 @@ pub(super) struct Start {
     pub environment: Option<String>,
     pub wait: bool,
     pub timeout: Option<String>,
+    /// `--allow-large`: a Cloud chat's `--from-folder` copied even past the copy's limits.
+    pub allow_large: bool,
 }
 
 // Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
@@ -280,6 +283,7 @@ pub(super) fn parse_with(
         environment: None,
         wait: false,
         timeout: None,
+        allow_large: false,
     };
     let mut index = 0;
     while let Some(word) = words.get(index).map(String::as_str) {
@@ -357,6 +361,7 @@ pub(super) fn parse_with(
             "--timeout" => start.timeout = Some(value()?),
             "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
+            "--allow-large" => start.allow_large = true,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
@@ -1002,10 +1007,10 @@ fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, Usage
 
 /// The `cloud start-chat` words for this start on `machine`.
 pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String>, UsageError> {
-    if start.model.is_some() || start.name.is_some() {
+    if start.name.is_some() {
         return Err(UsageError::new(
-            "--model and --name name a chat here; a Cloud chat takes --agent, --cwd, --from-folder \
-             and --prompt",
+            "--name names a chat here; a Cloud chat takes --agent, --model, --cwd, \
+             --from-folder and --prompt",
         ));
     }
     // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
@@ -1026,6 +1031,8 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     for (flag, value) in [
         ("--agent", &start.agent),
+        // The machine's agent starts on it (`cloud start-session --model`).
+        ("--model", &start.model),
         ("--cwd", &start.cwd),
         ("--from-folder", &start.from_folder),
         ("--environment", &start.environment),
@@ -1038,6 +1045,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     if start.wait {
         words.push("--wait".to_owned());
     }
+    if start.allow_large {
+        words.push("--allow-large".to_owned());
+    }
     Ok(words)
 }
 
@@ -1048,6 +1058,9 @@ pub(super) fn read_stdin() -> Result<String, String> {
 }
 
 fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
+    if let Some(code) = cloud_start_chat::folder_refused(error, output) {
+        return code;
+    }
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 

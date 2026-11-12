@@ -21,6 +21,8 @@ final class SidebarListView: NSView {
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The spaces the person left, each as the list drew it: a space shown again lays out no row (`SidebarSpacePage`).
+    var spacePages = SidebarSpacePages()
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
     /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
@@ -271,7 +273,7 @@ final class SidebarListView: NSView {
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
         // A group's fold splices that group's rows (SidebarListView+Fold), never reloads the list.
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
-        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        // A close's successor is picked among the rows drawn here (close-focus.md, "One close-selection rule").
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         model.drawnSelectionOrder = { [weak self] in self?.selectionOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.

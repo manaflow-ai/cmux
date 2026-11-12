@@ -4,7 +4,10 @@
 (`~/.config/cmux/customize`, id `local/customize`) plus the person's own actions
 in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
-still missing, and four copy-paste folders that work as written.
+still missing, and the copy-paste folders that work as written.
+
+What people build, from a first widget to a pane of their own, and the gaps between
+what they asked for and these primitives: [ideas.md](ideas.md).
 
 An extension of its own (an id `local/NAME` beside the customize app, built from
 TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
@@ -30,6 +33,9 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `sidebar-section` | The focused workspace's name and its tabs, redrawn on every workspace or tab change; a click focuses the tab. | `workspace:write` (for the click; reading needs nothing) |
 | `command-button` | Buttons that run the person's own `cmux-next.json` actions. | `actions:run` |
 | `pane` | A checklist that opens as a tab, and a sidebar row that opens it. | `storage:local` (keep the list), `actions:run` (the row) |
+| `clock-weather` | A widget: the time, the date and the weather for a city you type (Open-Meteo, no key). The clock ticks every 15 s, the weather every 15 min. | `net:geocoding-api.open-meteo.com` and `net:api.open-meteo.com` (the weather), `storage:local` (keep the city) |
+| `my-prs` | Your open PRs and the reviews you owe, in the order you keep them (Move to top, up, down in a row's menu), read every minute and again when an agent chat changes. | `actions:run` (a click opens the PR), `storage:local` (keep the order), `net:api.github.com` (when GitHub is not connected) |
+| `design-links` | Figma, FigJam, Linear, Notion and Docs links: paste one, its file name becomes the row, a click opens it in a cmux browser tab beside the code. | `storage:local` (keep the links), `actions:run` (open) |
 | `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
@@ -77,7 +83,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 |---|---|---|
 | A sidebar section | `implements["cmux.section/1"]`, region `top`, `middle` or `bottom`; `cmux apps place` | none |
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
-| A New Tab widget | `implements["cmux.newtab.widget/1"]`, `options.size` `small` or `wide`; the person places it (Edit New Tab > Add Widgets); at most 64 nodes; mounted only while a New Tab page shows ([the clock recipe](../../../examples/extensions/clock/README.md)) | none |
+| A New Tab widget | `implements["cmux.newtab.widget/1"]`, `options.size` `small` or `wide`; the person places it (Edit New Tab > Add Widgets); at most 64 nodes; mounted only when placed, from the page's open to its close, also while the page is hidden ([the clock recipe](../../../examples/extensions/clock/README.md)) | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
