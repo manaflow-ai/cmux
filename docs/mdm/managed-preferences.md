@@ -201,6 +201,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.dividerThickness` | real |  | 0 to 6 | Divider Thickness |
 | `appearance.metrics.dividerHitWidth` | real |  | 1 to 24 | Divider Drag Width |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
+| `appearance.metrics.sidebarRowHeight` | real |  | 20 to 48 | Workspace Row Height |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |

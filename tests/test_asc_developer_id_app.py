@@ -16,7 +16,7 @@ import io
 from pathlib import Path
 import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/asc_developer_id_app.py"
 spec = importlib.util.spec_from_file_location("asc_developer_id_app", SCRIPT)
@@ -65,9 +65,12 @@ class FakeASC:
 
 
 def run(fake, mode):
-    out = io.StringIO()
-    with redirect_stdout(out):
+    # stderr is captured too: the negative cases' expected "error: no ACTIVE profile" lines
+    # printed into the CI log next to "ok" read as this suite failing (base run 43166772721).
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
         code = asc.run(fake, mode, "com.cmuxterm.app.next", "cmux NEXT", "cmux NEXT Developer ID")
+    run.stderr = err.getvalue()
     return code, out.getvalue()
 
 
@@ -118,6 +121,7 @@ class DeveloperIdAppTests(unittest.TestCase):
         code, out = run(FakeASC(bundle=True, profile="ACTIVE"), "download")
         self.assertEqual((code, out), (0, base64.b64encode(b"profile").decode()))
         self.assertEqual(run(FakeASC(bundle=True, profile="INVALID"), "download")[0], 1)
+        self.assertIn("no ACTIVE profile named 'cmux NEXT Developer ID'", run.stderr)
         self.assertEqual(run(FakeASC(bundle=True), "download")[0], 1)
 
 

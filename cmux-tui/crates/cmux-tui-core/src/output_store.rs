@@ -1119,6 +1119,16 @@ impl OutputStore {
             return;
         }
         self.writer.stop();
+        // A terminal whose bytes since its snapshot are all in a synced tail
+        // is visited too: the pass reads its screen (a digest, no snapshot)
+        // and writes a snapshot only where the tail cannot carry it, a
+        // terminal on the alternate screen included (quit_pass_tests.rs).
+        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.tail_bytes > 0 {
+                state.dirty = true;
+            }
+        }
         self.write_now(mux);
     }
 

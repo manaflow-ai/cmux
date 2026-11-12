@@ -234,6 +234,7 @@ let package = Package(
         // cmux-next-ios/design/instant-perf.md. CI runs it on its own, after the other tests.
         .testTarget(name: "CmuxMobileInstantPerfTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileAgentChat", "CmuxMobileTransport",
+            "CmuxMobileModel", "CmuxMobileWorkspaces",
         ]),
         .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed"]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),

@@ -1190,8 +1190,9 @@ impl Spawner {
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
         // goal.rs: a Claude subagent here gets its task, then `/goal`, the
-        // prompt the Chief follows (its end is the report). acpmux runs a
-        // session's prompts in order, so the goal turn starts after the task.
+        // prompt the Chief follows (its end is the report). `/goal` goes out
+        // only when the task turn ended: sent back to back, acpmux ran the
+        // short `/goal` before the long task (a1141, 2026-11-12).
         let goal = self.goal_for(admitted.family, peer.is_some());
         self.trace.emit(
             "subagent.start",
@@ -1201,15 +1202,16 @@ impl Spawner {
         if let Some(hold_id) = &hold_id {
             let mut blocks = crate::prompt::subagent_blocks(view, task);
             blocks.push(crate::goal::hold_block());
-            let (hold_tx, _hold_rx) = channel();
+            let (hold_tx, hold_rx) = channel();
             self.agents
                 .start_prompt(&session, blocks, hold_id, hold_tx)?;
-            self.agents.start_prompt(
-                &session,
-                vec![json!({"type": "text", "text": crate::goal::command()})],
-                &prompt_id,
+            send_goal_after_task(
+                self.agents.clone(),
+                session.clone(),
+                prompt_id.clone(),
+                hold_rx,
                 tx,
-            )?;
+            );
         } else {
             self.agents.start_prompt(
                 &session,
@@ -2474,6 +2476,42 @@ pub fn recover_launch(
         }
     }
     None
+}
+
+/// Sends `/goal` (prompt `prompt_id`, its signals to `tx`) once the task
+/// turn whose signals come on `task` ended. A task turn that was cancelled,
+/// failed or lost its connection gets no `/goal`: its end goes to `tx`, so
+/// the subagent ends as that turn did.
+fn send_goal_after_task(
+    agents: Arc<dyn AgentPort>,
+    session: String,
+    prompt_id: String,
+    task: std::sync::mpsc::Receiver<TurnSignal>,
+    tx: Sender<TurnSignal>,
+) {
+    std::thread::spawn(move || {
+        let end = loop {
+            match task.recv() {
+                Ok(TurnSignal::Done(end)) => break Some(end),
+                Ok(TurnSignal::Lost) | Err(_) => break None,
+                Ok(_) => {}
+            }
+        };
+        let signal = match end {
+            Some(Ok(answer))
+                if answer.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
+            {
+                let goal = vec![json!({"type": "text", "text": crate::goal::command()})];
+                match agents.start_prompt(&session, goal, &prompt_id, tx.clone()) {
+                    Ok(()) => return,
+                    Err(e) => TurnSignal::Done(Err(e)),
+                }
+            }
+            Some(end) => TurnSignal::Done(end),
+            None => TurnSignal::Lost,
+        };
+        let _ = tx.send(signal);
+    });
 }
 
 /// Reads `session`'s new events into `folder` and says whether its first

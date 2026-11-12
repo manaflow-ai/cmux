@@ -306,7 +306,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// drew there: a chat it took from a kept tail (tailCache.ts), which is
     /// already on screen in that frame, or a chat read cold, which the pane's
     /// loading state fades in. An older page says nothing, which means cold.
-    case painted(fromKeptTail: Bool)
+    /// `settled` (`pane.painted {settled: true}`, hq#9655 stage 1): that frame is
+    /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
+    /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
+    /// Absent (an older page, or a page's fallback paths) means as before.
+    case painted(fromKeptTail: Bool, settled: Bool)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready
