@@ -43,9 +43,6 @@ final class TerminalSurfaceView: UIView {
     /// writes collect here instead of reaching `onInput`, and go out only
     /// when they scroll a page (``TerminalPanRoute/scrollsPage(_:)``).
     var heldWheelKeys: Data?
-    /// The last alternate-scroll keys Ghostty wrote scrolled a page (a pager
-    /// keeps DECCKM on): a flick shorter than a row still flings it.
-    var wheelKeysScrollPage = false
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -125,9 +122,14 @@ final class TerminalSurfaceView: UIView {
             // A wheel Ghostty handed to its own thread (it could not take the
             // terminal lock) arrives later, outside `scrollWheel`: the same
             // rule holds, so Claude Code never gets its normal-mode arrows.
+            // They are the person's scroll, so they go out as input (held
+            // through a reconnect), not as a terminal reply.
             if !isPerformingInput, TerminalPanRoute.isWheelKeys(data) {
-                wheelKeysScrollPage = TerminalPanRoute.scrollsPage(data)
-                guard wheelKeysScrollPage else { return }
+                guard TerminalPanRoute.scrollsPage(data) else { return }
+                isPerformingInput = true
+                defer { isPerformingInput = false }
+                onInput?(data)
+                return
             }
             let typed = isEncodingUserInput
             onInput?(data)

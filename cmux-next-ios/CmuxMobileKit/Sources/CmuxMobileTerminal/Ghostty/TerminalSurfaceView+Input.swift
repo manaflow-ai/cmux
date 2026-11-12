@@ -73,8 +73,6 @@ extension TerminalSurfaceView {
         guard route == .cursorKeys else { return true }
         let keys = heldWheelKeys ?? Data()
         heldWheelKeys = nil
-        // Less than a row writes nothing: the last verdict stands.
-        if !keys.isEmpty { wheelKeysScrollPage = TerminalPanRoute.scrollsPage(keys) }
         guard TerminalPanRoute.scrollsPage(keys) else { return false }
         onInput?(keys)
         return true
