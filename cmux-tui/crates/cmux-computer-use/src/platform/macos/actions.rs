@@ -749,9 +749,15 @@ pub(super) fn press_keys(
             roles::ChordAction::Refuse(why) => {
                 // A block that only stands because names are still loading
                 // says so, not "the deny list".
-                let blocked_unknown = matches.iter().find(|m| m.blocked).is_some_and(|m| m.unknown);
-                if let Some(loading) = roles::loading_instead(why, blocked_unknown) {
+                let blocking = matches.iter().find(|m| m.blocked);
+                if let Some(loading) =
+                    roles::loading_instead(why, blocking.is_some_and(|m| m.unknown))
+                {
                     return Err(DesktopError::Unsupported(loading.into()));
+                }
+                // Blocked because an item above it cannot be read: say so.
+                if why == roles::REFUSE_BLOCKED && blocking.is_some_and(|m| m.unplaced) {
+                    return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
                 }
                 // Name the menu item only when it is the reason.
                 let item = (why == roles::REFUSE_BLOCKED)
@@ -1175,12 +1181,13 @@ fn shortcut_matches(
                         true
                     }
                 };
-                let (title, blocked, checked, unknown) = match text(&node, "AXTitle") {
+                let (title, blocked, checked, unknown, unplaced) = match text(&node, "AXTitle") {
                     Ok(t) => {
                         let t = t.unwrap_or_default();
                         let check = d.menu_item_check_titled(&node, &t);
                         let unknown = check == roles::ItemCheck::Unknown;
-                        (t, check != roles::ItemCheck::Allowed, true, unknown)
+                        let unplaced = check == roles::ItemCheck::Unplaced;
+                        (t, check != roles::ItemCheck::Allowed, true, unknown, unplaced)
                     }
                     // A title that cannot be read cannot be checked: blocked
                     // while something is denied, and never pressed; with
@@ -1188,12 +1195,12 @@ fn shortcut_matches(
                     // posted chord leaves no menu under the person's keys).
                     Err(()) => {
                         complete = false;
-                        (String::new(), d.denies_any(), false, false)
+                        (String::new(), d.denies_any(), false, false, false)
                     }
                 };
                 found.push((
                     node.clone(),
-                    roles::ShortcutMatch { title, enabled, blocked, checked, unknown },
+                    roles::ShortcutMatch { title, enabled, blocked, checked, unknown, unplaced },
                 ));
                 if stop_at_enabled && enabled {
                     return (found, complete);

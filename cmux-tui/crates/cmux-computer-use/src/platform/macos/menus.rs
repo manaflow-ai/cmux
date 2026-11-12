@@ -309,11 +309,15 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
         })
         .collect();
     let (depth, path) = menu_place(menu);
-    // Whether the menu is a launch list by its items: once per menu.
+    // The names this listing is checked against, once for the menu (the
+    // press checks against the same kind).
+    let names = workspace::NameSource::now();
+    // Whether the menu is a launch list by its items: once per menu; a title
+    // that cannot be read leaves the siblings unknown.
     let launch = d.opened_needs_siblings(depth) && {
-        let titles: Vec<String> =
-            read.iter().map(|(_, t, _)| t.clone().ok().flatten().unwrap_or_default()).collect();
-        roles::siblings_name_apps(&titles, &workspace::apps_named_indexed)
+        let titles: Option<Vec<String>> =
+            read.iter().map(|(_, t, _)| t.clone().map(Option::unwrap_or_default).ok()).collect();
+        roles::launch_by_items(titles.as_deref(), d.denies_any(), &|n| names.resolve(n))
     };
     read.into_iter()
         .filter_map(|(el, title, submenu)| {
@@ -328,7 +332,7 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
                 path: path.as_deref(),
                 launch,
             };
-            let row = listed_row(&title, title_failed, d.opened_item_known(&it));
+            let row = listed_row(&title, title_failed, d.opened_item_known(&it, &names));
             if row == Row::Separator {
                 return None;
             }

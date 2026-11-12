@@ -433,6 +433,7 @@ fn shortcuts_run_the_first_enabled_item_as_appkit_does() {
         blocked,
         checked: true,
         unknown: false,
+        unplaced: false,
     };
     assert_eq!(roles::pick_shortcut(&[]), P::None);
     assert_eq!(roles::pick_shortcut(&[m("A", false, false), m("B", true, false)]), P::Press(1));
@@ -696,6 +697,7 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
         blocked,
         checked: true,
         unknown: false,
+        unplaced: false,
     };
     fn base(matches: &[M]) -> ChordFacts<'_> {
         ChordFacts {
@@ -991,8 +993,14 @@ fn an_unchecked_match_is_never_pressed() {
     use roles::{ChordAction as A, ChordFacts, ServiceCheck as S, ShortcutMatch as M};
     // Its title could not be read, so it was not held to the protected apps;
     // with nothing denied (where it is not marked blocked) the key is posted.
-    let unchecked =
-        [M { title: String::new(), enabled: true, blocked: false, checked: false, unknown: false }];
+    let unchecked = [M {
+        title: String::new(),
+        enabled: true,
+        blocked: false,
+        checked: false,
+        unknown: false,
+        unplaced: false,
+    }];
     for background in [false, true] {
         let f = ChordFacts {
             matches: &unchecked,
@@ -1097,27 +1105,28 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
     assert!(workspace::app_names_ready());
     // 500 font names at depth 1: each is decided with no sibling list.
     let names: Vec<String> = (0..500).map(|i| format!("Font Family {i}")).collect();
+    let source = workspace::NameSource::now();
     let hidden = names
         .iter()
         .filter(|n| {
-            d.opened_item_known(&ax::OpenedItem {
-                title: n,
-                title_failed: false,
-                depth: 1,
-                path: Some(&[]),
-                launch: false,
-            })
+            d.opened_item_known(
+                &ax::OpenedItem {
+                    title: n,
+                    title_failed: false,
+                    depth: 1,
+                    path: Some(&[]),
+                    launch: false,
+                },
+                &source,
+            )
         })
         .count();
     assert_eq!(hidden, 0);
     // An unreadable title fails closed, whatever the deny list.
-    assert!(d.opened_item_known(&ax::OpenedItem {
-        title: "",
-        title_failed: true,
-        depth: 1,
-        path: Some(&[]),
-        launch: false,
-    }));
+    assert!(d.opened_item_known(
+        &ax::OpenedItem { title: "", title_failed: true, depth: 1, path: Some(&[]), launch: false },
+        &source,
+    ));
 }
 
 #[test]
@@ -1487,37 +1496,53 @@ fn a_word_run_naming_a_blocked_app_known_before_the_index_is_denied_not_loading(
 
 #[test]
 fn the_press_and_the_listing_agree_on_every_item() {
-    // For any guard, title and path, with the index answering every name
-    // and the names known before it a part of the index, the press
-    // (opened_reason) blocks exactly what the listing (opened_rules) hides.
+    // The listing (listing_blocked) and the press (press_reason after the
+    // menu-bar rule's check) use one name source: the index plus the cold
+    // map, which here knows names the index does not ("Foo", a denied app
+    // outside the app folders, and a prefix app), and while the index loads
+    // knows only those. For every guard, title, path and source they agree.
     let guards = [
         PolicyGuard(crate::policy::PolicyConfig::default()),
         PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() }),
         PolicyGuard(crate::policy::PolicyConfig {
-            denied_apps: vec!["com.agilebits.*".into(), "name:Diary".into()],
+            denied_apps: vec![
+                "com.agilebits.*".into(),
+                "name:Diary".into(),
+                "com.example.foo".into(),
+            ],
             ..Default::default()
         }),
     ];
-    let index = |n: &str| -> Option<Vec<String>> {
-        Some(match n.to_lowercase().as_str() {
-            "textedit" => vec!["com.apple.TextEdit".into()],
-            "terminal" => vec!["com.apple.Terminal".into()],
-            "1password" => vec!["com.agilebits.onepassword7".into()],
-            "securityagent" => vec!["com.apple.securityagent".into()],
-            _ => vec![],
-        })
+    let map = |pairs: &[(&str, &str)]| {
+        let mut m = workspace::NameMap::new();
+        for (name, id) in pairs {
+            m.entry(name.to_string()).or_default().push(id.to_string());
+        }
+        m
     };
-    let cold = |n: &str| -> Option<Vec<String>> {
-        Some(match n.to_lowercase().as_str() {
-            "terminal" => vec!["com.apple.Terminal".into()],
-            _ => vec![],
-        })
-    };
+    let index = map(&[
+        ("textedit", "com.apple.TextEdit"),
+        ("terminal", "com.apple.Terminal"),
+        ("securityagent", "com.apple.securityagent"),
+    ]);
+    let cold = map(&[
+        ("terminal", "com.apple.Terminal"),
+        ("foo", "com.example.foo"),
+        ("1password", "com.agilebits.onepassword7"),
+    ]);
+    let sources = [
+        workspace::NameSource::of(Some(index.clone()), Some(cold.clone())),
+        // The index is still loading: only the cold map answers.
+        workspace::NameSource::of(None, Some(cold)),
+        workspace::NameSource::of(Some(index), None),
+    ];
     let titles = [
         "TextEdit",
         "Terminal",
         "New Terminal at Folder",
         "Open in 1Password",
+        "Open in Foo",
+        "Foo",
         "Write in Diary",
         "SecurityAgent",
         "Make Sticky",
@@ -1531,14 +1556,60 @@ fn the_press_and_the_listing_agree_on_every_item() {
     let paths: [Option<&[String]>; 6] =
         [None, Some(&[]), Some(&open_with), Some(&services), Some(&terminal), Some(&sort)];
     for guard in &guards {
-        for title in titles {
-            for path in paths {
-                let press = opened_reason(guard, title, path, false, &cold, &index).is_some();
-                let listing = opened_rules(guard, title, path, &index);
-                assert_eq!(press, listing, "{title:?} under {path:?}");
+        for names in &sources {
+            let resolve = |n: &str| names.resolve(n);
+            let cold_answer = |n: &str| names.cold_answer(n);
+            for title in titles {
+                for path in paths {
+                    for launch in [None, Some(false), Some(true)] {
+                        for depth in [1, 2] {
+                            let ctx = roles::MenuItemContext {
+                                title,
+                                top_index: None,
+                                depth,
+                                siblings: &[],
+                                launch,
+                            };
+                            let listing = listing_blocked(guard, &ctx, path, &resolve);
+                            // The press's own check, as it runs (Unknown
+                            // included: menu_unknown).
+                            let check = roles::menu_item_check(guard, &ctx, &resolve);
+                            let press =
+                                press_reason(guard, check, title, path, &cold_answer, &resolve);
+                            assert_eq!(
+                                press.is_some(),
+                                listing,
+                                "{title:?} under {path:?}, launch {launch:?}, depth {depth}"
+                            );
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+#[test]
+fn one_name_source_joins_the_index_and_the_names_known_before_it() {
+    let mut index = workspace::NameMap::new();
+    index.insert("textedit".into(), vec!["com.apple.TextEdit".into()]);
+    let mut cold = workspace::NameMap::new();
+    cold.insert("foo".into(), vec!["com.example.foo".into()]);
+    let both = workspace::NameSource::of(Some(index.clone()), Some(cold.clone()));
+    assert_eq!(both.resolve("Foo"), Some(vec!["com.example.foo".to_string()]));
+    assert_eq!(both.resolve("TextEdit"), Some(vec!["com.apple.TextEdit".to_string()]));
+    assert_eq!(both.resolve("Other"), Some(vec![]));
+    // Before the index: the cold map answers; anything else is unknown.
+    let cold_only = workspace::NameSource::of(None, Some(cold));
+    assert_eq!(cold_only.resolve("foo"), Some(vec!["com.example.foo".to_string()]));
+    assert_eq!(cold_only.resolve("TextEdit"), None);
+}
+
+#[test]
+fn unknown_siblings_fail_closed_only_while_something_is_denied() {
+    let resolve = |_: &str| -> Option<Vec<String>> { Some(vec![]) };
+    assert!(roles::launch_by_items(None, true, &resolve));
+    assert!(!roles::launch_by_items(None, false, &resolve));
 }
 
 #[test]

@@ -318,7 +318,13 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
             ids
         });
     };
+    // The blocked apps known since the build (a prefix entry added, an app
+    // outside the folders) count too.
+    let cold = cold_blocked_names();
     if let Some(ids) = by_name.get(&key) {
+        return merged_names(Some(&by_name), cold.as_deref(), &key).or(Some(ids.clone()));
+    }
+    if let Some(ids) = cold.as_deref().and_then(|m| m.get(&key)) {
         return Some(ids.clone());
     }
     if let Some(hit) = index.answer(&key, generation) {
@@ -329,16 +335,64 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
     Some(ids)
 }
 
-/// [`apps_named`] from the built index alone, with no LaunchServices
-/// lookup: for scanning many words of menu titles (a font pop-up has
-/// hundreds of items). `None` while the first build runs.
-pub fn apps_named_indexed(name: &str) -> Option<Vec<String>> {
-    let key = name.trim().to_lowercase();
+/// The names opened menus are checked against, fetched once for a walk or
+/// a call: the built index plus the blocked apps known before it (the cold
+/// map: exact ids by every name, windowed apps a `prefix*` entry covers),
+/// which can know names the index does not (an app outside the app
+/// folders, a prefix entry added since the build). The listing and the
+/// press use the same one, so they agree.
+pub struct NameSource {
+    index: Option<std::sync::Arc<NameMap>>,
+    cold: Option<std::sync::Arc<NameMap>>,
+}
+
+impl NameSource {
+    pub fn now() -> Self {
+        NameSource { index: names_index().current().map(|(_, m)| m), cold: cold_blocked_names() }
+    }
+
+    /// For tests: a source over these maps.
+    #[cfg(test)]
+    pub(super) fn of(index: Option<NameMap>, cold: Option<NameMap>) -> Self {
+        NameSource { index: index.map(std::sync::Arc::new), cold: cold.map(std::sync::Arc::new) }
+    }
+
+    /// The cold map's answer alone: its ids, or none (never "unknown").
+    pub fn cold_answer(&self, name: &str) -> Option<Vec<String>> {
+        let key = name.trim().to_lowercase();
+        Some(self.cold.as_deref().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
+    }
+
+    /// The ids known by `name`: the index's and the cold map's together;
+    /// before the index is built only the cold map's, and None for a name it
+    /// does not know (not answered yet).
+    pub fn resolve(&self, name: &str) -> Option<Vec<String>> {
+        merged_names(self.index.as_deref(), self.cold.as_deref(), &name.trim().to_lowercase())
+    }
+}
+
+/// [`NameSource::resolve`] on plain maps. Pure, for tests.
+pub(super) fn merged_names(
+    index: Option<&NameMap>,
+    cold: Option<&NameMap>,
+    key: &str,
+) -> Option<Vec<String>> {
     if key.is_empty() {
         return Some(Vec::new());
     }
-    let (_, by_name) = names_index().current()?;
-    Some(by_name.get(&key).cloned().unwrap_or_default())
+    let cold_ids = cold.and_then(|m| m.get(key));
+    match index {
+        Some(index) => {
+            let mut ids = index.get(key).cloned().unwrap_or_default();
+            for id in cold_ids.into_iter().flatten() {
+                if !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+            Some(ids)
+        }
+        None => cold_ids.cloned(),
+    }
 }
 
 /// Whether the app-name index has been built. Items of a menu the desktop
@@ -452,17 +506,7 @@ impl NamesIndex {
                             }
                         }
                         let _done = Done(self);
-                        let mut map = build_name_index();
-                        // The prefix-covered apps the cold map knew, kept.
-                        for (name, ids) in prefix_covered_names() {
-                            let known = map.entry(name).or_default();
-                            for id in ids {
-                                if !known.contains(&id) {
-                                    known.push(id);
-                                }
-                            }
-                        }
-                        let map = std::sync::Arc::new(map);
+                        let map = std::sync::Arc::new(build_name_index());
                         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
                         st.generation += 1;
                         st.built = Some(map);
@@ -754,22 +798,6 @@ pub(super) fn reuse_cached(cached: &[String], ids: &[String]) -> bool {
     cached == ids
 }
 
-/// The names of the windowed apps a `prefix*` entry of the guard covers (as
-/// the cold map adds them), for the index to keep once built: so the listing
-/// (index only) and the press agree for prefix apps outside the app folders.
-fn prefix_covered_names() -> NameMap {
-    let entries = {
-        let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
-        source.as_ref().map(|s| s()).unwrap_or_default()
-    };
-    let (_, prefixes) = split_entries(entries);
-    let mut map = NameMap::new();
-    if !prefixes.is_empty() {
-        add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
-    }
-    map
-}
-
 /// The blocked apps' names: the exact ids' names built once per id set
 /// (again when it changes), and, only when there are `prefix*` entries, the
 /// windowed apps they cover, refreshed every few seconds. None with no guard
@@ -815,15 +843,6 @@ fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
     let map = std::sync::Arc::new(map);
     *merged = Some((prefixes, exact, std::time::Instant::now(), map.clone()));
     Some(map)
-}
-
-/// A name answered from the blocked apps known before the index (the cold
-/// map): their ids, or none for any other name (never "unknown"). For word
-/// runs, so a run naming a blocked app is a real block even while the index
-/// loads.
-pub fn cold_blocked_answer(name: &str) -> Option<Vec<String>> {
-    let key = name.trim().to_lowercase();
-    Some(cold_blocked_names().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
 }
 
 /// The bundle id of the app LaunchServices finds by name, if any.

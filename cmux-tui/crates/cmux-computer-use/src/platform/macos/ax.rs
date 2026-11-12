@@ -606,9 +606,15 @@ impl Walk {
         let next = MenuPlace::below(place, role, raw.title.as_deref());
         let child_launch = match &next {
             Some(n) if n.in_menu && (f.needs_siblings)(n.depth) => {
-                let titles: Vec<String> =
-                    children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect();
-                (f.launch_list)(&titles)
+                // A title that cannot be read leaves the siblings unknown.
+                let titles: Option<Vec<String>> = children
+                    .iter()
+                    .map(|c| {
+                        c.attr("AXTitle").map(|v| v.and_then(|v| v.as_string()).unwrap_or_default())
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok();
+                (f.launch_list)(titles.as_deref())
             }
             _ => false,
         };
@@ -712,8 +718,9 @@ pub struct MenuFilter<'a> {
     /// Whether items at this menu depth need their menu's titles (read once
     /// per menu, only then).
     pub needs_siblings: &'a dyn Fn(usize) -> bool,
-    /// Whether a menu with these titles is a launch list (once per menu).
-    pub launch_list: &'a dyn Fn(&[String]) -> bool,
+    /// Whether a menu with these titles is a launch list (once per menu);
+    /// None when a title could not be read.
+    pub launch_list: &'a dyn Fn(Option<&[String]>) -> bool,
 }
 
 /// The menu bar's own node budget in a tree, and its depth: bar, top menu,
@@ -855,9 +862,14 @@ impl ElementCache {
 }
 
 /// Where a menu item sits: the index of the menu bar item it is under, how
-/// many menus it is inside, and the titles of the items of its own menu.
-pub fn menu_context(item: &Ax) -> Option<(Option<usize>, usize, Vec<String>)> {
-    // Every read here can fail; any failure is None (the caller fails closed).
+/// many menus it is inside, and the titles of the items of its own menu
+/// (None when one of them cannot be read: the siblings are unknown, which
+/// is not the item's place).
+pub type MenuContext = (Option<usize>, usize, Option<Vec<String>>);
+
+pub fn menu_context(item: &Ax) -> Option<MenuContext> {
+    // A read on the item's own chain that fails is None (the caller fails
+    // closed); a sibling's title that fails only leaves the siblings unknown.
     let role = |n: &Ax| n.attr("AXRole").map(|v| v.and_then(|v| v.as_string()));
     let kids = |n: &Ax| -> Option<Vec<Ax>> {
         n.attr("AXChildren").ok().map(|v| {
@@ -866,12 +878,15 @@ pub fn menu_context(item: &Ax) -> Option<(Option<usize>, usize, Vec<String>)> {
     };
     let parent = item.attr("AXParent").ok()?.and_then(Ax::from_cf);
     let siblings = match &parent {
-        Some(p) if role(p).ok()?.as_deref() == Some("AXMenu") => kids(p)?
-            .iter()
-            .map(|c| c.attr("AXTitle").map(|v| v.and_then(|v| v.as_string()).unwrap_or_default()))
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?,
-        _ => Vec::new(),
+        Some(p) if role(p).ok()?.as_deref() == Some("AXMenu") => kids(p).and_then(|k| {
+            k.iter()
+                .map(|c| {
+                    c.attr("AXTitle").map(|v| v.and_then(|v| v.as_string()).unwrap_or_default())
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .ok()
+        }),
+        _ => Some(Vec::new()),
     };
     let mut menus = 0usize;
     let mut top_item: Option<Ax> = None;
