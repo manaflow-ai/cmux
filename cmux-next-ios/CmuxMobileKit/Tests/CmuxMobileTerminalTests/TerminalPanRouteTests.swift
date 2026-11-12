@@ -148,6 +148,11 @@ import UIKit
         #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OA\u{1b}[B".utf8)))
         #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OC".utf8)))
         #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OA\u{1b}".utf8)))
+        #expect(TerminalPanRoute.isWheelKeys(Data("\u{1b}[A\u{1b}[B".utf8)))
+        #expect(TerminalPanRoute.isWheelKeys(Data("\u{1b}OB".utf8)))
+        // Terminal replies are not wheel keys (a cursor position report, a focus report).
+        #expect(!TerminalPanRoute.isWheelKeys(Data("\u{1b}[1;1R".utf8)))
+        #expect(!TerminalPanRoute.isWheelKeys(Data("\u{1b}[I".utf8)))
     }
 }
 #endif

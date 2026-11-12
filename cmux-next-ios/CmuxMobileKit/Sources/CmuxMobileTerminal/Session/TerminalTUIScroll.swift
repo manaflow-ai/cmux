@@ -217,10 +217,23 @@ public enum TerminalPanRoute: Equatable, Sendable {
     /// encoding while the app keeps DECCKM on. Ghostty reads the mode from
     /// the terminal it mirrors, so these bytes are the mode as the app set it.
     public static func scrollsPage(_ keys: Data) -> Bool {
+        arrows(keys, introducers: [UInt8(ascii: "O")])
+    }
+
+    /// Whether `bytes` are only cursor up and down keys, in either mode: what
+    /// Ghostty's alternate scroll writes. No terminal reply looks like this,
+    /// so such a write that no input call made is a wheel Ghostty finished
+    /// on its own thread (a busy terminal), and goes out only if it
+    /// ``scrollsPage(_:)``.
+    public static func isWheelKeys(_ bytes: Data) -> Bool {
+        arrows(bytes, introducers: [UInt8(ascii: "O"), UInt8(ascii: "[")])
+    }
+
+    private static func arrows(_ keys: Data, introducers: Set<UInt8>) -> Bool {
         let bytes = [UInt8](keys)
         guard !bytes.isEmpty, bytes.count % 3 == 0 else { return false }
         return stride(from: 0, to: bytes.count, by: 3).allSatisfy { at in
-            bytes[at] == 0x1B && bytes[at + 1] == UInt8(ascii: "O")
+            bytes[at] == 0x1B && introducers.contains(bytes[at + 1])
                 && (bytes[at + 2] == UInt8(ascii: "A") || bytes[at + 2] == UInt8(ascii: "B"))
         }
     }

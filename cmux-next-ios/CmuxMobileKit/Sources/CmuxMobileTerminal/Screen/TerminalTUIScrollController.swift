@@ -80,8 +80,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         case .ended:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
             // A fling only where the drag reaches the app (TerminalPanRoute):
-            // an app taking wheel reports, or a pager this drag already moved.
-            if isEnabled(), surface.panRoute == .wheelReports || dragReachedApp,
+            // an app taking wheel reports, or a pager (this drag moved it, or
+            // a flick shorter than a row over one the last wheel moved).
+            if isEnabled(), surface.panRoute == .wheelReports || dragReachedApp
+                || (surface.panRoute == .cursorKeys && surface.wheelKeysScrollPage),
                let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
             }
