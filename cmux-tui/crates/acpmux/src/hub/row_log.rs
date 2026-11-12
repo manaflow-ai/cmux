@@ -67,7 +67,8 @@ impl RowLog {
             while self.gone.len() > GONE_MOST {
                 let Some((dropped, key)) = self.gone.pop_first() else { break };
                 self.at.remove(&key);
-                self.floor = dropped;
+                // Never lower: a barrier may have raised it past the removal dropped.
+                self.floor = self.floor.max(dropped);
             }
         } else {
             self.live.insert(seq, key);
