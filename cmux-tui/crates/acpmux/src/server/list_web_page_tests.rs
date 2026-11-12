@@ -268,10 +268,23 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
         let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
         let mut sizes = vec![size];
+        let mut ids = page["sessions"]
+            .as_array()
+            .expect("a session/list page lists sessions")
+            .iter()
+            .map(|row| row["sessionId"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
         while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
             assert!(sizes.len() < 1_000, "{origin:?} session/list never ends");
             let (next, size, _) =
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
+            ids.extend(
+                next["sessions"]
+                    .as_array()
+                    .expect("a session/list page lists sessions")
+                    .iter()
+                    .map(|row| row["sessionId"].as_str().unwrap().to_owned()),
+            );
             (page, sizes) = (next, [sizes, vec![size]].concat());
         }
         let builds = hub.list_guard.builds_for_tests() - builds;
@@ -285,6 +298,7 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             "{origin:?} session/list: {builds} builds for {} pages",
             sizes.len()
         );
+        assert_eq!(sorted(ids), every_id(), "{origin:?} session/list");
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
     }
