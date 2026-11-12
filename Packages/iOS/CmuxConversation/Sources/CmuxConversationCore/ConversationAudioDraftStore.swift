@@ -10,8 +10,17 @@ import os
 public final class ConversationAudioDraftStore: @unchecked Sendable {
     public let directory: URL
     private let queue = DispatchQueue(label: "dev.cmux.conversation.audio-drafts", qos: .utility)
-    /// What this run saved or read, by key: a draft, or `.some(nil)` for "none".
-    private let memory = OSAllocatedUnfairLock(initialState: [String: ConversationAudioDraft?]())
+    /// What this run saved or read, by key (a draft, or `.some(nil)` for "none"),
+    /// and a counter ``removeAll()`` bumps: a save or read begun before it is dropped.
+    private struct State {
+        var drafts: [String: ConversationAudioDraft?] = [:]
+        var generation = 0
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    /// Bumped by every ``removeAll()`` (sign-out). A recording begun under an
+    /// older generation belongs to the account that left: its saves are refused.
+    public var generation: Int { state.withLock { $0.generation } }
 
     public init(directory: URL) {
         self.directory = directory
@@ -23,9 +32,15 @@ public final class ConversationAudioDraftStore: @unchecked Sendable {
         return ConversationAudioDraftStore(directory: support.appendingPathComponent(name, isDirectory: true))
     }
 
-    /// Keeps `draft` for `key`; nil forgets it (sent or thrown away).
-    public func save(_ draft: ConversationAudioDraft?, key: String) {
-        memory.withLock { $0[key] = .some(draft) }
+    /// Keeps `draft` for `key`; nil forgets it (sent or thrown away). With
+    /// `generation`, only while no ``removeAll()`` ran since it was read.
+    public func save(_ draft: ConversationAudioDraft?, key: String, generation: Int? = nil) {
+        let accepted = state.withLock { state -> Bool in
+            if let generation, generation != state.generation { return false }
+            state.drafts[key] = .some(draft)
+            return true
+        }
+        guard accepted else { return }
         let url = file(for: key)
         let directory = directory
         queue.async {
@@ -51,7 +66,8 @@ public final class ConversationAudioDraftStore: @unchecked Sendable {
 
     /// The draft kept for `key`, if any (memory first, else the file, read off the main thread).
     public func load(key: String) async -> ConversationAudioDraft? {
-        if let known = memory.withLock({ $0[key] }) { return known }
+        let (known, generation) = state.withLock { ($0.drafts[key], $0.generation) }
+        if let known { return known }
         let url = file(for: key)
         let read: ConversationAudioDraft? = await withCheckedContinuation { continuation in
             queue.async {
@@ -60,16 +76,21 @@ public final class ConversationAudioDraftStore: @unchecked Sendable {
             }
         }
         // A save made while the file was read is newer than the file.
-        return memory.withLock { cache in
-            if let saved = cache[key] { return saved }
-            cache[key] = .some(read)
+        return state.withLock { state in
+            // Everything was removed while the file was read: it is gone.
+            guard state.generation == generation else { return nil }
+            if let saved = state.drafts[key] { return saved }
+            state.drafts[key] = .some(read)
             return read
         }
     }
 
     /// Sign-out: every kept recording leaves this device.
     public func removeAll() {
-        memory.withLock { $0 = [:] }
+        state.withLock { state in
+            state.drafts = [:]
+            state.generation += 1
+        }
         let directory = directory
         queue.async { try? FileManager.default.removeItem(at: directory) }
     }

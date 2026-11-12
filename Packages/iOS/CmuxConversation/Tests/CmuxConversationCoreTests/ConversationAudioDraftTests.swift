@@ -75,4 +75,20 @@ import Testing
         #expect(await relaunched.load(key: "k") == nil)
         #expect(await ConversationAudioDraftStore(directory: directory).load(key: "k") == nil, "sign-out removes every file")
     }
+
+    /// Sign-out (``ConversationAudioDraftStore/removeAll()``): a recording that
+    /// began before it is never saved again, so it cannot reach the next account.
+    @Test func aSaveFromBeforeASignOutIsRefused() async {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("audio-drafts-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ConversationAudioDraftStore(directory: directory)
+        let draft = ConversationAudioDraft(wav: ConversationWAV.encode(tone(seconds: 1)), levels: [0.3])
+        let before = store.generation
+        store.removeAll()
+        store.save(draft, key: "acct|mac:A", generation: before)
+        await store.flush()
+        #expect(await store.load(key: "acct|mac:A") == nil, "the old account's recording was not kept")
+        store.save(draft, key: "acct|mac:A", generation: store.generation)
+        #expect(await store.load(key: "acct|mac:A") == draft, "a recording of the current account is kept")
+    }
 }

@@ -79,7 +79,7 @@ final class ChiefVoiceDraftUITests: XCTestCase {
             XCUIDevice.shared.press(.home)
             XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10), "in the background")
             app.terminate()
-            app = launch()
+            app = launch(clearingDrafts: false)
             XCTAssertTrue(wait(for: app.buttons["conversation.recording.send"], "hittable == true", timeout: 30),
                           "the review is back after a relaunch\n\(app.debugDescription)")
             attach(app, "\(look.name)-2-relaunched")
@@ -90,7 +90,7 @@ final class ChiefVoiceDraftUITests: XCTestCase {
             XCUIDevice.shared.press(.home)
             XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
             app.terminate()
-            app = launch()
+            app = launch(clearingDrafts: false)
             XCTAssertTrue(app.buttons["conversation.composer.record"].waitForExistence(timeout: 30))
             XCTAssertFalse(app.buttons["conversation.recording.send"].waitForExistence(timeout: 3), "a discarded recording stays gone")
             attach(app, "\(look.name)-3-discarded-relaunch")
@@ -101,9 +101,11 @@ final class ChiefVoiceDraftUITests: XCTestCase {
     // MARK: Steps
 
     @MainActor
-    private func launch() -> XCUIApplication {
+    private func launch(clearingDrafts: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        // Each test starts with no kept recording; a relaunch inside a test keeps it.
+        if clearingDrafts { app.launchEnvironment["CMUX_UITEST_CLEAR_AUDIO_DRAFTS"] = "1" }
         app.launchEnvironment["CMUX_CONVERSATION_AUDIO_INPUT"] = "synthetic"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "chief-open"]
         app.launch()

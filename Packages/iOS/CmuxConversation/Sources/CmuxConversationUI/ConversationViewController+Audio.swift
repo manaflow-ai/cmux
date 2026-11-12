@@ -95,6 +95,9 @@ final class ConversationAudioComposer {
     /// Where the host keeps unsent recordings, and this conversation's key there.
     private(set) var drafts: ConversationAudioDraftStore?
     private(set) var draftKey: String?
+    /// The store's generation when this recording began: after a sign-out
+    /// (``ConversationAudioDraftStore/removeAll()``) it is never saved again.
+    private var draftGeneration: Int?
     /// A press this long records; a shorter tap shows the hold hint.
     static let holdDuration: TimeInterval = 0.2
     /// How long Messages leaves "Tap and hold to record and send audio" up.
@@ -133,9 +136,15 @@ final class ConversationAudioComposer {
     /// opens the one kept there before (a relaunch) when nothing records now.
     func useDrafts(_ store: ConversationAudioDraftStore?, key: String?) {
         guard store !== drafts || key != draftKey else { return }
+        // A recording held now moves to the new key: the old one must not bring it back.
+        if isActive { forgetDraft() }
         drafts = store
         draftKey = key
-        guard let store, let key, !isActive else { return }
+        if isActive {
+            keepDraft()
+            return
+        }
+        guard let store, let key else { return }
         Task { [weak self] in
             guard let draft = await store.load(key: key) else { return }
             guard let self, self.drafts === store, self.draftKey == key, !self.isActive else { return }
@@ -143,10 +152,10 @@ final class ConversationAudioComposer {
         }
     }
 
-    /// The app left the foreground. iOS takes the microphone from an app in
-    /// the background, so a running recording stops into its review (as the
-    /// stop button would); the review is kept on disk in case the app is
-    /// ended there, and is still on screen when the app comes back.
+    /// The app left the foreground. A running recording stops into its review
+    /// (as the stop button would), so the person decides what happens to it
+    /// when they come back instead of the phone recording out of sight; the
+    /// review is kept on disk in case the app is ended there.
     @objc private func appDidEnterBackground() {
         if recorder?.state == .recording { stopToReview() }
         // Playback in the review pauses, as the play button would.
@@ -154,6 +163,7 @@ final class ConversationAudioComposer {
         guard let drafts, keepDraft() else { return }
         // The write finishes before the app is suspended.
         let application = UIApplication.shared
+        // (A write of a few hundred KB; it ends long before the system's expiry.)
         let task = application.beginBackgroundTask(withName: "cmux.audio-draft")
         Task {
             await drafts.flush()
@@ -169,7 +179,8 @@ final class ConversationAudioComposer {
         if recorder?.state == .recording { stopToReview() }
         stopReviewPlayer()
         let draft = recorder?.draft
-        keepDraft()
+        // The receiving screen keeps it under its own key (which may differ).
+        forgetDraft()
         recorder?.cancel()
         dismiss()
         return draft
@@ -182,6 +193,7 @@ final class ConversationAudioComposer {
         guard let recorder = ConversationAudioRecorder(restoring: draft) else { return }
         hideNotice(animated: false)
         self.recorder = recorder
+        draftGeneration = drafts?.generation
         flow.handle(.restore)
         field.update(levels: recorder.levels, time: recorder.duration)
         field.setReview(playing: false, progress: 0, time: recorder.duration, duration: recorder.duration)
@@ -192,8 +204,8 @@ final class ConversationAudioComposer {
     /// Saves the recording in review; false when there is none or nowhere to keep it.
     @discardableResult
     private func keepDraft() -> Bool {
-        guard let drafts, let key = draftKey, let draft = recorder?.draft else { return false }
-        drafts.save(draft, key: key)
+        guard let drafts, let key = draftKey, let draft = recorder?.draft, draftGeneration == drafts.generation else { return false }
+        drafts.save(draft, key: key, generation: draftGeneration)
         return true
     }
 
@@ -308,6 +320,7 @@ final class ConversationAudioComposer {
         let recorder = ConversationAudioRecorder()
         recorder.syntheticTranscript = Self.syntheticPhrases.randomElement()
         self.recorder = recorder
+        draftGeneration = drafts?.generation
         field.update(levels: [], time: 0)
         startTask = Task { [weak self] in
             do {

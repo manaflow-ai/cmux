@@ -208,13 +208,27 @@ public final class ChiefSession {
         store.discardKeptTranscript()
         transcripts?.removeAll()
         Self.audioDrafts?.removeAll()
+        // A recording carried to a screen not built yet goes too: never to the next account.
+        carriedComposer = nil
     }
 
     /// Unsent recordings of every Chief conversation, kept on this phone (cleared at sign-out).
-    public static let audioDrafts = ConversationAudioDraftStore.inApplicationSupport("cmux-mobile-chief-voice-drafts")
+    public static let audioDrafts: ConversationAudioDraftStore? = {
+        let store = ConversationAudioDraftStore.inApplicationSupport("cmux-mobile-chief-voice-drafts")
+        #if DEBUG
+        // UI tests start without a recording an earlier test left in review.
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_CLEAR_AUDIO_DRAFTS"] == "1" { store?.removeAll() }
+        #endif
+        return store
+    }()
 
-    /// The key this Chief's unsent recording is kept under: its kept transcript's.
-    var audioDraftKey: String? { transcriptKey }
+    /// The key this Chief's unsent recording is kept under: the account, then its kept
+    /// transcript's key, so another account on this phone never opens it.
+    var audioDraftKey: String? {
+        guard let transcriptKey else { return nil }
+        let account = boundAccount.flatMap { $0 } ?? "-"
+        return "\(account)|\(transcriptKey)"
+    }
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
