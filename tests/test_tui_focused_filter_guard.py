@@ -87,7 +87,7 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     assert sorted(focused_only) == sorted(FOCUSED_SENTINEL_STEPS)
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[2]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    assert "cargo-test-deadline.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
@@ -192,12 +192,16 @@ def _run_cargo_test_step(host_os: str, listing: str, ignored: str) -> tuple[int,
         cargo.chmod(0o755)
         script = root / "step.sh"
         script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        # The step runs in cmux-tui/ and calls ../scripts/ci/cargo-test-deadline.sh, as in the checkout.
+        work = root / "cmux-tui"
+        work.mkdir()
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
         result = subprocess.run(
             ["bash", "-e", "-o", "pipefail", str(script)],
             check=False,
             capture_output=True,
             text=True,
-            cwd=root,
+            cwd=work,
             env={
                 "PATH": f"{root}:/usr/bin:/bin",
                 "RUNNER_TEMP": str(root),
@@ -223,12 +227,12 @@ def test_a_host_with_no_matching_test_passes_and_reports_its_count() -> None:
     two = "tui::a: test\\ntui::b: test\\n"
     code, calls, outputs = _run_cargo_test_step("linux", two, "")
     assert code == 0 and "selected_linux=2" in outputs.splitlines(), (code, outputs)
-    assert "test --workspace --locked some_filter\n" in calls, calls
+    assert "test --workspace --locked --no-fail-fast some_filter\n" in calls, calls
     code, _, outputs = _run_cargo_test_step("macos", two, "tui::b: test\\n")
     assert code == 0 and "selected_macos=1" in outputs.splitlines(), (code, outputs)
     code, calls, outputs = _run_cargo_test_step("macos", "", "")
     assert code == 0 and "selected_macos=0" in outputs.splitlines(), (code, outputs)
-    assert "test --workspace --locked some_filter\n" not in calls, calls
+    assert "test --workspace --locked --no-fail-fast some_filter\n" not in calls, calls
     # A filter that matches only ignored tests still fails on its host.
     code, _, _ = _run_cargo_test_step("linux", "tui::a: test\\n", "tui::a: test\\n")
     assert code == 1

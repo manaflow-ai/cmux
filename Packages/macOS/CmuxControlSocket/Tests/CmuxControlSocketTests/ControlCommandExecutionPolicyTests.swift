@@ -359,7 +359,7 @@ struct ControlCommandExecutionPolicyTests {
 
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
-            "right_sidebar", "focus_surface",
+            "left_sidebar", "right_sidebar", "focus_surface",
             "sidebar_state", "reset_sidebar", "list_panes", "new_pane",
             "new_workspace", "select_workspace", "close_workspace",
             "help", "",

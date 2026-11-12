@@ -46,6 +46,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'journey'}),
+    'cloud-claude-matrix.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
+     {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',

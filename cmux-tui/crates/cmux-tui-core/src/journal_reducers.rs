@@ -363,6 +363,21 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// Per terminal public id: the session of the last applied hook event and
+    /// the latest hook start among its applied events, so an event journaled
+    /// out of send order does not set the state
+    /// (`crate::agent_hooks::hook_event_is_reordered`). One small record per
+    /// terminal that ran a hook agent; it stays after the session ends so a
+    /// late event of that session cannot bring the row back.
+    #[serde(default)]
+    hook_order: HashMap<String, HookOrder>,
+}
+
+/// See [`AgentRoster::hook_order`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct HookOrder {
+    session: Option<String>,
+    observed_at_ms: u64,
 }
 
 impl AgentRoster {
@@ -502,11 +517,31 @@ impl AgentRoster {
         // Socket reports lose to both stronger sources.
         match source {
             AgentSource::Hook => {
+                let session = event.normalized("agent_session_id");
+                let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(event.payload);
+                let last_observed_at_ms = self
+                    .hook_order
+                    .get(terminal_id)
+                    .filter(|order| order.session.as_deref() == session)
+                    .map(|order| order.observed_at_ms);
+                if crate::agent_hooks::hook_event_is_reordered(
+                    event.kind,
+                    observed_at_ms,
+                    last_observed_at_ms,
+                ) {
+                    return Vec::new();
+                }
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
                 {
                     return Vec::new();
+                }
+                if let Some(observed_at_ms) = observed_at_ms.max(last_observed_at_ms) {
+                    self.hook_order.insert(
+                        terminal_id.to_string(),
+                        HookOrder { session: session.map(str::to_owned), observed_at_ms },
+                    );
                 }
             }
             AgentSource::Plugin => {

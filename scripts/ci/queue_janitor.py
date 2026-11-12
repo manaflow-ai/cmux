@@ -807,7 +807,11 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
+# app-ffi-release.yml builds the CCmuxAppFFI release every NEXT app build links; until it publishes, feat-cmux-next
+# is red on "Check the app FFI pin". On 2026-11-10 run 42833220418's build queued 66 minutes on
+# blacksmith-6vcpu-macos-26 behind pull request jobs (14:21 to 15:27Z). It runs only on a feat-cmux-next push or a
+# dispatch there, so every run of it is release work.
+RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml", "app-ffi-release.yml"})
 
 
 def reserves_pool(path: str | None, event: str | None = None) -> bool:
@@ -2343,7 +2347,10 @@ def plan_lost_reruns(
     settled at the same attempt and head it is re-run, unless a newer dispatch of its kind took its job
     (superseding_dispatch() over `dispatch_runs`, run id -> its workflow's dispatches on its branch, and
     `dispatch_jobs`, run id -> jobs). Its branch moving on is no reason: it tests a long-lived branch's commit.
-    One whose dispatches were not listed this sweep is kept.
+    One whose dispatches were not listed this sweep is kept. A hosted verification on a lane branch
+    (`verification`, is_lane_verification()) is the exception: a newer verification of the same lane, mode and
+    filter drops it, and so does its lane branch moving past its commit or being deleted (`branch_heads`; a head
+    not read this sweep keeps it).
     """
     cap = LOST_RERUN_MAX if rerun_cap is None else max(0, rerun_cap)
     decisions: list[LostRerun] = []
@@ -2378,6 +2385,24 @@ def plan_lost_reruns(
             if dispatch_runs is None or run_id not in dispatch_runs:
                 decisions.append(LostRerun(entry, "keep", "newer dispatches not listed this sweep", run))
                 continue
+            if entry["dispatch"].get("verification") and is_lane_verification(run):
+                # A hosted verification (verification_kind()) is a proof of one lane commit: a newer one for the
+                # same lane, mode and filter replaces it, and a lane branch moved past its commit makes it moot.
+                newer_runs = newer_dispatches(entry, run, dispatch_runs[run_id])
+                if newer_runs:
+                    decisions.append(LostRerun(entry, "drop", f"not re-run: newer verification dispatch "
+                                                              f"{newer_runs[0].get('id')} of the same lane and filter",
+                                               run))
+                    continue
+                branch = str(run.get("head_branch") or "")
+                if branch_heads is None or branch not in branch_heads:
+                    decisions.append(LostRerun(entry, "keep", "lane branch head not read this sweep", run))
+                    continue
+                if branch_heads[branch] != run.get("head_sha"):
+                    gone = not branch_heads[branch]
+                    decisions.append(LostRerun(entry, "drop", "not re-run: lane branch " + (
+                        "deleted" if gone else "moved past the run's commit"), run))
+                    continue
             newer = superseding_dispatch(entry, run, dispatch_runs[run_id], dispatch_jobs or {})
             if newer is not None:
                 decisions.append(LostRerun(entry, "drop", f"not re-run: newer dispatch {newer.get('id')} took "
@@ -3654,11 +3679,48 @@ TIP_DISPATCH_KINDS = frozenset({"cmux-next base tier", "cmux-next tip daemon sui
 # Newer dispatches whose jobs a sweep reads to judge supersession, over every pending entry; the in-flight ones
 # are in the inventory already. One listing of the workflow's dispatches per settled entry besides.
 DISPATCH_SUPERSEDE_JOB_READS = 6
+# A hosted verification dispatch (scripts/verify-cmux-tui-hosted.sh) has a caller waiting on its run id: the
+# script dispatches it on the lane branch it verifies. Run 42730697263 (2026-11-10, a red proof on
+# tui-feat-demux-followup-3-red) was cancelled here after its macOS job queued 2h03m and carried no re-run, so the
+# caller got a cancelled run with no macOS result. Its re-run waits for nothing newer: it is dropped when a newer
+# verification of the same lane branch, mode and filter exists, or when the lane branch moved past the run's
+# commit or is gone (plan_lost_reruns()); a red proof of a fixed commit is re-run only while it is still the lane.
+# These lane rules are for lane branches only (is_lane_verification()): a cmux-tui.yml dispatch on a long-lived
+# branch (403 on feat-cmux-next, 141 on main) keeps the ORPHAN_RERUN_BRANCHES rule, since its branch has almost
+# always moved by the time an orphan cancel comes (ci-rev-2 on #40111).
+VERIFICATION_DISPATCH_PATHS = frozenset({".github/workflows/cmux-tui.yml"})
+# Its run name is `cmux-tui <mode> <request_id> @ <commit>`, and verify-cmux-tui-hosted.sh makes request_id
+# `<sha12>-f<hash8>-<epoch>-<pid>` (focused: hash8 names the test filter) or `<sha12>-<epoch>-<pid>` (full). The
+# epoch and pid make every run name unique, so its kind is the lane-level part only: mode and filter token.
+VERIFICATION_TITLE = re.compile(
+    r"^cmux-tui (?P<mode>focused|full) [0-9a-f]{12}(?:-(?P<filter>f[0-9a-f]{8}))?-\d+-\d+ @ [0-9a-f]{40}$")
+
+
+def verification_kind(run: Mapping[str, Any]) -> str | None:
+    """`cmux-tui <mode> [f<hash8>]` for a hosted verification dispatch, None for any other run or a name it
+    cannot read (a run dispatched before the filter token: no newer run of it can be told apart)."""
+    if run.get("path") not in VERIFICATION_DISPATCH_PATHS:
+        return None
+    match = VERIFICATION_TITLE.match(str(run.get("display_title") or run.get("name") or ""))
+    if not match or (match.group("mode") == "focused" and not match.group("filter")):
+        return None
+    return " ".join(part for part in ("cmux-tui", match.group("mode"), match.group("filter")) if part)
+
+
+def is_lane_verification(run: Mapping[str, Any]) -> bool:
+    """A hosted verification dispatch on a lane branch: the lane rules of plan_lost_reruns() judge its re-run."""
+    return run.get("path") in VERIFICATION_DISPATCH_PATHS and \
+        str(run.get("head_branch") or "") not in ORPHAN_RERUN_BRANCHES
+
+
 TITLE_SHA = re.compile(r"^(.*?) · [0-9a-f]{7,40}$")
 
 
 def dispatch_kind(run: Mapping[str, Any]) -> str:
     """A dispatch's run name without its trailing ` · <sha>`: `cmux-next base tier · abc..` -> `cmux-next base tier`."""
+    verification = verification_kind(run)
+    if verification:
+        return verification
     title = str(run.get("display_title") or run.get("name") or "")
     match = TITLE_SHA.match(title)
     return match.group(1) if match else title
@@ -3669,10 +3731,14 @@ def orphan_rerun_scope(orphan: Orphan) -> str | None:
     run = orphan.run
     branch = str(run.get("head_branch") or "")
     attempt = int(run.get("run_attempt") or 1)
-    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or branch not in ORPHAN_RERUN_BRANCHES:
+    lane_verification = is_lane_verification(run)
+    if orphan.job_name is None or run.get("event") != "workflow_dispatch" or \
+            (branch not in ORPHAN_RERUN_BRANCHES and not lane_verification):
         return None
     if attempt >= LOST_FAILOVER_MAX_ATTEMPT or orphan_protected_reason(run) is not None:
         return None
+    if lane_verification:
+        return f"a hosted verification dispatch on {branch} at attempt {attempt}"
     return f"a {branch} dispatch at attempt {attempt}"
 
 
@@ -3698,6 +3764,8 @@ def orphan_reruns(decisions: Sequence[OrphanDecision], results: Mapping[int, str
         }
         if decision.orphan.job_id is not None and any(_failed(job) for job in jobs_by_run.get(run["id"]) or ()):
             entry["job_id"] = decision.orphan.job_id
+        if is_lane_verification(run):
+            entry["dispatch"]["verification"] = True
         entries.append(entry)
     return entries
 
@@ -3712,7 +3780,8 @@ def newer_dispatches(entry: Mapping[str, Any], run: Mapping[str, Any],
              if int(other.get("id") or 0) > int(run.get("id") or 0) and other.get("event") == "workflow_dispatch"
              and other.get("path") == run.get("path") and other.get("head_branch") == run.get("head_branch")
              and dispatch_kind(other) == kind
-             and (kind in TIP_DISPATCH_KINDS or str(other.get("display_title") or other.get("name") or "") == title)]
+             and (kind in TIP_DISPATCH_KINDS or dispatch.get("verification") and verification_kind(other) == kind
+                  or str(other.get("display_title") or other.get("name") or "") == title)]
     return sorted(found, key=lambda other: int(other.get("id") or 0), reverse=True)
 
 
@@ -4701,6 +4770,12 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                     print(f"queue-janitor: jobs of dispatch {other['id']}: {error!r}", file=sys.stderr)
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
+        # A settled verification entry needs its lane branch head (plan_lost_reruns()).
+        lanes = sorted({str(runs_now[entry["run_id"]].get("head_branch") or "") for entry in pending
+                        if isinstance(entry.get("dispatch"), Mapping) and entry["dispatch"].get("verification")
+                        and entry.get("run_id") in runs_now and runs_now[entry["run_id"]].get("status") == "completed"}
+                       - set(branch_heads) - {""})
+        read_heads(lanes[:PENDING_HEAD_LOOKUPS])
         # One LOST_RERUN_MAX a sweep: what the open-head failover re-ran comes out of the pending entries' share.
         open_head_reruns = sum(1 for decision in open_head_decisions if decision.action == "rerun")
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,

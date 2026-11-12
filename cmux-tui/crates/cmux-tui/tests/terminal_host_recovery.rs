@@ -48,6 +48,12 @@ struct RecoveryHarness {
     session: String,
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
+    /// FIFO that holds every terminal-host reconnect checkpoint of the daemon
+    /// until [`RecoveryHarness::release_reconnect_checkpoints`].
+    reconnect_checkpoint_hold: Option<PathBuf>,
+    /// FIFO that holds the daemon's first terminal-output journal commit
+    /// until [`RecoveryHarness::release_terminal_journal`].
+    terminal_journal_hold: Option<PathBuf>,
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
@@ -71,6 +77,8 @@ impl RecoveryHarness {
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
+            reconnect_checkpoint_hold: None,
+            terminal_journal_hold: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
@@ -101,6 +109,41 @@ impl RecoveryHarness {
         harness.reconnect_completion_failures = Some(failures);
         harness.restart();
         harness
+    }
+
+    fn start_with_reconnect_checkpoint_hold(name: &str) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.reconnect_checkpoint_hold = Some(harness.hold_fifo("reconnect-checkpoint-hold"));
+        harness.restart();
+        harness
+    }
+
+    fn start_with_terminal_journal_hold(name: &str) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.terminal_journal_hold = Some(harness.hold_fifo("terminal-journal-hold"));
+        harness.restart();
+        harness
+    }
+
+    /// A FIFO in this harness's own directory; a daemon hook that reads it
+    /// waits until `release_hold` opens it.
+    fn hold_fifo(&self, name: &str) -> PathBuf {
+        let hold = self.dir.join(name);
+        let path = std::ffi::CString::new(hold.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `path` is a NUL-terminated path inside this harness's own
+        // private directory.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        hold
+    }
+
+    /// Lets a held reconnect checkpoint go on.
+    fn release_reconnect_checkpoints(&self) {
+        release_hold(self.reconnect_checkpoint_hold.as_ref().unwrap());
+    }
+
+    /// Lets the held terminal-output journal commit go on.
+    fn release_terminal_journal(&self) {
+        release_hold(self.terminal_journal_hold.as_ref().unwrap());
     }
 
     fn start_in_own_session(name: &str) -> Self {
@@ -140,6 +183,8 @@ impl RecoveryHarness {
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
+            reconnect_checkpoint_hold: None,
+            terminal_journal_hold: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
@@ -172,6 +217,15 @@ impl RecoveryHarness {
         if let Some(failures) = self.reconnect_completion_failures {
             command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
             command.env("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS", "1000");
+        }
+        if let Some(hold) = &self.reconnect_checkpoint_hold {
+            command.env("CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT", hold);
+        }
+        if let Some(hold) = &self.terminal_journal_hold {
+            command.env("CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL", hold);
+            // The longest journal wait, so a reader that waits for the held
+            // journal is still waiting when the test writes.
+            command.env("CMUX_TUI_JOURNAL_DURABLE_WAIT_MS", "300000");
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
@@ -2867,6 +2921,333 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     drain.join().unwrap();
     close_terminal_surface(&harness.socket, surface, 4);
     wait_for_no_host_records(&harness.host_root());
+}
+
+/// A host closes its daemon tap once the daemon falls 8 MiB behind. Under
+/// output that never stops, the daemon must read the replacement stream
+/// before that budget fills again, so a reconnect cannot wait for its journal
+/// checkpoint (held here, as a capture of a long scrollback on a busy machine
+/// would be) before it reads. Otherwise every replacement overflows in turn:
+/// input fails, Ctrl-C cannot stop the output, and the terminal stays
+/// `launching`.
+#[test]
+fn host_dropped_daemon_recovers_while_output_continues() {
+    let harness = RecoveryHarness::start_with_reconnect_checkpoint_hold("dropped-daemon");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let terminal = terminal_resource_id(&harness.socket, surface, 2);
+    let terminal_snapshot =
+        request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-terminals"}));
+    let before_revision = terminal_snapshot["terminal_revision"].as_u64().unwrap();
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":4,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    let mut renderer_writer = renderer.stream.try_clone().unwrap();
+    let (overflow_tx, overflow_rx) = mpsc::sync_channel(1);
+    let drain = std::thread::spawn(move || {
+        let mut renderer = renderer;
+        let mut drained = 0_usize;
+        loop {
+            match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
+                Ok(Some(frame)) => {
+                    if frame.kind != MessageKind::Output {
+                        continue;
+                    }
+                    let before = drained;
+                    drained += frame.payload.len();
+                    // Well past the daemon tap's 8 MiB output budget plus
+                    // any socket buffering.
+                    if before < 16_000_000 && drained >= 16_000_000 {
+                        let _ = overflow_tx.send(());
+                    }
+                }
+                Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
+                    break;
+                }
+                Err(error) => panic!("renderer stream failed: {error}"),
+            }
+        }
+    });
+
+    // Freeze only the mux while output goes on, so the host drops the
+    // daemon's tap. The output continues after the mux resumes.
+    harness.signal_daemon(libc::SIGSTOP);
+    write_frame(
+        &mut renderer_writer,
+        &Frame::new(
+            MessageKind::Input,
+            b"while :; do /usr/bin/head -c 131072 /dev/zero; sleep 0.05; done\n".to_vec(),
+        ),
+    )
+    .unwrap();
+    overflow_rx.recv_timeout(test_timeout(Duration::from_secs(60))).unwrap();
+    harness.signal_daemon(libc::SIGCONT);
+    wait_for_terminal_reconnect(&harness.socket, &terminal_id, before_revision);
+
+    let write = terminal_input_request(
+        &harness.socket,
+        "dropped-daemon-write",
+        "terminal.input.write",
+        serde_json::json!({"text":"x"}),
+        &terminal,
+    );
+    assert_eq!(
+        write["ok"], true,
+        "a receipted write after the host dropped the daemon failed: {write}"
+    );
+    let interrupt = terminal_input_request(
+        &harness.socket,
+        "dropped-daemon-interrupt",
+        "terminal.input.keys",
+        serde_json::json!({"keys":["ctrl+c"]}),
+        &terminal,
+    );
+    assert_eq!(
+        interrupt["ok"], true,
+        "Ctrl-C after the host dropped the daemon failed: {interrupt}"
+    );
+    // The echoed command line does not contain the marker; only its output
+    // does.
+    let pid = std::process::id();
+    let marker = format!("dropped-daemon-typed-{pid}");
+    let typed = terminal_input_request(
+        &harness.socket,
+        "dropped-daemon-marker",
+        "terminal.input.write",
+        serde_json::json!({"text":format!("printf '%s-%s\\n' dropped-daemon typed-{pid}\n")}),
+        &terminal,
+    );
+    assert_eq!(typed["ok"], true, "typing after the output stopped failed: {typed}");
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
+    assert_eq!(resolved["lifecycle"], "running");
+
+    harness.release_reconnect_checkpoints();
+    let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
+    drain.join().unwrap();
+    close_terminal_surface(&harness.socket, surface, 5);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// A terminal's output journal is a replay record; it must not make the
+/// daemon fall behind the terminal. With the journal writer held (a slow disk
+/// under a busy machine), output that never stops fills the journal's terminal
+/// lane. A daemon reader that waits there stops reading its host stream, the
+/// host drops the daemon's tap once it is 8 MiB behind, and input fails while
+/// the shell lives.
+#[test]
+fn held_terminal_journal_does_not_stall_live_output() {
+    let harness = RecoveryHarness::start_with_terminal_journal_hold("held-journal");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let terminal = terminal_resource_id(&harness.socket, surface, 2);
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    let mut renderer_writer = renderer.stream.try_clone().unwrap();
+    // The journal's terminal lane holds at most 1024 chunks of 64 KiB; past
+    // that and the daemon tap's 8 MiB budget, a reader that waits for the
+    // journal has lost its tap. The output rate stays well below what a
+    // reader that does not wait parses, so only the journal can stall it.
+    const PAST_JOURNAL_LANE_AND_TAP: usize = 1024 * 64 * 1024 + 8 * 1024 * 1024 + 16_000_000;
+    let (flooded_tx, flooded_rx) = mpsc::sync_channel(1);
+    let drain = std::thread::spawn(move || {
+        let mut renderer = renderer;
+        let mut drained = 0_usize;
+        loop {
+            match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
+                Ok(Some(frame)) => {
+                    if frame.kind != MessageKind::Output {
+                        continue;
+                    }
+                    let before = drained;
+                    drained += frame.payload.len();
+                    if before < PAST_JOURNAL_LANE_AND_TAP && drained >= PAST_JOURNAL_LANE_AND_TAP {
+                        let _ = flooded_tx.send(());
+                    }
+                }
+                Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
+                    break;
+                }
+                Err(error) => panic!("renderer stream failed: {error}"),
+            }
+        }
+    });
+
+    write_frame(
+        &mut renderer_writer,
+        &Frame::new(
+            MessageKind::Input,
+            b"while :; do /usr/bin/head -c 262144 /dev/zero; sleep 0.02; done\n".to_vec(),
+        ),
+    )
+    .unwrap();
+    flooded_rx.recv_timeout(test_timeout(Duration::from_secs(120))).unwrap();
+
+    let write = terminal_input_request(
+        &harness.socket,
+        "held-journal-write",
+        "terminal.input.write",
+        serde_json::json!({"text":"x"}),
+        &terminal,
+    );
+    assert_eq!(
+        write["ok"], true,
+        "a receipted write while the terminal journal was held failed: {write}"
+    );
+    let interrupt = terminal_input_request(
+        &harness.socket,
+        "held-journal-interrupt",
+        "terminal.input.keys",
+        serde_json::json!({"keys":["ctrl+c"]}),
+        &terminal,
+    );
+    assert_eq!(
+        interrupt["ok"], true,
+        "Ctrl-C while the terminal journal was held failed: {interrupt}"
+    );
+    // The echoed command line does not contain the marker; only its output
+    // does.
+    let pid = std::process::id();
+    let marker = format!("held-journal-typed-{pid}");
+    let typed = terminal_input_request(
+        &harness.socket,
+        "held-journal-marker",
+        "terminal.input.write",
+        serde_json::json!({"text":format!("printf '%s-%s\\n' held-journal typed-{pid}\n")}),
+        &terminal,
+    );
+    assert_eq!(typed["ok"], true, "typing after the output stopped failed: {typed}");
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
+    assert_eq!(resolved["lifecycle"], "running");
+
+    harness.release_terminal_journal();
+    let _ = renderer_writer.shutdown(std::net::Shutdown::Both);
+    drain.join().unwrap();
+    close_terminal_surface(&harness.socket, surface, 4);
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Opens a hold FIFO for writing and closes it, which ends the read of the
+/// daemon hook waiting on it. Nothing waits when no hook holds: the FIFO then
+/// has no reader.
+fn release_hold(hold: &Path) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let _ = fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(hold);
+}
+
+/// The public terminal id of the tab of `surface`.
+fn terminal_resource_id(socket: &Path, surface: u64, request_id: u64) -> String {
+    let tree = request(socket, serde_json::json!({"id":request_id,"cmd":"list-workspaces"}));
+    tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"].as_u64() == Some(surface))
+        .and_then(|tab| tab["terminal_resource_id"].as_str())
+        .unwrap_or_else(|| panic!("surface {surface} has no public terminal id"))
+        .to_string()
+}
+
+/// A receipted terminal input request; returns the whole response so a
+/// failure shows its error.
+fn terminal_input_request(
+    socket: &Path,
+    id: &str,
+    operation: &str,
+    mut params: serde_json::Value,
+    terminal: &str,
+) -> serde_json::Value {
+    params["machine"] = serde_json::json!("current");
+    params["session"] = serde_json::json!("current");
+    params["terminal"] = serde_json::json!(terminal);
+    request_response(
+        socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+            "idempotency_key":id,
+        }),
+    )
+}
+
+/// Waits until the terminal went through `terminal-adopting` and back to
+/// `terminal-ready` after `after_revision`, and is `running` again.
+fn wait_for_terminal_reconnect(socket: &Path, terminal_id: &str, after_revision: u64) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let resolved = request(
+            socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let events = request(
+            socket,
+            serde_json::json!({"cmd":"terminal-events","after_revision":after_revision}),
+        );
+        let kinds = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let adopting = kinds.iter().position(|kind| kind == "terminal-adopting");
+        let ready = kinds.iter().rposition(|kind| kind == "terminal-ready");
+        if resolved["lifecycle"] == "running"
+            && adopting.zip(ready).is_some_and(|(adopting, ready)| adopting < ready)
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal never reconnected after the host dropped the daemon: lifecycle={}, \
+             events={kinds:?}",
+            resolved["lifecycle"]
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 #[test]

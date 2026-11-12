@@ -16,6 +16,7 @@ import {
 } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import type { TeamBillingAccessUser, TeamBillingRole } from "./teamBillingAccess";
+import type { TeamEnterpriseDeal } from "./teamEnterprise";
 import {
   listBillingTeams,
   loadTeamBillingView,
@@ -78,6 +79,7 @@ export type ReadyTeamBillingViewJson = {
   readonly memberCount: number | null;
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
+  readonly enterprise: TeamEnterpriseDeal | null;
 };
 
 /** `TeamBillingView` on the wire: dates are ISO strings. */

@@ -394,6 +394,20 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertEqual(snap["pools"][LARGE]["queued"], 3)
         self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 2)
 
+    def test_a_queued_app_ffi_release_build_reserves_its_label(self):
+        # The janitor runs from main and reads every branch's runs: app-ffi-release.yml lives on feat-cmux-next.
+        # 2026-11-10: run 42833220418's build queued 66 minutes on 6vcpu-26 behind pull request jobs.
+        runs = [
+            {"id": 1, "name": "app FFI release", "path": ".github/workflows/app-ffi-release.yml", "event": "push"},
+            {"id": 2, "name": "x", "path": ".github/workflows/app-ffi-repin.yml", "event": "push"},
+            {"id": 3, "name": "x", "path": ".github/workflows/my-app-ffi-release.yml", "event": "push"},
+            {"id": 4, "name": "CI", "path": ".github/workflows/ci.yml", "event": "pull_request"},
+        ]
+        jobs = {run["id"]: [self.job(SMALL, "queued")] for run in runs}
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual((snap["pools"][SMALL]["queued"], snap["pools"][SMALL]["reserved_queued"]), (4, 1))
+        self.assertTrue(janitor.reserves_pool(".github/workflows/app-ffi-release.yml", "workflow_dispatch"))
+
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
         self.assertTrue(janitor.is_macos_job(mini))

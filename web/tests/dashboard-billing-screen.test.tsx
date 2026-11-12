@@ -21,6 +21,8 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let currentUser: typeof proUser | null = null;
+/** Server-side teams (with server metadata) the Stack server app returns from getTeam. */
+let serverTeams = new Map<string, unknown>();
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
@@ -78,7 +80,7 @@ mock.module("next-intl", () => ({
 const realStack = await import("../app/lib/stack");
 mock.module("../app/lib/stack", () => ({
   ...realStack,
-  getStackServerApp: () => ({ getUser: async () => currentUser }),
+  getStackServerApp: () => ({ getUser: async () => currentUser, getTeam: async (teamId: string) => serverTeams.get(teamId) ?? null }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
 }));
@@ -109,6 +111,7 @@ const { sessionQuery } = await import("../dashboard-app/lib/session");
 function resetFixtures() {
   stackConfigured = true;
   currentUser = proUser;
+  serverTeams = new Map();
   subscriptionRows = [];
   subscriptionResults = [];
   customerRows = [];
@@ -225,6 +228,75 @@ describe("dashboard.teams.billing", () => {
     expect(html).toContain("6 of 4 used");
     expect(html).toContain("Only team admins can change the plan.");
     expect(html).not.toContain("/api/billing/portal");
+  });
+});
+
+describe("dashboard.teams.billing enterprise deal", () => {
+  beforeEach(resetFixtures);
+
+  function enterpriseTeam() {
+    const team = teamWithMembers("team-ent", "Tecorien", 8, {
+      cmuxVmPlan: "team",
+      cmuxEntitlementOverride: { maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 640 * 1024, maxMemoryMb: 65536 },
+    });
+    serverTeams.set("team-ent", {
+      ...team,
+      serverMetadata: { cmuxEntitlementDealTerms: { planLabel: null, monthlyPriceCents: 80_000 } },
+    });
+    mockImplementation(proUser.listTeams, async () => [team]);
+  }
+
+  async function renderTeamPanel() {
+    const response = await teamBillingGET(
+      new Request("https://cmux.test/api/teams/team-ent/billing"),
+      { params: Promise.resolve({ teamId: "team-ent" }) },
+    );
+    const body = await response.json();
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(teamBillingQuery("team-ent").queryKey, body);
+    const html = await renderDashboardScreen({
+      url: "/dashboard/teams/team-ent/billing",
+      queryClient,
+      render: () => <TeamPanelFromQuery teamId="team-ent" />,
+    });
+    return { body, html };
+  }
+
+  test("an admin sees the Enterprise plan, its price and its limits instead of the Team picker", async () => {
+    enterpriseTeam();
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise).toEqual({
+      label: "Enterprise",
+      monthlyPriceUsd: 800,
+      maxActiveVms: 40,
+      poolVcpus: 320,
+      poolMemoryMb: 640 * 1024,
+      maxMemoryMb: 65536,
+      maxVcpus: 32,
+    });
+    expect(html).toContain("Enterprise");
+    expect(html).toContain("$800/month");
+    expect(html).toContain("320 vCPU / 640 GB");
+    expect(html).toContain("32 vCPU / 64 GB");
+    expect(html).not.toContain("Upgrade this team");
+  });
+
+  test("a member sees the plan and limits but not the price", async () => {
+    enterpriseTeam();
+    mockImplementation(proUser.hasPermission, async () => false);
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise.monthlyPriceUsd).toBeNull();
+    expect(html).toContain("Enterprise");
+    expect(html).not.toContain("$800");
+  });
+
+  test("a team without a deal keeps the Team plan view", async () => {
+    const team = teamWithMembers("team-ent", "Plain", 2, { cmuxVmPlan: "team" });
+    serverTeams.set("team-ent", { ...team, serverMetadata: {} });
+    mockImplementation(proUser.listTeams, async () => [team]);
+    const { body, html } = await renderTeamPanel();
+    expect(body.enterprise).toBeNull();
+    expect(html).not.toContain("Enterprise");
   });
 });
 

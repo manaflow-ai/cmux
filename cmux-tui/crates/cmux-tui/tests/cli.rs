@@ -2569,7 +2569,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    fs::write(
+    cmux_test_exec::write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2579,7 +2579,6 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          printf '(<uint32 1>,)\\n'\n",
     )
     .unwrap();
-    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = cmux_command()
         .arg("__ghostty-config-defaults")

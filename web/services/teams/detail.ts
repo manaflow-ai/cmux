@@ -1,4 +1,5 @@
 import { billingPlanIdFromMetadata, billingSeatsFromMetadata } from "../billing/teamResolution";
+import { teamEnterpriseDeal } from "../billing/teamEnterprise";
 import { hasActiveTeamSubscriptionForTeam } from "../billing/pro";
 import { type TeamAccess } from "./access";
 import { TeamServiceUnavailableError } from "./errors";
@@ -50,6 +51,7 @@ export async function loadTeamDetail(access: TeamAccess, dependencies: TeamDetai
       memberLimit: memberLimitForTeam(access.team),
       memberCount: access.members.length,
       hasActiveSubscription: activeSubscription,
+      enterpriseLabel: teamEnterpriseDeal(access.team, { canManageBilling: false })?.label ?? null,
     },
   };
 }
