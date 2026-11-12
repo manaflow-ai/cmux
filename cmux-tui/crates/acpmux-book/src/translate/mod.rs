@@ -161,11 +161,14 @@ pub struct State {
     dropped_fold_steers: u64,
     fold: fold::Fold,
     ignored_supersedes: u64,
+    #[serde(skip)]
     invalid_records: u64,
     dropped_tool_updates: u64,
     forced_tools: BTreeMap<u64, u64>,
     forced_order: Vec<u64>,
+    #[serde(skip)]
     cut_fields: u64,
+    #[serde(skip)]
     line_errors: u64,
     turn_start_ms: u64,
     at_ms: u64,
