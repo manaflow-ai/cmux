@@ -710,18 +710,34 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
+        let line_bytes = line.len();
         match self.out.try_send(line) {
-            Ok(()) if stale => self.enqueue_control_locked(lag()),
-            Ok(()) => {}
+            Ok(()) => {
+                self.queued.queued(line_bytes, &self.out);
+                if stale {
+                    self.enqueue_control_locked(lag());
+                }
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
             // No room: it waits for some, and a notice may go first; then the lag follows it.
             Err(mpsc::error::TrySendError::Full(line)) => {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
+                // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
+                let waiting = self.queued.waiting(line_bytes);
+                let queued = self.queued.clone();
                 self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
-                        let _ = out.send(lag()).await;
+                    if out.send(line).await.is_ok() {
+                        queued.queued(line_bytes, &out);
+                        drop(waiting);
+                        if notices.load(Ordering::SeqCst) != seen {
+                            let lag = lag();
+                            let lag_bytes = lag.len();
+                            if out.send(lag).await.is_ok() {
+                                queued.queued(lag_bytes, &out);
+                            }
+                        }
                     }
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });

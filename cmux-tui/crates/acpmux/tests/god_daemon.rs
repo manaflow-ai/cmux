@@ -76,7 +76,8 @@ fn spread(samples: &[u64]) -> Value {
     json!({"n": sorted.len(), "p50": at(0.5), "p95": at(0.95), "max": sorted[sorted.len() - 1]})
 }
 
-/// A line client on the daemon's socket that keeps the notifications it reads.
+/// A line client on the daemon's socket that keeps the lines it reads and has not asked for yet:
+/// notifications, and responses to requests it has not waited on.
 struct Rpc {
     reader: BufReader<UnixStream>,
     writer: UnixStream,
@@ -92,20 +93,24 @@ impl Rpc {
     }
 
     fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+        let id = self.request(method, params);
+        self.response(id)
+    }
+
+    /// Writes a request without waiting for its response: its id.
+    fn request(&mut self, method: &str, params: Value) -> u64 {
         self.next += 1;
         let line = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
         self.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
-        loop {
-            let v = self.read();
-            if v.get("id") == Some(&json!(self.next)) {
-                return match v.get("error") {
-                    Some(e) => Err(e.clone()),
-                    None => Ok(v["result"].clone()),
-                };
-            }
-            if v.get("method").is_some() {
-                self.notes.push(v);
-            }
+        self.next
+    }
+
+    /// The response to request `id`, kept or read now: its result, or its error.
+    fn response(&mut self, id: u64) -> Result<Value, Value> {
+        let v = self.wait_note(|v| is_response(v, id));
+        match v.get("error") {
+            Some(e) => Err(e.clone()),
+            None => Ok(v["result"].clone()),
         }
     }
 
@@ -115,7 +120,7 @@ impl Rpc {
         serde_json::from_str(&text).unwrap()
     }
 
-    /// The first notification, kept or read now, that `pred` takes.
+    /// The first line, kept or read now, that `pred` takes; the others read meanwhile are kept.
     fn wait_note(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
         if let Some(at) = self.notes.iter().position(&pred) {
             return self.notes.remove(at);
@@ -125,8 +130,14 @@ impl Rpc {
             if pred(&v) {
                 return v;
             }
+            self.notes.push(v);
         }
     }
+}
+
+/// `v` answers request `id` (a response has no method; a request from the daemon may share ids).
+fn is_response(v: &Value, id: u64) -> bool {
+    v.get("method").is_none() && v.get("id") == Some(&json!(id))
 }
 
 /// A TCP proxy in front of one peer's WebSocket listener: [`Proxy::cut`] closes every
@@ -331,37 +342,48 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             rpc.notes.clear();
         }
 
-        // A prompt to the god chat until its first streamed chunk; the first starts its agent.
+        // A prompt to the god chat until its first streamed chunk, not its turn's end (the
+        // prompt's response); the first starts its agent. A prompt that fails ends the rounds.
         let (mut sends, mut send) = (vec![], Ok(()));
         for round in 0..ROUNDS {
             let sent = Instant::now();
             let text = format!("hello {round}");
             let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
-            send = rpc.call("session/prompt", prompt).map(|_| ());
+            let id = rpc.request("session/prompt", prompt);
+            let first = rpc.wait_note(|v| {
+                (is_response(v, id) && v.get("error").is_some())
+                    || (v["method"] == "session/update"
+                        && v["params"]["sessionId"] == json!(god)
+                        && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                        && v["params"]["update"]["content"]["text"]
+                            .as_str()
+                            .is_some_and(|t| t.contains(&text)))
+            });
+            if let Some(error) = first.get("error").filter(|_| is_response(&first, id)) {
+                send = Err(error.clone());
+                break;
+            }
+            sends.push(micros(sent));
+            send = rpc.response(id).map(|_| ());
             if send.is_err() {
                 break;
             }
-            rpc.wait_note(|v| {
-                v["method"] == "session/update"
-                    && v["params"]["sessionId"] == json!(god)
-                    && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
-                    && v["params"]["update"]["content"]["text"]
-                        .as_str()
-                        .is_some_and(|t| t.contains(&text))
-            });
-            sends.push(micros(sent));
             rpc.notes.clear();
         }
         let first_send_ms = sends.first().map(|us| us / 1000);
+        // None past the first when the first prompt failed.
+        let later_sends = sends.get(1..).unwrap_or_default();
 
+        // From the cut until every peer is listed again.
         let mut reconnect_ms = vec![];
         for _ in 0..3 {
+            let cut = Instant::now();
             for proxy in cutter.iter() {
                 proxy.cut();
             }
             // The links notice the cut, then list again.
             std::thread::sleep(Duration::from_millis(200));
-            reconnect_ms.push(wait_listed(&mut rpc, shape.peers, rows));
+            reconnect_ms.push(wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(cut)));
         }
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
         let (rss, peak_rss) = daemon.rss();
@@ -374,7 +396,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "peers": shape.peers, "peerRows": shape.peer_rows, "listed": listed,
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
-            "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(&sends[1..]),
+            "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
             "sendError": send.err(),
             "reconnectMs": reconnect_ms, "rss": rss, "peakRss": peak_rss,
             "gauges": status["gauges"], "heap": heap,
