@@ -10,6 +10,7 @@ use crate::peer::{Peer, PeerNotice};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// The notices each measured round applies.
@@ -81,7 +82,41 @@ fn notices_cost(hub: &Hub, peer: &Peer, rows: usize) -> Duration {
     started.elapsed()
 }
 
+/// Among 50 peers' 20,000 rows, the last peer's notices (streamed records, row changes, ask
+/// checks) land on its own rows and copy no row out of the table: a notice that walked every
+/// peer's rows to find its own would show here as copies. Deterministic, a count; the time it
+/// saves is `a_peer_notice_costs_the_same_however_many_rows_other_peers_list`, in its own run.
 #[test]
+fn a_peer_notice_among_fifty_peers_copies_no_row_and_lands_on_its_own() {
+    const ROWS: usize = 400;
+    let (large, large_peers) = linked(50, ROWS);
+    assert_eq!(large.remote_sessions().len(), 50 * ROWS);
+    let peer = large_peers.last().unwrap();
+    large.remote_rows_copied.store(0, Ordering::Relaxed);
+    notices_cost(&large, peer, ROWS);
+    assert_eq!(
+        large.remote_rows_copied.load(Ordering::Relaxed),
+        0,
+        "{NOTICES} notices copied peer rows out"
+    );
+    let rows = large.remote_sessions.read();
+    // The rows the notices changed are still the peer's, once each, and carry the last change.
+    assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
+    let last = NOTICES - 4;
+    let (_, changed) = rows.find_mux(&peer.name, &format!("s{}", last % ROWS)).unwrap();
+    assert_eq!(changed.summary["updatedAt"], json!(last + 2));
+    // No other peer's row moved.
+    assert!(rows.values().filter(|r| r.peer != peer.name).all(|r| r.summary["updatedAt"] == 1));
+}
+
+/// The cost guard, a ratio of two wall-clock times: a peer notice costs about the same among 50
+/// peers as alone. A ratio of two timings taken one after the other goes red when the lib
+/// suite's parallel tests load the host between them, so it is a check for its own run, one
+/// test at a time. Whoever changes how a peer notice finds its rows runs it, before and after:
+/// `cargo test -p acpmux --lib hub::peer_notice_cost_tests::a_peer_notice_costs_the_same_however_many_rows_other_peers_list -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run keeps `a_peer_notice_among_fifty_peers_copies_no_row_and_lands_on_its_own`.
+#[test]
+#[ignore = "own run, one test at a time: a wall-clock ratio"]
 fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
     const ROWS: usize = 400;
     let (small, small_peers) = linked(1, ROWS);
@@ -101,10 +136,6 @@ fn a_peer_notice_costs_the_same_however_many_rows_other_peers_list() {
     // A walk over every row costs about 50 times as much among 50 peers; a read of the
     // peer's own rows costs the same, within noise.
     assert!(among < alone * 4, "among 50 peers {among:?}, alone {alone:?}");
-    // The rows the notices changed are still the peer's, once each.
-    let peer = large_peers.last().unwrap();
-    let rows = large.remote_sessions.read();
-    assert_eq!(rows.values().filter(|r| r.peer == peer.name).count(), ROWS);
 }
 
 /// One full list: what each `_acpmux/resolve` built before, and its fallbacks again.
@@ -246,8 +277,44 @@ fn lane2_update_resend_bench() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// The rows `resolves_cost`'s five resolves copy out of 8,000, against one full list's.
+fn resolves_copies(hub: &Hub) -> (u64, u64) {
+    let copied = |run: &dyn Fn()| {
+        hub.remote_rows_copied.store(0, Ordering::Relaxed);
+        run();
+        hub.remote_rows_copied.load(Ordering::Relaxed)
+    };
+    let full = copied(&|| {
+        full_list_cost(hub);
+    });
+    let resolves = copied(&|| {
+        resolves_cost(hub);
+    });
+    (full, resolves)
+}
+
+/// Five resolves among 8,000 peer rows copy out only the rows their queries could name: fewer,
+/// all five together, than two full lists. Before, each built at least one full list (a miss
+/// four): about eight in all. Deterministic, a count of rows copied; the time it saves is
+/// `a_resolve_among_thousands_of_peer_rows_costs_less_than_two_full_lists`, in its own run.
 #[test]
 fn a_resolve_among_thousands_of_peer_rows_copies_only_those_it_could_name() {
+    let (hub, _peers) = linked(50, 160);
+    assert_eq!(hub.remote_sessions().len(), 8_000);
+    let (full, resolves) = resolves_copies(&hub);
+    eprintln!("locate-copies rows=8000 full_list_rows={full} five_resolves_rows={resolves}");
+    assert_eq!(full, 8_000, "a full list copies every row");
+    assert!(resolves < full * 2, "five resolves copied {resolves} rows, one full list {full}");
+}
+
+/// The cost guard, a ratio of two wall-clock times: five resolves cost less than two full
+/// lists. A ratio of two timings goes red when the lib suite's parallel tests load the host
+/// between them, so it is a check for its own run, one test at a time:
+/// `cargo test -p acpmux --lib hub::peer_notice_cost_tests::a_resolve_among_thousands_of_peer_rows_costs_less_than_two_full_lists -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run keeps `a_resolve_among_thousands_of_peer_rows_copies_only_those_it_could_name`.
+#[test]
+#[ignore = "own run, one test at a time: a wall-clock ratio"]
+fn a_resolve_among_thousands_of_peer_rows_costs_less_than_two_full_lists() {
     let (hub, _peers) = linked(50, 160);
     assert_eq!(hub.remote_sessions().len(), 8_000);
     let full = full_list_cost(&hub).min(full_list_cost(&hub));

@@ -56,6 +56,9 @@ ALLOWED_LISTENERS = {
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/newtab/inputReady.ts", "focus"): "a New Tab field's readiness after Cmd-T waits "
+    "for the page's first focus, so the keys the app replays then are not lost; once per opening, "
+    "removed when it fires; reads no data",
     (f"{ACPMUX}/session-info/stepAside.ts", "visibilitychange"): "Session Info comes back when "
     "the tab an Outputs row opened over the chat closes (the page shows again); reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
