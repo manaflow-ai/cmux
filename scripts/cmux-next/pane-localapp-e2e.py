@@ -21,6 +21,8 @@ import sys
 import tempfile
 import time
 import urllib.parse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 PANE_ORIGIN = "cmux-agent://pane"
 
@@ -108,7 +110,7 @@ def main():
     daemon = subprocess.Popen(args, env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                               close_fds=False, preexec_fn=child)
     os.close(write_fd)
-    print("started pid=%d args=%s" % (daemon.pid, " ".join(args[1:])))
+    safe_print("started pid=%d args=%s" % (daemon.pid, " ".join(args[1:])))
     try:
         line = b""
         deadline = time.time() + 30
@@ -130,13 +132,13 @@ def main():
             "no origin + token": initialize_origin(web.port, dashboard, None, local_token),
         }
         for name, value in results.items():
-            print("%-34s %s" % (name, value))
+            safe_print("%-34s %s" % (name, value))
         dev_flags = [a.decode() for a in cmdline if a in (b"--dev", b"--allow-dev-origin")]
-        print("daemon dev flags: %s" % (dev_flags or "none"))
+        safe_print("daemon dev flags: %s" % (dev_flags or "none"))
         ok = (results["host (pane origin + token)"] == "local"
               and all(v != "local" for k, v in results.items() if not k.startswith("host"))
               and not dev_flags)
-        print("PASS" if ok else "FAIL")
+        safe_print("PASS" if ok else "FAIL")
         return 0 if ok else 1
     finally:
         daemon.terminate()

@@ -31,6 +31,23 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
+            if let line = model.connectionLine {
+                // The connection's one quiet line, after 10 s of an outage; the
+                // page keeps its last frame meanwhile (no pill over it).
+                HStack(spacing: 6) {
+                    Text(verbatim: line)
+                    if let retry = model.reconnect {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("terminal.connectionLine")
+            }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -54,9 +71,17 @@ struct TerminalComposer: View {
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
+        // Measured here, on the card, before the frame below.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
+        // Grows up from the keyboard: the frame takes the hosting view's
+        // height, so until the view takes a taller card's height (the pass
+        // after it is measured) the card overflows upward from the bottom
+        // edge, never centered half below it over the keyboard (Leo,
+        // 2026-11-12: "whoa it go down"). With no height offered (the
+        // intrinsic size) the frame is the card's own height.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,

@@ -243,12 +243,12 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sdk-bootstrap-decision
-          path: sdk-decision
+          path: ${{ runner.temp }}/sdk-decision
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sidebar-bootstrap-decision
-          path: sidebar-decision
+          path: ${{ runner.temp }}/sidebar-decision
 
       - name: Export protected-environment decisions
         id: read
@@ -269,8 +269,8 @@ jobs:
             esac
             echo "$output_name=$need_publish" >> "$GITHUB_OUTPUT"
           }
-          read_decision sdk-decision/decision.txt sdk_need_publish
-          read_decision sidebar-decision/decision.txt sidebar_need_publish
+          read_decision "$RUNNER_TEMP/sdk-decision/decision.txt" sdk_need_publish
+          read_decision "$RUNNER_TEMP/sidebar-decision/decision.txt" sidebar_need_publish
 
   publish-sdk:
     needs:
@@ -288,7 +288,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sdk-bootstrap-crate
-          path: bootstrap-crate
+          path: ${{ runner.temp }}/bootstrap-crate
 
       - name: Install pinned Rust toolchain
         run: |
@@ -328,7 +328,7 @@ jobs:
             exit 1
           }
           shopt -s nullglob
-          artifacts=(bootstrap-crate/*.crate)
+          artifacts=("$RUNNER_TEMP"/bootstrap-crate/*.crate)
           [[ "${#artifacts[@]}" == 1 ]] || {
             echo "expected one tested crate, found ${#artifacts[@]}" >&2
             exit 1
@@ -438,7 +438,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-sidebar-bootstrap-crate
-          path: bootstrap-crate
+          path: ${{ runner.temp }}/bootstrap-crate
 
       - name: Install pinned Rust toolchain
         run: |
@@ -478,7 +478,7 @@ jobs:
             exit 1
           }
           shopt -s nullglob
-          artifacts=(bootstrap-crate/*.crate)
+          artifacts=("$RUNNER_TEMP"/bootstrap-crate/*.crate)
           [[ "${#artifacts[@]}" == 1 ]] || {
             echo "expected one tested crate, found ${#artifacts[@]}" >&2
             exit 1
