@@ -7,7 +7,9 @@
 // clickable in this, like, show more show less area? And I mean likewise for the other bits".
 // The experiment's arms (expandRow.experiment.ts) compare the row continuing the block's surface
 // (shipped), its label in the fade over the last lines, a tinted row under a hairline, and a centred
-// label.
+// label. The `*-hover-*` variants compare what the pointer lights (Leo, 2026-11-11: "the whole line
+// should not be highlighted. Just the text."): the shipped tint behind the words, the words' ink
+// alone, the words underlined, and the whole row's band as before (`band`).
 import { useLayoutEffect } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -187,6 +189,18 @@ const hovered =
     await ctx.hover({ selector: ROW[block] });
   };
 
+/// What the pointer lights, besides the shipped tint behind the words (conversation.css
+/// `:root[data-expand-row-hover]`).
+export const HOVER_ARMS = ["band", "ink", "underline"] as const;
+
+/// The pointer on the row's middle (away from its words, at its left), with the hover look `arm`.
+const hoveredAs =
+  (block: Block, arm: (typeof HOVER_ARMS)[number]): Play =>
+  async (ctx) => {
+    ctx.document.documentElement.dataset.expandRowHover = arm;
+    await hovered(block)(ctx);
+  };
+
 // A sent prompt folds at twenty lines (promptCollapse.ts COLLAPSED_PROMPT_LINES), so its Show more
 // row sits about 500px down: its stage is tall enough to show the row and take a click on it.
 const PROMPT_STAGE_HEIGHT = 640;
@@ -202,8 +216,26 @@ const variants = Object.fromEntries(
       ],
       [
         `${block}-hover`,
-        { note: `${block}: the pointer on its bottom row.`, props: { block }, play: hovered(block), ...height },
+        {
+          note: `${block}: the pointer on the middle of its bottom row, away from the words: only the words light, on a small tint (shipped; Leo, 2026-11-11: "Just the text.").`,
+          props: { block },
+          play: hovered(block),
+          ...height,
+        },
       ],
+      ...HOVER_ARMS.map((arm) => [
+        `${block}-hover-${arm}`,
+        {
+          note: {
+            band: `${block}: before. The pointer on the row's middle lights the row's whole width (Leo, 2026-11-11: "the whole line should not be highlighted").`,
+            ink: `${block}: the pointer on the row's middle brightens the words alone, with no tint.`,
+            underline: `${block}: the pointer on the row's middle underlines the words.`,
+          }[arm],
+          props: { block },
+          play: hoveredAs(block, arm),
+          ...height,
+        },
+      ]),
     ];
   }),
 );

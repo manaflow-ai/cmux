@@ -7629,6 +7629,12 @@
         "required": true
       }
     },
+    "request:cancel-creating-input": {
+      "/terminal_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:chief-inspect": {
       "/path": {
         "ty": "string",
@@ -13190,6 +13196,12 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-creating-input": {
+      "/data/cancelled": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",

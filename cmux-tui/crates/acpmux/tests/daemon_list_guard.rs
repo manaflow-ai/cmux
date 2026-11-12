@@ -128,10 +128,33 @@ fn write_chats(home: &Path) {
     }
 }
 
-/// The whole list on a new connection, as the old servers asked: its rows.
+/// The rows of the list reply `first` and of each page after it: a list past one reply page
+/// comes in pages, each with the `nextCursor` of the rest (`server/list_reply.rs`), and a
+/// client that wants every row follows it.
+fn with_rest(rpc: &mut Rpc, first: Value) -> Vec<Value> {
+    let (mut rows, mut page, mut cursor) = (Vec::new(), first, Value::Null);
+    loop {
+        rows.extend(page["sessions"].as_array().unwrap().iter().cloned());
+        let next = page["nextCursor"].clone();
+        if next.is_null() {
+            return rows;
+        }
+        assert_ne!(next, cursor, "the list's cursor did not move past a page");
+        cursor = next;
+        page = rpc.call("_acpmux/sessions", json!({"cursor": cursor}));
+    }
+}
+
+/// The whole list on `rpc`, every page of it: its rows.
+fn list_all(rpc: &mut Rpc) -> Vec<Value> {
+    let first = rpc.call("_acpmux/sessions", json!({}));
+    with_rest(rpc, first)
+}
+
+/// The whole list on a new connection, every page of it: its rows. (The old servers asked on a
+/// new connection each time; a list of this size was one reply then.)
 fn list_once(socket: &Path) -> Vec<Value> {
-    let reply = Rpc::connect(socket).call("_acpmux/sessions", json!({}));
-    reply["sessions"].as_array().unwrap().clone()
+    list_all(&mut Rpc::connect(socket))
 }
 
 /// `clients` threads each running `ask` (one list each) for `WINDOW`, at 1 Hz unless
@@ -178,10 +201,7 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         |socket, _| assert_eq!(list_once(socket).len(), CHATS);
     let keep: fn(&Path, &mut Option<Rpc>) = |socket, rpc| {
         let rpc = rpc.get_or_insert_with(|| Rpc::connect(socket));
-        assert_eq!(
-            rpc.call("_acpmux/sessions", json!({}))["sessions"].as_array().unwrap().len(),
-            CHATS
-        );
+        assert_eq!(list_all(rpc).len(), CHATS);
     };
     let mut report = Vec::new();
     for (name, clients, fast, ask) in [
@@ -205,7 +225,7 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     // Still correct: a watcher hears each change, and every list after a change shows it.
     let mut watcher = Rpc::connect(&daemon.1);
     let watched = watcher.call("_acpmux/watch", json!({"enabled": true}));
-    assert_eq!(watched["sessions"].as_array().unwrap().len(), CHATS);
+    assert_eq!(with_rest(&mut watcher, watched).len(), CHATS);
     let mut rpc = Rpc::connect(&daemon.1);
     for round in 0..6 {
         let name = format!("renamed-{round}");
@@ -229,30 +249,50 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     });
     let (mut told, mut lists) = (String::new(), 0);
     while !renames.is_finished() || lists < 3 {
-        watcher.2 += 1;
-        let ask = json!({"jsonrpc": "2.0", "id": watcher.2, "method": "_acpmux/sessions"});
-        watcher.1.write_all(format!("{ask}\n").as_bytes()).unwrap();
-        loop {
-            let v = watcher.line();
-            let session = &v["params"]["session"];
-            if session["sessionId"] == id(9).as_str()
-                && let Some(name) = session["name"].as_str()
-            {
-                told = told.max(name.to_owned());
-            }
-            if v["id"] == watcher.2 {
+        // One list, page by page, to the page that holds the renamed chat.
+        let mut params = json!({});
+        'list: loop {
+            watcher.2 += 1;
+            let ask = json!({"jsonrpc": "2.0", "id": watcher.2, "method": "_acpmux/sessions",
+                "params": params});
+            watcher.1.write_all(format!("{ask}\n").as_bytes()).unwrap();
+            loop {
+                let v = watcher.line();
+                let session = &v["params"]["session"];
+                if session["sessionId"] == id(9).as_str()
+                    && let Some(name) = session["name"].as_str()
+                {
+                    told = told.max(name.to_owned());
+                }
+                if v["id"] != watcher.2 {
+                    continue;
+                }
                 let rows = v["result"]["sessions"].as_array().unwrap();
-                let row = rows.iter().find(|s| s["sessionId"] == id(9).as_str()).unwrap();
-                let listed = row["name"].as_str().unwrap();
-                assert!(listed >= told.as_str(), "listed {listed} after a notice of {told}");
+                if let Some(row) = rows.iter().find(|s| s["sessionId"] == id(9).as_str()) {
+                    let listed = row["name"].as_str().unwrap();
+                    assert!(listed >= told.as_str(), "listed {listed} after a notice of {told}");
+                    break 'list;
+                }
+                let next = &v["result"]["nextCursor"];
+                assert!(next.is_string(), "no page of the list holds the renamed chat");
+                params = json!({"cursor": next});
                 break;
             }
         }
         lists += 1;
     }
     renames.join().unwrap();
-    // Pages cut from the shared list are the whole list, in order.
-    let whole: Vec<Value> = list_once(&daemon.1).iter().map(|s| s["sessionId"].clone()).collect();
+    // Pages cut from the shared list by count are the whole list, in order: newest first, ties
+    // by id. A whole list past one reply page comes in its own page order
+    // (`session_pages::byte_page`), and its reader puts it in that order (`client.rs`
+    // `whole_list`), as here.
+    let mut whole = list_once(&daemon.1);
+    assert_eq!(whole.len(), CHATS);
+    whole.sort_by_key(|s| {
+        let updated = s["updatedAt"].as_u64().unwrap();
+        (std::cmp::Reverse(updated), s["sessionId"].as_str().unwrap().to_owned())
+    });
+    let whole: Vec<Value> = whole.iter().map(|s| s["sessionId"].clone()).collect();
     let (mut paged, mut cursor) = (Vec::new(), Value::Null);
     loop {
         let page = rpc.call("_acpmux/sessions", json!({"limit": 64, "cursor": cursor}));

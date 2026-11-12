@@ -56,6 +56,9 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  - nothing is read past its bound
+
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / "scripts/ci/zig-packages.lock"
 # The Ghostty sources whose Zig trees cmux builds (submodules at the repo root),
@@ -332,8 +335,8 @@ def fetch(url: str) -> bytes:
     last: Exception | None = None
     for _ in range(3):
         try:
-            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310 (https mirror)
-                return response.read()
+            _, body, _ = deadline_http.request(urllib.request.Request(url), 120, raise_errors=True)  # https mirror
+            return body
         except Exception as error:  # retried
             last = error
     raise RuntimeError(f"could not download {url}: {last}")
