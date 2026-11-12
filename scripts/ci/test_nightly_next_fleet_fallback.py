@@ -212,6 +212,9 @@ class StubbedInterpreter(fb.Interpreter):
         else:
             (workspace / (path or ".")).mkdir(parents=True, exist_ok=True)
 
+    def setup_node(self, version):
+        return f"/fake-tool-cache/node/{version}/arm64/bin"
+
     def run_action(self, job, step, evaluator, workspace, outputs):
         kind = fb.action_kind(step["uses"])
         if kind in ("upload", "download"):
@@ -478,7 +481,10 @@ class CandidateInterpreter(StubbedInterpreter):
 
     fail_step: tuple | None = None
 
+    paths: dict = {}
+
     def run_shell(self, job, name, body, shell, env, cwd, timeout):
+        CandidateInterpreter.paths[(job, name)] = env["PATH"]
         if (job, name) == self.fail_step:
             self.ran.append((job, name))
             return 1
@@ -535,6 +541,14 @@ class CandidateTests(unittest.TestCase):
         self.assertTrue(jobs <= set(fb.CANDIDATE_JOBS), jobs - set(fb.CANDIDATE_JOBS))
         self.assertFalse((self.workdir / "signed").exists())
         self.assertFalse((self.r2_dir / "appcast-arm64.xml").read_text().count(self.sha))  # nothing published
+
+    def test_setup_node_puts_the_asked_node_on_the_later_steps_path(self) -> None:
+        code, _ = self.run_candidate()
+        self.assertEqual(code, 0)
+        version = next(st["with"]["node-version"] for st in WF["jobs"]["build-nightly-inputs"]["steps"]
+                       if str(st.get("uses", "")).startswith("actions/setup-node"))
+        self.assertIn(f"/fake-tool-cache/node/{version}/arm64/bin",
+                      CandidateInterpreter.paths[("build-nightly-inputs", "Build the web bundles")])
 
     def test_a_failed_compile_is_red_naming_the_step(self) -> None:
         CandidateInterpreter.fail_step = ("build-nightly-app", "Build nightly app (Release)")

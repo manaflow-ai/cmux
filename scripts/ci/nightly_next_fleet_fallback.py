@@ -827,6 +827,23 @@ class Interpreter:
                 command.append("--recursive")
             subprocess.run(command, check=True)
 
+    def setup_node(self, version: str) -> str:
+        """The bin directory of node VERSION, put there by ensure-setup-node.sh in a tool cache kept across runs."""
+        cache = Path(self.base_env.get("NIGHTLY_FALLBACK_TOOL_CACHE")
+                     or Path(self.base_env.get("HOME", str(Path.home()))) / "Library/Caches/nightly-fleet-fallback/tool-cache")
+        cache.mkdir(parents=True, exist_ok=True)
+        path_file = cache / f".path-{os.getpid()}"
+        path_file.write_text("")
+        try:
+            subprocess.run(["bash", str(HERE / "ensure-setup-node.sh"), version], check=True, timeout=900,
+                           env={**self.base_env, "RUNNER_TOOL_CACHE": str(cache), "GITHUB_PATH": str(path_file)})
+            lines = [line.strip() for line in path_file.read_text().splitlines() if line.strip()]
+        except subprocess.CalledProcessError as error:
+            raise StepFailed(f"node {version}: ensure-setup-node.sh exit {error.returncode}") from error
+        finally:
+            path_file.unlink(missing_ok=True)
+        return lines[-1] if lines else ""
+
     def run_action(self, job: str, step: dict, evaluator: Evaluator, workspace: Path, outputs: dict) -> None:
         kind = action_kind(step["uses"])
         given = {k: interpolate(v, evaluator) for k, v in (step.get("with") or {}).items()}
@@ -846,7 +863,12 @@ class Interpreter:
         elif kind == "cache":
             outputs["cache-hit"] = "false"
         elif kind == "toolchain":
-            pass
+            # The host keeps its own toolchains, except node: a fleet Mac has none on PATH outside a runner's tool
+            # cache, and the web bundle build refuses without it ("needs node 22.18 or newer on PATH (found: none)",
+            # the tip loop's first run on 2026-11-12). setup-node's stand-in is nightly.yml's own ensure-setup-node.sh
+            # (its "Check node is on PATH" step): node-version from RUNNER_TOOL_CACHE, else nodejs.org, checked.
+            if step["uses"].split("@", 1)[0] == "actions/setup-node" and to_string(given.get("node-version")):
+                outputs["__path__"] = self.setup_node(to_string(given.get("node-version")))
         elif kind == "app-token":
             outputs["token"] = APP_TOKEN_PLACEHOLDER
         else:
@@ -919,6 +941,9 @@ class Interpreter:
             try:
                 if "uses" in step:
                     self.run_action(job, step, evaluator, workspace, outputs)
+                    added = outputs.pop("__path__", "")
+                    if added:
+                        extra_path.append(added)
                     code = 0
                 else:
                     files = {kind: temp / f"_{kind}-{index}" for kind in ("output", "env", "path", "summary")}
