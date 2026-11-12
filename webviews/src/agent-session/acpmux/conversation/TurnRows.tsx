@@ -22,7 +22,7 @@ import { ToolRunSteps } from "./ToolRunSteps";
 import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -55,7 +55,7 @@ import {
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
-import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
+import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { usePaneLanguage, useT } from "../i18n";
 import {
   failureCopy,
@@ -74,6 +74,8 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
+import { FinishCheck } from "../finish/FinishCheck";
+import { useFinishedTurn } from "../finish/finishMoments";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
@@ -99,6 +101,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   );
 }
 
+/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
+const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
+
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
 /// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
@@ -112,10 +117,15 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
+  // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
+  // that was stopped or failed did not succeed, so it gets none.
+  const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
+  const finished = ended && !UNFINISHED.has(row.status ?? "");
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -124,6 +134,7 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      {finished && <FinishCheck />}
     </button>
   );
 }
@@ -141,7 +152,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
-  inherits?: readonly string[],
+  runLine?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -152,7 +163,10 @@ function groupNode(
           items={group.items}
           folded={folded}
           disclosureKey={groupDisclosureKey(group, index, rowId)!}
-          inherits={inherits}
+          // An edits group keeps its own state: closed, each file's diff one click away, whatever the
+          // run's line around it was (it draws inside the opened run's line as its own line too).
+          inherits={group.kind === "edits" ? undefined : runLine}
+          closedBy={group.kind === "edits" ? undefined : runLine}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -236,6 +250,26 @@ function groupNode(
   }
 }
 
+/// How a folded stretch's line follows the group lines it grew from and splits back into
+/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
+/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
+/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
+/// ran, one by one, closes it (`closedBy`).
+function runLinks(stretch: RunStretch, rowId: string) {
+  const inherits: string[] = [];
+  const passesDown: string[] = [];
+  const closedBy: string[] = [];
+  stretch.groups.forEach((group, offset) => {
+    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
+    if (!key) return;
+    inherits.push(key);
+    if (group.type === "group" && group.kind === "edits") return;
+    passesDown.push(key);
+    if (group.type === "group") closedBy.push(key);
+  });
+  return { inherits, passesDown, closedBy };
+}
+
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
@@ -272,11 +306,23 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         );
       });
     if (!stretch.fold) return drawn;
-    const inherits = stretch.groups.flatMap(
-      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
-    );
+    const links = runLinks(stretch, row.id);
+    // Its thoughts' ids, as ToolRunSteps numbers them from the row's earlier thoughts.
+    const before = thoughts[stretch.from] ?? 0;
+    const runThoughts = stretch.items
+      .filter((item) => !item.tool && item.kind !== "note")
+      .map((_, at) => `${row.id}:thought:${before + at}`);
     return (
-      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items} defaultOpen={start.lineOpen}>
+      <ToolRun
+        key={key}
+        disclosureKey={key}
+        inherits={links.inherits}
+        passesDown={links.passesDown}
+        closedBy={links.closedBy}
+        thoughts={runThoughts}
+        items={stretch.items}
+        defaultOpen={start.lineOpen}
+      >
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
@@ -668,6 +714,9 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "team-cap",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
@@ -787,6 +836,7 @@ function TurnFailure({
             rowId={retryRowId}
             prompt={prompt}
             keyOnly={teamMachine}
+            gateway={offersGateway(message)}
             actionsRef={actionsRef}
           />
         )}

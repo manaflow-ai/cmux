@@ -163,11 +163,11 @@ enum PaletteSourcesBridge {
             daemon.send("rename-workspace") { connection in _ = try await connection.renameWorkspace(key, to: title) }
         }
 
+        /// The row's "Close Workspace" is an entrypoint of `closeWorkspace`, as the sidebar row's close button
+        /// (`SidebarBridge+Intents`): the row leaves and the selection moves in this turn (`WorkspaceCloseFlow`), a
+        /// running program is asked about, and the action's own target reason refuses Home (`HomeRules`).
         func closeWorkspace(id: String) {
-            guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
-            let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
+            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id))
         }
     }
 

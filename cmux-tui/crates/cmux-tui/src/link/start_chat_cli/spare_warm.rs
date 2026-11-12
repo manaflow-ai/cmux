@@ -31,6 +31,10 @@ pub(super) const COPY_BUDGET_MS: u64 = 180_000;
 pub(super) const WAIT_COPY_MS: u64 = 80_000;
 /// The provider whose login the warm copies: a start of any other never waits on it.
 const COPIED_PROVIDER: &str = "claude";
+/// How long a warm's installed login counts as the start's own: a start onto that machine for the
+/// same account within this long passes no login of its own and checks none (Leo, 2026-11-10: "if
+/// they're logged in why do we need to re-check their login after the critical path").
+pub(super) const RECEIPT_MS: u64 = 30 * 60_000;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,9 +49,21 @@ pub(super) struct Request {
     /// flight, so a start onto it stops waiting.
     #[serde(default)]
     pub(super) finished: Option<String>,
+    /// The machine of a copy that ended installed: finished as above, and its receipt kept
+    /// ([`receipt`]) so a start onto it skips its own login check.
+    #[serde(default)]
+    pub(super) installed: Option<String>,
     /// A start's question instead of a warm: wait for a warm's copy onto this machine.
     #[serde(default)]
     pub(super) wait_copy: Option<WaitCopy>,
+    /// A start's question instead of a warm: whether a warm installed this account's login on this
+    /// machine within [`RECEIPT_MS`] ([`receipt`]). Same shape as `waitCopy`.
+    #[serde(default)]
+    pub(super) login_receipt: Option<WaitCopy>,
+    /// The machine a reserve's or a claim's answer named for this account and team, instead of a
+    /// warm: the copy onto it, unless one is in flight or was given ([`claim`]). No platform call.
+    #[serde(default)]
+    pub(super) claimed: Option<String>,
 }
 
 /// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
@@ -82,6 +98,10 @@ struct Record {
     /// The copy was handed to the App and not abandoned since.
     #[serde(default)]
     copy_given: bool,
+    /// A reserve or a claim took this machine for a chat: a warm in the gap no longer answers it,
+    /// so the next compose warms the next spare (the throttle is per machine, not per team).
+    #[serde(default)]
+    claimed: bool,
 }
 
 /// The last warm of one account and team that warmed nothing (no spare, or a refusal), and its answer.
@@ -93,6 +113,16 @@ struct Attempt {
     answer: Value,
 }
 
+/// A warm's login copy the App reported installed: the receipt a start onto `machine` for
+/// `account` takes instead of checking the login again.
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct Installed {
+    account: String,
+    team: String,
+    machine: String,
+    at: u64,
+}
+
 /// `spare-warm.json` in the start-chat state folder.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
 struct State {
@@ -102,6 +132,8 @@ struct State {
     attempts: Vec<Attempt>,
     #[serde(default)]
     copies: Vec<Copying>,
+    #[serde(default)]
+    installed: Vec<Installed>,
 }
 
 /// The platform call: the request, the person's session credential, the backend team it acts in.
@@ -157,6 +189,11 @@ pub(super) fn run(
     if request.account.is_empty() || !valid_account(&request.account) {
         return Some(refused("bad_request", "invalid spare warm"));
     }
+    if let Some(machine) = request.claimed.as_deref()
+        && reservations::machine(&json!({"machine": machine})).is_none()
+    {
+        return Some(refused("bad_request", "the claimed machine is not a Cloud machine id"));
+    }
     let (mut credential, mut install) = (String::new(), String::new());
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
         return Some(refused("unauthorized", "no session credential on stdin"));
@@ -175,6 +212,7 @@ pub(super) fn run(
     let path = state.join("spare-warm.json");
     let mut file = read(state);
     file.copies.retain(|copy| now_ms < copy.at.saturating_add(COPY_BUDGET_MS));
+    file.installed.retain(|receipt| now_ms < receipt.at.saturating_add(RECEIPT_MS));
     // A record past its warm, or an attempt past the gap, is dropped: the file stays small.
     file.warms.retain(|record| record.warm_until > now_ms);
     file.attempts.retain(|attempt| now_ms < attempt.at.saturating_add(WARM_GAP_MS));
@@ -184,8 +222,19 @@ pub(super) fn run(
     let ends = |copy: &Copying, machine: &str| {
         pair(&copy.account, Some(copy.team.as_str())) && copy.machine.as_deref() == Some(machine)
     };
-    if let Some(machine) = request.abandoned.as_deref().or(request.finished.as_deref()) {
+    let ended = request.abandoned.as_deref().or(request.finished.as_deref());
+    if let Some(machine) = ended.or(request.installed.as_deref()) {
         let abandon = request.abandoned.is_some();
+        if ended.is_none() {
+            file.installed
+                .retain(|receipt| receipt.account != request.account || receipt.machine != machine);
+            file.installed.push(Installed {
+                account: request.account.clone(),
+                team: team.clone(),
+                machine: machine.to_string(),
+                at: now_ms,
+            });
+        }
         let mut found = false;
         for record in &mut file.warms {
             if pair(&record.account, record.team.as_deref()) && record.machine == machine {
@@ -203,8 +252,14 @@ pub(super) fn run(
     }
     let copy =
         |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
+    if let Some(machine) = request.claimed.as_deref() {
+        let answer = claim(&mut file, &request.account, &team, machine, now_ms, copy(machine));
+        write(&path, &file);
+        return Some(answer);
+    }
     let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
+            && !last.claimed
             && now_ms < last.at.saturating_add(WARM_GAP_MS)
             && last.warm_until > now_ms.saturating_add(WARM_GAP_MS)
     });
@@ -270,8 +325,15 @@ pub(super) fn run(
     if let Some(kind) = vm_kind {
         answer.set("vm_kind", json!(kind));
     }
+    // A reserve or a claim that already copies onto this machine keeps the one copy.
+    let claimed = file.warms.iter().any(|other| {
+        pair(&other.account, other.team.as_deref())
+            && other.machine == machine
+            && other.claimed
+            && other.copy_given
+    });
     // Only the machine's owner gets a copy nobody asked for, never a team guest.
-    if owner {
+    if owner && !claimed {
         answer.set("copy", copy(&machine));
         let machine = Some(machine.clone());
         file.copies.push(Copying {
@@ -281,7 +343,11 @@ pub(super) fn run(
             at: now_ms,
         });
     }
-    file.warms.retain(|other| !pair(&other.account, other.team.as_deref()));
+    // One record per machine: a claimed machine's record stays (its copy is not given twice), the
+    // pair's unclaimed one is replaced.
+    file.warms.retain(|other| {
+        !pair(&other.account, other.team.as_deref()) || (other.claimed && other.machine != machine)
+    });
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
     file.warms.push(Record {
         account: request.account,
@@ -291,9 +357,70 @@ pub(super) fn run(
         at: now_ms,
         owner,
         copy_given: owner,
+        claimed,
     });
     write(&path, &file);
     Some(answer)
+}
+
+/// `claimed: M` (under the lock): a reserve's or a claim's answer named M for this account and
+/// team. A copy onto M in flight (the warm that won the race, or an earlier claim) or already given
+/// answers no copy: the claim's install waits on that one (`wait-copy`) instead of starting
+/// another. Otherwise the copy onto M is registered in flight and answered. Either way M's record
+/// is marked claimed, so a warm in the gap no longer answers it.
+fn claim(
+    file: &mut State,
+    account: &str,
+    team: &str,
+    machine: &str,
+    now_ms: u64,
+    copy: Value,
+) -> Value {
+    let ours = |other_account: &str, other_team: Option<&str>, other: &str| {
+        other_account == account && other_team == Some(team) && other == machine
+    };
+    let in_flight = file.copies.iter().any(|copy| {
+        copy.account == account && copy.team == team && copy.machine.as_deref() == Some(machine)
+    });
+    let given = file.warms.iter().any(|record| {
+        ours(&record.account, record.team.as_deref(), &record.machine) && record.copy_given
+    });
+    let warm_until = now_ms.saturating_add(COPY_BUDGET_MS);
+    if let Some(record) = file
+        .warms
+        .iter_mut()
+        .find(|record| ours(&record.account, record.team.as_deref(), &record.machine))
+    {
+        record.claimed = true;
+        record.copy_given = true;
+        record.warm_until = record.warm_until.max(warm_until);
+    } else {
+        file.warms.push(Record {
+            account: account.to_string(),
+            team: Some(team.to_string()),
+            machine: machine.to_string(),
+            warm_until,
+            at: now_ms,
+            owner: true,
+            copy_given: true,
+            claimed: true,
+        });
+    }
+    let mut answer = json!({"ok": true, "machine": machine, "team": team});
+    if in_flight || given {
+        answer.set("fresh", json!(false));
+        answer.set("in_flight", json!(in_flight));
+        return answer;
+    }
+    file.copies.push(Copying {
+        account: account.to_string(),
+        team: team.to_string(),
+        machine: Some(machine.to_string()),
+        at: now_ms,
+    });
+    answer.set("fresh", json!(true));
+    answer.set("copy", copy);
+    answer
 }
 
 /// Records a warm that warmed nothing, so the gap replays its answer, and returns that answer.
@@ -372,6 +499,29 @@ pub(super) fn wait_copy(
     }
 }
 
+/// `loginReceipt` (`{"account": A, "loginReceipt": {"machine": M, "provider": P}}`): whether a
+/// warm installed `account`'s login on `machine` within [`RECEIPT_MS`] and no newer copy onto it is
+/// in flight. A start answered `installed: true` passes no login of its own and checks none: the
+/// person is logged in, and the warm already proved it on this machine before Send. A provider the
+/// warm does not copy never has one. No lock and no platform call: one read of the ledger.
+pub(super) fn receipt(
+    state: &Path,
+    account: &str,
+    machine: &str,
+    provider: &str,
+    now_ms: u64,
+) -> Value {
+    let installed = provider == COPIED_PROVIDER
+        && !account.is_empty()
+        && !copy_in_flight(state, machine, now_ms)
+        && read(state).installed.iter().any(|receipt| {
+            receipt.account == account
+                && receipt.machine == machine
+                && now_ms < receipt.at.saturating_add(RECEIPT_MS)
+        });
+    json!({"ok": true, "installed": installed})
+}
+
 /// The wait a `warm-spare` request asks for instead of a warm (`waitCopy`), if any.
 pub(super) fn wait_request(flags: &Flags) -> Option<WaitCopy> {
     serde_json::from_str::<Request>(flags.one("--request")?).ok()?.wait_copy
@@ -388,6 +538,12 @@ pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     }
     if let Some(wait) = wait_request(flags) {
         return Some(wait_copy(state, &wait.machine, &wait.provider, &now_ms, &pause));
+    }
+    if let Some(request) =
+        flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
+        && let Some(asked) = request.login_receipt
+    {
+        return Some(receipt(state, &request.account, &asked.machine, &asked.provider, now_ms()));
     }
     run(flags, state, now_ms(), &mut std::io::stdin().lock(), &post)
 }

@@ -62,8 +62,6 @@ case "$mode" in
 esac
 umask 022
 root="$(pwd -P)"
-# The web job's bun (ci-web.yml `Setup Bun`); web/run-tests.sh needs 1.3.14 or later.
-web_bun_pin=1.4.4
 msrv=1.88.0
 
 first_rc=0
@@ -276,7 +274,10 @@ PY
   finish
 fi
 
-# web: the pinned bun, installed into the step's own .build when the host has another.
+# web: the bun webviews/package.json pins (the web job's bun, ci-web.yml `Setup Bun`), read
+# by the one shared reader beside this script's folder; installed into the step's own
+# .build when the host has another. No pin the reader accepts stops the step.
+web_bun_pin="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../webviews_bun_version.py" "$root/webviews/package.json")" || exit 3
 ensure_web_bun() {
   local dir="$root/.build/tools/bun-$web_bun_pin"
   if [[ "$(bun --version 2>/dev/null || true)" != "$web_bun_pin" ]]; then

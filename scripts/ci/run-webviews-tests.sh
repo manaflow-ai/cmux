@@ -84,33 +84,14 @@
 # Runs the same way on Linux CI and on a Mac (cmux-lawrence-2, nx-remote jobs): a full
 # single-process `bun test` there fails about 630 tests after one slow test leaves a React
 # act() scope open for every later file. Macs have no coreutils `timeout`, so the worker
-# falls back to gtimeout, then to a perl stand-in with the same exit codes.
+# bounds each file through scripts/ci/timeout.sh (gtimeout, else a perl watchdog, same exit codes).
 set -euo pipefail
 
-# run_with_timeout SECONDS COMMAND...: exit 124 when SECONDS pass, as `timeout -k 10` does.
+# run_with_timeout SECONDS COMMAND...: exit 124 when SECONDS pass, as `timeout -k 10` does. scripts/ci/timeout.sh
+# runs the command in its own process group, so the TERM (and the KILL 10 s later) reach everything bun started.
+ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
 run_with_timeout() {
-  if command -v timeout > /dev/null 2>&1; then
-    timeout -k 10 "$@"
-  elif command -v gtimeout > /dev/null 2>&1; then
-    gtimeout -k 10 "$@"
-  else
-    # The child gets its own process group, so the TERM (and the KILL 10 s later) reach
-    # everything bun started.
-    perl -MPOSIX=WNOHANG -e '
-      my ($seconds, @command) = @ARGV;
-      my $pid = fork;
-      die "fork: $!\n" unless defined $pid;
-      if (!$pid) { setpgrp(0, 0); exec { $command[0] } @command or exit 127; }
-      my ($deadline, $kill_at, $timed_out) = (time + $seconds, 0, 0);
-      until (waitpid($pid, WNOHANG) == $pid) {
-        if (!$timed_out && time >= $deadline) { $timed_out = 1; kill "TERM", -$pid; $kill_at = time + 10; }
-        kill "KILL", -$pid if $timed_out && time >= $kill_at;
-        select(undef, undef, undef, 0.1);
-      }
-      exit 124 if $timed_out;
-      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
-    ' "$@"
-  fi
+  bash "$ci_timeout" --kill-after=10 "$@"
 }
 
 # file_limit FILE DEFAULT: the seconds FILE may run. A file whose own tests need more than the
@@ -226,7 +207,7 @@ case "$(git rev-parse --show-prefix)" in
     cd "$(git rev-parse --show-toplevel)"
     bash scripts/ci/ensure-web-bundles.sh
     # ensure-web-bundles.sh puts the pinned bun on its own PATH only: use the same copy.
-    bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
+    bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)"
     bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
     if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ] && [ -x "$bun_dir/bun" ]; then
       export PATH="$bun_dir:$PATH"

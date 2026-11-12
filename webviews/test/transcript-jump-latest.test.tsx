@@ -5,6 +5,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -60,12 +61,8 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -200,7 +197,8 @@ test("scrolled up, a static button above the composer jumps to the latest messag
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
     expect(latest).toBeGreaterThan(VIEWPORT);
-    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const button = () =>
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
     // It opens at the latest message: no button to show.
     expect(scroller.scrollTop).toBe(latest);
     expect(button()?.dataset.shown).toBeUndefined();
@@ -271,7 +269,8 @@ test("once shown, the button stays shown back inside its distance and hides only
     );
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
-    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const button = () =>
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
       await act(async () => {
@@ -322,7 +321,8 @@ test("the transcript tells its pane when Jump to latest shows and hides, so the 
     );
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const latest = scrollerEnd(scroller);
-    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const button = () =>
+      dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
       await act(async () => {
@@ -366,7 +366,7 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
       ),
     );
     const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!;
+    const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!;
     scroller.scrollTop = 0;
     await act(async () => {
       scroller.dispatchEvent(new dom.window.Event("scroll"));

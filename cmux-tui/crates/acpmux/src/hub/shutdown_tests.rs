@@ -432,6 +432,7 @@ async fn a_trust_check_with_no_answer_during_a_restart_answers_that_the_daemon_r
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
@@ -489,6 +490,7 @@ async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
@@ -525,5 +527,37 @@ async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
         records(&hub, &s, "prompt_refused").into_iter().filter(|m| m["promptId"] == "p").collect();
     assert_eq!(refused.len(), 1, "{refused:?}");
     hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A stop while a peer cache write does not finish (a disk that does not answer) waits for the
+/// notice loop's final save at most its bound (2 s, `wait_peer_notice_loop`), so an update's
+/// handoff, which waits for this daemon to stop, is not held by it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_during_a_cache_write_that_does_not_finish_ends_within_its_bound() {
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-slow-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let peer =
+        crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(8_000, std::sync::atomic::Ordering::SeqCst);
+    let started = tokio::time::Instant::now();
+    let shutting = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.shutdown_all().await })
+    };
+    until("the final peer cache write started", || {
+        hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire)
+    })
+    .await;
+    tokio::time::timeout(Duration::from_secs(6), shutting)
+        .await
+        .expect("the stop waited on a cache write that does not finish")
+        .unwrap();
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(6), "the stop took {took:?}");
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
     let _ = std::fs::remove_dir_all(&dir);
 }

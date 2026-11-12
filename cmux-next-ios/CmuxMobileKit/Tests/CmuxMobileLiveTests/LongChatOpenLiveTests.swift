@@ -14,7 +14,7 @@ import Testing
 /// one byte-capped page (`maxBytes`, acpmux `daemon_chat_open.rs`) and pages older records as
 /// the reader scrolls up; the phone does the same.
 @MainActor
-@Suite struct LongChatOpenLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct LongChatOpenLiveTests {
     /// Every request the fake Mac answered: its method and params.
     final class Requests: @unchecked Sendable {
         private let lock = NSLock()
@@ -90,10 +90,12 @@ import Testing
         }
     }
 
-    static func waitUntil(seconds: Int = 10, _ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(seconds)
-        while !done(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition until a deadline
+    /// Waits until `done`, with no deadline of its own: 10 s of the wall clock ended before a
+    /// busy kit run's main actor had applied what a test waited for (cmux#40598). The suite's
+    /// time limit bounds a hang.
+    static func waitUntil(_ done: () -> Bool) async {
+        while !done(), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
         }
     }
 

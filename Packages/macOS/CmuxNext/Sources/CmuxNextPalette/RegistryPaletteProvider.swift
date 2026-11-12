@@ -205,7 +205,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             isEnabled: face.isEnabled,
             primary: PaletteCommand(
                 id: "run",
-                title: descriptor.arguments.contains(where: \.isRequired) ? labels.open : labels.runCommand,
+                title: descriptor.arguments.contains(where: \.palettePrompts) ? labels.open : labels.runCommand,
                 symbol: "return",
                 effect: effect
             ),
@@ -243,7 +243,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
     private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
                                       context: RegistryPaletteRows.RunContext, flipsInPlace: Bool = false) -> PaletteEffect {
         let id = descriptor.id
-        guard descriptor.arguments.contains(where: \.isRequired) else {
+        guard descriptor.arguments.contains(where: \.palettePrompts) else {
             // A setting's on/off row flips in place: the palette stays open and the row reads its new state.
             if flipsInPlace { return .performKeepingOpen { registry.perform(id, invocation: ActionInvocation()) } }
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
@@ -262,11 +262,11 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// A preset with a state (Density: Compact) picks a value and closes, and so does an on/off command
     /// on what is in front (Left Sidebar, Copy Mode, Dictation).
     static func flipsInPlace(_ descriptor: ActionDescriptor, action: Action?) -> Bool {
-        !descriptor.arguments.contains(where: \.isRequired) && action?.paletteStateIsSetting == true
+        !descriptor.arguments.contains(where: \.palettePrompts) && action?.paletteStateIsSetting == true
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {
-        descriptor.arguments.contains(where: \.isRequired) ? PaletteStrings.open : PaletteStrings.runCommand
+        descriptor.arguments.contains(where: \.palettePrompts) ? PaletteStrings.open : PaletteStrings.runCommand
     }
 
     /// The section for a catalog category.

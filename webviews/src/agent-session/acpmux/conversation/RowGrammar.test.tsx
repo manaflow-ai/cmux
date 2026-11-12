@@ -22,6 +22,7 @@ import { MessageCard } from "./MessageCard";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -53,6 +54,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -248,7 +250,7 @@ test("the subagent line's duration is in the trailing column, not the sentence",
   expect(row.querySelector(".cv-tool__text")!.textContent).toBe("Subagent finished: Audit agent friction");
   expect(row.querySelector(".cv-tool__trail")!.textContent).toBe("2m 28s");
   // Its name for a screen reader still reads the whole line.
-  expect(row.querySelector("button.cv-subagent-done")!.getAttribute("aria-label")).toBe(
+  expect(row.querySelector(".cv-subagent-done")!.getAttribute("aria-label")).toBe(
     "Subagent finished: Audit agent friction · 2m 28s",
   );
 });
@@ -330,15 +332,14 @@ test("the chevron follows the words and the trailing column ends the line", () =
   expect(sentence).toContain("overflow: hidden");
 });
 
-test("the subagent row's one button reaches its trailing markers", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split". No hit area covers the row, so the name chip is
+// its one target.
+test("the subagent row has no full-row hit area over its name chip", () => {
   const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
   const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(row).toContain("position: relative");
-  expect(row).toContain("isolation: isolate");
-  const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(hitArea).toContain('content: ""');
-  expect(hitArea).toContain("inset: 0");
-  expect(hitArea).toContain("z-index: var(--layer-backdrop)");
+  expect(css).not.toMatch(/\.cv-subagent-done::before \{/);
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {

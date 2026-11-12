@@ -2362,6 +2362,17 @@
     },
     {
       "params": {
+        "action": "cloud move-to-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move-to-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
@@ -2471,17 +2482,6 @@
         "wait": true
       },
       "source": "cmux cloud tunnel-detach --path /tmp/contract"
-    },
-    {
-      "params": {
-        "action": "cloud tunnel-rotate-key",
-        "args": {
-          "publicKey": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud tunnel-rotate-key --public-key /tmp/contract"
     },
     {
       "params": {
@@ -2889,13 +2889,15 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
+          "fromFolder": "/tmp/contract",
           "login": "/tmp/contract",
+          "model": "/tmp/contract",
           "name": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --login /tmp/contract --model /tmp/contract"
     },
     {
       "params": {
@@ -3060,6 +3062,40 @@
     },
     {
       "params": {
+        "action": "divider insert",
+        "args": {
+          "kind": "terminal",
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider insert --kind terminal --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider hide",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider hide --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider show",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider show --split /tmp/contract"
+    },
+    {
+      "params": {
         "action": "workspace restore-archived",
         "args": {
           "item": "/tmp/contract"
@@ -3112,6 +3148,28 @@
         "wait": true
       },
       "source": "cmux tab move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab duplicate-to-new-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab duplicate-to-new-split --direction right"
     },
     {
       "params": {

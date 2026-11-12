@@ -4,7 +4,8 @@ import CoreGraphics
 /// them where they are, so the sync skips that pane (no conversion, no window-frame notice).
 struct PaneOverlaySyncKey: Equatable {
     var hostFrame: CGRect
-    var screenFrame: CGRect
+    /// The screen's size. Every screen view fills the root (`LayoutRootView.fitScreensToBounds`), so its frame says
+    /// nothing more.
     var screenBounds: CGRect
     /// The root's bounds in window coordinates (nil out of a window): an ancestor that moved the
     /// root moves every pane in the window.

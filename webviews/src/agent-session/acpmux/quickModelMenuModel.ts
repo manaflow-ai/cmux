@@ -175,6 +175,9 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
   accountFamily?: string;
+  /// Its harness offers Claude Code's Ultracode on a model that runs Extra High (acpmux's own Claude
+  /// Code backend, CLAUDE_STDIO_KIND): the Effort column lists it before a chat runs the model.
+  ultracode?: boolean;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
@@ -240,8 +243,9 @@ export type QuickFamilies = {
   /// next message's target (forkHold.ts): its row is the checked one and its tab opens first, and
   /// the columns' settings show its `effort` and `fast`.
   held?: { family: string; id?: string; effort?: string; fast?: boolean };
-  /// A started chat: the chat's own tab and running model (and its provider) carry the "used
-  /// here" mark (UsedMark) in this look, whatever is held.
+  /// A started chat with another harness's model held: the chat's own tab and running model (and
+  /// its provider) carry the "used here" mark (UsedMark) in this look. Absent while nothing is
+  /// held, where the running row's check already says it.
   used?: UsedLook;
   /// Starred models: each row's star at its trailing edge shows and toggles it (the Starred tab
   /// lists them). Absent: no stars on the rows.

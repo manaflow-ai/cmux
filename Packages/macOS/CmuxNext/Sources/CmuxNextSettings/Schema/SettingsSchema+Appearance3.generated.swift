@@ -125,6 +125,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
             ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
+                LayoutMetricSetting.sidebarRowHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowHeight", "Workspace Row Height"),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "height", "thinner", "sidebarRowHeight"]
+            ),
+            SettingDescriptor(
                 BordersSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -213,7 +223,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."),
                 kind: .toggle,
                 default: .bool(PaneAnimationsSetting.fallback),
                 keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
@@ -237,19 +247,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(AnimationKindsSetting.newWorkspaceDefault),
                 keywords: ["motion", "animation", "workspace", "sidebar"]
-            ),
-            SettingDescriptor(
-                AnimationKindsSetting.bouncePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.ui.animations.bounce", "Animation Bounce"),
-                help: SettingsText.keyed("settings.ui.animations.bounce.help", "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."),
-                kind: .choice([
-                    SettingChoice(MotionBounce.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(MotionBounce.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                ]),
-                default: .string(AnimationKindsSetting.bounceDefault.rawValue),
-                keywords: ["motion", "spring", "bounce"]
             ),
         ]
     }

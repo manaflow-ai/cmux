@@ -15,11 +15,9 @@ const REPO = join(import.meta.dir, "../..");
 // The Swift file that floats a page over the window -> every stylesheet that page's entry imports
 // (paths under webviews/src). A new transparent overlay host fails the next test until it is here.
 const POPUP_PAGES: Record<string, string[]> = {
-  // The browser chrome's Page Info pages (BrowserChromeWebHost): one document per page, all on native glass.
+  // The browser chrome's pages (BrowserChromeWebHost): one document per page.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BrowserChromeWebHost.swift": [
-    "pages/page-info/styles.css",
-    "browser-chrome/page-info/pageInfo.css",
-    // Its windows (Site settings, On-device site data, the certificate viewer) on the window's backdrop.
+    // Page Info's windows (Site settings, On-device site data, the certificate viewer) on the window's backdrop.
     "pages/site-settings/styles.css",
     "pages/site-data/styles.css",
     "pages/certificate/styles.css",
@@ -29,6 +27,13 @@ const POPUP_PAGES: Record<string, string[]> = {
     "browser-chrome/cookie-import/cookieImport.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
+  // Home's Set Up cmux card (SetupCardHost): the card floats on the chat's backdrop.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Page/SetupCardPage.swift": [
+    "ui/ui.css",
+    "pages/shared/pageBase.css",
+    "pages/setup-card/styles.css",
+    "pages/home-messages/cards/cards.css",
+  ],
   // The dialog route's sheets load with its module (dialog/index.tsx), into the same document.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/OverlayPage.swift": [
     "ui/ui.css",
@@ -38,6 +43,11 @@ const POPUP_PAGES: Record<string, string[]> = {
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",
+  ],
+  // The sidebar's chat history blocks (pages/sidebar-chats), transparent in the list's gaps over the sidebar's backdrop.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarChatHistoryHost.swift": [
+    "pages/shared/pageBase.css",
+    "pages/sidebar-chats/styles.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": [
     // main.tsx is the bundle the popover opens (on #/surface/<kind>): its sheets are the document's.

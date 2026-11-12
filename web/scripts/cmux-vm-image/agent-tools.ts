@@ -381,6 +381,12 @@ export const RD_PEER_UID = DEVBOX_WORK_UID;
 export const RD_HOST_DIR = "/run/cmux-rd-host";
 /** The host's copy of the agent display's cookie (RD_USER 0600), made at each host start. */
 export const RD_XAUTHORITY = `${RD_HOST_DIR}/Xauthority-${AGENT_DISPLAY_NUMBER}`;
+/**
+ * The STUN server the cmux-rd host asks for its reflexive address when a session negotiates the
+ * UDP datagram link (cap link.udp, cmux-rd 0.2.3+). It resolves only then, so a host with no
+ * session holds no UDP socket; an unresolvable name leaves the link to host and relay candidates.
+ */
+export const RD_LINK_STUN = "stun.cloudflare.com:3478";
 /** StateDirectory: HOME and XDG_DATA_HOME of the host, where `cmux-rd openh264-install` puts Cisco's library. */
 export const RD_STATE_DIR = "/var/lib/cmux-rd";
 /** Written after the first successful `cmux-rd openh264-install`, so later starts skip the download. */
@@ -565,7 +571,7 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
-    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`,
     "",
   ].join("\n");
 }

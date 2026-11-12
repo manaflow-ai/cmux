@@ -33,7 +33,8 @@ public final class MessagesLabHomeView: NSView {
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil,
+                replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -50,6 +51,7 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         HomeApprovalRowProvider.install()
+        HomeTurnFailureRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -467,6 +469,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
 
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.

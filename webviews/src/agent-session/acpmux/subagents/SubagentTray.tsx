@@ -65,6 +65,7 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
   useCallback,
@@ -108,11 +109,13 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
+import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
+import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
-import { latestLine, toolDetail } from "./trayDetail";
+import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -126,7 +129,7 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
-import { Tick } from "./trayMotion";
+import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -134,10 +137,12 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
+import { hatDrag, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
+import { focusRingShown } from "../../../ui/focusModality";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -171,6 +176,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenPanel,
   stop,
   stopProcess,
+  resume,
   placement = "tray",
   shown,
   enters = false,
@@ -210,6 +216,9 @@ export const SubagentTray = memo(function SubagentTray({
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// Resume on a stopped subagent's finished line (ResumeControl.tsx): the chat's `resumeAgent`,
+  /// as the transcript's end line has it. The tray sits outside the transcript's TurnActionsContext.
+  resume?: ResumeActions;
   /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
   placement?: SubagentTrayPlacement;
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
@@ -261,6 +270,8 @@ export const SubagentTray = memo(function SubagentTray({
   const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
+  // The list height the person dragged the rim to (trayResize.ts), shared by every hat.
+  const hatHeight = useHatHeight();
   // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggleLine = useCallback(
@@ -360,6 +371,9 @@ export const SubagentTray = memo(function SubagentTray({
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
+  // "+N more" and the time move as one trailing segment: a width change before them glides them to
+  // their new place instead of jumping (trayMotion.tsx `useGlide`).
+  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -490,15 +504,24 @@ export const SubagentTray = memo(function SubagentTray({
       setGutter(0);
     };
   }, []);
-  const newest = useMemo(() => newestNames(t, items), [t, items]);
+  // The folded header leads with the longest-running item and keeps it until it ends; its clock is
+  // the run's, which never goes back (trayHeadOrder.ts; Leo, 2026-11-11: "the animation system is so
+  // borked and unintegrated").
+  const leading = useMemo(() => longestRunningFirst(items), [items]);
+  const newest = useMemo(() => leadNames(t, leading), [t, leading]);
+  // Kept as state and moved on during render when the list changes (React's "adjust state while
+  // rendering"), so a render reads the same clock the last one drew.
+  const [runStart, setRunStart] = useState<number | undefined>(undefined);
+  const since = runSince(runStart, items);
+  if (since !== runStart) setRunStart(since);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
   // change of the setting draws them again.
   const senderBadge = useSenderIconLook().badge;
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
-    () => (head === "stack" || lone ? stackMarks(t, items, finished, chatHarness, senderBadge) : NO_MARKS),
-    [t, head, lone, items, finished, chatHarness, senderBadge],
+    () => (head === "stack" || lone ? stackMarks(t, leading, finished, chatHarness, senderBadge) : NO_MARKS),
+    [t, head, lone, leading, finished, chatHarness, senderBadge],
   );
   const headCounts = useMemo(
     () =>
@@ -532,11 +555,11 @@ export const SubagentTray = memo(function SubagentTray({
       ? subagentStatus(item.agent, waiting) !== "waiting"
       : item.kind === "session" && item.session.state !== "waiting",
   ).length;
-  const starts = items.map(itemStart).filter((start): start is number => start !== undefined);
-  // Folded, the header is the one line above the composer, so it names what runs, newest first, as
-  // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
-  // "running" bar above the composer is currently no longer usable bc it doesn't display much").
-  // A narrow pane names only the newest; the rest are a count. Open, the lines name them.
+  // Folded, the header is the one line above the composer, so it names what runs, as Claude Code's
+  // running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the "running" bar above
+  // the composer is currently no longer usable bc it doesn't display much"): longest-running first,
+  // so a new item never takes the lead (trayHeadOrder.ts). A narrow pane names only the first; the
+  // rest are a count. Open, the lines name them, newest first.
   // Expanding and folding a lone item's hat is one transition (Leo, 2026-11-08: "there's, like, some
   // elements in between and then things don't balance out"): its end (state and time) stays at the
   // row's end, open or folded, over the line's own time; its words slide over to the counts and its
@@ -590,6 +613,67 @@ export const SubagentTray = memo(function SubagentTray({
     setOpened(!open);
     rememberTrayOpen(chat, !open);
   };
+  // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
+  // its last line folds it, a double-click goes back to the default five lines.
+  const resizes = !(headed && opensPanel === "header");
+  const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
+    const start = open && list ? list.getBoundingClientRect().height : 0;
+    const { clientX: startX, clientY: startY } = event;
+    const rim = event.currentTarget;
+    rim.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    let shown = open;
+    // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
+    const before = hatHeight;
+    let last = before;
+    let dragged = false;
+    const move = (moved: PointerEvent) => {
+      const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
+      if (step.kind === "rest") return;
+      dragged = true;
+      if (step.kind === "fold") {
+        last = before;
+        setHatHeight(before, false);
+        if (shown && headed) {
+          shown = false;
+          setOpened(false);
+          rememberTrayOpen(chat, false);
+        }
+        return;
+      }
+      if (!shown && headed) {
+        shown = true;
+        setOpened(true);
+        rememberTrayOpen(chat, true);
+      }
+      last = step.height;
+      setHatHeight(step.height, false);
+    };
+    const end = (ended: PointerEvent) => {
+      rim.removeEventListener("pointermove", move);
+      rim.removeEventListener("pointerup", end);
+      rim.removeEventListener("pointercancel", end);
+      rim.removeEventListener("lostpointercapture", end);
+      if (dragged) {
+        setHatHeight(last, true);
+        return;
+      }
+      // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
+      // the composer seam), so it goes there, never swallowed by the rim.
+      if (ended.type !== "pointerup") return;
+      rim.style.pointerEvents = "none";
+      const under = document.elementFromPoint(startX, startY);
+      rim.style.pointerEvents = "";
+      if (under instanceof HTMLElement && !rim.contains(under)) under.click();
+    };
+    rim.addEventListener("pointermove", move);
+    rim.addEventListener("pointerup", end);
+    rim.addEventListener("pointercancel", end);
+    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
+    rim.addEventListener("lostpointercapture", end);
+  };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
@@ -626,7 +710,15 @@ export const SubagentTray = memo(function SubagentTray({
       data-tucks={onTuck ? tuckSide : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
-      style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
+      data-sized={(resizes && hatHeight !== undefined) || undefined}
+      style={
+        gutter > 0 || (resizes && hatHeight !== undefined)
+          ? ({
+              ...(gutter > 0 ? { "--acpmux-tray-gutter": `${gutter}px` } : {}),
+              ...(resizes && hatHeight !== undefined ? { "--acpmux-tray-list-height": `${hatHeight}px` } : {}),
+            } as CSSProperties)
+          : undefined
+      }
       data-tuck-quiet={(onTuck && tuckQuiet) || undefined}
       onPointerEnter={() => {
         setHovered(true);
@@ -715,8 +807,14 @@ export const SubagentTray = memo(function SubagentTray({
               ))}
             </span>
           )}
+          {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
+              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+            <Tick
+              className="acpmux-summary-meta acpmux-running-tray__more"
+              text={t("tools.more", { n: moreCount })}
+              steadyCounts
+            />
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -726,6 +824,10 @@ export const SubagentTray = memo(function SubagentTray({
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
                 <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
+              ) : loneEnd.status === "running" && !loneEnd.retry && since !== undefined ? (
+                // The run's clock, not the item's own: left the one running after a longer one ended,
+                // the header's time never goes back (trayHeadOrder.ts `runSince`; review of cmux#41078).
+                <Elapsed since={since} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
                 loneEnd.time
               ) : (
@@ -740,10 +842,11 @@ export const SubagentTray = memo(function SubagentTray({
                 </>
               )}
             </span>
+          ) : // The clock is the time element itself, so a range over it holds only its text.
+          since !== undefined ? (
+            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={since} />
           ) : (
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? <Elapsed since={Math.min(...starts)} /> : undefined}
-            </span>
+            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
@@ -807,6 +910,17 @@ export const SubagentTray = memo(function SubagentTray({
         >
           <Icon name="disclosure.expanded" size={12} />
         </button>
+      )}
+      {resizes && (
+        // The rim's grabber, a thin band along the hat's top edge under the tuck chevron (which sits
+        // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
+        <div
+          className="acpmux-running-tray__rim"
+          title={t("tray.resize")}
+          aria-hidden="true"
+          onPointerDown={onRimDown}
+          onDoubleClick={() => setHatHeight(undefined, true)}
+        />
       )}
       {onTuck && (
         <button
@@ -906,9 +1020,11 @@ export const SubagentTray = memo(function SubagentTray({
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={toggleThis}
               after={
-                stop &&
-                item.agent.state === "running" &&
-                !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                item.agent.state === "running"
+                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                  : // A stopped one's Resume sits in Stop's column (Leo, 2026-11-12: "WHY CANT WE
+                    // RESTART AGENTS THAT WERE STOPPED").
+                    resume && <ResumeControl agent={item.agent} actions={resume} />
               }
             />,
             // An agent a shell call started stops with that call, not through the harness.
@@ -1060,7 +1176,11 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
 /// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
-    agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
+    agent.state !== "running"
+      ? undefined
+      : agent.actionShell
+        ? actionDetail(t, agent.action, true)
+        : namedAction(t, agent.action);
   const label = subagentTaskLabel(t, agent);
   const name = subagentDisplayName(t, agent);
   const lines = [
@@ -1147,12 +1267,11 @@ function loneHeadOf(
 /// no start time sorts after those with one, in its list order.
 /// At most the newest two are named (the default arm names one), so a long list costs a sort of its
 /// start times, never a label per item.
-function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[] {
-  return items
-    .map((item, index) => ({ item, index, start: itemStart(item) ?? Number.NEGATIVE_INFINITY }))
-    .sort((a, b) => b.start - a.start || a.index - b.index)
+/// The first two names of `leading` (longest-running first, trayHeadOrder.ts).
+function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[] {
+  return leading
     .slice(0, 2)
-    .map(({ item }) =>
+    .map((item) =>
       item.kind === "agent"
         ? subagentTaskLabel(t, item.agent)
         : item.kind === "command"
@@ -1224,10 +1343,10 @@ function withLeaving(cards: readonly TrayCard[], leaving: ReadonlyMap<string, Le
   return out;
 }
 
-/// Focus that arrived by keyboard (`:focus-visible`), which holds the hat; a click's focus does not.
+/// Focus a navigation key moved here (focusRingShown), which holds the hat; a click's focus does not.
 function focusVisible(event: FocusEvent<HTMLElement>): boolean {
   try {
-    return (event.target as Element).matches(":focus-visible");
+    return focusRingShown(event.target as Element);
   } catch {
     return false;
   }

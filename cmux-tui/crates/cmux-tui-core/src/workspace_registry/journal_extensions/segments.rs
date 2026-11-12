@@ -75,6 +75,31 @@ impl WorkspaceRegistry {
         Ok(u64::try_from(end)?)
     }
 
+    /// Deletes up to `JOURNAL_CHECKPOINT_PRUNE_BATCH` checkpoints that a
+    /// sealed segment already covers and that are not among the newest
+    /// `JOURNAL_CHECKPOINTS_KEPT`. Each one holds the whole reduced state, so
+    /// keeping all of them grew the registry by about 1.5 MB per checkpoint.
+    /// The newest checkpoints stay for restore (terminal respawn reads the
+    /// newest 16) and every unsealed one stays for the next seal. Returns how
+    /// many it deleted.
+    pub(crate) fn prune_journal_checkpoints(&mut self) -> anyhow::Result<usize> {
+        let deleted = self.connection.get().execute(
+            "DELETE FROM journal_checkpoints WHERE checkpoint_id IN (
+               SELECT checkpoint_id FROM journal_checkpoints
+               WHERE source_sequence
+                       <= (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
+                 AND source_sequence < (
+                   SELECT source_sequence FROM journal_checkpoints
+                   ORDER BY source_sequence DESC LIMIT 1 OFFSET ?1)
+               ORDER BY source_sequence ASC LIMIT ?2)",
+            params![
+                JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET as i64,
+                JOURNAL_CHECKPOINT_PRUNE_BATCH as i64
+            ],
+        )?;
+        Ok(deleted)
+    }
+
     pub(crate) fn begin_journal_segment_seal(
         &mut self,
         requested_through: u64,
@@ -215,6 +240,11 @@ impl WorkspaceRegistry {
                     params![segment.metadata.segment_id, kind],
                 )?;
             }
+            session_journal::reducer_records::insert_reducer_records(
+                &tx,
+                &segment.metadata.segment_id,
+                &segment.reducer_records,
+            )?;
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -301,6 +331,7 @@ impl JournalSegmentSealPlan {
             let mut start_sequence = None;
             let mut record_count = 0_u64;
             let mut kinds = BTreeSet::new();
+            let mut reducer_records = Vec::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -334,6 +365,13 @@ impl JournalSegmentSealPlan {
                         > MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
                     {
                         break 'segment;
+                    }
+                    if session_journal::reducer_records::kept_for_reducers(&kind) {
+                        reducer_records.push((
+                            sequence,
+                            kind.clone(),
+                            std::str::from_utf8(&record_bytes)?.to_owned(),
+                        ));
                     }
                     kinds.insert(kind);
                     if separator != 0 {
@@ -374,6 +412,7 @@ impl JournalSegmentSealPlan {
                 compressed,
                 digest,
                 kinds: kinds.into_iter().collect(),
+                reducer_records,
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;

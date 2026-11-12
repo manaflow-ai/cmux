@@ -84,6 +84,32 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
         .or_else(|| live_activity_tag(m, SPAWNED_BY_TAG, crate::store::now_ms()))
 }
 
+/// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
+pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+    activity_parent(m)
+}
+
+/// When the first of `m`'s tags that has not expired by `now` expires.
+pub(super) fn next_tag_expiry(m: &SessionMeta, now: u64) -> Option<u64> {
+    m.tags.values().filter_map(|tag| tag.expires_at).filter(|at| *at > now).min()
+}
+
+/// What another session's summary reads of `m`, hashed: whether it is a listed parent
+/// ([`Hub::spawned_by`]: its lineage, sub-session link and `spawnedBy` and `archived` tags, with
+/// their expiry) and the lineage root walk's step through it ([`Hub::lineage_of`]). A metadata
+/// commit that changes it marks every cached closed row stale (`meta_save.rs`); any other commit
+/// marks only its own.
+pub(super) fn parent_print_of(m: &SessionMeta) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    m.lineage.as_ref().map(|l| (&l.parent, &l.root)).hash(&mut hash);
+    m.subsession.as_ref().map(|l| &l.started_by).hash(&mut hash);
+    for key in [SPAWNED_BY_TAG, "archived"] {
+        m.tags.get(key).map(|tag| (&tag.value, tag.expires_at)).hash(&mut hash);
+    }
+    hash.finish()
+}
+
 fn live_activity_tag<'a>(m: &'a SessionMeta, key: &str, at: u64) -> Option<&'a str> {
     let tag = m.tags.get(key)?;
     tag.expires_at.is_none_or(|expires| expires > at).then_some(tag.value.as_str())
@@ -330,9 +356,12 @@ const LANE_STEP_CHARS: usize = 240;
 const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
+/// A summary that is not an object (a peer's bad row) is left as it is.
 pub fn decide(summary: &mut Value) {
-    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
-    summary["lane"] = lane(summary);
+    let indicator = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary.set("indicator", indicator);
+    let lane = lane(summary);
+    summary.set("lane", lane);
 }
 
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
@@ -424,6 +453,76 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
+    /// Start the one-time fold of a chat's journal off the request path, at most once at a time.
+    /// Until it is done, Session Info and attach carry no breakdown; the next read after it does.
+    fn start_time_breakdown_seed(&self, session: &Session) {
+        {
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            if state.initialized || state.seeding {
+                return;
+            }
+            state.seeding = true;
+        }
+        let (Some(hub), Ok(runtime)) = (
+            self.hub_ref.get().and_then(std::sync::Weak::upgrade),
+            tokio::runtime::Handle::try_current(),
+        ) else {
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+            return;
+        };
+        let id = session.id.clone();
+        runtime.spawn_blocking(move || {
+            let session = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            // Gone meanwhile (purged): nothing to seed.
+            if let Some(session) = session {
+                hub.seed_time_breakdown(&session);
+            }
+        });
+    }
+
+    /// Fold a chat's journal once, then keep the reducer current at the append seam. Most of the
+    /// log is read without the append lock; only the tail written meanwhile is read under it, so
+    /// the seed and the next appended record are one ordered view and no record counts twice.
+    pub(super) fn seed_time_breakdown(&self, session: &Session) {
+        let mut seeded = crate::hub::time_breakdown::State::default();
+        let unlocked = self.store.scan(&session.id, 0, &mut |record| {
+            seeded.record(&record);
+            true
+        });
+        if unlocked.is_ok() {
+            let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let tail = self.store.scan(&session.id, seeded.last_seq(), &mut |record| {
+                seeded.record(&record);
+                true
+            });
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            let installed = tail.is_ok() && !state.initialized;
+            if installed {
+                seeded.initialized = true;
+                *state = seeded;
+            }
+            state.seeding = false;
+            drop(state);
+            drop(_append);
+            // The chat pane and its census row carry the breakdown without waiting for a record.
+            if installed {
+                self.row_notice(session, "time_breakdown");
+            }
+        } else {
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+        }
+    }
+
+    /// Return the breakdown only after a detail/attach read has seeded it. Summary and census
+    /// paths must never scan a journal or take the append lock just to decorate a row.
+    fn cached_time_breakdown(
+        &self,
+        session: &Session,
+    ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
+        let state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        state.initialized.then(|| state.snapshot(crate::store::now_ms()))
+    }
+
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
@@ -434,6 +533,8 @@ impl Hub {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
+        #[cfg(test)]
+        self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
@@ -520,6 +621,8 @@ impl Hub {
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
+            person_hold: self.person_hold(session),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -650,6 +753,8 @@ impl Hub {
             peer: None,
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
+            // A detail/attach read seeds this lazily; census rows never scan journals.
+            time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -663,11 +768,17 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
+        if let Some(cold) = &m.cold {
+            summary.set("coldArchive", json!(cold));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
+        summary.set("heldMessages", super::native_messaging::held_messages(session));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
@@ -711,6 +822,9 @@ impl Hub {
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
+        // Session Info/attach is the explicit opt-in for the journal-backed chart. The seed reads
+        // the whole journal, so it runs in the background: this read answers without it.
+        self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
@@ -854,11 +968,16 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
-            "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
             // (`wire_size.rs`): the next one too large to send is seen coming.
             "largeMessages": crate::wire_size::global().status(),
+            // The session list each client is sent, by its name (`list_bytes.rs`).
+            "listReplies": crate::list_bytes::global().status(),
+            // Startup phases, memory, list rebuilds and each connection's queued bytes
+            // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
+            "gauges": crate::gauges::daemon_status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -900,4 +1019,95 @@ fn daemon_login_session() -> Value {
     };
     #[cfg(not(target_os = "macos"))]
     Value::Null
+}
+
+#[cfg(test)]
+mod time_breakdown_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    #[tokio::test]
+    async fn time_breakdown_is_lazy_and_updates_after_append() {
+        let hub = test_hub();
+        let session = hub
+            .new_session(NewRequest {
+                harness: Some("fake".into()),
+                name: Some("time-breakdown".into()),
+                cwd: Some(std::env::temp_dir()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+        assert!(hub.session_list_summary(&session).get("timeBreakdown").is_none());
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+        assert!(hub.session_summary(&session).get("timeBreakdown").is_none());
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnSeq": 1, "turnId": "turn-1"}),
+            None,
+            Some(100),
+        );
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnSeq": 1, "turnId": "turn-1", "totalTokens": 5}),
+            None,
+            Some(200),
+        );
+
+        // Attach answers without waiting on the append lock or the seed's journal read.
+        {
+            let _append = session.append_lock.lock().unwrap();
+            let detail = hub.session_detail(&session);
+            assert!(detail.get("timeBreakdown").is_none());
+            assert!(!session.time_breakdown.lock().unwrap().initialized);
+        }
+        // The seed the detail started in the background, run here so the test need not wait.
+        hub.seed_time_breakdown(&session);
+        let detail = hub.session_detail(&session);
+        assert!(session.time_breakdown.lock().unwrap().initialized);
+        assert_eq!(detail["timeBreakdown"]["totalMs"], 100);
+        assert_eq!(detail["timeBreakdown"]["totalTokens"], 5);
+
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnSeq": 2, "turnId": "turn-2"}),
+            None,
+            Some(300),
+        );
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnSeq": 2, "turnId": "turn-2", "totalTokens": 7}),
+            None,
+            Some(450),
+        );
+
+        let summary = hub.session_summary(&session);
+        assert!(session.time_breakdown.lock().unwrap().initialized);
+        assert_eq!(summary["timeBreakdown"]["totalMs"], 250);
+        assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
+    }
 }

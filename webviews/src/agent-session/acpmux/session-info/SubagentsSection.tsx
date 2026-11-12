@@ -16,10 +16,12 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
 import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
@@ -102,8 +104,11 @@ export function SubagentsSection({
   sessions = NO_SESSIONS,
   onOpenSession,
   harness,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`); without it a subagent's line opens nothing.
   onOpen?: (id: string) => void;
@@ -137,7 +142,7 @@ export function SubagentsSection({
       progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
       state: subagentStateText(t, agent, waiting, now),
@@ -198,6 +203,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         card={<AgentCard item={item} />}
+        after={resume && item.agent && <ResumeControl agent={item.agent} actions={resume} />}
       />
     </li>
   );

@@ -26,7 +26,6 @@ public struct ScreenSharingPage: View {
 
     public var body: some View {
         List {
-            statusSection
             macsSection
             ScreenSharingViewerSettings(preferences: service.preferences)
         }
@@ -65,34 +64,35 @@ public struct ScreenSharingPage: View {
         return folded.isEmpty ? nil : folded
     }
 
-    @ViewBuilder private var statusSection: some View {
-        switch service.status {
-        case .idle, .starting:
-            Section {
-                HStack(spacing: 12) {
-                    CmuxSpinner()
-                    Text("Connecting to your devices…").foregroundStyle(theme.colors.label2)
-                }
-            }
-        case let .failed(message):
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Your devices can't be reached").font(theme.type.rowTitle)
-                    Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(3)
-                }
-                Button("Try Again") { Task { await service.refresh() } }
-            }
-        case .ready:
-            EmptyView()
-        }
-    }
-
+    /// One "Your Macs" section holds the one state of the list: finding (a spinner),
+    /// can't reach (why, and Try Again), no Macs (only once the list was read), or the Macs.
     @ViewBuilder private var macsSection: some View {
         let macs = service.macs
         Section {
-            if macs.isEmpty, service.status == .ready {
-                Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
-                    .font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+            switch service.discovery {
+            case .finding:
+                if macs.isEmpty {
+                    HStack(spacing: 12) {
+                        CmuxSpinner()
+                        Text("Finding your Macs…").foregroundStyle(theme.colors.label2)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("screenSharing.finding")
+                }
+            case let .failed(message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your Macs can't be reached").font(theme.type.rowTitle)
+                    Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(3)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("screenSharing.failed")
+                Button("Try Again") { Task { await service.refresh() } }
+            case .listed:
+                if macs.isEmpty {
+                    Text("No Macs. Sign in to cmux on your Mac with this account, then turn on Share This Mac in its Settings › Devices.")
+                        .font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+                        .accessibilityIdentifier("screenSharing.empty")
+                }
             }
             ForEach(macs) { mac in
                 ScreenSharingMacRow(mac: mac, access: service.access(to: mac)) { scope in
@@ -171,12 +171,14 @@ struct ScreenSharingViewerSettings: View {
             Picker("Quality", selection: $preferences.defaults.quality) {
                 ForEach(ScreenQuality.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Show Trackpad", isOn: $preferences.defaults.showTrackpad)
+                .accessibilityIdentifier("screenSharing.showTrackpad")
             Toggle("Fit to Display", isOn: $preferences.defaults.fitToDisplay)
             Toggle("Show Stats", isOn: $preferences.defaults.showStats)
         } header: {
             Text("Viewer")
         } footer: {
-            Text("Full Control lets this iPhone click and type on the Mac. Direct Touch clicks where you touch; Trackpad moves a pointer like a MacBook trackpad. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
+            Text("Full Control lets this iPhone click and type on the Mac. Direct Touch clicks where you touch; Trackpad moves a pointer like a MacBook trackpad. Show Trackpad keeps a trackpad under the screen; drag its notch down to tuck it away. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
         }
     }
 }

@@ -22,7 +22,9 @@ import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
-import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
+import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
@@ -150,7 +152,9 @@ export const ToolRow = memo(function ToolRow({
   const hasDetails = shell || hasDiff || Boolean(result?.text.trim()) || hasInput;
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
-  const expandable = hasDetails || clipped;
+  // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
+  const images = useMemo(() => toolImages(tool), [tool]);
+  const expandable = hasDetails || clipped || images.length > 0;
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -164,7 +168,6 @@ export const ToolRow = memo(function ToolRow({
     observer.observe(node);
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
-  const images = useMemo(() => toolImages(tool), [tool]);
   // Any other call opens to its input, one labeled field per argument, over its output
   // (ToolDetail.tsx); read only while drawn, as the diff is.
   const fields = useMemo(
@@ -192,14 +195,46 @@ export const ToolRow = memo(function ToolRow({
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
           {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
+          {shell && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+              background={inBackground(tool)}
+            />
+          )}
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
+      ) : foreground && shell && !tool.approved ? (
+        // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
+        <span className="cv-command__meta cv-tool__meta">
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+            background={inBackground(tool)}
+          />
+        </span>
       ) : (
         (!foreground || tool.approved) && (
           <span className="cv-command__meta">
+            {shell && running && (
+              <RunElsewhereChip
+                toolCallId={tool.id}
+                kind={tool.kind}
+                command={tool.command}
+                startedAt={tool.startedAt}
+                running={running}
+                background={inBackground(tool)}
+              />
+            )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
             {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
@@ -213,14 +248,17 @@ export const ToolRow = memo(function ToolRow({
   // status such as "Wait 60000 ms" with no body is a plain row.
   return (
     <>
-      <ToolVisualRow sources={images} label={label}>
+      {/* The small image at the row's edge stands for the images until the row opens to them. */}
+      <ToolVisualRow sources={images} label={label} opened={open}>
         {expandable ? (
           <button
             type="button"
             className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
             data-tool-id={tool.id}
             aria-expanded={open}
-            aria-controls={open && (shell || files.length > 0 || body || fields) ? detailsId : undefined}
+            aria-controls={
+              open && (shell || files.length > 0 || body || fields || images.length > 0) ? detailsId : undefined
+            }
             ref={fold.headerRef}
             onClick={fold.toggle}
           >
@@ -237,9 +275,13 @@ export const ToolRow = memo(function ToolRow({
       <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
-      {images.length > 0 && <ToolImages sources={images} />}
-      {fold.present && (shell || files.length > 0 || body || fields) && (
+      {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
+      {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
+          of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
+          because it has so many images"), as the Codex app's does. */}
+      {fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
+          {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (
             <ShellBlock
               id={detailsId}
@@ -262,14 +304,14 @@ export const ToolRow = memo(function ToolRow({
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
-          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>
   );
 });
 
-/// The images a call returned or wrote, shown under its row whether or not it is open: a returned
+/// The images a call returned or wrote, shown in its opened row (a small one at the row's edge until
+/// then, ToolVisualPreview.tsx): a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
 /// and a click opens the viewer. Images draw in the fixed-shape thumbnail (at most 320px wide), so
 /// one that loads never moves the transcript; a file that is not there draws nothing.

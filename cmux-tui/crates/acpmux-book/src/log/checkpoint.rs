@@ -1,0 +1,173 @@
+//! The checkpoint: where the log stood, and the chat actor's small state, in one file under
+//! 64 KB written atomically.
+//!
+//! ```text
+//! magic u32 | version u32 | last_seq u64 | min_row u64 | max_row u64 | seg u32 | off u64 |
+//! raw_files u32 | raw_map_len u64 | open_count u32 | state_len u32 | open_row_ids | state | crc32
+//! ```
+//!
+//! `seg` and `off` are the end of the last segment when the checkpoint was written: everything
+//! before that point is synced and indexed, so recovery reads only what came after. `state` is
+//! the actor's (the open rows, the raw cursor, the summary, the prompt queue, pending asks, each
+//! person's seen row, the open folds, the translator version). The log keeps those bytes and
+//! does not read them; [`StateWriter`] and [`sections`] give them a tagged layout.
+
+use super::Error;
+use super::record::{le_u32, le_u64};
+
+/// A checkpoint file is under 64 KB.
+pub const MAX_CHECKPOINT: usize = 64 * 1024 - 1;
+
+const MAGIC: u32 = u32::from_le_bytes(*b"ABCK");
+const VERSION: u32 = 1;
+/// The bytes before `state`.
+const FIXED: usize = 64;
+/// `FIXED` and the crc.
+pub(crate) const OVERHEAD: usize = 68;
+
+/// Where the log stood when a checkpoint was written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Mark {
+    pub last_seq: u64,
+    /// The lowest and highest settled rowId; 0 when the book is empty.
+    pub min_row: u64,
+    pub max_row: u64,
+    /// The last segment and its length.
+    pub seg: u32,
+    pub off: u64,
+    pub raw_files: u32,
+    pub raw_map_len: u64,
+}
+
+pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec<u8>, Error> {
+    let bytes =
+        state.len().saturating_add(OVERHEAD).saturating_add(open_rows.len().saturating_mul(8));
+    let state_len = u32::try_from(state.len()).ok().filter(|_| bytes <= MAX_CHECKPOINT);
+    let Some(state_len) = state_len else {
+        return Err(Error::CheckpointTooLarge { bytes });
+    };
+    let open_count =
+        u32::try_from(open_rows.len()).map_err(|_| Error::CheckpointTooLarge { bytes })?;
+    let mut out = Vec::with_capacity(bytes);
+    out.extend_from_slice(&MAGIC.to_le_bytes());
+    out.extend_from_slice(&VERSION.to_le_bytes());
+    out.extend_from_slice(&mark.last_seq.to_le_bytes());
+    out.extend_from_slice(&mark.min_row.to_le_bytes());
+    out.extend_from_slice(&mark.max_row.to_le_bytes());
+    out.extend_from_slice(&mark.seg.to_le_bytes());
+    out.extend_from_slice(&mark.off.to_le_bytes());
+    out.extend_from_slice(&mark.raw_files.to_le_bytes());
+    out.extend_from_slice(&mark.raw_map_len.to_le_bytes());
+    out.extend_from_slice(&open_count.to_le_bytes());
+    out.extend_from_slice(&state_len.to_le_bytes());
+    for row_id in open_rows {
+        out.extend_from_slice(&row_id.to_le_bytes());
+    }
+    out.extend_from_slice(state);
+    let crc = crc32fast::hash(&out);
+    out.extend_from_slice(&crc.to_le_bytes());
+    Ok(out)
+}
+
+/// The mark and the state of a checkpoint file; `None` when the bytes are not a whole
+/// checkpoint of this version (recovery then reads the segments from the start).
+pub(crate) fn decode(bytes: &[u8]) -> Option<(Mark, &[u8], &[u8])> {
+    if bytes.len() > MAX_CHECKPOINT || le_u32(bytes, 0)? != MAGIC || le_u32(bytes, 4)? != VERSION {
+        return None;
+    }
+    let mark = Mark {
+        last_seq: le_u64(bytes, 8)?,
+        min_row: le_u64(bytes, 16)?,
+        max_row: le_u64(bytes, 24)?,
+        seg: le_u32(bytes, 32)?,
+        off: le_u64(bytes, 36)?,
+        raw_files: le_u32(bytes, 44)?,
+        raw_map_len: le_u64(bytes, 48)?,
+    };
+    let state_start = FIXED.checked_add((le_u32(bytes, 56)? as usize).checked_mul(8)?)?;
+    let state_end = state_start.checked_add(le_u32(bytes, 60)? as usize)?;
+    let crc_end = state_end.checked_add(4)?;
+    if crc_end != bytes.len()
+        || crc32fast::hash(bytes.get(..state_end)?) != le_u32(bytes, state_end)?
+    {
+        return None;
+    }
+    Some((mark, bytes.get(state_start..state_end)?, bytes.get(FIXED..state_start)?))
+}
+
+/// The tags of the actor's state sections.
+pub mod section {
+    /// The open rows: each a `len u32` and a row text.
+    pub const OPEN_ROWS: u8 = 1;
+    /// The raw cursor: file, inode, byte offset.
+    pub const RAW_CURSOR: u8 = 2;
+    /// The chat's summary record.
+    pub const SUMMARY: u8 = 3;
+    /// The prompt queue.
+    pub const PROMPT_QUEUE: u8 = 4;
+    /// Pending asks.
+    pub const ASKS: u8 = 5;
+    /// Each person's seen row.
+    pub const SEEN: u8 = 6;
+    /// The open folds.
+    pub const FOLDS: u8 = 7;
+    /// The translator version that wrote the book.
+    pub const TRANSLATOR: u8 = 8;
+}
+
+/// Builds a checkpoint's state: sections of `tag u8 | len u32 | bytes`.
+#[derive(Clone, Debug, Default)]
+pub struct StateWriter {
+    bytes: Vec<u8>,
+}
+
+impl StateWriter {
+    pub fn new() -> StateWriter {
+        StateWriter::default()
+    }
+
+    /// Adds one section. A section over 4 GiB cannot be written and is left out (a checkpoint
+    /// holding it would be refused for its size anyway).
+    pub fn push(&mut self, tag: u8, bytes: &[u8]) -> &mut StateWriter {
+        if let Ok(len) = u32::try_from(bytes.len()) {
+            self.bytes.push(tag);
+            self.bytes.extend_from_slice(&len.to_le_bytes());
+            self.bytes.extend_from_slice(bytes);
+        }
+        self
+    }
+
+    /// The state so far, for [`super::Log::write_checkpoint`].
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Empties the writer, keeping its buffer.
+    pub fn clear(&mut self) {
+        self.bytes.clear();
+    }
+}
+
+/// The sections of a checkpoint's state, in the order they were pushed. Ends at the first
+/// section that is cut short.
+pub fn sections(state: &[u8]) -> Sections<'_> {
+    Sections { rest: state }
+}
+
+/// The iterator [`sections`] returns.
+#[derive(Clone, Debug)]
+pub struct Sections<'a> {
+    rest: &'a [u8],
+}
+
+impl<'a> Iterator for Sections<'a> {
+    type Item = (u8, &'a [u8]);
+
+    fn next(&mut self) -> Option<(u8, &'a [u8])> {
+        let tag = *self.rest.first()?;
+        let end = 5usize.checked_add(le_u32(self.rest, 1)? as usize)?;
+        let body = self.rest.get(5..end)?;
+        self.rest = self.rest.get(end..)?;
+        Some((tag, body))
+    }
+}

@@ -6,6 +6,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -25,7 +26,8 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -194,4 +196,30 @@ test("a footer with no answer has no More", async () => {
   await act(async () => root.render(<TurnFooter row={summary} />));
   expect(doc.querySelector('button[aria-label="More"]')).toBeNull();
   await act(async () => root.unmount());
+});
+
+// A subagent's view footer's More (subagents/subagentRows.ts `subagentFooter`): the pane shows the
+// subagent's rows, not the chat's, and its reply is found there, with no Fork and no rail mark.
+test("a subagent view's reply resolves from the view's rows, without Fork or a pin target", () => {
+  const reply: AcpmuxRow = {
+    id: "helper:reply",
+    version: 1,
+    at: 4,
+    kind: "assistant",
+    text: "See https://example.com",
+  };
+  const shown = [reply];
+  expect(messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, reply.id)).toBeUndefined();
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, reply.id, false, shown);
+  expect(target?.text).toBe("See https://example.com");
+  expect(target?.markdown).toBe(reply.text);
+  expect(target?.links).toEqual(["https://example.com"]);
+  expect(target?.forkSeq).toBeUndefined();
+  expect(target?.rowId).toBeUndefined();
+  expect(target?.sessionId).toBe("chat-a");
+});
+
+test("a subagent view's prompt keeps its Markdown source for Copy and Edit and Resend", () => {
+  const sent: AcpmuxRow = { id: "helper:prompt", version: 1, at: 5, kind: "user", text: "Check **every** item" };
+  expect(messageMenuTarget(snapshot, sent.id, false, [sent])?.text).toBe("Check **every** item");
 });

@@ -145,13 +145,16 @@ public struct ThemeTokens: Hashable, Sendable {
         // The app accent when the setting or the theme names one; nil keeps the neutral fills.
         let accent = input.accent == .neutral && input.accentColor == nil ? nil : app[.accent]
 
-        let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
+        // The neutral fills are the Codex desktop sidebar's (https://github.com/manaflow-ai/cmux/issues/39956): its
+        // selected and hovered row is the foreground at 8% dark and 5% light (`--app-color-background-button-
+        // secondary-hover`), its press 12% dark. The 10% selection and 6% hover read as a bright gray pill.
+        let hover = fg.withAlpha(isDark ? 0.05 : 0.04)
         // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
-        let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.10 : 0.08)
+        let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.08 : 0.06)
         // The other rows of a multi-selection: the selection's own color at 0.7 of its weight, so an accent
         // theme's drag-selected rows read as one selection, as the neutral fills always did.
-        let secondarySelection = accent?.withAlpha(isDark ? 0.18 : 0.11) ?? fg.withAlpha(isDark ? 0.07 : 0.055)
-        let pressed = fg.withAlpha(isDark ? 0.14 : 0.11)
+        let secondarySelection = accent?.withAlpha(isDark ? 0.18 : 0.11) ?? fg.withAlpha(isDark ? 0.056 : 0.042)
+        let pressed = fg.withAlpha(isDark ? 0.12 : 0.10)
         // Text must hold its contrast on the strongest fill it can sit on.
         let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
             .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!

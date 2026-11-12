@@ -60,6 +60,7 @@ impl Supervisor {
             move |_| drop(exited.send(None)),
         )
         .ok()?;
+        self.host_spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         process.send(&init_message(package, main, grant));
         // A bounded deadline, not a poll: a script that never answers must not hold the reload thread.
         let error = answers.recv_timeout(TRIAL_DEADLINE).ok().flatten();

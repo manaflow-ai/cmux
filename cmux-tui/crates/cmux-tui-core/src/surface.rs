@@ -671,6 +671,11 @@ impl Surface {
         }
     }
 
+    /// The terminal runtime's tail pin (`terminal-tail-pin-v1`).
+    pub(crate) fn tail_pin(&self) -> Option<&crate::terminal_tail::TailPinSlot> {
+        self.as_pty().map(|pty| &pty.tail_pin)
+    }
+
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
         match self {
             Surface::Pty(surface) => Some(surface.event_surface_id),
@@ -811,6 +816,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -826,6 +832,7 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                tail_pin: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,

@@ -464,21 +464,25 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
     assert!(origin.caller.is_none());
     assert!(restarted.outbox.get(&format!("mesh:{OWN_MESSAGE}")).is_none());
     // Prompt retry ids are caller-controlled and must never resolve to receipt metadata.
-    let delivery = restarted.outbox.add(crate::hub::outbox::Delivery {
-        id: "ordinary-delivery".into(),
-        target: OTHER.into(),
-        request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
-        caller: Some(OTHER.into()),
-        unproven_caller: None,
-        state: crate::hub::outbox::State::Delivered,
-        attempts: 0,
-        never_sent: false,
-        relay_post: None,
-        error: None,
-        accepted: None,
-        created_at: crate::store::now_ms(),
-        updated_at: crate::store::now_ms(),
-    });
+    let delivery = restarted
+        .outbox
+        .add(crate::hub::outbox::Delivery {
+            id: "ordinary-delivery".into(),
+            target: OTHER.into(),
+            request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
+            caller: Some(OTHER.into()),
+            unproven_caller: None,
+            not_terminal: false,
+            state: crate::hub::outbox::State::Delivered,
+            attempts: 0,
+            never_sent: false,
+            relay_post: None,
+            error: None,
+            accepted: None,
+            created_at: crate::store::now_ms(),
+            updated_at: crate::store::now_ms(),
+        })
+        .unwrap();
     assert_eq!(delivery.id, "ordinary-delivery");
     assert_eq!(delivery.target, OTHER);
     restarted_fake.session_only_receipt.store(true, std::sync::atomic::Ordering::SeqCst);

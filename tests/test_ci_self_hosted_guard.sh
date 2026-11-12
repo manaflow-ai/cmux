@@ -1154,7 +1154,7 @@ SIGNER_BUILD_ROUTE
     # republish-nightly-deltas: nightly-next takes the trusted signing runner (the whole Mac); the other tracks
     # keep the signer route's hosted Ubuntu, as their release uploads may wait out the rate limit for up to 6 h,
     # which must not hold the signing Mac.
-    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
     # The visual gate's runner pick holds secrets and has no claim gate: the reserved nightly-only mini on a
     # nightly-next first attempt (the guarded bootstrap selector), else hosted Ubuntu, never Blacksmith.
     "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || 'ubuntu-24.04' }}"
@@ -1163,6 +1163,14 @@ SIGNER_BUILD_ROUTE
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
+    # The operator's hosted signing switch on nightly.yml's six signing and publishing jobs (Leo, 2026-11-10:
+    # "It's fine to sign on GitHub hosted tonight"). Unset, they keep the trusted signer.
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1420,8 +1428,10 @@ PYTHON
   # A fork running CI in its own repository has no fleet, so its hosted
   # branch may name GitHub's macos-26 image. Only this exact short-circuit is
   # exempt: it evaluates solely where the repository owner is not manaflow-ai.
-  # Workflow text only; a variable holding macos-26 is still refused.
-  local fork_branch="github\\.repository_owner != 'manaflow-ai' && 'macos-26'"
+  # Workflow text only; a variable holding macos-26 is still refused. The one other exact form is the
+  # operator's hosted signing switch (Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight"): the
+  # variable is compared with macos-26, never used as the label.
+  local fork_branch="(github\\.repository_owner != 'manaflow-ai'|vars\\.CI_NIGHTLY_MINI_SIGNER == 'macos-26') && 'macos-26'"
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -2216,9 +2226,16 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # No exceptions: the x86_64 run-time checks run under Rosetta on Blacksmith
-  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
-  local -a hosted_exceptions=()
+  # The x86_64 run-time checks run under Rosetta on Blacksmith
+  # (tests/test_ci_no_github_hosted_macos.py).
+  # Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight". The operator switch
+  # vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' sends nightly.yml's three signing jobs to a fresh
+  # GitHub-hosted macOS VM while the only owned signer is off; unset, they keep the trusted signer.
+  local -a hosted_exceptions=(
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}"
+  )
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane

@@ -112,7 +112,12 @@ import CmuxNextTestSupport
         defer { h.close() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
-        h.card.highlights = Highlights()
+        // A page no taller than the card: it fits beside the card inside the window, so it is top-aligned.
+        // A taller one is kept inside the window (#24077, `HoverCardWindowClampTests`); since the system font
+        // (ab5bc5a1228) made the card shorter, a 120 pt page at the foot of this 640 pt window no longer fits.
+        let page = Highlights()
+        page.contentHeight = h.card.frame.height.rounded(.down)
+        h.card.highlights = page
         h.card.showNotes()
         let popovers = NSApp.windows.filter { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
         #expect(popovers.isEmpty, "an NSPopover (with its stock arrow) shows: \(popovers.map { type(of: $0) })")
@@ -122,7 +127,7 @@ import CmuxNextTestSupport
         let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.minX >= card.maxX - 0.5, "the popup \(surface) covers the card \(card)")
         #expect(abs(surface.maxY - card.maxY) <= 1, "the popup's top \(surface.maxY) is not the card's \(card.maxY)")
-        #expect(abs(surface.height - 120) <= 1, "the popup is not the page's height: \(surface.height)")
+        #expect(abs(surface.height - page.contentHeight) <= 1, "the popup is not the page's height: \(surface.height)")
     }
 
     // MARK: Hover (Leo 2026-10-19)

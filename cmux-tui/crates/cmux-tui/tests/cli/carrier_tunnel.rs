@@ -6,13 +6,34 @@ use super::*;
 
 #[test]
 fn carrier_tunnel_runs_the_real_hub_until_sigterm() {
+    run_until_sigterm(false, false);
+}
+
+/// Started with SIGCHLD ignored (inherited across exec), `carrier tunnel`
+/// still owns its hub: the kernel does not reap it behind the owner thread,
+/// so the stop's SIGTERM and wait reap it cleanly and no wait ever fails.
+#[test]
+fn carrier_tunnel_owns_its_hub_when_started_with_sigchld_ignored() {
+    run_until_sigterm(false, true);
+}
+
+/// SIGTERM while a refresh hangs on the VM API: the read is cancelled, the
+/// hub stops, and the process ends `tunnel-stopped` with 0, never failed.
+#[test]
+fn sigterm_during_a_stalled_refresh_stops_cleanly() {
+    run_until_sigterm(true, false);
+}
+
+fn run_until_sigterm(stall: bool, ignore_sigchld: bool) {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
     let dir = TestTempDir::create("carrier-tunnel");
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-    let (peer, keys, origin) = runtime.block_on(async {
+    let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = std::sync::Arc::clone(&hits);
+    let (peer, keys, origin, vm_api) = runtime.block_on(async {
         let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
             cmux_wg::testing::loopback_pair().await.unwrap();
         let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
@@ -53,23 +74,55 @@ fn carrier_tunnel_runs_the_real_hub_until_sigterm() {
             "wg_private_key": STANDARD.encode(client.private_key.as_ref()),
             "install_key": install.pkcs8_base64url(),
         });
-        (peer, keys, origin)
+        // A VM API that takes every tunnel read and never answers.
+        let stalling = axum::Router::new().fallback(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::future::pending::<axum::http::StatusCode>()
+        });
+        let vm_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let vm_api = format!("http://{}", vm_listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(vm_listener, stalling).await.unwrap() });
+        (peer, keys, origin, vm_api)
     });
 
     let socket = dir.path().join("hub").join("wg.sock");
-    let mut child = Command::new(bin())
+    let mut command = Command::new(bin());
+    if ignore_sigchld {
+        use std::os::unix::process::CommandExt as _;
+        // SAFETY: `signal` is async-signal-safe; nothing else runs between
+        // fork and exec here.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGCHLD, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+    }
+    let mut child = command
         .args(["carrier", "tunnel", "--machine-id", "machine_1", "--name", "test-mac", "--socket"])
         .arg(&socket)
-        .args(["--platform", &origin, "--vm-api", "http://127.0.0.1:9"])
+        .args(["--platform", &origin, "--vm-api", &vm_api])
+        .env("CMUX_CARRIER_TUNNEL_REFRESH_MS", if stall { "100" } else { "3600000" })
         .env("CMUX_CLOUD_ACCESS_TOKEN", "tok")
         .env_remove("CMUX_CLOUD_TEAM")
         .env("LC_ALL", "C")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     writeln!(child.stdin.take().unwrap(), "{keys}").unwrap();
+    // Echo stderr as it comes and keep it, to check no hub wait failed.
+    let stderr = child.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut kept = String::new();
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            eprintln!("{line}");
+            kept.push_str(&line);
+            kept.push('\n');
+        }
+        kept
+    });
     let (lines, events) = mpsc::channel::<String>();
     let stdout = child.stdout.take().unwrap();
     std::thread::spawn(move || {
@@ -99,6 +152,13 @@ fn carrier_tunnel_runs_the_real_hub_until_sigterm() {
     // It keeps running: no signal has come.
     std::thread::sleep(Duration::from_millis(500));
     assert!(child.try_wait().unwrap().is_none(), "carrier tunnel exited without a signal");
+    if stall {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while hits.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            assert!(Instant::now() < deadline, "a refresh in flight");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     let pid = i32::try_from(child.id()).unwrap();
     assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
@@ -113,5 +173,27 @@ fn carrier_tunnel_runs_the_real_hub_until_sigterm() {
     };
     assert!(status.success(), "{status}");
     assert!(!socket.exists(), "the stopped hub removed its socket");
+    let errors = errors.join().unwrap();
+    assert!(!errors.contains("carrier tunnel: hub"), "a hub wait failed:\n{errors}");
     runtime.block_on(peer.shutdown());
+}
+
+#[test]
+fn carrier_tunnel_help_prints_usage_and_exits_0_and_misuse_exits_64() {
+    for flag in ["--help", "-h"] {
+        let out = Command::new(bin())
+            .args(["carrier", "tunnel", flag])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{flag}");
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.starts_with("usage: cmux carrier tunnel --machine-id"), "{flag}: {text}");
+    }
+    let out = Command::new(bin())
+        .args(["carrier", "tunnel", "--bogus"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(64));
 }

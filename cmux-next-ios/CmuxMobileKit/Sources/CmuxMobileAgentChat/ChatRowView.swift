@@ -100,8 +100,18 @@ struct ChatRowView: View {
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
                        polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .chiefContext(let text, let lines):
+            ChiefContextRow(context: text, lines: lines, id: row.id)
         case .incoming(let incoming, let attachments, let at):
             AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+            } else {
+                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
+                           editAndResend: {})
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):
@@ -191,6 +201,7 @@ struct MarkdownBlockRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(message()) }
                 Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
             }
     }

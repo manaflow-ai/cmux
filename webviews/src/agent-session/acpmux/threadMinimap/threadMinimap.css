@@ -19,8 +19,9 @@
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
-  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+  /* The Codex rail's spring curve up to its end, run over the scale's micro step (120 ms): it reaches
+     full length at 58.75% and stays there, never past it (Lawrence: no bounce in any motion). */
+  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1 58.75%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
 :root[data-borders="none"] .acpmux-minimap,
@@ -84,19 +85,40 @@
   display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
-   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). Each
+   edge deepens as the list leaves that end (--acpmux-minimap-fade-*-reach, 0 to 1, model.ts
+   railFadeReach): none at the very top or bottom, so the ticks roll under the edge like a wheel. The
+   reaches do not inherit, so a scroll's new reach restyles the list and none of its ticks. */
+@property --acpmux-minimap-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-minimap-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to top,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 var(--acpmux-minimap-fade, 2.5rem),
-    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach)),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach)),
     transparent
   );
 }
@@ -141,9 +163,18 @@
   transition: transform var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1);
   transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
+/* The tick's line box is its full 26 px (model.ts TICK_BOX) in every width, as the tick's scale and the
+   bookmark dot's offset (ThreadMinimap.tsx) count it: a rail narrowed by a short gutter (Session Info
+   pushing the chat toward the left rail, a narrow pane) keeps its resting ticks one length, and only the
+   room between them and the text shrinks (restTick.experiment.ts `steady`; Leo, 2026-11-06: "you guys
+   didn't fix the spacing on this left side session rail thing"). The list clips a magnified tick past a
+   narrowed rail, which widens while it is in use. The `squeeze` arm keeps the box the rail's width. */
 .acpmux-minimap__bar {
-  width: min(26px, 100%);
+  width: 26px;
   height: 2px;
+}
+.acpmux-minimap__rail[data-rest-tick="squeeze"] .acpmux-minimap__bar {
+  width: min(26px, 100%);
 }
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
@@ -621,7 +652,10 @@
       color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2) calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2),
       transparent calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2)
     )
-    0 0 / calc(min(26px, 100%) * 0.2308) var(--acpmux-minimap-pitch) repeat-y;
+    0 0 / calc(26px * 0.2308) var(--acpmux-minimap-pitch) repeat-y;
+}
+.acpmux-minimap__rail[data-rest-tick="squeeze"] .acpmux-minimap__gap {
+  background-size: calc(min(26px, 100%) * 0.2308) var(--acpmux-minimap-pitch);
 }
 /* A tick's list item (its place among every prompt for assistive tech): a plain block around its
    tick, so it takes the tick's pitch and the list's rows stay where they were. */

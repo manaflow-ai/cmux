@@ -85,6 +85,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::PaneFocusDirection
         | ResourceOperation::PaneNeighborGet
         | ResourceOperation::PaneSwap
+        | ResourceOperation::PaneMove
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
         | ResourceOperation::PaneViewportWidthSet
@@ -377,10 +378,15 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerTurnCheckpoint
+        | ResourceOperation::CloudOwnerTurnRewind
+        | ResourceOperation::CloudOwnerTurns
         | ResourceOperation::CloudPreviewsRefresh
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink
         | ResourceOperation::CloudMachineIo
+        | ResourceOperation::CloudMachineChatAccess
+        | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList

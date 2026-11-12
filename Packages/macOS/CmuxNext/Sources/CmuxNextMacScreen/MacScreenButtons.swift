@@ -377,7 +377,7 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
 
     private func refresh(animated: Bool) {
         guard animated else { return Motion.feedback.transaction(nil) { applyState() } }
-        Motion.feedback.transaction(spring: .selection) { applyState() }
+        Motion.feedback.transaction(spring: .selection, in: window) { applyState() }
     }
 
     private func applyState() {

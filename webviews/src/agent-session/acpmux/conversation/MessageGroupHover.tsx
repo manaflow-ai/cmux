@@ -19,6 +19,7 @@ import { withoutRelayLabelOfMessage } from "./relayEnvelope";
 import { senderName } from "./senderIdentity";
 import { UnverifiedMark } from "./UnverifiedMark";
 import "./MessageGroupHover.css";
+import { signed } from "../../../ui/Typography";
 
 /// How the hover lays its messages out. `digest`, the default: the newest message whole, then the
 /// other senders with their counts. `messages`: each message's sender, then two lines of it, five
@@ -164,7 +165,7 @@ function SenderWho({ message, unverified }: { message: IncomingMessage; unverifi
         <SenderMark message={message} />
       </span>
       <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-      {unverified && <UnverifiedMark />}
+      {unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
     </>
   );
 }
@@ -236,14 +237,14 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
                 <SenderMark message={message} />
               </span>
               <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-              {message.unverified && <UnverifiedMark />}
+              {message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
               {look === "lines" && preview && <span className="cv-group-hover__line">{preview}</span>}
             </div>
             {look === "messages" && preview && <div className="cv-group-hover__text">{preview}</div>}
           </div>
         );
       })}
-      {rest > 0 && <div className="cv-group-hover__more">{t("tools.more", { n: rest })}</div>}
+      {rest > 0 && <div className="cv-group-hover__more">{signed(t("tools.more", { n: rest }))}</div>}
     </div>
   );
 }

@@ -86,7 +86,7 @@ enum DebugTimings {
     /// landed, or the reveal deadline passed).
     static func markReveal(_ reveal: LaunchReveal) {
         for region in LaunchRegion.allCases {
-            reveal.whenReady(region) { markLaunch("reveal.\(region.rawValue)") }
+            reveal.whenReady(region) { markLaunch("reveal.\(region.rawValue)"); if reveal.shownByDeadline.contains(region) { markLaunch("reveal.\(region.rawValue).by_deadline") } }
         }
     }
 

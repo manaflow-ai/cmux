@@ -126,6 +126,9 @@ final class LinkOpener {
             sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
     }
 
+    /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
+
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.
@@ -308,15 +311,15 @@ final class LinkOpener {
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is. `besideChat`: on the chat's right whatever `layout.linkPlacement` says (a viewer opened on a chat).
     func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
-                  at position: FilePosition? = nil, besideChat: Bool = false) -> Bool {
+                  at position: FilePosition? = nil, besideChat: Bool = false, noFollow: Bool = false) -> Bool {
         open(from: source, besideChat: besideChat) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
             if let machine, !machine.isLocal {
-                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
-                                                      shownInPlace: inPlace)
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, noFollow: noFollow,
+                                                      placed: placed, shownInPlace: inPlace)
             }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)

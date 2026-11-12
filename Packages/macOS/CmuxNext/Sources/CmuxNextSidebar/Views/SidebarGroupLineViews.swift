@@ -210,6 +210,8 @@ final class GroupLineView: NSView {
 
     override func updateLayer() {
         let look = observedLook()
+        // Sections (`sidebar.groupHeader.background`): a plain heading over its members, no line and no block.
+        if !background.drawsBackground { return paintNothing() }
         if isBlock { return paintBlock(look.noColor) }
         light.isHidden = true
         rim.isHidden = true
@@ -249,6 +251,18 @@ final class GroupLineView: NSView {
             light.colors = [top, veil.cgColor, veil.cgColor]
         }
         updateShape()
+    }
+
+    /// Sections: the view draws nothing (its rail, block, rim and light hidden); it stays, so a switch back repaints it.
+    private func paintNothing() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        railShape.fillColor = nil
+        layer?.backgroundColor = nil
+        layer?.borderWidth = 0
+        rim.isHidden = true
+        light.isHidden = true
     }
 
     private func updateShape() {

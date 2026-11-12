@@ -5,11 +5,12 @@
 //! deleted file is first moved aside, and any failure puts back what the
 //! pull changed before it.
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsString};
 use std::fs::File;
 use std::io;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
-use std::path::Path;
+use std::os::unix::ffi::OsStringExt as _;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use sha2::{Digest as _, Sha256};
@@ -37,6 +38,23 @@ fn c_name_text(text: &str) -> io::Result<CString> {
     CString::new(text).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }
 
+/// The path an open file is at now, from its descriptor.
+fn fd_path(file: &File) -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: a valid descriptor and a buffer of PATH_MAX bytes, as F_GETPATH wants.
+        check(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) })?;
+        let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+        buffer.truncate(end);
+        Ok(PathBuf::from(OsString::from_vec(buffer)))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+    }
+}
+
 /// A `mode_t` (u16 on macOS, u32 on Linux) as u32.
 fn widen<T: TryInto<u32>>(value: T) -> u32 {
     value.try_into().unwrap_or_default()
@@ -45,6 +63,31 @@ fn widen<T: TryInto<u32>>(value: T) -> u32 {
 /// A `dev_t` or `ino_t` (their widths and signs vary) as u64.
 fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
     value.try_into().unwrap_or_default()
+}
+
+/// A folder's stream ([`Dir::names`]), closed when dropped.
+struct Stream(*mut libc::DIR);
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // SAFETY: this owns the stream `fdopendir` answered.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+
+/// Clears this thread's `errno`: `readdir` answers null both at the end and
+/// on an error, told apart only by `errno`.
+#[cfg(target_vendor = "apple")]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__error() = 0 };
+}
+
+/// Clears this thread's `errno` (see the macOS one).
+#[cfg(not(target_vendor = "apple"))]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__errno_location() = 0 };
 }
 
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
@@ -83,6 +126,51 @@ impl Dir {
             Ok(fd) => Ok(Some(Self(unsafe { OwnedFd::from_raw_fd(fd) }))),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
+        }
+    }
+
+    /// The names in this folder (never `.` or `..`), read through this
+    /// handle: whatever is swapped in at its path since it was opened is
+    /// never listed.
+    pub(super) fn names(&self) -> io::Result<Vec<OsString>> {
+        let dot = c_name(".")?;
+        // A descriptor of its own for the stream (`fdopendir` takes it), so
+        // its offset is not this handle's.
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                dot.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor; on success the stream owns it.
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            let error = io::Error::last_os_error();
+            // SAFETY: a failed `fdopendir` did not take the descriptor.
+            unsafe { libc::close(fd) };
+            return Err(error);
+        }
+        let stream = Stream(stream);
+        let mut names = Vec::new();
+        loop {
+            clear_errno();
+            // SAFETY: the stream is open and only this loop reads it.
+            let entry = unsafe { libc::readdir(stream.0) };
+            if entry.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().unwrap_or(0) == 0 {
+                    return Ok(names);
+                }
+                return Err(error);
+            }
+            // SAFETY: `d_name` is the entry's NUL-terminated name, valid
+            // until the next `readdir`, and copied before it.
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsString::from_vec(name.to_vec()));
+            }
         }
     }
 
@@ -144,7 +232,7 @@ impl Dir {
 
     /// The (device, inode) of the entry `name`, not following a symlink;
     /// None when it is missing.
-    fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
+    pub(super) fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
         let c = c_name(name)?;
         // SAFETY: zeroed stat is a valid out value.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
@@ -203,6 +291,26 @@ impl Dir {
     }
 
     /// The text of the symlink `name` (never followed).
+    /// Opens `text` (a symlink's text read from this folder) for reading as the kernel resolves
+    /// it from this folder's descriptor, never through this folder's path: a relative text
+    /// starts here even when this folder was moved or swapped since it was opened. Answers the
+    /// file and the path it ended at.
+    pub(super) fn open_link_text(&self, text: &str) -> io::Result<(File, PathBuf)> {
+        let c = c_name_text(text)?;
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor the file owns.
+        let file = unsafe { File::from_raw_fd(fd) };
+        let at = fd_path(&file)?;
+        Ok((file, at))
+    }
+
     pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
         let c = c_name(name)?;
         let mut buffer = vec![0u8; 4096];

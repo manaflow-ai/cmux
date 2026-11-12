@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import type { Env } from "./env";
 import { ApiError, errorResponse, json } from "./errors";
+import { internalCall, why } from "./internalCall";
 import { type Role, readTicket } from "./tickets";
 
 interface Meta {
@@ -105,6 +106,8 @@ export class SessionDO extends DurableObject<Env> {
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [ticket.role, h.id]);
+    // This side is back: a peer-left about it still waiting for the other side is stale.
+    this.sql.exec("DELETE FROM queue WHERE to_role = ? AND msg LIKE ?", other(ticket.role), `{"type":"peer-left","role":"${ticket.role}"%`);
     // Deliver what the peer sent before this side connected.
     const queued = this.sql.exec("SELECT seq, msg FROM queue WHERE to_role = ? ORDER BY seq", ticket.role).toArray();
     for (const q of queued) pair[1].send(q.msg as string);
@@ -112,7 +115,12 @@ export class SessionDO extends DurableObject<Env> {
 
     if (!m.started && this.ctx.getWebSockets(other(ticket.role)).length > 0) {
       this.saveMeta({ ...m, started: true });
-      await this.userStub(m).fetch("https://user.do/internal/session-started", { method: "POST", body: JSON.stringify({ sid: m.sid }) });
+      // The socket is admitted either way: signaling must not wait on a stalled User DO.
+      try {
+        await internalCall(this.userStub(m), "https://user.do/internal/session-started", { sid: m.sid }, `session ${m.sid} started report`);
+      } catch (err) {
+        console.error(`device-hub: ${why(err)}`);
+      }
     }
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -135,7 +143,11 @@ export class SessionDO extends DurableObject<Env> {
       // Not relayed: the device reports which path the media took.
       const path = (JSON.parse(message) as { path?: unknown }).path;
       if (path === "direct" || path === "relay") {
-        await this.userStub(m).fetch("https://user.do/internal/session-path", { method: "POST", body: JSON.stringify({ sid: m.sid, path }) });
+        try {
+          await internalCall(this.userStub(m), "https://user.do/internal/session-path", { sid: m.sid, path }, `session ${m.sid} path report`);
+        } catch (err) {
+          console.error(`device-hub: ${why(err)}`);
+        }
       }
       return;
     }
@@ -153,7 +165,8 @@ export class SessionDO extends DurableObject<Env> {
   /**
    * A closed signaling socket ends signaling for that side, not the session:
    * the peer connection may still be up. The session ends on bye, /end,
-   * revocation or the User DO's offline grace, which close this DO.
+   * revocation or the User DO's offline grace, which close this DO. The other
+   * side hears `peer-left` with why, so a half-open setup can give up at once.
    */
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
     try {
@@ -161,15 +174,59 @@ export class SessionDO extends DurableObject<Env> {
     } catch {
       // already closed
     }
+    this.peerLeft(ws, reason ? `closed ${code}: ${reason}` : `closed ${code}`);
   }
 
-  async webSocketError(_ws: WebSocket): Promise<void> {}
+  /** A failed socket (reset, transport error) is a close the client never sent: same handling, with the error as the reason. */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    const reason = `error: ${why(error)}`;
+    console.warn(`device-hub: signaling socket ${this.ctx.getTags(ws).join("/")} failed (${reason})`);
+    // Told before the close, which marks the socket so its close event does not tell again.
+    this.peerLeft(ws, reason);
+    try {
+      ws.close(1011, reason.slice(0, 120));
+    } catch {
+      // already closed
+    }
+  }
+
+  /** Tells the other role that this side's signaling socket is gone, once per socket. Nothing after the session ended. */
+  private peerLeft(ws: WebSocket, reason: string) {
+    if (!this.meta()) return;
+    if ((ws.deserializeAttachment() as { left?: boolean } | null)?.left) return;
+    try {
+      ws.serializeAttachment({ left: true });
+    } catch {
+      // a socket that cannot take an attachment any more still gets its peer told
+    }
+    const role = this.ctx.getTags(ws)[0] as Role;
+    const msg = JSON.stringify({ type: "peer-left", role, reason: reason.slice(0, 120) });
+    const peers = this.ctx.getWebSockets(other(role));
+    if (peers.length === 0) {
+      // The other side has not joined yet: it hears this when it does (admit delivers the queue).
+      const count = this.sql.exec("SELECT COUNT(*) AS n FROM queue").one().n as number;
+      if (count < MAX_QUEUE) this.sql.exec("INSERT INTO queue(to_role, msg) VALUES (?, ?)", other(role), msg);
+      return;
+    }
+    for (const p of peers) {
+      try {
+        p.send(msg);
+      } catch {
+        // closing socket
+      }
+    }
+  }
 
   /** Reports the end to the User DO, then closes both sockets and deletes storage. */
   private async end(reason: string) {
     const m = this.meta();
     if (!m) return;
-    await this.userStub(m).fetch("https://user.do/internal/session-ended", { method: "POST", body: JSON.stringify({ sid: m.sid, reason }) });
+    // Both sides asked to end: close their sockets even if the User DO does not answer.
+    try {
+      await internalCall(this.userStub(m), "https://user.do/internal/session-ended", { sid: m.sid, reason }, `session ${m.sid} end report (${reason})`);
+    } catch (err) {
+      console.error(`device-hub: ${why(err)}`);
+    }
     await this.shutdown(1000, reason);
   }
 

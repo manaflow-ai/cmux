@@ -5,11 +5,11 @@
 .acpmux-share-nudge {
   display: grid;
   grid-template-rows: 1fr;
-  animation: acpmux-share-nudge-open var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
+  animation: acpmux-share-nudge-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
     both;
 }
 .acpmux-share-nudge[data-state="closing"] {
-  animation: acpmux-share-nudge-close var(--cmux-motion-settle, 265ms)
+  animation: acpmux-share-nudge-close var(--cmux-motion-settle, 180ms)
     var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 .acpmux-share-nudge__fold {

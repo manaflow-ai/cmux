@@ -49,7 +49,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::admin::verify_unix_peer_owner;
 use crate::provider::socks::{ADDRESS_IPV4, ADDRESS_IPV6};
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
 use crate::wireguard_hub::HubError;
 use cmux_json::JsonSet as _;
 
@@ -195,7 +195,7 @@ pub async fn serve_hub_control(
     let permits = Arc::new(Semaphore::new(MAX_CONTROL_CONNECTIONS));
     let hub = Arc::new(Hub { net, paths, control: path.clone(), drops: Arc::default() });
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -211,7 +211,7 @@ pub async fn serve_hub_control(
                             stream
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 connections.shutdown().await;
                                 return Err(HubError::Io(io::Error::new(
                                     error.kind(),

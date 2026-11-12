@@ -53,7 +53,7 @@
   outline: none;
 }
 
-.apps-search:focus {
+.apps-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -339,20 +339,10 @@
   background: color-mix(in srgb, var(--page-elevated) 24%, transparent);
 }
 
-.apps-skeleton-icon,
-.apps-skeleton-line,
-.apps-skeleton-footer {
-  display: block;
-  border-radius: 5px;
-  background: var(--page-hover);
-}
-
-/* The skeleton breathes on the shared clock (desktop.css), and holds still under Reduce Motion or
-   Settings > Static status indicators. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) :is(.apps-skeleton-icon, .apps-skeleton-line, .apps-skeleton-footer) {
-    animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
-  }
+/* The placeholders are ui/Skeleton (its fill, radius and breathing live in ui/skeleton.css); only their
+   sizes are the card's. */
+.apps-card-skeleton {
+  --ui-skeleton-fill: var(--page-hover);
 }
 
 .apps-skeleton-icon {

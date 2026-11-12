@@ -3,7 +3,7 @@ import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { ACTIVITY_LINE, DATE, NEXT_STEP, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
+import { ACTIVITY_LINE, DATE, NEXT_STEP, RENDER, THINKING, WALKTHROUGH, WORKED, WORKING } from "../conversation/turns";
 import { SHELL_ROW } from "../shell/shellRuns";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { SubagentEmptyRow } from "../subagents/SubagentEmptyRow";
@@ -26,6 +26,7 @@ import { ThinkingRow } from "./ThinkingRow";
 import { WorkingRow } from "./WorkingRow";
 import { ActivityLineRow } from "./ActivityLineRow";
 import { NextStepRow } from "./NextStepRow";
+import { WalkthroughRow } from "./WalkthroughRow";
 import { ReadOnlyNextStepRow } from "./ReadOnlyNextStepRow";
 import { RenderRow } from "./RenderRow";
 import { SummaryRow } from "./SummaryRow";
@@ -36,6 +37,10 @@ import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { PromptCoachRow } from "./PromptCoachRow";
+import { PROMPT_COACH } from "../conversation/promptCoach";
+import { PresetApprovalRow } from "./PresetApprovalRow";
+import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -76,6 +81,7 @@ export const defaultRegistry: NativeRegistry = {
   [WORKING]: WorkingRow,
   [ACTIVITY_LINE]: ActivityLineRow,
   [NEXT_STEP]: NextStepRow,
+  [WALKTHROUGH]: WalkthroughRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
@@ -87,6 +93,8 @@ export const defaultRegistry: NativeRegistry = {
   recap: RecapRow,
   [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [PROMPT_COACH]: PromptCoachRow,
+  [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -127,6 +135,10 @@ export const readOnlyRegistry: NativeRegistry = {
   [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
+  // How the owner could have prompted better is feedback for the owner, not for a guest.
+  [PROMPT_COACH]: NoRow,
+  // Approving one of the owner's presets is the owner's too.
+  [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

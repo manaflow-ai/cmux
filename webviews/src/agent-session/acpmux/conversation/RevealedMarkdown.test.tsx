@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
 import { revealFrames } from "./revealedMarkdownModel";
 import { StreamReveal, wordEdge } from "../streamReveal";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -44,6 +45,7 @@ afterEach(async () => {
   Object.assign(revealFrames, savedFrames);
   // fixed-wait: teardown only; React's scheduled work runs before its window closes
   await new Promise((resolve) => setTimeout(resolve, 20));
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

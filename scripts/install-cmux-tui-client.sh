@@ -51,9 +51,10 @@
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
-# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
-# (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
-# (default 600) bound each download attempt and its total retry budget.
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5), CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60) below CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND (default 65536)
+# and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS (default 600) bound each download
+# attempt and its total retry budget.
 # The attestation is first verified offline from the Sigstore bundle the publisher
 # uploads beside the manifest (CMUX_TUI_ATTEST_BUNDLE_BASE, default
 # <manifest origin>/cmux-tui-attestations, holds sha256-<manifest digest>.sigstore.json);
@@ -289,13 +290,19 @@ fi
 # reuses that connection. Bound each attempt by progress and the whole
 # download by a total budget. Each retry resumes a partial slice with a fresh
 # curl process, so a slow but moving download can finish without hanging the
-# release job forever.
+# release job forever. The floor is a trickle, not only a dead stream: at
+# 1 KiB/s, files.cmux.com serving a 202 MB slice at 6 KB/s kept one attempt
+# alive for the whole 600 s budget (nightly run 42675465011). At 64 KiB/s for
+# 60 s such an attempt ends and resumes on a new connection; a healthy fetch
+# runs at megabytes per second.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
 DOWNLOAD_MAX_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS:-600}"
+DOWNLOAD_MIN_BYTES_PER_SECOND="${CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND:-65536}"
 for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
   CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS"; do
+  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND="$DOWNLOAD_MIN_BYTES_PER_SECOND"; do
   [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
     || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
 done
@@ -314,7 +321,7 @@ download() { # <url> <output> [resume]
       --proto '=https' --tlsv1.2 -fsSL
       --connect-timeout 30
       --max-time "$remaining"
-      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS"
+      --speed-limit "$DOWNLOAD_MIN_BYTES_PER_SECOND" --speed-time "$DOWNLOAD_STALL_SECONDS"
     )
     (( resume )) && curl_args+=(--continue-at -)
     local status=0

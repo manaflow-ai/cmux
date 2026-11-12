@@ -1,9 +1,8 @@
 // The agent's reply right before a person's steer is that segment's end-of-turn reply, so it stays in
 // sight wherever the turn's runs fold (Leo, 2026-10-31: "the delineation is between
 // end-of-turn-that-had-a-steer-between vs otherwise"). A short interim note that no steer follows still
-// folds into its run once the turn ends (turns.ts mergeShortNotes); the reply before a steer never
-// does, not in an ended turn's opened "Worked for". A running turn folds no note at all: each stays
-// its own row until the turn ends (cmux#38339).
+// folds into its run (turns.ts mergeShortNotes); the reply before a steer never does: not in a running
+// turn's Codex-style runs, not in an ended turn's opened "Worked for".
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
@@ -43,13 +42,12 @@ const ended = [
 const notesIn = (rows: AcpmuxRow[]) =>
   rows.flatMap((each) => (each.items ?? []).filter((item) => item.kind === "note").map((item) => item.text));
 
-test("a running turn's Codex-style runs keep the reply before a steer and other chatter, each its own row", () => {
+test("a running turn's Codex-style runs keep the reply before a steer; other chatter folds", () => {
   const view = turnView(running, new Set(), { working: true, now: START + 200_000 });
   expect(view.some((each) => each.id === "r1")).toBe(true);
   expect(notesIn(view)).not.toContain("The minis are healthy.");
-  // The chatter folds into its run only at the turn's end (the ended turn's test below).
-  expect(view.some((each) => each.id === "n1")).toBe(true);
-  expect(notesIn(view)).not.toContain("Reading the logs.");
+  expect(view.some((each) => each.id === "n1")).toBe(false);
+  expect(notesIn(view)).toContain("Reading the logs.");
 });
 
 test("an ended Codex turn keeps the reply before a steer in sight, closed or opened", () => {

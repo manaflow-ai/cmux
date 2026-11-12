@@ -29,14 +29,20 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use serde_json::{Value, json};
 
+use acpmux::agent_tools::claude_plugin_dirs::{
+    CLAUDE_PLUGIN_DIRS_ENV, MANIFEST, PLUGIN_NAME, is_cmux_tui_plugin, without_cmux_tui_plugins,
+};
+
 use crate::agent_hook_install;
 
 /// The variable Claude Code reads plugin folders from (`:`-separated,
 /// absolute paths only).
-pub(crate) const PLUGIN_DIRS_ENV: &str = "CLAUDE_CODE_PLUGIN_DIRS";
-/// The plugin's name; also how a folder is recognized as a cmux-tui plugin.
-const PLUGIN_NAME: &str = "cmux-tui";
-const MANIFEST: &str = ".claude-plugin/plugin.json";
+pub(crate) const PLUGIN_DIRS_ENV: &str = CLAUDE_PLUGIN_DIRS_ENV;
+/// The folder a build writes its plugin into, inside its build folder
+/// (`<data>/cmux-tui/builds/<build>/claude-plugin`, own_build_helpers.rs).
+/// Which folders are cmux-tui plugins is acpmux's rule
+/// (`agent_tools::claude_plugin_dirs`), shared with its agent environment.
+pub(crate) const PLUGIN_FOLDER: &str = acpmux::agent_tools::claude_plugin_dirs::PLUGIN_FOLDER;
 const HOOKS: &str = "hooks/hooks.json";
 /// The policy key that makes Claude Code refuse plugin folders from the
 /// environment.
@@ -77,15 +83,21 @@ fn write_if_changed(path: &Path, data: &[u8]) -> anyhow::Result<()> {
     if fs::read(path).is_ok_and(|existing| existing == data) {
         return Ok(());
     }
-    agent_hook_install::atomic_write(path, data, Some(0o644))
+    agent_hook_install::replace_rewritable_file(path, data, Some(0o644))
 }
 
 /// The pane's `CLAUDE_CODE_PLUGIN_DIRS`: the `inherited` folders except other
 /// cmux-tui plugins (a daemon started inside another build's pane), then
 /// `dir`. `None` when a folder cannot be joined (it holds a `:`).
 pub(crate) fn pane_plugin_dirs(inherited: Option<&OsStr>, dir: &Path) -> Option<OsString> {
-    let kept = inherited
-        .map(|value| kept_folders(value, |folder| folder != dir && !is_cmux_plugin(folder)))
+    let kept: Vec<PathBuf> = inherited
+        .map(|value| {
+            std::env::split_paths(value)
+                .filter(|folder| {
+                    !folder.as_os_str().is_empty() && folder != dir && !is_cmux_tui_plugin(folder)
+                })
+                .collect()
+        })
         .unwrap_or_default();
     std::env::join_paths(kept.into_iter().chain(std::iter::once(dir.to_path_buf()))).ok()
 }
@@ -93,24 +105,7 @@ pub(crate) fn pane_plugin_dirs(inherited: Option<&OsStr>, dir: &Path) -> Option<
 /// `value` without cmux-tui plugin folders, for a launch whose hooks travel
 /// another way; `None` when nothing is left.
 pub(crate) fn without_cmux_plugins(value: &OsStr) -> Option<OsString> {
-    let kept = kept_folders(value, |folder| !is_cmux_plugin(folder));
-    if kept.is_empty() {
-        return None;
-    }
-    std::env::join_paths(kept).ok()
-}
-
-fn kept_folders(value: &OsStr, keep: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
-    std::env::split_paths(value)
-        .filter(|folder| !folder.as_os_str().is_empty() && keep(folder))
-        .collect()
-}
-
-/// Whether `folder` holds a plugin whose manifest names it `cmux-tui`.
-fn is_cmux_plugin(folder: &Path) -> bool {
-    read_small(&folder.join(MANIFEST))
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-        .is_some_and(|manifest| manifest.get("name").and_then(Value::as_str) == Some(PLUGIN_NAME))
+    without_cmux_tui_plugins(value)
 }
 
 fn read_small(path: &Path) -> Option<Vec<u8>> {
@@ -207,6 +202,20 @@ mod tests {
     }
 
     #[test]
+    fn any_launcher_pane_plugin_dirs_drop_the_folder_of_a_deleted_build() {
+        let root = tempfile::tempdir().unwrap();
+        let mine = root.path().join("data/cmux-tui/builds/0123abcd/claude-plugin");
+        // Another build's plugin folder, deleted with its build: no manifest.
+        let deleted = root.path().join("data/cmux-tui/builds/4567ef01/claude-plugin");
+        // The person's folder of the same name, elsewhere, stays.
+        let person = root.path().join("tools/claude-plugin");
+        let inherited = std::env::join_paths([&deleted, &person]).unwrap();
+        let value = pane_plugin_dirs(Some(&inherited), &mine).unwrap();
+        assert_eq!(std::env::split_paths(&value).collect::<Vec<_>>(), [person.clone(), mine]);
+        assert_eq!(without_cmux_plugins(&inherited).unwrap().as_os_str(), person.as_os_str());
+    }
+
+    #[test]
     fn any_launcher_plugin_has_the_hooks_and_the_session_context() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join("plugin");
@@ -215,7 +224,7 @@ mod tests {
         let first = fs::read(dir.join(HOOKS)).unwrap();
         install(&dir, executable, Path::new("/opt/cmux-tui-hook")).unwrap();
         assert_eq!(fs::read(dir.join(HOOKS)).unwrap(), first);
-        assert!(is_cmux_plugin(&dir));
+        assert!(is_cmux_tui_plugin(&dir));
         let hooks: Value = serde_json::from_slice(&first).unwrap();
         let commands = |event: &str| {
             hooks["hooks"][event]

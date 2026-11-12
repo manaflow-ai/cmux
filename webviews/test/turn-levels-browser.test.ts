@@ -53,25 +53,18 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
           expect(await page.locator("html").getAttribute("data-gallery-ready")).toBe("1");
+          const live = variant === "live";
           await page.locator(".cv-tool.is-run").first().waitFor();
           const runs = (await lines(page)).map((text) => text.trim());
           console.log(`TURN_LEVELS ${JSON.stringify({ variant, colorScheme, runs })}`);
           const outers = (await page.locator(".cv-worked").allTextContents()).join(" | ");
           console.log(`TURN_LEVELS_OUTER ${variant} ${outers}`);
-          // The running turn folds nothing until it ends (cmux#38339): no outer line, no run line;
-          // each call is in sight in its open group (the read between the first run's commands its
-          // own row), and each aside is its own paragraph, not yet a note in a run.
-          const live = variant === "live";
           if (live) {
-            expect(runs).toEqual(["Ran 2 commands", "Ran 2 commands", "Ran 3 commands"]);
-            // The live line is the turn's only line (it draws as one too): no "Worked for" over the work.
+            expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
+            expect(await page.locator(".cv-tool.is-run").count()).toBe(2);
+            expect(await page.locator('.cv-tool.is-run[aria-expanded="true"]').count()).toBe(0);
+            expect(await page.locator("output.cv-thinking").count()).toBe(1);
             expect(outers).not.toContain("Worked for");
-            expect(await page.locator(".cv-tool-note").count()).toBe(0);
-            expect(await page.getByText("Approval recorded.", { exact: false }).count()).toBeGreaterThanOrEqual(1);
-            const states = await page
-              .locator(".cv-tool.is-run")
-              .evaluateAll((lines) => lines.map((line) => line.getAttribute("aria-expanded")));
-            expect(states).toEqual(["true", "true", "true"]);
           } else {
             // 4 commands and a read, then 3 commands after the first aside; the lone call after the
             // second aside is a row of its own.
@@ -81,14 +74,15 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             expect(await page.locator(".cv-tool-note").count()).toBeGreaterThanOrEqual(1);
           }
           // Toggle the later line: it keeps the reader's state (the outer stays open around it). An
-          // ended turn's run line opens; a running turn's open group closes.
-          const later = page.locator(".cv-tool.is-run").nth(1);
-          const toggled = live ? "false" : "true";
-          await later.click();
-          expect(await later.getAttribute("aria-expanded")).toBe(toggled);
-          // Two painted frames: a regrouping or store write after the click would have drawn by then.
-          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-          expect(await later.getAttribute("aria-expanded")).toBe(toggled);
+          // ended and running turn's run lines both keep a reader's choice.
+          {
+            const later = page.locator(".cv-tool.is-run").nth(1);
+            await later.click();
+            expect(await later.getAttribute("aria-expanded")).toBe("true");
+            // Two painted frames: a regrouping or store write after the click would have drawn by then.
+            await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+            expect(await later.getAttribute("aria-expanded")).toBe("true");
+          }
           if (output) await page.screenshot({ path: path.join(output, `turn-levels-${variant}-${colorScheme}.png`) });
           expect(errors).toEqual([]);
         } finally {

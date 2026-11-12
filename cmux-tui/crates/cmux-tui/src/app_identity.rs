@@ -57,6 +57,14 @@ impl AppIdentity {
                 warn_other_app_once(&own, &from_env);
                 Some(own)
             }
+            // Only `CMUX_SOCKET_PATH` (a Chief brain's turn, a script driving the app) names no
+            // build: the bundle around this `cmux` is the build, listening on that socket. Taking
+            // the bare environment instead resolved NIGHTLY's shared roots from a DEV bundle, so
+            // `cmux setup trust` wrote `~/.acpmux/trust.json` while the app read its own build's
+            // (Cloud workspace matrix runs 43111635938, 43122276238: every start "doesn't trust").
+            Some(own) if from_env.bundle_id.is_none() && from_env.tag.is_none() => {
+                Some(Self { socket_override: from_env.socket_override, ..own })
+            }
             _ => Some(from_env),
         }
     }
@@ -174,7 +182,14 @@ impl AppIdentity {
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
         let build = self.build();
         let session = build.app_session()?;
-        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+        // The app moves its folder out of classic's at launch (CmuxNext `StateFolderMove`); a marker not
+        // moved yet (the move kept it, or this CLI runs before the app launched) still counts.
+        let adopted =
+            [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
+                .into_iter()
+                .flatten()
+                .any(|marker| marker.is_file());
+        if adopted {
             // `LegacyChannelSession.session`: the old shared daemon session.
             return Some("cmux-app".to_owned());
         }
@@ -411,6 +426,14 @@ mod tests {
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session_in(&root).as_deref(),
             Some("cmux-app-nx9")
         );
+        // A marker still where builds before the folder move kept it (classic's folder) counts too.
+        std::fs::remove_file(&marker).unwrap();
+        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app-nightly"));
+        let before = nightly.build().legacy_session_marker_before_move(&root).unwrap();
+        assert_ne!(before, marker, "the marker before the move sits in classic's folder");
+        std::fs::create_dir_all(before.parent().unwrap()).unwrap();
+        std::fs::write(&before, br#"{"session":"cmux-app","state_root":"/x"}"#).unwrap();
+        assert_eq!(nightly.daemon_session_in(&root).as_deref(), Some("cmux-app"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -428,6 +451,35 @@ mod tests {
         );
         assert_eq!(found.daemon_session().as_deref(), Some("cmux-app-own"));
         assert_eq!(AppIdentity::detect(|_| None, None), None);
+    }
+
+    /// A `cmux` bundled in a DEV app with only `CMUX_SOCKET_PATH` set (the Cloud matrix's CLI, a
+    /// Chief brain's turn) is that DEV build, on that socket: its acpmux home, and so its trust
+    /// record, is the one the app reads, never NIGHTLY's shared `~/.acpmux`.
+    #[test]
+    fn a_socket_only_environment_keeps_the_bundled_build() {
+        let root = std::env::temp_dir().join(format!("cmux-socket-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let contents = root.join("cmux DEV mx.app/Contents");
+        std::fs::create_dir_all(contents.join("Resources/bin")).unwrap();
+        let mut info = plist::Dictionary::new();
+        info.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.debug.mx".into());
+        plist::Value::Dictionary(info).to_file_xml(contents.join("Info.plist")).unwrap();
+        let exe = contents.join("Resources/bin/cmux");
+        let socket_only =
+            |key: &str| (key == "CMUX_SOCKET_PATH").then(|| "/tmp/cmux-debug-mx.sock".to_owned());
+        let found = AppIdentity::detect(socket_only, Some(&exe)).unwrap();
+        let bundled = AppIdentity::detect(|_| None, Some(&exe)).unwrap();
+        assert_eq!(found.bundle_id.as_deref(), Some("com.cmuxterm.app.debug.mx"));
+        assert_eq!(found.build().key(), bundled.build().key());
+        let home = Path::new("/Users/a");
+        assert_eq!(found.build().acpmux_home(home), bundled.build().acpmux_home(home));
+        let nightly = identity(Some("com.cmuxterm.app.nightly"), None).build();
+        assert_ne!(found.build().acpmux_home(home), nightly.acpmux_home(home));
+        assert_eq!(found.control_socket(home), PathBuf::from("/tmp/cmux-debug-mx.sock"));
+        // Outside any bundle the environment still decides.
+        assert_eq!(AppIdentity::detect(socket_only, None).unwrap().bundle_id, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

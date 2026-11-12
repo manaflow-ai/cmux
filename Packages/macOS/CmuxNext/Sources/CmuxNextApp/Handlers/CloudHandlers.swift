@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 
@@ -62,13 +63,16 @@ enum CloudHandlers {
                 if let window, context.services.windows.controller(for: window.id) == nil {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
-                if request.takesPlainPath, actionOrigin == .user, window != nil {
+                let start = CloudHandlerRules().ask("cloud_handler_new_machine_start", [
+                    "isDefault": request.takesPlainPath, "byUser": actionOrigin == .user, "hasWindow": window != nil,
+                ])?["start"] as? String
+                if start == "setup" {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
-                guard request.takesPlainPath else {
+                guard start == "default" else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
@@ -111,18 +115,19 @@ enum CloudHandlers {
     /// never kills whatever machine the window happens to show.
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
-        if let target = invocation.target, target.kind == .machine {
-            // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
-            // resource id `cmux machine list` prints for a connected one.
-            guard let session = machines.session(target.id)
-                ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
-                throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id))
-            }
-            return session
+        let named = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
+        // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
+        // resource id `cmux machine list` prints for a connected one.
+        let found = named.flatMap { id in machines.session(id) ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == id }) }
+        let active = context.services.windows.active.flatMap { machines.session($0.state.machineID) }
+        let lookup: [String: Any] = ["named": named as Any, "namedFound": found != nil, "byUser": origin(of: invocation) == .user,
+                                     "activeFound": active != nil, "cloudCount": machines.cloud.count]
+        switch try CloudHandlerRules().checked("cloud_handler_machine_pick", lookup.compacted, valueKey: "pick") as? String {
+        case "named"?: if let found { return found }
+        case "active"?: if let active { return active }
+        case "only"?: if let only = machines.cloud.first { return only }
+        default: break
         }
-        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
-        if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
-        if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
     }
 
@@ -255,15 +260,12 @@ enum CloudHandlers {
         let address = record.url.absoluteString
         // The person's run scope, captured here: their approval goes on the tab this open makes.
         let scope = ActionRunScope.current, cache = services.cache
-        WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
-            guard let pane = terminal.pane else { return }
-            let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+        WorkspaceHandlers.show(.browser(WorkspaceFirstBrowserTab(url: address, engine: .webkit, title: name), name: name) { _, created in
             // The approval goes on the exact tab the daemon made for this open, never on whichever
             // tab first shows the same address (#29208): until then the tab asks for Connect.
             let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
             await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
-            if let surface = terminal.surface { try await connection.closeTab(surface) }
-        }
+        }, services: services, daemon: services.machines.local)
     }
 
     /// The existing workspace and pane where a Cloud terminal should land.
@@ -361,11 +363,5 @@ enum CloudHandlers {
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
         await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
         try requireAttachableState(session)
-    }
-
-    static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
-        return command
     }
 }

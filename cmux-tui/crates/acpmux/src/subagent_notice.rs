@@ -10,8 +10,9 @@
 //!
 //! `<home>/run/subagent-notices/<session>/<agent id>/`, the folders 0700:
 //!
-//! - `<id>.json`, 0600: one notice, `{text, lane, report}`: `text` is what the subagent reads,
-//!   the rest is what the daemon needs to give it to the lead instead. Written whole under
+//! - `<id>.json`, 0600: one notice, `{text, lane, report}` (a lane's report) or
+//!   `{text, bgTask, forSubagent}` (a background task's end, `hub/bg_notify.rs`): `text` is what
+//!   the subagent reads, the rest is what the daemon needs to give it to the lead instead. Written whole under
 //!   another name first, then renamed, so no reader sees half of one.
 //! - `stopped`: the subagent's `SubagentStop` hook ran; it reads no more notices. Notices left
 //!   after it go to the lead.
@@ -66,8 +67,8 @@ pub fn leave(dir: &Path, id: &str, notice: &Value) -> std::io::Result<PathBuf> {
     let path = dir.join(format!("{id}{SUFFIX}"));
     let part = dir.join(format!(".{id}.{}", uuid::Uuid::now_v7()));
     write_private(&part, notice.to_string().as_bytes())?;
-    std::fs::rename(&part, &path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&part);
+    crate::home_fs::rename(&part, &path).inspect_err(|_| {
+        let _ = crate::home_fs::remove_file(&part);
     })?;
     Ok(path)
 }
@@ -78,9 +79,9 @@ pub fn take(path: &Path) -> Option<Value> {
     let mut taken = path.as_os_str().to_owned();
     taken.push(format!(".taken-{}", uuid::Uuid::now_v7()));
     let taken = PathBuf::from(taken);
-    std::fs::rename(path, &taken).ok()?;
+    crate::home_fs::rename(path, &taken).ok()?;
     let text = std::fs::read(&taken);
-    let _ = std::fs::remove_file(&taken);
+    let _ = crate::home_fs::remove_file(&taken);
     serde_json::from_slice(&text.ok()?).ok()
 }
 
@@ -128,7 +129,7 @@ pub fn stopped(dir: &Path) -> bool {
 /// Removes `session`'s folder and every notice in it, and its subagents' call records
 /// (`subagent_call.rs`): the session closed.
 pub fn forget(home: &Path, session: &str) {
-    let _ = std::fs::remove_dir_all(session_dir(home, session));
+    let _ = crate::home_fs::remove_dir_all(session_dir(home, session));
     crate::subagent_call::forget(home, session);
 }
 
@@ -136,15 +137,15 @@ pub fn forget(home: &Path, session: &str) {
 /// A folder a notice was left in meanwhile stays: whoever left it takes it back ([`take`]).
 pub fn tidy(home: &Path, session: &str) {
     for (dir, _) in agents(home, session) {
-        let _ = std::fs::remove_file(dir.join(STOPPED));
-        let _ = std::fs::remove_dir(&dir);
+        let _ = crate::home_fs::remove_file(dir.join(STOPPED));
+        let _ = crate::home_fs::remove_dir(&dir);
     }
-    let _ = std::fs::remove_dir(session_dir(home, session));
+    let _ = crate::home_fs::remove_dir(session_dir(home, session));
 }
 
 /// `dir` and its parents, the folders acpmux makes owner-only.
 fn create_private(dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
+    crate::home_fs::create_dirs(dir)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -152,7 +153,7 @@ fn create_private(dir: &Path) -> std::io::Result<()> {
         // The session's folder and the subagent's: the shared `run` folder is the daemon's own.
         for _ in 0..2 {
             let Some(d) = at else { break };
-            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700))?;
+            crate::home_fs::set_permissions(d, std::fs::Permissions::from_mode(0o700))?;
             at = d.parent();
         }
     }
@@ -162,13 +163,10 @@ fn create_private(dir: &Path) -> std::io::Result<()> {
 /// Writes `bytes` to a new owner-only file at `path`.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     options.open(path)?.write_all(bytes)
 }
 

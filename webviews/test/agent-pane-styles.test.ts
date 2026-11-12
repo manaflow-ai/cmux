@@ -12,6 +12,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import postcss from "postcss";
+import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
 
 setDefaultTimeout(180_000);
 
@@ -23,6 +25,11 @@ const page = path.resolve(
 const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
+
+/** A source sheet as the page ships it: the build runs the focus-ring gate over the joined sheets
+ * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it. */
+const shipped = (file: string) =>
+  postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css;
 
 /** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
  * the imported sheet before it), so compare without them. */
@@ -57,9 +64,7 @@ describe.skipIf(!built)("agent pane page", () => {
       // Shared Button chrome must ship in the real pane, not only the gallery's ui.css.
       expect(sheets).toContain("src/ui/controls.css");
       const style = normalize(fs.readFileSync(page, "utf8"));
-      const missing = sheets.filter(
-        (sheet) => !style.includes(normalize(fs.readFileSync(path.join(webviews, sheet), "utf8"))),
-      );
+      const missing = sheets.filter((sheet) => !style.includes(normalize(shipped(path.join(webviews, sheet)))));
       expect(missing).toEqual([]);
     } finally {
       fs.rmSync(work, { recursive: true, force: true });
@@ -72,7 +77,7 @@ describe.skipIf(!built)("agent pane page", () => {
   test("inlines what its sheets @import, and carries no @import of its own", () => {
     const style = normalize(fs.readFileSync(page, "utf8"));
     expect(style.match(/^@import .*$/gm) ?? []).toEqual([]);
-    const git = normalize(fs.readFileSync(path.join(webviews, "src/agent-session/acpmux/changes/git.css"), "utf8"));
+    const git = normalize(shipped(path.join(webviews, "src/agent-session/acpmux/changes/git.css")));
     expect(style.includes(git)).toBe(true);
   });
 });

@@ -1122,17 +1122,20 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
-    /// the turn's prompt bubble; `AgentChatFind.blockKey`: one block of an answer).
+    /// the turn's prompt bubble; `AgentChatFind.steerKey`: a steered message's row;
+    /// `AgentChatFind.blockKey`: one block of an answer).
     static func rowID(findBlock key: String) -> String {
         guard let bar = key.lastIndex(of: "|") else { return key }
         let owner = key[..<bar], part = key[key.index(after: bar)...]
+        if part == "steer" { return String(owner) }
         return part == "prompt" ? "u-\(owner)" : "\(owner)#\(part)"
     }
 
     /// The id the store marks replayed for this row (`TurnRow.id`, or the turn's).
     private static func storeID(_ row: ChatRow) -> String {
         if case .block = row.kind, let hash = row.id.firstIndex(of: "#") { return String(row.id[..<hash]) }
-        if row.id.hasPrefix("u-") { return row.turnID }
+        // A prompt and the Chief's view over it (`cx-`) are the turn's.
+        if row.id.hasPrefix("u-") || row.id.hasPrefix("cx-") { return row.turnID }
         return row.id
     }
 }
@@ -1226,6 +1229,8 @@ final class ChatRowLookup {
             for call in calls { hasher.combine(disclosures.isOpen("tool-\(call.id)")) }
         case .thought:
             hasher.combine(disclosures.isOpen("thought-\(row.id)"))
+        case .chiefContext:
+            hasher.combine(disclosures.isOpen("chiefContext-\(row.id)"))
         case .whoElse(let id, _):
             hasher.combine(disclosures.isOpen(WhoElseCard.disclosureKey(id)))
         case .edit(let call, _):
@@ -1370,7 +1375,7 @@ extension ChatRow {
         }
     }
 
-    static let hostedReuseKeys = ["prompt", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
+    static let hostedReuseKeys = ["prompt", "chiefContext", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
                                   "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
@@ -1378,7 +1383,9 @@ extension ChatRow {
         switch kind {
         case .sessionStart: "other"
         case .prompt: "prompt"
+        case .chiefContext: "chiefContext"
         case .incoming: "incoming"
+        case .steer(let message): message.incoming == nil ? "prompt" : "incoming"
         case .block: "block"
         case .thought: "thought"
         case .tool: "tool"
@@ -1433,6 +1440,7 @@ extension ChatRow {
         }
         switch kind {
         case .sessionStart: return 46
+        case .chiefContext: return 24
         case .prompt(let text, let attachments, _, _):
             // A reply's leading quote draws as its own block, 6 above the reply (UserBubble).
             let drawn = NextStepAsk.replyQuote(text).map { (lines($0.quote) + lines($0.body)) * perLine + 6 } ?? lines(text) * perLine
@@ -1440,6 +1448,12 @@ extension ChatRow {
         case .incoming(let incoming, let attachments, _):
             return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
                 + (attachments.isEmpty ? 0 : 156)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                    + (message.attachments.isEmpty ? 0 : 156)
+            }
+            return lines(message.text) * perLine + 22 + (message.attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30

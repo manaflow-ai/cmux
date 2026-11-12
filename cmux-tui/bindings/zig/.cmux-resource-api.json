@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7be279edf9e67500ec5f487784fd59725de13d0f569f817385a2081a725f64b2",
+  "catalog_sha256": "8ec79db544ca0c218587df94b2233e8477320ecb1e080d69154419887130fcba",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -175,7 +175,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -203,6 +209,15 @@
       "class": "read"
     },
     "cloud.owner.harness_login_copy": {
+      "class": "read"
+    },
+    "cloud.owner.turn_checkpoint": {
+      "class": "mutation"
+    },
+    "cloud.owner.turn_rewind": {
+      "class": "mutation"
+    },
+    "cloud.owner.turns": {
       "class": "read"
     },
     "cloud.previews.create_link": {
@@ -498,6 +513,9 @@
     },
     "pane.list": {
       "class": "read"
+    },
+    "pane.move": {
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "class": "read"

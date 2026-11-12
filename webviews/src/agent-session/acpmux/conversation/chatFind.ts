@@ -18,6 +18,7 @@ import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
 import { drawnPromptText, type PasteJoin } from "./promptCollapse";
 import { bubbleParts } from "./bubbleParts";
+import { sentPromptFindText } from "./sentUIPickModel";
 import { chiefEnvelope } from "./chiefEnvelope";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 import { experimentArm } from "../../../experiments/experiment";
@@ -209,6 +210,10 @@ function rowText(row: AcpmuxRow, look: PromptLook): string | undefined {
   const parts =
     row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) ? bubbleParts(row, look.view) : undefined;
   if (parts) return drawnPromptText(parts, look.join);
+  // A legacy prompt's inspector picks draw as their chips (PromptText.tsx PromptTyped): Find reads
+  // their reports, not the names and fences they went with.
+  if (row.kind === "user" && row.text && row.from !== "chief" && !chiefEnvelope(row.text))
+    return sentPromptFindText(row.text);
   if (SEARCHED_KINDS.has(row.kind)) return row.text;
   if (!row.items?.length) return undefined;
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");

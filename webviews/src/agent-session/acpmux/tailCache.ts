@@ -59,6 +59,36 @@ const keptTails = new Map<string, KeptTail>();
 const readAheadTails = new Map<string, KeptTail>();
 /// One host read per chat at a time, so a prefetch and the read that awaits it are one round trip.
 const reading = new Map<string, Promise<KeptTail | undefined>>();
+/// How far this page has shown each chat: the newest record of the last tail a client of the page
+/// kept of it (what it had on screen then), and the chat's generation (its `createdAt`). A copy older than this is never
+/// drawn again (`olderThanShown`): one source wins, so a reconnect cannot put a saved copy back over
+/// the live chat the reader already saw (Leo, 2026-11-12: the chat flipped between "49 stopped" and
+/// an old "32 stopped" on every reconnect). Bounded as the tails are, so a chat whose tails both
+/// copies let go of opens on whatever copy is left (an offline machine's Mac copy) rather than blank.
+const shownThrough = new Map<string, { through: number; generation: unknown }>();
+const SHOWN_CHATS = KEPT_TAILS;
+
+/// The newest record a tail draws: its newest event, or how far its Mac's copy covers.
+function tailThrough(tail: KeptTail): number {
+  return Math.max(tail.events.at(-1)?.seq ?? 0, tail.peerCopy?.lastSeq ?? 0);
+}
+
+/// A client's own tail is what it had on screen, so it sets the mark even below an older one: a
+/// journal that went backwards (a hard-stopped machine) is read again as acpmux holds it now.
+function noteShown(sessionId: string, tail: KeptTail): void {
+  shownThrough.delete(sessionId);
+  shownThrough.set(sessionId, { through: tailThrough(tail), generation: tail.summary?.createdAt });
+  while (shownThrough.size > SHOWN_CHATS) shownThrough.delete(shownThrough.keys().next().value!);
+}
+
+/// True when `tail` is older than what this page already showed of the chat, so drawing it would
+/// take the reader back (direct.ts `drawKeptTail` refuses it and the open waits for acpmux, whose
+/// attach is the newest there is). A tail of another generation of the chat is not compared.
+export function olderThanShown(sessionId: string, tail: KeptTail): boolean {
+  const held = shownThrough.get(sessionId);
+  if (!held || held.generation !== tail.summary?.createdAt) return false;
+  return tailThrough(tail) < held.through;
+}
 
 /// The tail this page holds for `sessionId`, if it read the chat already or took it from the host.
 export function keptTail(sessionId: string): KeptTail | undefined {
@@ -96,8 +126,8 @@ export function shareReadAhead(sessionId: string): boolean {
 /// Keeps `tail` for this chat's next open, here and in the app host.
 ///
 /// `forThisPage` is false when the client that read the chat is going away (its `close`, the
-/// page's `pagehide`): the host's copy is the one that outlives the page, so the map is left alone
-/// and nothing is kept behind a client that no longer exists.
+/// page's `pagehide`): the host's copy is the one that outlives the page, so the map gains no new
+/// chat behind a client that no longer exists (it refreshes one it holds already, below).
 ///
 /// With a host this costs the next client in that page one in-process read instead of a map hit,
 /// and what it reads back is at most what the map held: `writeHostTail`'s byte bound may have cut
@@ -109,8 +139,15 @@ export function shareReadAhead(sessionId: string): boolean {
 /// client would draw a chat it never attached to as though it had. Session ids are not reused, so
 /// the rows would be that chat's; they would simply be rows this client never read and cannot stand
 /// behind, which is the same thing `forgetTail` exists to prevent after a failed attach.
+///
+/// A client going away still replaces a tail this page already holds of the chat: that tail is
+/// older than this one, and the client the pane makes next on a lost connection draws the map's
+/// tail while it connects (direct.ts `drawTailWhileConnecting`). Left behind, it drew the chat as
+/// it was when it was last left, then the attach drew it as it is, once per dropped connection.
 export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
-  if (forThisPage) {
+  noteShown(sessionId, tail);
+  if (!forThisPage && readAheadTails.has(sessionId)) readAheadTails.set(sessionId, tail);
+  if (forThisPage || keptTails.has(sessionId)) {
     readAheadTails.delete(sessionId);
     keptTails.delete(sessionId);
     keptTails.set(sessionId, tail);
@@ -123,6 +160,7 @@ export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = tr
 /// failed): its next open reads acpmux again, in this tab and in the next one.
 export function forgetTail(sessionId: string): void {
   keptTails.delete(sessionId);
+  shownThrough.delete(sessionId);
   readAheadTails.delete(sessionId);
   reading.delete(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
@@ -213,7 +251,10 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
   // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
   // pasted log would otherwise hand over megabytes that neither side counts.
   const rest = { ...tail, events: [] as EventRecord[] };
-  const events = newestWithin(tail.events, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
+  // Each message's streamed chunks as one record (`packStreamed`): the host bounds a tail at
+  // ``KEPT_EVENTS`` records, which `keptEvents` counts this way.
+  const packed = packStreamed(tail.events);
+  const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
   // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
   // it on its own): the host forgets what it had rather than keeping an older tail under a chat
   // this page has since read on.
@@ -229,7 +270,7 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
       events,
       // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
       // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
-      historyExhausted: tail.historyExhausted && events.length === tail.events.length,
+      historyExhausted: tail.historyExhausted && events.length === packed.length,
     },
   }).catch(() => undefined);
 }
@@ -252,22 +293,158 @@ function newestWithin(events: EventRecord[], maxBytes: number): EventRecord[] {
   return kept;
 }
 
+/// Kinds an agent streams a few words per record (acpmux journals each chunk): a working chat's
+/// records are mostly these, thinking above all (5,906 of one Claude chat's 8,300 transcript
+/// records, beside 227 tool calls).
+const STREAMED_KINDS = new Set(["agent_message_chunk", "agent_thought_chunk"]);
+
+/// The newest records of `events` a tail keeps: the newest ``KEPT_EVENTS`` messages, each run of
+/// one message's streamed chunks counted once, so the tail holds the chat's last turns as they
+/// read, not the last few hundred fragments of one. A run is never cut: the tail starts where one
+/// starts. The records are the page's own, unchanged; only the hand-over to the host packs each
+/// run into one record (`packStreamed`), which is what keeps the host's bound at ``KEPT_EVENTS``.
+export function keptEvents(events: EventRecord[]): EventRecord[] {
+  let count = 0;
+  let start = events.length;
+  let newerKey: string | undefined;
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const key = streamedRun(events[at]!);
+    if (key === undefined || key !== newerKey) {
+      if (count === KEPT_EVENTS) break;
+      count += 1;
+    }
+    start = at;
+    newerKey = key;
+  }
+  return events.slice(start);
+}
+
+/// One run's chunks, packed: each chunk's seq, time and text length, in order.
+type PackedChunk = [seq: number, at: number, length: number];
+type PackedRecord = EventRecord & { chunks?: PackedChunk[] };
+
+/// `events` with each run of one message's streamed chunks as one record, for the host's copy: the
+/// run's text joined, its last chunk's `seq` and `at` (the host keeps the tail with the newest
+/// `seq`, AgentPaneTailCache `newestSeq`), and `chunks`, from which `unpackStreamed` gives back
+/// every chunk as it was. Lossless: a page reads back exactly the records it handed over.
+export function packStreamed(events: EventRecord[]): EventRecord[] {
+  const out: EventRecord[] = [];
+  let run: EventRecord[] = [];
+  let runKey: string | undefined;
+  const close = () => {
+    if (run.length === 1) out.push(run[0]!);
+    else if (run.length > 1) {
+      const first = run[0]!;
+      const last = run.at(-1)!;
+      const update = first.msg.params.update;
+      const texts = run.map((event) => event.msg.params.update.content.text as string);
+      const packed: PackedRecord = {
+        ...first,
+        seq: last.seq,
+        at: last.at,
+        msg: {
+          ...first.msg,
+          params: { ...first.msg.params, update: { ...update, content: { ...update.content, text: texts.join("") } } },
+        },
+        chunks: run.map((event, index) => [event.seq, event.at, texts[index]!.length]),
+      };
+      out.push(packed);
+    }
+    run = [];
+  };
+  for (const event of events) {
+    const key = streamedRun(event);
+    if (key === undefined || key !== runKey) close();
+    runKey = key;
+    if (key === undefined) out.push(event);
+    else run.push(event);
+  }
+  close();
+  return out;
+}
+
+/// The records `packStreamed` packed, each run's chunks given back as they were. A packed record
+/// whose chunks do not add up to its text is dropped: the chat opens without that message until
+/// its attach reads it, as when a chunk was missed live.
+export function unpackStreamed(events: EventRecord[]): EventRecord[] {
+  const out: EventRecord[] = [];
+  for (const event of events as PackedRecord[]) {
+    const { chunks, ...record } = event;
+    if (chunks === undefined) {
+      out.push(event);
+      continue;
+    }
+    const text = record.msg?.params?.update?.content?.text;
+    const valid =
+      Array.isArray(chunks) &&
+      typeof text === "string" &&
+      chunks.every(
+        (chunk) =>
+          Array.isArray(chunk) &&
+          typeof chunk[0] === "number" &&
+          typeof chunk[1] === "number" &&
+          typeof chunk[2] === "number" &&
+          chunk[2] >= 0,
+      ) &&
+      chunks.reduce((sum, chunk) => sum + chunk[2], 0) === text.length;
+    if (!valid) continue;
+    let from = 0;
+    for (const [seq, at, length] of chunks) {
+      const update = record.msg.params.update;
+      out.push({
+        ...record,
+        seq,
+        at,
+        msg: {
+          ...record.msg,
+          params: {
+            ...record.msg.params,
+            update: { ...update, content: { ...update.content, text: text.slice(from, from + length) } },
+          },
+        },
+      });
+      from += length;
+    }
+  }
+  return out;
+}
+
+/// What a streamed chunk shares with the rest of its message's chunks (everything but its seq,
+/// time and text), or undefined for a record that is no streamed text.
+function streamedRun(event: EventRecord): string | undefined {
+  if (!STREAMED_KINDS.has(event.kind)) return undefined;
+  const update = event.msg?.params?.update;
+  const content = update?.content;
+  if (content?.type !== "text" || typeof content.text !== "string") return undefined;
+  const { seq: _seq, at: _at, msg, ...rest } = event;
+  return JSON.stringify([
+    rest,
+    { ...msg, params: { ...msg.params, update: { ...update, content: { ...content, text: "" } } } },
+  ]);
+}
+
 /// The host's answer as a tail, or undefined when it holds none or answers something else. Only
 /// the shape the page wrote is read back; anything missing leaves the chat to open cold.
 function tailFromHost(value: unknown): KeptTail | undefined {
   const tail = (value ?? undefined) as Partial<KeptTail> | undefined;
   if (!tail || typeof tail !== "object") return undefined;
   const listed = Array.isArray(tail.events) ? tail.events : [];
-  const events = listed.filter(isEventRecord);
+  const packed = listed.filter(isEventRecord);
+  // Each packed message back as the chunks the page handed over (`packStreamed`).
+  const events = unpackStreamed(packed.slice(-KEPT_EVENTS));
   if (events.length === 0) return undefined;
   return {
-    events: events.slice(-KEPT_EVENTS),
+    events,
     summary: typeof tail.summary === "object" && tail.summary !== null ? tail.summary : undefined,
     turnOpener: isEventRecord(tail.turnOpener) ? tail.turnOpener : undefined,
     // Only a whole tail can call the chat's history read through: a record dropped here (or by the
     // cap) leaves a hole or a cut, and a cut that claimed otherwise would hide the chat's older
     // turns, which is #23064's bug.
-    historyExhausted: tail.historyExhausted === true && events.length === listed.length && events.length <= KEPT_EVENTS,
+    historyExhausted:
+      tail.historyExhausted === true &&
+      packed.length === listed.length &&
+      packed.length <= KEPT_EVENTS &&
+      events.length === packed.reduce((count, event) => count + ((event as PackedRecord).chunks?.length ?? 1), 0),
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,
@@ -292,4 +469,5 @@ export function resetKeptTailsForTests(): void {
   keptTails.clear();
   readAheadTails.clear();
   reading.clear();
+  shownThrough.clear();
 }

@@ -78,6 +78,7 @@ extension WindowManager {
     /// The launch window took its saved window's id (`adoptLaunchWindow`): what was asked for under the old id goes with it.
     func launchWindowAdopted(from old: String, as new: String) {
         guard old != new else { return }
+        registry.closeSelection.renamed(window: old, to: new)
         for (id, window) in claims.pending where window == old { claims.pending[id] = new }
         for (id, placement) in pendingPlacements where placement.window == old { pendingPlacements[id]?.window = new }
         if let frame = pendingFrames.removeValue(forKey: old) { pendingFrames[new] = frame }
@@ -118,6 +119,7 @@ extension WindowManager {
     /// A create into a window failed or a close cancelled it: its row goes, and its claim unless it listed (#31502).
     func createFailed(_ id: String, _ error: any Error) -> any Error {
         PendingWorkspaceRows.shared.remove(id)
+        services.machines.local.store.personal.forgetExpectedPin(key: id)
         if claims.release(failed: id, listed: services.machines.workspace(id: id) != nil) { repairSelections(previous: membersByWindow) }
         for controller in controllers where controller.state.workspaceID == id { controller.showWorkspace(requested: id) }  // it waited (awaits)
         return error

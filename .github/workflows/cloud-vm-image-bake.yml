@@ -552,7 +552,9 @@ jobs:
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     timeout-minutes: 150
     defaults:
       run:

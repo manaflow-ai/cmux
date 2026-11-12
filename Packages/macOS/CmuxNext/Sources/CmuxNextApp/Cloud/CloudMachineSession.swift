@@ -382,11 +382,11 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused app-link machine is resumed once.
+    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
-        var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
+        let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
-            if machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
+            beats.beat(ended: linkEnded != nil && !appConnecting, status: machine.status, resume: { attach(origin: .script) }, connect: { connect() })
         }) { [daemon] in
             self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
@@ -448,22 +448,22 @@ final class CloudMachineSession {
         suspend()
     }
 
-    /// Drops the daemon connection while keeping the link reusable after a
-    /// provider pause/resume transition.
-    func suspend() {
+    /// Drops the daemon connection, keeping the link reusable, after a provider pause/resume transition, or
+    /// (`pausing`) as soon as the server took a person's pause, which a rollback then reconnects (mutationFailed).
+    func suspend(pausing: Bool = false) {
         suspends += 1
+        if pausing { noteMutationInterruption() }
         // A new pause: an earlier resume's failure no longer applies.
         resumeFailure = nil
         connectHop?.cancel()
-        appTicket = nil
-        linkPhase = .idle
+        (appTicket, linkPhase) = (nil, .idle)
         daemon.shutdownConnection()
         let previous = linkTransition
         let appLink = appLink
-        // task-owner: reversible teardown; resume waits for this hop
+        // task-owner: reversible teardown (the serve stops, so nothing wakes the machine); resume waits for this hop
         linkTransition = Task {
             await previous?.value
-            await appLink.end(reason: "paused")
+            await appLink.park(reason: "paused")
         }
     }
 }

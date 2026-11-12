@@ -149,8 +149,10 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 
@@ -190,8 +192,10 @@ test("estimated grid rows follow the Interface Size", () => {
       expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
     }
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 
@@ -231,7 +235,7 @@ test("the live line keeps the scaled run gap after activity while activity rows 
 // (design/transcript-spacing.md rule 4; Leo, 2026-11-02: "now there's sometimes too much spacing
 // between tool calls"); a prompt keeps its turn gap and the run's own rows stay flush.
 test("a run and the reply's prose sit the run gap apart, either way", () => {
-  expect(TRANSCRIPT_RUN_GAP).toBe(16);
+  expect(TRANSCRIPT_RUN_GAP).toBe(12);
   expect(transcriptGap(MARK_STEP, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_MESSAGE, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STATUS, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
@@ -257,15 +261,15 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 12 to the next row, with no stack gap after it
-    // (Lucas, 2026-11-07).
-    expect(layout.heights[0]).toBe(38);
+    // The 22px activity line, 4 to its rule, then 8 to the next row, with no stack gap after it
+    // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
+    expect(layout.heights[0]).toBe(34);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(38);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(34);
     const placed = placeRows(layout, () => 22);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
   }

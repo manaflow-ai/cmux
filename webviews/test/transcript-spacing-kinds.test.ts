@@ -19,6 +19,11 @@
 //
 // CMUX_TRANSCRIPT_SPACING_LOG=1 logs every row's lines and every measured gap; with FAST_CHECKS_OUT
 // set, each variant's capture is written there.
+//
+// Three status variants (working-bottom, reply-received, status-prompt) test the `runs` arm of
+// live-turn-work, not the shipped `line` arm: the last call and the "Sent to" lines they measure are
+// finished calls of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts). The
+// all-kinds and notes-live variants take the shipped arms.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -29,6 +34,8 @@ import {
   TRANSCRIPT_STATUS_ROWS,
 } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
@@ -41,6 +48,8 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
   ];
   const LOG = process.env.CMUX_TRANSCRIPT_SPACING_LOG === "1";
   const STATUS_VARIANTS = [...new Set(TRANSCRIPT_STATUS_ROWS.map((row) => row.variant))];
+  /// The variants whose marks are finished calls of a turn that still runs (support/liveTurnRuns.ts).
+  const LIVE_RUNS_VARIANTS = new Set<string>(["working-bottom", "reply-received", "status-prompt"]);
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -159,9 +168,14 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     await page.addInitScript(() => {
       globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
+    if (LIVE_RUNS_VARIANTS.has(variant)) {
+      await pinLiveTurnRuns(page);
+      // This table measures adjacent status rows, with the retained clock-on-line look.
+      await pinArms(page, CLOCK_ON_LINE);
+    }
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -170,6 +184,15 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     // Open "Ran 2 commands", as in Leo's capture, and let its fold and the rows under it settle.
     if (variant === VARIANT)
       await page.locator('[data-row-id="kinds-run"] button.cv-tool', { hasText: "Ran 2 commands" }).first().click();
+    if (variant === "working-bottom") {
+      // Finished work starts closed. Open it before measuring its last call against the next row.
+      const messages = page.locator('[data-row-id="messageRun-status-work"] button[data-message-run]');
+      if (await messages.count()) await messages.click();
+      const closed = page.locator(
+        '[data-row-id="status-work"] button:is([data-tool-run], [data-tool-group])[aria-expanded="false"]',
+      );
+      while (await closed.count()) await closed.first().click();
+    }
     await page.evaluate(async () => {
       const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
       const finite = () =>
@@ -248,9 +271,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const after = (row: Element | undefined, gap: number | null) =>
         gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
-      const live = rows.find(
-        (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
-      );
+      // The turn's live line at its bottom: with the clock on top (liveTurnClock.experiment.ts `top`),
+      // "Working for" over the work is an `acpmux-working` row too, and stands first.
+      const live = rows
+        .filter((row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"))
+        .at(-1);
       const footer = document
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();

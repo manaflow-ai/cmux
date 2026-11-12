@@ -90,6 +90,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
@@ -530,7 +531,8 @@ def job_text(gh: GitHub, job_id: int) -> tuple[str, list[str]]:
     """The job's log and its failure annotations (a lost runner leaves only an annotation)."""
     log, notes = "", []
     try:
-        log = str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        kept = glaeda_log.cached_job_log(gh.repo, job_id)  # this host's glaeda-gh kept it: no API call
+        log = kept if kept is not None else str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
     except RuntimeError as error:
         print(f"job {job_id}: no log: {error}", file=sys.stderr)
     try:

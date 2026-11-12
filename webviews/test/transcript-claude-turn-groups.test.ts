@@ -13,11 +13,20 @@
 // fixtures/claude-turn-groups.ndjson is one real Claude Code turn as acpmux recorded it (81 calls,
 // 17 messages), its words and commands replaced with neutral ones of the same kind: a short note
 // stays short, a long message stays long.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SUPERSEDED, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
@@ -125,25 +134,24 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   expect(view[summary]?.folded).toBe(false);
 });
 
-test("the same turn in a Codex chat folds its work and chatter under one Worked for, never a longer message", async () => {
+test("the same turn in a Codex chat folds its work and every earlier message under one Worked for", async () => {
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "codex" });
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
-  // The longer messages stay in sight (Leo, 2026-11-06: "your intermediate message got lost. that can
-  // never happen"); the work around them folds into one closed line each, and no short note shows.
+  // As the Codex app ends a turn (Lawrence, 2026-11-11: the fold "does not hide enough stuff"): only
+  // the final answer stays in sight, with no run line or note beside the closed fold.
   expect(
     assistants(view)
       .filter((row) => LONG.test(row.text ?? ""))
       .map(longAt),
-  ).toEqual([14, 16, 17]);
+  ).toEqual([17]);
   expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
-  const lines = view.filter((row) => row.kind === "activity" && !row.merged);
-  expect(lines.length).toBeGreaterThan(0);
-  expect(lines.every((row) => row.foldRun === true)).toBe(true);
+  // No tool line beside the closed fold; the edited-files card (`merged`) stays.
+  expect(view.filter((row) => row.kind === "activity" && !row.merged)).toEqual([]);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-test("the recorded turn restored in a Claude chat, folded by default, keeps every longer message", async () => {
+test("the recorded turn restored in a Claude chat, folded by default, keeps only its final answer", async () => {
   globalThis.cmuxExperiments = {};
   try {
     const rows = await replayRows();
@@ -153,7 +161,7 @@ test("the recorded turn restored in a Claude chat, folded by default, keeps ever
       assistants(view)
         .filter((row) => LONG.test(row.text ?? ""))
         .map(longAt),
-    ).toEqual([14, 16, 17]);
+    ).toEqual([17]);
   } finally {
     globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
   }
@@ -206,6 +214,7 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
 });
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
+  oneFoldPerTurn();
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), agentFamily: "codex" });
   expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });
