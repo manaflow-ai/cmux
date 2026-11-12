@@ -126,7 +126,7 @@ class Token(NamedTuple):
     dynamic: bool = False  # the word holds an expansion bash resolves at run time ($x, ${..}, $(..), `..`, <(..))
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
     plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
-    equal_unquoted: bool = False  # the first `=` in the word was an unquoted literal
+    equal_unquoted: bool = False  # an unquoted `=` occurred in the word (including the assignment operator)
 
 
 class Lexed(NamedTuple):
@@ -527,7 +527,7 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
-            if c == "=" and not equal_seen:
+            if c == "=":
                 equal_seen, equal_unquoted = True, True
             if plain_open:
                 plain += 1
@@ -786,8 +786,9 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             words, dynamic, skip_target = [], False, False
             cases[-1] = "pattern"
             case_pattern_matches[-1] = False
-            case_fallthrough[-1] = token.text == ";&" and case_body_active[-1]
-            case_retest[-1] = token.text == ";;&"
+            if case_body_active[-1]:
+                case_fallthrough[-1] = token.text == ";&"
+                case_retest[-1] = token.text == ";;&"
             case_body_active[-1] = False
             previous = token
             continue
@@ -1002,8 +1003,9 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # only as an option value, or none.
             any_program = not sure
             break  # the operand is a script file, whatever its name
-    if wrappers == ["time"] and start < len(words) and words[start].text == "coproc" and not words[start].quoted:
-        # Only the shell's `time coproc cmd` form has a reserved coproc word after unwrapping.
+    if wrappers and all(name == "time" for name in wrappers) and start < len(words) \
+            and words[start].text == "coproc" and not words[start].quoted:
+        # Only time (including repeated or -p forms) keeps coproc as a reserved word after unwrapping.
         return Invocation([w.text for w in words[start:]], False, True)
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
