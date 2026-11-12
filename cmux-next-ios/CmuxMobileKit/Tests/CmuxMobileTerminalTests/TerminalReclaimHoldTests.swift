@@ -31,9 +31,28 @@ import Testing
         var hold = TerminalReclaimHold()
         _ = hold.take(.hostGrid(columns: 120, rows: 40), claims: false, phoneGrid: phone, alternate: false)
         _ = hold.take(.output(Data("old".utf8)), claims: false, phoneGrid: phone, alternate: false)
-        hold.restart()
-        #expect(hold.held == [])
+        hold.restart(alternate: false)
+        #expect(hold.held == [.hostGrid(columns: 120, rows: 40)], "the held grid stays: the replay does not repeat it")
         _ = hold.take(.output(TerminalReclaimHold.reset), claims: false, phoneGrid: phone, alternate: false)
-        #expect(hold.release() == [.output(TerminalReclaimHold.reset)])
+        #expect(hold.release() == [.hostGrid(columns: 120, rows: 40), .output(TerminalReclaimHold.reset)])
+    }
+
+    @Test func aReattachKeepsAnAlternateScreenSwitchItWillNotRepeat() {
+        var hold = TerminalReclaimHold()
+        _ = hold.take(.hostGrid(columns: 120, rows: 40), claims: false, phoneGrid: phone, alternate: false)
+        _ = hold.take(.alternateScreen(true), claims: false, phoneGrid: phone, alternate: true)
+        hold.restart(alternate: true)
+        #expect(hold.release() == [.hostGrid(columns: 120, rows: 40), .alternateScreen(true)])
+        #expect(hold.shownAlternate)
+    }
+
+    @Test func releasedAtTheMacsGridNowOnlyItsReplayShows() {
+        var hold = TerminalReclaimHold()
+        _ = hold.take(.hostGrid(columns: 120, rows: 40), claims: false, phoneGrid: phone, alternate: false)
+        _ = hold.take(.alternateScreen(true), claims: false, phoneGrid: phone, alternate: true)
+        _ = hold.take(.output(Data("wide".utf8)), claims: false, phoneGrid: phone, alternate: true)
+        _ = hold.take(.hostGrid(columns: 50, rows: 20), claims: false, phoneGrid: phone, alternate: true)
+        _ = hold.take(.output(Data("narrow".utf8)), claims: false, phoneGrid: phone, alternate: true)
+        #expect(hold.release(from: phone) == [.alternateScreen(true), .hostGrid(columns: 50, rows: 20), .output(Data("narrow".utf8))])
     }
 }

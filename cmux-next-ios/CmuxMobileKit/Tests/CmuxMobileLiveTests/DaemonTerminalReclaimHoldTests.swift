@@ -53,7 +53,7 @@ import Testing
         #expect(box.events.last == .output(Self.narrow))
     }
 
-    @Test func aClaimTheMacOverrulesShowsTheHeldGridInOrder() {
+    @Test func aStreamThatEndsWhileHiddenShowsTheHeldGridInOrder() {
         let (session, box) = shownAtPhoneGrid()
         session.setClaimsSize(false)
         session.handle(grid("resized", 120, 40, Self.wide))
@@ -61,11 +61,11 @@ import Testing
         // Still hidden, the stream ends (the Mac closed the terminal): what
         // was held is shown, in order, before the end.
         session.handle(FakeTerminalDaemon.line(["event": "detached", "surface": 7, "reason": "closed"]))
-        let grid = box.events.firstIndex(of: .hostGrid(columns: 120, rows: 40))
-        let wide = box.events.firstIndex(of: .output(Self.wide))
-        let exited = box.events.firstIndex(of: .exited(code: 0))
-        #expect(grid != nil && wide != nil && exited != nil)
-        #expect(grid! < wide! && wide! < exited!)
+        let gridAt = box.events.firstIndex(of: .hostGrid(columns: 120, rows: 40))
+        let wideAt = box.events.firstIndex(of: .output(Self.wide))
+        let exitedAt = box.events.firstIndex(of: .exited(code: 0))
+        #expect(gridAt != nil && wideAt != nil && exitedAt != nil)
+        #expect(gridAt! < wideAt! && wideAt! < exitedAt!)
     }
 
     @Test func aHiddenTUIThatQuitIsAShellWhenShownAgain() {
@@ -94,9 +94,58 @@ import Testing
         // The Mac came back to the phone's grid on its own while hidden.
         session.handle(grid("resized", 50, 20, Self.narrow))
         #expect(box.events.isEmpty)
-        // No resize will come for the claim: what was held shows at once.
+        // No resize will come for the claim: what was held shows at once,
+        // from the change back to the phone's grid (the wide one is superseded).
         session.setClaimsSize(true)
         #expect(box.events.last == .output(Self.narrow))
+        #expect(!box.events.contains(.output(Self.wide)))
+    }
+
+    /// The Mac's policy keeps its own grid: shown again, the claim is never
+    /// answered at the phone's grid, so the held grid shows after the wait.
+    @Test func aClaimTheMacOverrulesShowsTheHeldGridAfterTheWait() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7, clientInfo: ["device_kind": "iphone"]) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.reclaimWait = .milliseconds(20)
+        let box = Box()
+        session.resize(columns: 50, rows: 20)
+        session.start { box.events.append($0) }
+        try await waitUntil { session.isAttached }
+        session.handle(grid("vt-state", 50, 20, Data("screen".utf8)))
+        session.setClaimsSize(false)
+        session.handle(grid("resized", 120, 40, Self.wide))
+        box.events.removeAll()
+        session.setClaimsSize(true)
+        #expect(!box.events.contains(.output(Self.wide)), "held while the claim may still be answered")
+        try await waitUntil { box.events.contains(.output(Self.wide)) }
+        let gridAt = box.events.firstIndex(of: .hostGrid(columns: 120, rows: 40))
+        let wideAt = box.events.firstIndex(of: .output(Self.wide))
+        #expect(gridAt != nil && wideAt != nil && gridAt! < wideAt!)
+    }
+
+    /// Reattached while hidden: the replay does not repeat the grid or the
+    /// alternate screen the hold already took, so a release still has them.
+    @Test func aReattachWhileHiddenKeepsTheHeldGridAndScreen() {
+        var hold = TerminalReclaimHold()
+        let phone = TerminalReclaimHold.Grid(columns: 50, rows: 20)
+        _ = hold.take(.hostGrid(columns: 120, rows: 40), claims: false, phoneGrid: phone, alternate: false)
+        _ = hold.take(.alternateScreen(true), claims: false, phoneGrid: phone, alternate: true)
+        hold.restart(alternate: true)
+        _ = hold.take(.output(TerminalReclaimHold.reset), claims: false, phoneGrid: phone, alternate: true)
+        _ = hold.take(.output(Data("vim".utf8)), claims: false, phoneGrid: phone, alternate: true)
+        #expect(hold.release() == [.hostGrid(columns: 120, rows: 40), .alternateScreen(true),
+                                   .output(TerminalReclaimHold.reset), .output(Data("vim".utf8))])
+    }
+
+    private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts where !condition() {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(condition())
     }
 
     @Test func aPageThatIsShownNeverHoldsTheMacsGrid() {

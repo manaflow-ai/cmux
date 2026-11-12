@@ -45,6 +45,8 @@ public struct TerminalReclaimHold: Sendable {
     /// The events held, in order (nil: not holding).
     public private(set) var held: [TerminalSessionEvent]?
     private var heldBytes = 0
+    /// The newest grid held, which a reattach's replay does not repeat.
+    private var heldGrid: TerminalSessionEvent?
     /// The alternate screen state the screen was last given.
     public private(set) var shownAlternate = false
 
@@ -66,6 +68,7 @@ public struct TerminalReclaimHold: Sendable {
             if case .hostGrid(let columns, let rows) = event, !claims, let phoneGrid,
                phoneGrid != Grid(columns: columns, rows: rows) {
                 held = [event]
+                heldGrid = event
                 heldBytes = 0
                 return []
             }
@@ -75,6 +78,7 @@ public struct TerminalReclaimHold: Sendable {
             // The claim brought the phone's grid back: what was held is
             // superseded by the replay that follows.
             held = nil
+            heldGrid = nil
             heldBytes = 0
             var out: [TerminalSessionEvent] = []
             if alternate != shownAlternate { out.append(.alternateScreen(alternate)) }
@@ -83,24 +87,40 @@ public struct TerminalReclaimHold: Sendable {
             return shown(out)
         }
         events.append(event)
+        if case .hostGrid = event { heldGrid = event }
         if case .output(let data) = event { heldBytes += data.count }
         held = events
         return heldBytes > Self.maxBytes ? release() : []
     }
 
-    /// Ends the hold: what was held, in order.
-    public mutating func release() -> [TerminalSessionEvent] {
-        guard let events = held else { return [] }
+    /// Ends the hold: what was held, in order. With `from`, the Mac's grid
+    /// now: when a held grid change is to it, everything before that change
+    /// is superseded by its whole replay and dropped (the alternate screen
+    /// state there still goes to the screen).
+    public mutating func release(from grid: Grid? = nil) -> [TerminalSessionEvent] {
+        guard var events = held else { return [] }
+        if let grid, let start = events.lastIndex(of: .hostGrid(columns: grid.columns, rows: grid.rows)), start > 0 {
+            var alternate = shownAlternate
+            for case .alternateScreen(let on) in events[..<start] { alternate = on }
+            events = Array(events[start...])
+            if alternate != shownAlternate { events.insert(.alternateScreen(alternate), at: 0) }
+        }
         held = nil
+        heldGrid = nil
         heldBytes = 0
         return shown(events)
     }
 
     /// The stream starts over from a reset and a full replay (a reattach):
-    /// what was held is superseded, and the hold goes on.
-    public mutating func restart() {
+    /// what was held is superseded, and the hold goes on. The replay does
+    /// not repeat what the session already reported (the grid held, the
+    /// alternate screen state `alternate` before the replay), so those stay.
+    public mutating func restart(alternate: Bool) {
         guard held != nil else { return }
-        held = []
+        var kept: [TerminalSessionEvent] = []
+        if let heldGrid { kept.append(heldGrid) }
+        if alternate != shownAlternate { kept.append(.alternateScreen(alternate)) }
+        held = kept
         heldBytes = 0
     }
 

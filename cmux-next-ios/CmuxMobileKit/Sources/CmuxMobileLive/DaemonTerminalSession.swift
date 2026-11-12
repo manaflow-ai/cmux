@@ -705,7 +705,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // blank for ~170 ms, then half drawn).
             // Hidden and holding the Mac's grid, the reset and the replay
             // after it are held too: what was held before is superseded.
-            reclaimHold.restart()
+            reclaimHold.restart(alternate: isAlternateScreen)
             show(.output(TerminalReclaimHold.reset))
             let held = heldEvents ?? []
             heldEvents = nil
@@ -893,11 +893,12 @@ public final class DaemonTerminalSession: TerminalSession {
         for event in events { handler?(event) }
     }
 
-    /// Shows what the reclaim hold has, in order.
-    private func releaseReclaimHold() {
+    /// Shows what the reclaim hold has, in order (`from`: the Mac's grid
+    /// now, see `TerminalReclaimHold.release(from:)`).
+    private func releaseReclaimHold(from grid: TerminalReclaimHold.Grid? = nil) {
         reclaimDeadline?.cancel()
         reclaimDeadline = nil
-        let events = reclaimHold.release()
+        let events = reclaimHold.release(from: grid)
         guard !events.isEmpty else { return }
         log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
         for event in events { handler?(event) }
@@ -909,7 +910,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func settleReclaimHold() {
         guard claimsSize, reclaimHold.isHolding else { return }
         if let size = lastSize, reportedColumns == size.columns, reportedRows == size.rows {
-            releaseReclaimHold()
+            releaseReclaimHold(from: TerminalReclaimHold.Grid(columns: size.columns, rows: size.rows))
         } else if attached {
             armReclaimDeadline()
         }
