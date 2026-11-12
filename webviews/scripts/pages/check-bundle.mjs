@@ -1,16 +1,17 @@
 // Exercise the actual production documents and module graph, with an isolated origin for each
 // page, the app's CSP, and its shared-assets mapping. No Vite source fallback can hide a missing
 // packaged file. Compare this receipt on the baseline and candidate builds.
-// bun scripts/pages/check-bundle.mjs PAGES_DIR RECEIPT_DIR [scheme|daemon]
+// bun scripts/pages/check-bundle.mjs PAGES_DIR RECEIPT_DIR [scheme|daemon] [BASELINE_PAGES_DIR]
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { useSystemChrome } from "../../test/support/systemChrome.ts";
 import { siteSettings, siteData, certificateChain } from "../../src/browser-chrome/page-info/windowFixtures.ts";
 
-const [input, output, mode = "scheme"] = process.argv.slice(2);
+const [input, output, mode = "scheme", baseline] = process.argv.slice(2);
 if (!["scheme", "daemon"].includes(mode)) throw new Error("mode must be scheme or daemon");
-if (!input || !output) throw new Error("usage: check-bundle.mjs PAGES_DIR RECEIPT_DIR [scheme|daemon]");
+if (!input || !output)
+  throw new Error("usage: check-bundle.mjs PAGES_DIR RECEIPT_DIR [scheme|daemon] [BASELINE_PAGES_DIR]");
 if (process.platform === "darwin") throw new Error("Run production-page browser checks on Linux");
 const root = path.resolve(input);
 await mkdir(output, { recursive: true });
@@ -39,6 +40,13 @@ try {
     const errors = [];
     const missing = [];
     const requests = [];
+    // A packaging-only change must preserve each document's CSS bytes and cascade order.
+    if (baseline) {
+      const styles = (document) => document.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+      const before = await readFile(path.join(baseline, name, "index.html"), "utf8");
+      const after = await readFile(path.join(root, name, "index.html"), "utf8");
+      if (styles(before) !== styles(after)) errors.push("Stylesheet differs from baseline");
+    }
     const page = await context.newPage();
     if (hostStates[name])
       await page.addInitScript(
