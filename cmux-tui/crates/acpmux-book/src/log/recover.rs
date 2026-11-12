@@ -1,10 +1,10 @@
 //! Reading a segment's records in order, for recovery: every record is checked by its crc, and
 //! the scan stops at the first place that is not a whole record.
 
+use super::Error;
 use super::record::{self, Check, Header};
 use crate::fsio;
 use std::fs::File;
-use std::io;
 
 /// The scan reads this much at a time. Over four of the largest records, so a refill at a
 /// record's start always holds the whole record when the file does.
@@ -23,14 +23,11 @@ pub(crate) struct Scan {
 /// Reads the records of `file` from `from`, handing each whole one to `apply` with its offset.
 /// `apply` returns false for a record that cannot follow the one before (its seq is not the
 /// next one); the scan treats it as torn, like a bad crc.
-pub(crate) fn scan<E>(
+pub(crate) fn scan(
     file: &File,
     from: u64,
-    mut apply: impl FnMut(u64, &Header) -> Result<bool, E>,
-) -> Result<Scan, E>
-where
-    E: From<io::Error>,
-{
+    mut apply: impl FnMut(u64, &Header) -> Result<bool, Error>,
+) -> Result<Scan, Error> {
     let mut chunk = vec![0u8; CHUNK];
     let mut offset = from;
     let mut bytes_read = 0u64;
@@ -58,7 +55,8 @@ where
                 // The record runs past what was read. With more of the file to come, read
                 // again from the record's start; at the file's end it is a torn write.
                 Check::Short if !at_file_end && at > 0 => break,
-                Check::Short | Check::Bad => {
+                Check::Bad => return Err(Error::Corrupt("a complete record failed its check")),
+                Check::Short => {
                     return Ok(Scan {
                         end: offset.saturating_add(at as u64),
                         torn: true,
