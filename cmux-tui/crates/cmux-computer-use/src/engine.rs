@@ -126,7 +126,7 @@ impl crate::desktop::MenuGuard for PolicyMenuGuard {
             .denied_apps
             .iter()
             .map(|e| e.trim())
-            .filter(|e| !e.is_empty() && !e.contains('*') && !e.starts_with("name:"))
+            .filter(|e| !e.is_empty() && !e.starts_with("name:"))
             .map(str::to_string)
             .chain(policy::protected_ids().iter().map(|s| (*s).to_string()))
             .collect()

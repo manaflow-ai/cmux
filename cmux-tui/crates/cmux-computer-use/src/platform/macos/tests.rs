@@ -1358,18 +1358,18 @@ fn before_the_index_is_built_a_blocked_app_is_known_by_its_localized_name() {
     // System Settings would be "not an app" there.
     let mut blocked = workspace::NameMap::new();
     blocked.insert("systemeinstellungen".into(), vec!["com.apple.systempreferences".into()]);
-    let file_names_only = || None;
+    let file_names_only = Vec::new;
     assert_eq!(
         workspace::cold_resolve("systemeinstellungen", Some(&blocked), file_names_only),
         Some(vec!["com.apple.systempreferences".to_string()])
     );
     // Other names go to LaunchServices.
     assert_eq!(
-        workspace::cold_resolve("textedit", Some(&blocked), || Some("com.apple.TextEdit".into())),
+        workspace::cold_resolve("textedit", Some(&blocked), || vec!["com.apple.TextEdit".into()]),
         Some(vec!["com.apple.TextEdit".to_string()])
     );
     // No blocked names (no guard, LaunchServices unavailable): unresolved.
-    assert_eq!(workspace::cold_resolve("textedit", None, || None), None);
+    assert_eq!(workspace::cold_resolve("textedit", None, Vec::new), None);
     // And the Apple menu item is held to the deny list with that resolver.
     let guard = PolicyGuard(crate::policy::PolicyConfig::default());
     let ctx = roles::MenuItemContext {
@@ -1380,6 +1380,26 @@ fn before_the_index_is_built_a_blocked_app_is_known_by_its_localized_name() {
         launch: None,
     };
     let resolve =
-        |n: &str| workspace::cold_resolve(&n.trim().to_lowercase(), Some(&blocked), || None);
+        |n: &str| workspace::cold_resolve(&n.trim().to_lowercase(), Some(&blocked), Vec::new);
     assert!(roles::menu_item_blocked(&guard, &ctx, &resolve));
+}
+
+#[test]
+fn a_running_app_a_prefix_entry_covers_is_known_by_its_name_before_the_index() {
+    let mut map = workspace::NameMap::new();
+    let running = vec![
+        ("com.agilebits.onepassword7".to_string(), "1Password 7".to_string()),
+        ("com.apple.TextEdit".to_string(), "TextEdit".to_string()),
+    ];
+    workspace::add_prefixed_running(&mut map, &["com.agilebits.".to_string()], &running);
+    assert_eq!(map.get("1password 7"), Some(&vec!["com.agilebits.onepassword7".to_string()]));
+    assert_eq!(map.get("textedit"), None);
+}
+
+#[test]
+fn a_refusal_names_why_an_item_is_blocked() {
+    use crate::menus::{APP_NAMES_LOADING, BlockReason, UNREADABLE_ITEM_REFUSAL, block_message};
+    assert!(block_message(BlockReason::Denied, Some("Open in X")).contains("deny list"));
+    assert_eq!(block_message(BlockReason::Loading, Some("Open in X")), APP_NAMES_LOADING);
+    assert_eq!(block_message(BlockReason::Unreadable, None), UNREADABLE_ITEM_REFUSAL);
 }

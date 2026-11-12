@@ -103,8 +103,10 @@ impl MacDesktop {
             Ok(v) => {
                 self.menu_item_check_titled(el, &v.and_then(|v| v.as_string()).unwrap_or_default())
             }
-            // Unreadable: blocked, whatever the deny list.
-            Err(_) => roles::ItemCheck::Blocked,
+            // Unreadable: refused, whatever the deny list, with its own reason.
+            Err(_) => {
+                return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
+            }
         };
         if check == roles::ItemCheck::Unknown {
             return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
@@ -968,8 +970,8 @@ fn pick_closed(
         )));
     }
     // The full check (LaunchServices names too) on the one item pressed.
-    if d.refuse_denied_item(&item.el).is_err() {
-        return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
+    if let Some(reason) = d.opened_item_reason(&item.el) {
+        return Err(DesktopError::Unsupported(menus::block_message(reason, Some(value))));
     }
     let title = item.info.title.clone();
     let before = el.value_text();

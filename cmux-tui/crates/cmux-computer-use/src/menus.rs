@@ -260,6 +260,30 @@ pub fn denied_item_refusal(wanted: Option<&str>) -> String {
     )
 }
 
+/// Why a menu item is hidden and refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockReason {
+    /// It reaches an app on the deny list or a protected app.
+    Denied,
+    /// A name it shows cannot be checked yet: the app names are loading.
+    Loading,
+    /// Its title could not be read, so it cannot be checked.
+    Unreadable,
+}
+
+/// Why an item whose title cannot be read is refused.
+pub const UNREADABLE_ITEM_REFUSAL: &str = "this menu item's title cannot be read, so Computer Use cannot check where it leads and does not press it; try another item, or retry";
+
+/// The refusal for a blocked item: `wanted` is the agent's own text, so a
+/// hidden item's title is never shown. Pure, for tests.
+pub fn block_message(reason: BlockReason, wanted: Option<&str>) -> String {
+    match reason {
+        BlockReason::Denied => denied_item_refusal(wanted),
+        BlockReason::Loading => APP_NAMES_LOADING.to_string(),
+        BlockReason::Unreadable => UNREADABLE_ITEM_REFUSAL.to_string(),
+    }
+}
+
 /// Why a pick fails while the installed app names are still being read
 /// (menu items are checked against them and stay hidden until then).
 pub const APP_NAMES_LOADING: &str = "the menu's items are still being checked against the installed apps (app names are loading); retry in a moment";

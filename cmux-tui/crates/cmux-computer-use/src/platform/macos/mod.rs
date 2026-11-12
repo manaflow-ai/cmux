@@ -54,17 +54,12 @@ impl MacDesktop {
         self.menu_guard.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Whether the deny list hides and refuses this menu item (Recent Items,
-    /// Open With and Services entries that reach a denied or protected app),
-    /// with its title already read (one read, so the name checked is the one
-    /// the caller has). A title that cannot be read is blocked by the
-    /// caller, whatever the deny list.
-    fn menu_item_blocked_titled(&self, item: &Ax, title: &str) -> bool {
-        self.menu_item_check_titled(item, title) != roles::ItemCheck::Allowed
-    }
-
-    /// [`Self::menu_item_blocked_titled`], telling a real block from a name
-    /// not resolved yet (for an honest refusal).
+    /// Whether the deny list or the protected apps hide and refuse this menu
+    /// item (Recent Items, Open With and Services entries that reach a
+    /// denied or protected app), with its title already read (one read, so
+    /// the name checked is the one the caller has), telling a real block
+    /// from a name not resolved yet (for an honest refusal). A title that
+    /// cannot be read is refused by the caller, whatever the deny list.
     fn menu_item_check_titled(&self, item: &Ax, title: &str) -> roles::ItemCheck {
         let Some(guard) = self.guard() else { return roles::ItemCheck::Allowed };
         // Without its place in the menus the item is still checked by name
@@ -78,11 +73,12 @@ impl MacDesktop {
                 siblings: &[],
                 launch: None,
             };
-            let check = roles::menu_item_check(&*guard, &ctx, &workspace::apps_named);
-            if check == roles::ItemCheck::Allowed && guard.denies_any() {
+            // While something is denied an item that cannot be placed is
+            // blocked, and stays blocked once the names load: not "loading".
+            if guard.denies_any() {
                 return roles::ItemCheck::Blocked;
             }
-            return check;
+            return roles::menu_item_check(&*guard, &ctx, &workspace::apps_named);
         };
         let ctx =
             roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch: None };
@@ -93,21 +89,29 @@ impl MacDesktop {
         self.guard().is_some_and(|g| g.denies_any())
     }
 
-    /// Whether one element of an opened menu (a pop-up, a context menu) is
+    /// Why one element of an opened menu (a pop-up, a context menu) is
     /// hidden and refused, reading what it needs from AX (one element: a
-    /// press or a click; a walk over many uses [`Self::opened_item_known`]).
-    fn opened_item_blocked(&self, item: &Ax) -> bool {
-        let Some(guard) = self.guard() else { return false };
+    /// press or a click; a walk over many uses [`Self::opened_item_known`]);
+    /// None when it is not.
+    fn opened_item_reason(&self, item: &Ax) -> Option<crate::menus::BlockReason> {
+        use crate::menus::BlockReason;
+        let guard = self.guard()?;
         let title = match item.attr("AXTitle") {
             Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
             // Unreadable: blocked, whatever the deny list.
-            Err(_) => return true,
+            Err(_) => return Some(BlockReason::Unreadable),
         };
-        if self.menu_item_blocked_titled(item, &title) {
-            return true;
+        match self.menu_item_check_titled(item, &title) {
+            roles::ItemCheck::Blocked => return Some(BlockReason::Denied),
+            roles::ItemCheck::Unknown => return Some(BlockReason::Loading),
+            roles::ItemCheck::Allowed => {}
         }
         let path = menus::item_path_checked(item);
-        opened_rules(&*guard, &title, path.as_deref())
+        // These rules read the built index alone: while it loads, a block
+        // there may only mean a name is not known yet.
+        opened_rules(&*guard, &title, path.as_deref()).then(|| {
+            if workspace::app_names_ready() { BlockReason::Denied } else { BlockReason::Loading }
+        })
     }
 
     /// Whether a menu item a walk or a menu listing reached is hidden and

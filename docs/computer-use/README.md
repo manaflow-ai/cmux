@@ -137,8 +137,11 @@ Prevention, in the desktop (macOS):
     closed, no menu item is picked, an open menu's items stay hidden, and the
     call says so (retry). The menu bar and key shortcuts are not held back
     meanwhile: a name is answered from the blocked apps' own names (their
-    localized display, bundle and file names, read once by bundle id) and
-    else LaunchServices, until the index is ready; a refusal says the names
+    localized display, bundle and file names, read once by bundle id, and
+    the names of apps with a window that a `prefix*` deny entry covers) and
+    else LaunchServices, until the index is ready (an app known only by a
+    prefix entry and with no window relies on LaunchServices file names
+    until then); a refusal says the names
     are loading only when a name really could not be resolved. A menu item
     whose title cannot be read is hidden and refused (a key shortcut on one
     is posted when nothing is denied, as Codex does).

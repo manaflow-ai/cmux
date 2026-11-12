@@ -305,14 +305,18 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
     }
     let index = names_index();
     let Some((generation, by_name)) = index.current() else {
-        // Generation 0 until the first build, which clears these answers.
-        if let Some(hit) = index.answer(&key, 0) {
-            return Some(hit);
-        }
+        // The blocked apps' names first, fresh each time (they follow the
+        // deny list); only LaunchServices answers are cached, under
+        // generation 0 until the first build, which clears them.
         let blocked = cold_blocked_names();
-        let ids = cold_resolve(&key, blocked.as_deref(), || launch_services_id(name.trim()))?;
-        index.remember(key, 0, ids.clone());
-        return Some(ids);
+        return cold_resolve(&key, blocked.as_deref(), || {
+            if let Some(hit) = index.answer(&key, 0) {
+                return hit;
+            }
+            let ids: Vec<String> = launch_services_id(name.trim()).into_iter().collect();
+            index.remember(key.clone(), 0, ids.clone());
+            ids
+        });
     };
     if let Some(ids) = by_name.get(&key) {
         return Some(ids.clone());
@@ -661,13 +665,49 @@ fn names_of_bundles(ids: &[String]) -> Option<NameMap> {
 pub(super) fn cold_resolve(
     key: &str,
     blocked_names: Option<&NameMap>,
-    launch_services: impl FnOnce() -> Option<String>,
+    launch_services: impl FnOnce() -> Vec<String>,
 ) -> Option<Vec<String>> {
     let blocked = blocked_names?;
     if let Some(ids) = blocked.get(key) {
         return Some(ids.clone());
     }
-    Some(launch_services().into_iter().collect())
+    Some(launch_services())
+}
+
+/// Adds the apps a `prefix*` deny entry covers that own a window to the cold map by
+/// their names (an app known only by a prefix has no exact id to look up).
+/// `running` is (bundle id, localized name). Pure, for tests.
+pub(super) fn add_prefixed_running(
+    map: &mut NameMap,
+    prefixes: &[String],
+    running: &[(String, String)],
+) {
+    for (id, name) in running {
+        if !prefixes.iter().any(|p| id.starts_with(p.as_str())) {
+            continue;
+        }
+        let key = name.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        let ids = map.entry(key).or_default();
+        if !ids.contains(id) {
+            ids.push(id.clone());
+        }
+    }
+}
+
+/// The apps that own a window (every window, as list_apps reads them):
+/// (bundle id, localized name). Read from the window list, never by scanning
+/// processes (plans/cmux-next/pty-holder.md).
+fn running_ids_and_names() -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    super::cgwindows::all()
+        .into_iter()
+        .filter(|w| seen.insert(w.pid))
+        .filter_map(|w| app_for_pid(w.pid))
+        .filter_map(|a| Some((a.bundle_id?, a.name)))
+        .collect()
 }
 
 /// Where the cold path learns the guard's blocked ids (set with the menu
@@ -689,20 +729,32 @@ pub fn set_blocked_ids_source(source: BlockedIds) {
 /// The blocked apps' names, built once for a set of ids (again if it
 /// changes). None with no guard yet or when LaunchServices cannot be asked.
 fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
-    static CACHE: std::sync::Mutex<Option<(Vec<String>, std::sync::Arc<NameMap>)>> =
-        std::sync::Mutex::new(None);
-    let ids = {
+    // (entries, when, map): rebuilt when the entries change, and every few
+    // seconds for the running apps a prefix entry covers.
+    type Cached = (Vec<String>, std::time::Instant, std::sync::Arc<NameMap>);
+    static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+    const RUNNING_FRESH: Duration = Duration::from_secs(5);
+    let entries = {
         let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
         (source.as_ref()?)()
     };
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((cached, map)) = cache.as_ref()
-        && *cached == ids
+    if let Some((cached, at, map)) = cache.as_ref()
+        && *cached == entries
+        && at.elapsed() < RUNNING_FRESH
     {
         return Some(map.clone());
     }
-    let map = std::sync::Arc::new(names_of_bundles(&ids)?);
-    *cache = Some((ids, map.clone()));
+    let (prefixes, ids): (Vec<String>, Vec<String>) =
+        entries.iter().cloned().partition(|e| e.ends_with('*'));
+    let prefixes: Vec<String> =
+        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_string()).collect();
+    let mut map = names_of_bundles(&ids)?;
+    if !prefixes.is_empty() {
+        add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
+    }
+    let map = std::sync::Arc::new(map);
+    *cache = Some((entries, std::time::Instant::now(), map.clone()));
     Some(map)
 }
 

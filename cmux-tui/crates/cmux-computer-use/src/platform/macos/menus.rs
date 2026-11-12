@@ -569,8 +569,8 @@ impl MacDesktop {
         {
             return Ok(());
         }
-        if self.opened_item_blocked(el) {
-            return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
+        if let Some(reason) = self.opened_item_reason(el) {
+            return Err(DesktopError::Unsupported(menus::block_message(reason, None)));
         }
         Ok(())
     }
@@ -1066,8 +1066,8 @@ impl MacDesktop {
                 return refuse(format!("the item {:?} is disabled", item.info.title));
             }
             // The full check (LaunchServices names too) on each item chosen.
-            if self.refuse_denied_item(&item.el).is_err() {
-                return refuse(menus::denied_item_refusal(Some(part)));
+            if let Some(reason) = self.opened_item_reason(&item.el) {
+                return refuse(menus::block_message(reason, Some(part)));
             }
             if last {
                 if item.info.submenu {
