@@ -23,6 +23,7 @@ import {
 import { chatDisplayValues, setChatDisplay, TRANSCRIPT_VIEW_KEY } from "../src/agent-session/acpmux/chatDisplay";
 import { transcriptViewRow } from "../src/agent-session/acpmux/header/transcriptViewRow";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -86,6 +87,7 @@ afterEach(async () => {
   resetTranscriptDisclosure();
   resetTranscriptViews();
   setChatDisplay({});
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
