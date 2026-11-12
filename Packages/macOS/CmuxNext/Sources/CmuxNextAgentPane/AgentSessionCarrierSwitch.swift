@@ -503,6 +503,9 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     }
     public func typing(_ on: Bool) async throws { try await call { try await $0.typing(on) } }
     public func view(_ visible: Bool) async throws { try await call { try await $0.view(visible) } }
+    public func view(_ visible: Bool, attending: Bool, seenSeq: UInt64?) async throws -> Data {
+        try await call { try await $0.view(visible, attending: attending, seenSeq: seenSeq) }
+    }
     public func setModel(_ modelId: String) async throws -> Data { try await call { try await $0.setModel(modelId) } }
     public func setMode(_ modeId: String) async throws -> Data { try await call { try await $0.setMode(modeId) } }
     public func setConfig(id configId: String, value: String) async throws -> Data {

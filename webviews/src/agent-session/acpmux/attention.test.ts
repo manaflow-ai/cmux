@@ -113,3 +113,13 @@ test("presentAt is the idle rule", () => {
   expect(presentAt(0, 999, 1000)).toBe(true);
   expect(presentAt(0, 1000, 1000)).toBe(false);
 });
+
+test("lastInputAt is when the hand was last on the page, not when it was noticed away", () => {
+  const h = harness();
+  h.advance(300);
+  h.fire("wheel");
+  h.advance(2000);
+  // Away was noticed at 1300; the reader last saw the chat at 300.
+  expect(h.attention.present()).toBe(false);
+  expect(h.attention.lastInputAt()).toBe(300);
+});

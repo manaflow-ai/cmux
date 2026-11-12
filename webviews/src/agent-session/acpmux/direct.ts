@@ -2856,8 +2856,11 @@ export class AcpmuxDirectClient {
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
-  private shownToAcpmux?: { sessionId: string; visible: boolean };
+  private shownToAcpmux?: { sessionId: string; visible: boolean; attending?: boolean };
   private viewSync: Promise<void> = Promise.resolve();
+  /// The log seq the chat had at the reader's last input (`at`), and which chat: where a pane whose
+  /// reader stepped away says they left off (`_acpmux/view` `seenSeq`, `noteSeen`).
+  private seenAt?: { sessionId: string; seq: number; at: number };
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
@@ -3105,6 +3108,7 @@ export class AcpmuxDirectClient {
     for (const event of own) {
       if (event.seq <= this.lastSeq) continue;
       this.holdLive(event);
+      this.noteSeen();
       this.lastSeq = event.seq;
       this.firstSeq ??= event.seq;
       this.reduce(event);
@@ -5009,15 +5013,27 @@ export class AcpmuxDirectClient {
   };
 
   private stopAttention?: () => void;
-  /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears the
-  /// chat is not shown while they are away, so a turn that ends then stays unread, and their return
-  /// is seeing it: "New since you looked" goes after the last record they were here for.
+  /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears they
+  /// do not attend the chat it still shows, and where they left off, so a turn that ends then stays
+  /// unread, and their return is seeing it: "New since you looked" goes after the last record they
+  /// were here for (acpmux's `lastReturn`).
   private attentionChanged = (): void => {
     const sessionId = this.selectedSessionId;
     if (this.closed || !sessionId || !pageShown()) return;
+    this.noteSeen();
     this.syncView();
     if (readerHere()) this.markSeen(sessionId);
   };
+
+  /// What the chat had when the reader's hand was last on the page is what they saw: called before a
+  /// live record moves `lastSeq`, and as they step away. O(1); no work per pointer move.
+  private noteSeen(): void {
+    const sessionId = this.selectedSessionId;
+    const at = pageAttention()?.lastInputAt();
+    if (!sessionId || at === undefined) return;
+    if (this.seenAt?.sessionId === sessionId && this.seenAt.at >= at) return;
+    this.seenAt = { sessionId, seq: this.lastSeq, at };
+  }
 
   private cameOnline = (): void => {
     if (this.closed) return;
@@ -5106,7 +5122,9 @@ export class AcpmuxDirectClient {
   /// away stay unread.
   private syncView(): void {
     const generation = this.selectionGeneration;
-    const visible = readerHere();
+    // Shown but not attended (attention.ts): acpmux keeps the chat shown and its turns unread.
+    const visible = pageShown();
+    const attending = readerHere();
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
@@ -5117,11 +5135,26 @@ export class AcpmuxDirectClient {
         this.shownToAcpmux?.sessionId !== sessionId
       )
         return;
-      if (this.shownToAcpmux.visible === visible) return;
-      await this.typed("_acpmux/view", { sessionId, visible }).then(
-        () => {
-          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.shownToAcpmux = { sessionId, visible };
+      const was = this.shownToAcpmux;
+      if (was.visible === visible && (was.attending ?? was.visible) === attending) return;
+      const seen = this.seenAt?.sessionId === sessionId ? this.seenAt.seq : undefined;
+      await this.typed("_acpmux/view", {
+        sessionId,
+        visible,
+        ...(visible && { attending }),
+        ...(visible && !attending && seen !== undefined && { seenSeq: seen }),
+      }).then(
+        (answer) => {
+          if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+          this.shownToAcpmux = { sessionId, visible, attending };
+          // Back after turns ended while the person was away from the chat on screen: "New since
+          // you looked" goes where they stopped attending, as when they come back to it.
+          const back = attending ? returnOf(sessionId, answer?.lastReturn) : undefined;
+          if (back && this.since?.seq !== back.seq) {
+            this.since = back;
+            this.placeSince();
+            this.emit();
+          }
         },
         () => undefined,
       );
@@ -5905,7 +5938,9 @@ export class AcpmuxDirectClient {
   /// Asks acpmux to attach `sessionId` (its newest page, then its records live) and, with
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
-    const visible = readerHere();
+    const visible = pageShown();
+    // A reconnect while the reader is away from the chat on screen sees nothing (attention.ts).
+    const attending = readerHere();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -5931,6 +5966,7 @@ export class AcpmuxDirectClient {
       ],
       eventStream: true,
       visible,
+      ...(visible && !attending && { attending }),
     });
     const out = { sessionId };
     this.attachOut = out;
@@ -5941,7 +5977,7 @@ export class AcpmuxDirectClient {
       () => {
         settled();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-          this.shownToAcpmux = { sessionId, visible };
+          this.shownToAcpmux = { sessionId, visible, attending };
       },
       () => settled(),
     );
@@ -13790,7 +13826,8 @@ function pageShown(): boolean {
 }
 
 /// Whether the reader sees the chat: the page shows and their hand was on it lately (attention.ts).
-/// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
+/// What acpmux hears as `attending` (with `visible` the page shown), so a turn that ends while they
+/// are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
 }

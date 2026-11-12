@@ -3,9 +3,9 @@
 // necessarily watching it, right? Like if they didn't move the mouse at all, then it's like, well,
 // they didn't see it. There's that activity sort of model there.").
 //
-// The pane tells acpmux it shows its chat only while the reader is here (direct.ts `syncView`), so
-// a turn that ends while they are away is unread (acpmux hub/seen.rs), and coming back by hand is
-// seeing it: "New since you looked" goes after the last record they were here for, and Jump up
+// The pane tells acpmux whether the reader attends the chat it shows (direct.ts `syncView`,
+// `attending`), so a turn that ends while they are away is unread (acpmux hub/seen.rs) while the
+// chat stays shown (its process, recap and presence), and coming back by hand is seeing it: "New since you looked" goes after the last record they were here for, and Jump up
 // takes them there. Chat apps mark a channel read while it is open in a focused window; this asks
 // for a hand on it, since a window left open on a chat says nothing about whether anyone read it.
 //
@@ -30,6 +30,9 @@ export function presentAt(lastInputAt: number, now: number, idleMs = ATTENTION_I
 export type Attention = {
   /// The reader's hand was on the page within the idle time.
   present(): boolean;
+  /// When their hand was last on the page: what a chat had by then is what they saw (direct.ts
+  /// `noteSeen`, acpmux `seenSeq`).
+  lastInputAt(): number;
   /// An input this page's own listeners do not see: the reader showed the page (switched to its
   /// tab or workspace) or picked a chat in it.
   touch(): void;
@@ -94,6 +97,7 @@ export function createAttention(
   };
   return {
     present: () => here,
+    lastInputAt: () => lastInputAt,
     touch: () => {
       if (listeners.size > 0) input();
     },

@@ -71,7 +71,7 @@ import {
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine } from "./conversation/pinnedLiveLine";
-import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
+import { createFollowChase, type FollowChase, ARRIVAL_EASE, arrivalStepMs } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -1000,22 +1000,26 @@ export function JumpToLatest({
 export function JumpUp({
   shown,
   back,
+  unread = false,
   onJump,
   lift,
 }: {
   shown: boolean;
   back: boolean;
+  /// It goes to the unread "New" line: the disc carries the accent dot (jumpPair.css).
+  unread?: boolean;
   onJump: () => void;
   lift: number;
 }) {
   const t = useT();
-  const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
+  const label = t(back ? "transcript.jumpBack" : unread ? "transcript.jumpUnread" : "transcript.jumpUp");
   return (
     <button
       type="button"
       className="ui-glass acpmux-jump-latest acpmux-jump-up"
       data-shown={shown ? "" : undefined}
       data-back={back ? "" : undefined}
+      data-unread={unread ? "" : undefined}
       data-focus-ring="none"
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
@@ -4824,7 +4828,11 @@ function TranscriptView({
     if (top === undefined) return;
     jumpBack.current = press.back;
     setJumpBackHeld(true);
-    placeView(top - node.clientHeight / 3);
+    // The place lands near the top of the view, twice the thread's top padding over it (clear of
+    // the scroller's 18 px top fade): the unread line with the first row the person did not see
+    // right under it, and everything after it below to read down through (Leo, 2026-11-11: "you
+    // eventually can jump right up to the last unread bit"). It was a third of the view down.
+    placeView(top - THREAD_TOP);
   };
   const pressUpRef = useRef(pressUp);
   pressUpRef.current = pressUp;
@@ -5354,9 +5362,10 @@ function TranscriptView({
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
+  const upUnread = jumpButton && sinceRow !== undefined && unreadPending(sinceKey, unreadView);
   const upTarget = jumpButton
     ? jumpUpTarget(
-        sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined,
+        upUnread ? SINCE_DIVIDER : undefined,
         ownPrompt && { place: { rowId: ownPrompt.id, offset: 0 }, at: ownPrompt.at, why: "sent" },
         stoppedMark.current,
       )
@@ -5630,7 +5639,9 @@ function TranscriptView({
             />
           </div>
         )}
-        {jumpButton && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
+        {jumpButton && (
+          <JumpUp shown={upShown} back={jumpBackHeld} unread={upUnread} onJump={() => pressUp()} lift={dockSpace} />
+        )}
         {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
