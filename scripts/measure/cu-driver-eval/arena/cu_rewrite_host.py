@@ -79,7 +79,6 @@ def main():
     server.bind(a.socket)
     os.chmod(a.socket, 0o600)
     server.listen(16)
-    print(f"cu_rewrite_host: serving computer-use-endpoint on {a.socket}", file=sys.stderr, flush=True)
 
     def serve(conn):
         with conn, conn.makefile("rwb") as stream:
@@ -97,6 +96,8 @@ def main():
                 stream.flush()
 
     try:
+        # Inside the try: a stderr nobody reads makes this print raise, and the finally still stops the worker.
+        print(f"cu_rewrite_host: serving computer-use-endpoint on {a.socket}", file=sys.stderr, flush=True)
         while worker.poll() is None:
             server.settimeout(1.0)
             try:
