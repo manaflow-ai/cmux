@@ -94,16 +94,20 @@ final class TerminalJumpToBottomUITests: XCTestCase {
             let end = start.withOffset(CGVector(dx: 0, dy: points))
             start.press(forDuration: 0.1, thenDragTo: end, withVelocity: XCUIGestureVelocity(120), thenHoldForDuration: 0.6)
         }
-        // The mock intro streams for a few seconds; its scrollback is short
-        // (about 300 pt), so the drags are short too.
+        // The mock intro's scrollback is about 200 pt: a build log gives the
+        // drags room. Then wait for the output to stop.
+        let field = app.textViews["terminal.composer.field"]
+        field.tap()
+        field.typeText("cargo build")
+        app.buttons["terminal.composer.send"].tap()
         try waitForStill(app, scale: try scale(app))
-        drag(points: 40)
-        XCTAssertFalse(jump.waitForExistence(timeout: 1), "40 pt up: under the 120 pt threshold, no pill yet")
+        drag(points: 50)
+        XCTAssertFalse(jump.waitForExistence(timeout: 1), "50 pt up: under the 120 pt threshold, no pill yet")
         let before = app.screenshot()
-        drag(points: 90)
+        drag(points: 140)
         XCTAssertTrue(jump.waitForExistence(timeout: 2), "the second drag crosses the threshold: the pill shows")
         let shown = app.screenshot()
-        drag(points: 90)
+        drag(points: 140)
         XCTAssertTrue(jump.exists, "still shown")
         let after = app.screenshot()
         attach(shown, "pill-appeared-mid-drag")
@@ -111,7 +115,7 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         let scale = try scale(app)
         let appearing = try rowShift(from: before, to: shown, scale: scale)
         let steady = try rowShift(from: shown, to: after, scale: scale)
-        XCTAssertGreaterThan(steady, 40, "the third drag moved the rows (\(steady) pt)")
+        XCTAssertGreaterThan(steady, 80, "the third drag moved the rows (\(steady) pt)")
         XCTAssertEqual(appearing, steady, accuracy: 8,
                        "rows moved \(appearing) pt while the pill appeared vs \(steady) pt with it shown: the pill made the page jump")
     }
