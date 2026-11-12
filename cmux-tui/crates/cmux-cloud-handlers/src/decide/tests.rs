@@ -188,3 +188,64 @@ fn a_port_failure_names_the_limit_or_the_detail() {
     );
     assert_eq!(detail("no route."), "no route");
 }
+
+#[test]
+fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "no-desktop", "title": "Shell", "status": "running", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": true},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": true},
+        {"id": "starting", "title": "Booting", "status": "starting", "desktop": true}
+    ]))
+    .unwrap();
+    assert_eq!(
+        palette_targets(true, &machines),
+        vec![
+            PaletteTargetRow {
+                id: "ready".into(),
+                title: "Ready".into(),
+                state: PaletteTargetState::Ready,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "paused".into(),
+                title: "Paused".into(),
+                state: PaletteTargetState::Resume,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "starting".into(),
+                title: "Booting".into(),
+                state: PaletteTargetState::Starting,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "no-desktop".into(),
+                title: "Shell".into(),
+                state: PaletteTargetState::ImageMissingDesktop,
+                intent: Some(PaletteTargetIntent::CreateDesktop)
+            },
+        ]
+    );
+}
+
+#[test]
+fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_empty() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "unknown", "title": "", "status": "offline", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": false},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": false}
+    ]))
+    .unwrap();
+    assert_eq!(palette_targets(false, &machines)[0].id, "ready");
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(
+        palette_targets(true, &[]),
+        vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop)
+        }]
+    );
+}

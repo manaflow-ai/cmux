@@ -57,3 +57,15 @@ fn c_abi_null_out_pointers_are_refused() {
         unsafe { cmux_action_catalog_json(std::ptr::null(), 0, std::ptr::null_mut(), &mut len) };
     assert_eq!(status, ERR_NULL);
 }
+
+#[test]
+fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions() {
+    let catalog = catalog("");
+    let actions = catalog["actions"].as_array().expect("actions");
+    let row = |id: &str| actions.iter().find(|a| a["id"] == id).expect("action");
+    assert_eq!(row("cloudOpenDesktop")["paletteTarget"], "machine");
+    assert_eq!(row("cloudExec")["paletteTarget"], "machine");
+    assert_eq!(row("newCloudWorkspace")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("cloudStartSession")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("newTab")["paletteTarget"], serde_json::Value::Null);
+}

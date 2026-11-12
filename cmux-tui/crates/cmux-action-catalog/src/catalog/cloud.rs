@@ -53,6 +53,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 203).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud fork-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -68,6 +69,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 202).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud snapshot-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -84,6 +86,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         arguments: &[args::SNAPSHOT],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud restore-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -99,6 +102,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 206).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud promote-machine-to-template",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -114,6 +118,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 201).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud machine-status",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -129,6 +134,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 205).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud machine-ports",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -144,6 +150,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("cloudMachine", "inspect", 103).folder("tools")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud machine-tools",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -159,6 +166,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 204).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud hand-off-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -218,6 +226,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 2)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud ssh",
         starts_terminal: true,
         waits_for_result: true,
@@ -235,6 +244,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         arguments: &[args::COMMAND],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud exec",
         starts_terminal: true,
         waits_for_result: true,
@@ -251,6 +261,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 3)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud setup-github",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -267,6 +278,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 2).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud files-list",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -283,6 +295,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 3).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud file-read",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -299,6 +312,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 4).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH, args::CONTENTS],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud file-write",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -315,6 +329,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 5).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud file-mkdir",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -331,6 +346,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 6).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH, args::CONFIRM.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud file-remove",
         is_destructive: true,
         waits_for_result: true,
@@ -348,6 +364,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 7).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud file-stat",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -364,6 +381,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 8).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PUBLIC_KEY],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud prepare-scp",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -524,6 +542,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 20).folder("tools")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT, args::NAME.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud provision-api",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -612,6 +631,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 199).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::VIEWER.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud open-desktop",
         ..Action::DEFAULT
     },
@@ -660,6 +680,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 208).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud pause-machine",
         ..Action::DEFAULT
     },
@@ -675,6 +696,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 209).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud resume-machine",
         ..Action::DEFAULT
     },
@@ -751,6 +773,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         arguments: &[args::MACHINE_CONFIG.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud apply-machine-config",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -768,6 +791,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         arguments: &[args::REPO_2.optional(), args::NAMES.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud deliver-secrets",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -815,6 +839,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         arguments: &[args::SNAPSHOT, args::CONFIRM.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
         ..Action::DEFAULT

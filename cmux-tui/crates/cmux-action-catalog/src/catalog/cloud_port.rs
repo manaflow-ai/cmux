@@ -21,6 +21,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 211).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT, args::PATH.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud open-browser",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -36,6 +37,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 212).folder("connection")], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud port-list",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -52,6 +54,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 213).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud port-forward",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -68,6 +71,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 214).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud port-close",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -84,6 +88,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 215).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud preview-share",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -100,6 +105,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 216).folder("connection")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT, args::LINK_ID],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud preview-revoke",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -115,6 +121,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("duplicateOfDefault"), ..SurfacePlan::DEFAULT },
         arguments: &[args::PORT.optional()],
         targets: &["machine"],
+        palette_target: Some("machine"),
         cli_name: "cloud machine-link",
         waits_for_result: true,
         ..Action::DEFAULT

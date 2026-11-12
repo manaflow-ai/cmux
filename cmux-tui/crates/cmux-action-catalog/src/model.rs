@@ -218,6 +218,9 @@ pub struct Action {
     pub requires: &'static [&'static str],
     pub arguments: &'static [Argument],
     pub targets: &'static [&'static str],
+    /// Target kind the palette may ask the person to choose when no focused target exists.
+    /// `None` preserves the action's focused/creation semantics.
+    pub palette_target: Option<&'static str>,
     pub cli_name: &'static str,
     pub main_menu: Option<&'static str>,
     pub is_debug_only: bool,
@@ -252,6 +255,7 @@ impl Action {
         requires: &[],
         arguments: &[],
         targets: &[],
+        palette_target: None,
         cli_name: "",
         main_menu: None,
         is_debug_only: false,
