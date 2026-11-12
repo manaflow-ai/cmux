@@ -3,10 +3,12 @@ import XCTest
 /// The Workspaces list's close confirmations point at the row or group header
 /// whose menu (or swipe) asked for them: Close Other Workspaces, Close
 /// Workspaces Above / Below and Close All Workspaces from a row's Close folder,
-/// Close (the swipe), and Close All in Group, Close Other Groups and Delete
-/// Group from a group header. Before 2026-11-11 the bulk closes and Delete
-/// Group opened detached (from the list's top-left corner, or as a sheet),
-/// because only the single Close moved the popover's anchor to its row.
+/// and Close (the swipe). Before 2026-11-11 the bulk closes opened detached
+/// (from the list's top-left corner), because only the single Close moved the
+/// popover's anchor to its row; and near the list's bottom every one of them,
+/// the single Close too, slid up over the row it named. A group header's
+/// Close All in Group, Close Other Groups and Delete Group take the same path,
+/// but mock data has no Mac groups, so they are not reached here.
 ///
 /// Each check opens the confirmation and requires its popover (title down to
 /// its destructive button) to sit right above or right below its source, as a
@@ -54,19 +56,6 @@ final class CloseConfirmAnchorUITests: XCTestCase {
         }
         app.terminate()
     }
-
-    @MainActor
-    func testGroupHeaderClosesPointAtTheHeader() {
-        for (item, button) in [("Close All in Group", "Close Workspace"), ("Close Other Groups", "Close Workspace"),
-                               ("Delete Group", "Delete Group")] {
-            let app = A.launch()
-            XCTAssertNil(A.makeTwoGroups(app), "groups for \(item)\n\(app.debugDescription)")
-            guard let header = A.header(app, A.secondGroup) else { XCTFail("no group header"); app.terminate(); continue }
-            XCTAssertNil(A.openHeaderItem(app, header: header, item: item), item)
-            A.assertPoints(app, at: header, button: button, what: "\(item) from the group header", test: self)
-            app.terminate()
-        }
-    }
 }
 
 /// Reach and measure helpers, shared with the all-UI-states capture scenes.
@@ -77,8 +66,6 @@ enum CloseConfirmAnchor {
     static let studioRows: Set<String> = [
         "ws-cmux", "ws-web", "ws-ios", "ws-infra", "ws-ghostty", "ws-design", "ws-blog", "ws-release",
     ]
-    static let firstGroup = "alpha"
-    static let secondGroup = "beta"
 
     @MainActor
     static func launch(_ extra: [String] = []) -> XCUIApplication {
@@ -130,52 +117,6 @@ enum CloseConfirmAnchor {
         ])
     }
 
-    /// Two groups on the Mac Studio (ws-web in "alpha", ws-ios in "beta"), through
-    /// each row's Group > Move Workspace to Group… > Move Workspace to New Group.
-    @MainActor
-    static func makeTwoGroups(_ app: XCUIApplication) -> String? {
-        UIStateCaptureCase.steps([
-            { moveToNewGroup(app, rowID: "ws-web", name: firstGroup) },
-            { moveToNewGroup(app, rowID: "ws-ios", name: secondGroup) },
-        ])
-    }
-
-    @MainActor
-    static func moveToNewGroup(_ app: XCUIApplication, rowID: String, name: String) -> String? {
-        UIStateCaptureCase.steps([
-            { UIStateCaptureCase.longPress(app.buttons["workspace.row.\(rowID)"], rowID) },
-            { menuTap(app.buttons["Group"].firstMatch, "Group folder") },
-            { menuTap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Move Workspace to Group'")).firstMatch, "Move Workspace to Group…") },
-            { menuTap(app.buttons["Move Workspace to New Group"].firstMatch, "Move Workspace to New Group") },
-            {
-                let alert = app.alerts["Move Workspace to New Group"]
-                guard alert.waitForExistence(timeout: 8) else { return "no new-group alert" }
-                let field = alert.textFields.firstMatch
-                field.tap()
-                field.typeText(name)
-                return UIStateCaptureCase.tap(alert.buttons["Create"], "Create")
-            },
-            { header(app, name, timeout: 15) == nil ? "no \(name) group header" : nil },
-        ])
-    }
-
-    @MainActor
-    static func header(_ app: XCUIApplication, _ name: String, timeout: Double = 5) -> XCUIElement? {
-        let header = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH 'workspace.group.' AND label CONTAINS[c] %@", name)).firstMatch
-        return header.waitForExistence(timeout: timeout) ? header : nil
-    }
-
-    /// Long press a group header and pick `item` from its menu.
-    @MainActor
-    static func openHeaderItem(_ app: XCUIApplication, header: XCUIElement, item: String) -> String? {
-        UIStateCaptureCase.steps([
-            { UIStateCaptureCase.longPress(header, "group header") },
-            { menuTap(app.buttons[item].firstMatch, item) },
-            { UIStateCaptureCase.wait(dialogTitle(app), "confirmation title", timeout: 8) },
-        ])
-    }
-
     /// Taps a context menu item. An element tap (not a coordinate one) lets
     /// XCTest scroll a long menu to the item; a drag beside a short menu would
     /// dismiss it.
@@ -202,15 +143,18 @@ enum CloseConfirmAnchor {
         return title.frame.union(action.frame)
     }
 
-    /// How far the popover sits from its source: 0 when it touches it, else the
-    /// gap between them (a popover's padding and arrow make a few dozen points).
+    /// How far the popover's content sits from its source: the gap between the
+    /// source and the content's near edge, above or below; infinity when the
+    /// content overlaps the source. A popover whose arrow touches its source
+    /// keeps its content `minGap...maxGap` away (the arrow and the popover's
+    /// inset). Less means it slid over the source.
     static func gap(_ popover: CGRect, from source: CGRect) -> CGFloat {
         let below = popover.minY - source.maxY
         let above = source.minY - popover.maxY
-        return [below, above].filter { $0 >= -2 }.min() ?? .infinity
+        return [below, above].filter { $0 >= 0 }.min() ?? .infinity
     }
 
-    /// Popover padding (title inset, arrow) and nothing more.
+    static let minGap: CGFloat = 12
     static let maxGap: CGFloat = 80
 
     @MainActor
@@ -226,7 +170,8 @@ enum CloseConfirmAnchor {
         }
         let distance = gap(rect, from: source.frame)
         print("CLOSE-ANCHOR \(what): source \(source.frame) popover \(rect) gap \(distance)")
-        XCTAssertLessThanOrEqual(distance, maxGap, "\(what): the popover \(rect) is \(distance) pt from its source \(source.frame)",
-                                 file: file, line: line)
+        XCTAssertTrue((minGap...maxGap).contains(distance),
+                      "\(what): the popover \(rect) is \(distance) pt from its source \(source.frame), want \(minGap)...\(maxGap)",
+                      file: file, line: line)
     }
 }

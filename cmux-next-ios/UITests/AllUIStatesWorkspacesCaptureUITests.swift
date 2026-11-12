@@ -128,9 +128,9 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
 
     /// Every close confirmation the list asks, from its source: Close Other
     /// Workspaces from the top, middle and bottom row, Above / Below / All,
-    /// the swipe's Close, and a group header's Close All in Group, Close Other
-    /// Groups and Delete Group; at the default size and at Accessibility L.
-    /// Each should point at the row or header it came from.
+    /// and the swipe's Close; at the default size and at Accessibility L.
+    /// Each should point at the row it came from. (Mock data has no Mac
+    /// groups, so a group header's closes are not reached.)
     @MainActor
     func testCloseConfirmations() {
         typealias A = CloseConfirmAnchor
@@ -160,18 +160,6 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 guard let row = A.row(app, .bottom) else { return "no bottom row" }
                 return A.openSwipeClose(app, row: row)
             })
-            for (id, item) in [("group-close-all", "Close All in Group"), ("group-close-others", "Close Other Groups"),
-                               ("group-delete", "Delete Group")] {
-                scenes.append(Scene(group: g, id: id + suffix, args: args) { app in
-                    C.steps([
-                        { A.makeTwoGroups(app) },
-                        {
-                            guard let header = A.header(app, A.secondGroup) else { return "no group header" }
-                            return A.openHeaderItem(app, header: header, item: item)
-                        },
-                    ])
-                })
-            }
         }
         capture(scenes)
     }
