@@ -603,6 +603,8 @@ impl Hub {
             parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
+            // A model switch's fork: what the chat ran before it.
+            fork_origin: m.fork_origin.clone(),
             spawned_by: self.spawned_by(&m),
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),

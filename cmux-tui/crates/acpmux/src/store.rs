@@ -238,6 +238,11 @@ pub struct SessionMeta {
     /// the log allows those skips (`hub/fork_before.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_kept_through: Option<u64>,
+    /// A fork onto another harness (a model switch, `hub/fork.rs` `Retarget`): the harness and
+    /// model the chat ran before it, so every client draws "Forked from <model>" at the cut and
+    /// the new agent's briefing names where it came from. None for any other chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_origin: Option<ForkOrigin>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
@@ -610,6 +615,23 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// Where a model switch's fork came from (`SessionMeta::fork_origin`): the chat it was forked
+/// from and what that chat ran. Ids only; a client names them from its catalog.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkOrigin {
+    /// The chat it was forked from.
+    pub session_id: String,
+    /// That chat's harness profile (`claude`, `codex`, `claude-work`).
+    pub harness: String,
+    /// That harness's family, when known (`claude`, `codex`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    /// The model that chat ran, when known (never the `default` placeholder).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Who created a session (`hub/created_by.rs`), the shape cmux-tui's

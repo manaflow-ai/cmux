@@ -53,3 +53,8 @@ export const replyToMessage = (message: IncomingMessage, text: string) =>
     threadId: message.threadId,
     text,
   });
+
+/// A model switch's divider, Open in new tab (conversation/forkDivider.ts): the fork moves to a tab
+/// of its own and this pane shows the chat it came from again (App.tsx `chat.fork.openInTab`).
+export const openForkInTab = ({ sessionId, parentId }: { sessionId: string; parentId: string }) =>
+  void window.cmuxAcpmuxActions?.["chat.fork.openInTab"]?.({ sessionId, parentId }).catch(() => undefined);

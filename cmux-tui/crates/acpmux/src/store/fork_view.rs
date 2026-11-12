@@ -23,6 +23,8 @@ use std::sync::RwLock;
 
 /// The records a fork shows of its chat: what attach replays as the chat's transcript.
 pub const HISTORY_KINDS: &[&str] = &[
+    // A second fork still shows where the first switched models.
+    "forked",
     "user_message",
     "agent_message_chunk",
     "agent_thought_chunk",

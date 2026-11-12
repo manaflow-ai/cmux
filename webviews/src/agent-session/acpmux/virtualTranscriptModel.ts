@@ -57,6 +57,10 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   return (
     before.id === after.id &&
     before.version === after.version &&
+    // A fork's model/title can arrive after its transcript; its notice must redraw then.
+    before.forkDivider?.label === after.forkDivider?.label &&
+    before.forkDivider?.openInTab?.sessionId === after.forkDivider?.openInTab?.sessionId &&
+    before.forkDivider?.openInTab?.parentId === after.forkDivider?.openInTab?.parentId &&
     before.below === after.below &&
     before.ended === after.ended &&
     // A turn footer's Timeline also redraws when a background shell ends after the turn, which

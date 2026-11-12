@@ -3173,6 +3173,38 @@
       ],
       "type": "object"
     },
+    "ForkOrigin": {
+      "description": "Where a model switch's fork came from (`SessionMeta::fork_origin`): the chat it was forked\nfrom and what that chat ran. Ids only; a client names them from its catalog.",
+      "properties": {
+        "family": {
+          "description": "That harness's family, when known (`claude`, `codex`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "description": "That chat's harness profile (`claude`, `codex`, `claude-work`).",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model that chat ran, when known (never the `default` placeholder).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "description": "The chat it was forked from.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "harness"
+      ],
+      "type": "object"
+    },
     "ForkParams": {
       "additionalProperties": false,
       "description": "`acp.session.fork`: a completed-turn, live, or before-prompt fork.\nBefore-prompt requests require requestId and omit both throughSeq and live.",
@@ -5624,6 +5656,17 @@
             "null"
           ]
         },
+        "forkOrigin": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ForkOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A model switch's fork (`hub/fork.rs` `Retarget`): the chat it was forked from and the\nharness and model that chat ran, which a client names at the cut (\"Forked from Claude\nOpus 5.5\"). Absent for any other chat, and from a peer on an older acpmux."
+        },
         "forkSeq": {
           "description": "Where a fork branched off its parent.",
           "format": "uint64",
@@ -6332,6 +6375,17 @@
             "string",
             "null"
           ]
+        },
+        "forkOrigin": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ForkOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A model switch's fork (`hub/fork.rs` `Retarget`): the chat it was forked from and the\nharness and model that chat ran, which a client names at the cut (\"Forked from Claude\nOpus 5.5\"). Absent for any other chat, and from a peer on an older acpmux."
         },
         "forkSeq": {
           "description": "Where a fork branched off its parent.",

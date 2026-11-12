@@ -388,7 +388,7 @@ enum AgentHandlers {
         // through acpmux and the app opens the fork at the destination.
         if let view = context.services.agentTabs.existingView(tab.id) {
             guard !context.services.agentTabs.isNewTabPage(tab.id) else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }
-            view.forkConversation(to: destination, offerDestinations: offerDestinations)
+            view.forkConversation(to: offerDestinations ? nil : destination, offerDestinations: offerDestinations)
             return
         }
         guard tab.kind == .pty else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }

@@ -100,6 +100,9 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** A model switch's fork (acpmux `forkOrigin`, hub/fork.rs): the chat it was forked from and the
+   *  harness and model that chat ran, which its divider names (conversation/forkDivider.ts). */
+  forkOrigin?: ForkOrigin;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -124,6 +127,20 @@ export type AcpmuxSessionEntry = {
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
 };
+
+/** What a model switch's fork came from (acpmux `forkOrigin`): ids, named from the catalog. */
+export type ForkOrigin = { sessionId: string; harness: string; family?: string; model?: string };
+
+function forkOrigin(value: unknown): ForkOrigin | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const sessionId = text(raw.sessionId);
+  const harness = text(raw.harness);
+  if (!sessionId || !harness) return undefined;
+  const family = text(raw.family);
+  const model = text(raw.model);
+  return { sessionId, harness, ...(family && { family }), ...(model && { model }) };
+}
 
 /** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
 export type ColdArchive = {
@@ -355,6 +372,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(forkOrigin(session.forkOrigin) && { forkOrigin: forkOrigin(session.forkOrigin) }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
