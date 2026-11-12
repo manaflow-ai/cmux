@@ -103,9 +103,13 @@ public protocol TabStripCorner: AnyObject {
     /// The selected tab is the strip's first, unscrolled, so its leading side is the pane's edge.
     var selectsLeadingTab: Bool { get }
     /// Whether the strip is on the card's top row, where the frame's shade is behind it: only there does
-    /// its selected tab run into the card. A strip inside the card (a lower split pane's) keeps the pill,
-    /// which a tab in the card's own color would hide on the card.
+    /// its selected tab run into the card. A strip inside the card (a lower split pane's) tones its own row
+    /// instead (``setTonedInCard(_:)``): a tab in the card's own color would hide on an untoned row.
     func setRunsIntoCard(_ runs: Bool)
+    /// Whether the strip is inside the card (a lower split pane's) while the top row's tabs are folders: it then
+    /// tones its own row as the frame's shade tones the top row, so its selected tab is a folder too, in the
+    /// content's surface and opening into it, never a pill in the card.
+    func setTonedInCard(_ toned: Bool)
     /// The selected tab's folder (its body down to the card and its fillets) in `target`'s coordinates, while
     /// it runs into the card; nil otherwise. The chrome's shade leaves it out (``Palette/folderTabFill``).
     func selectedFolderPath(in target: CALayer) -> CGPath?
@@ -162,7 +166,12 @@ public final class CornerFlushChrome: NSView {
         while let ancestor = view {
             if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
                 chrome.strips.add(strip)
-                if chrome.isHidden { strip.setRunsIntoCard(false) } else { chrome.redraw() }
+                if chrome.isHidden {
+                    strip.setRunsIntoCard(false)
+                    strip.setTonedInCard(false)
+                } else {
+                    chrome.redraw()
+                }
                 return true
             }
             view = ancestor.superview
@@ -317,11 +326,13 @@ public final class CornerFlushChrome: NSView {
     }
 
     /// Tells each strip of this window whether it is on the top row of `card` (nil: no tab row, so none
-    /// is), so only those run their selected tab into the card. O(strips); a strip relays out only on a change.
+    /// is), so only those run their selected tab into the card; the rest, inside the card, tone their own row
+    /// while the top row's tabs are folders. O(strips); a strip relays out only on a change.
     private func markTopRow(card: CGRect?, in root: NSView) {
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
             let onTop = card.map { !strip.isHidden && abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - $0.maxY) < 2 } ?? false
             strip.setRunsIntoCard(onTop)
+            strip.setTonedInCard(card != nil && !onTop && !strip.isHidden)
         }
     }
 

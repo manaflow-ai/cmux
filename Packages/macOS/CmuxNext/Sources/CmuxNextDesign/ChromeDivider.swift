@@ -22,4 +22,12 @@ extension Palette {
         let alpha = min(1, separator.alphaComponent * CGFloat(ChromeTunables.dividerStrength.value))
         return separator.withAlphaComponent(alpha)
     }
+
+    /// A finer chrome line in the dividers' colour (the tab separators, the pinned group's end): `opacity` of the
+    /// separator's hue at the default ``ChromeTunables/dividerStrength``, following the strength from there, so the
+    /// chrome has one divider colour and each line keeps its weight beside the others.
+    public static func chromeDivider(opacity: CGFloat) -> NSColor {
+        let strength = ChromeTunables.dividerStrength
+        return chromeDivider.withAlphaComponent(min(1, opacity * CGFloat(strength.value / strength.defaultValue)))
+    }
 }

@@ -351,9 +351,11 @@ final class TabCell {
             let folder = Palette.folderTabFill ?? selection
             if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
             cornerFeetLayer?.fillColor = folder.cgColor
-            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
+            if isLifted {
+                // The floating-card token (`Palette.elevatedBackground`, the window a step toward the text) keeps the
+                // tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(Palette.elevatedBackground).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
