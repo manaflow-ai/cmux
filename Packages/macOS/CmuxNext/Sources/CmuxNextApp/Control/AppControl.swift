@@ -428,6 +428,9 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarWheel.post(call.params, services: services))
             },
+            .mainActor("debug.sidebar_priority_hold") { [weak services] call in
+                .value(services.map { DebugSidebarPriorityHold.run(call.params, $0) } ?? .null)
+            },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))

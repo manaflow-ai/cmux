@@ -66,6 +66,10 @@ public final class SidebarPriorityFeed {
     /// Armed while no chat list was read; its fire turns loading into "Couldn't load agent chats."
     private let loadTimer: DemandTimer
     private let loadState = PriorityLoadState()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The captures' hold on the chat list read (``SidebarPriorityDebugHold``); tests set their own.
+    var debugHold = SidebarPriorityDebugHold.shared
+    #endif
 
     public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats, clock: any Clock<Duration> = ContinuousClock()) {
         self.settings = settings
@@ -95,6 +99,9 @@ public final class SidebarPriorityFeed {
         return Task { [self, weak view] in
             for await panel in ObservationStream({ self.panel() }) {
                 view?.showPriority(panel)
+                #if DEBUG || CMUX_BENCH_HOOKS
+                debugHold.shown = panel.map(SidebarPriorityDebugHold.state(of:))
+                #endif
                 // The chats the rows were built from (`panel`), else (the view not installed) built now.
                 let built = self.built ?? chats.snapshot()
                 self.built = nil
@@ -124,12 +131,17 @@ public final class SidebarPriorityFeed {
             !$0.sidebarRequiresOpen || opened.contains($0.id) || state.pinned.contains($0.id)
         }.map(\.id))
         let answerable = approvals?.answerable ?? [:]
-        let entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
+        var entries = chats.entries(built, now: Date()).filter { visible.contains($0.id) }.map { entry in
             var entry = entry
             entry.answerRequest = entry.state == .needsYou ? answerable[entry.id] : nil
             return entry
         }
-        let loaded = !entries.isEmpty || chats.listed()
+        var listed = chats.listed()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A held list read (captures): no chat list was read, so the feed's own deadline and Try Again run.
+        if debugHold.held { (entries, listed) = ([], false) }
+        #endif
+        let loaded = !entries.isEmpty || listed
         let timedOut = loadState.timedOut
         followLoadDeadline(loaded: loaded, timedOut: timedOut)
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
@@ -200,3 +212,31 @@ final class PriorityLoadState {
 final class PriorityClock {
     var ticks = 0
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// DEBUG ONLY: holds the Priority view's chat list read, for captures of ui-state-fixes M6
+/// (`debug.sidebar_priority_hold`). While `held`, every window's real Priority feed reads as if no
+/// chat list had come: it shows "Loading agent chats…", its own deadline
+/// (`SidebarPriorityFeed.loadDeadline`) ends that in "Couldn't load agent chats." with Try Again,
+/// and Try Again runs the feed's own retry (watches connect again, loading under a fresh
+/// deadline). Released, the feed reads its real chat lists again: the chats, or "No agent chats
+/// right now" once a store delivered an empty page. Nothing draws a panel the feed did not build.
+/// Compiled out of Release.
+@Observable @MainActor
+public final class SidebarPriorityDebugHold {
+    public static let shared = SidebarPriorityDebugHold()
+
+    public init() {}
+
+    /// The chat list read is held: no list was read.
+    public var held = false
+    /// What a feed last showed (`loading`, `failed`, `empty` or `list`), for the capture's readout.
+    @ObservationIgnored public internal(set) var shown: String?
+
+    nonisolated static func state(of panel: SidebarPriorityPanel) -> String {
+        if !panel.entries.isEmpty { return "list" }
+        if panel.loaded { return "empty" }
+        return panel.loadFailed ? "failed" : "loading"
+    }
+}
+#endif

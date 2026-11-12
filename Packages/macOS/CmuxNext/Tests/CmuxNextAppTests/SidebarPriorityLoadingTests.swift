@@ -116,6 +116,48 @@ struct SidebarPriorityLoadingTests {
         #expect(try #require(feed.panel()).loaded)
     }
 
+    /// Round 8 (verifier M6, blocking 4): the captures drew injected panels, so Try Again changed
+    /// nothing they showed. The capture hold (`SidebarPriorityDebugHold`, `debug.sidebar_priority_hold`)
+    /// drives the real feed instead: a held list read is loading, its own deadline ends it in the
+    /// error, the panel's own Try Again runs the feed's retry and shows loading under a fresh
+    /// deadline, and the release shows the real list.
+    @Test func theCaptureHoldDrivesTheRealFeedThroughFailedRetryAndTheList() async throws {
+        let clock = ManualClock()
+        let store = AgentLaneStore()
+        store.live = true
+        let retries = RetryCount()
+        let feed = feed(store, clock: clock) { retries.value += 1 }
+        let hold = SidebarPriorityDebugHold()
+        feed.debugHold = hold
+        #expect(try #require(feed.panel()).loaded, "a live store read as not listed before the hold")
+
+        hold.held = true
+        let held = try #require(feed.panel())
+        #expect(!held.loaded && !held.loadFailed, "a held list read did not show loading")
+        #expect(SidebarPriorityDebugHold.state(of: held) == "loading")
+        try await clock.waitForSleeper()
+        await panelChange(feed) { clock.advance(by: SidebarPriorityFeed.loadDeadline) }
+        let failed = try #require(feed.panel())
+        #expect(SidebarPriorityDebugHold.state(of: failed) == "failed", "the held read never ended in the error")
+
+        let view = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 260, height: 200))
+        view.onAction = { feed.perform($0) }
+        view.show(failed)
+        #expect(view.offersRetry)
+        await panelChange(feed) { view.retry.performClick(nil) }
+        #expect(retries.value == 1, "the panel's Try Again did not run the feed's retry")
+        let again = try #require(feed.panel())
+        #expect(SidebarPriorityDebugHold.state(of: again) == "loading", "Try Again kept the error")
+        try await clock.waitForSleeper()
+        #expect(clock.sleeperCount == 1, "Try Again did not re-arm the deadline")
+
+        hold.held = false
+        let released = try #require(feed.panel())
+        #expect(SidebarPriorityDebugHold.state(of: released) == "empty", "the release did not show the real (empty) list")
+        #expect(!released.loadFailed)
+        #expect(clock.sleeperCount == 0, "the listed panel left the deadline armed")
+    }
+
     @Test func thePanelSaysLoadingBeforeTheListAndEmptyAfter() {
         let view = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 260, height: 200))
         view.show(SidebarPriorityPanel(entries: [], loaded: false))
