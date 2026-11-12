@@ -6438,6 +6438,62 @@ def _self_test() -> int:
             "echo GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
             {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
+        # An opt-out or a load counts by whether and when it runs, not by where it sits in the text (reviews of
+        # #41891 F1-F3 and hq#9863 F1-F5).
+        # #41891 F1: a Python function nobody calls runs nothing: its opt-out and its load count for nothing.
+        (
+            "tests/temp_repo_opt_out_in_uncalled_function.py",
+            "import importlib.util, subprocess, tempfile\nd = tempfile.mkdtemp()\ndef never():\n"
+            "    subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n"
+            "    importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41891 F2 (hq#9863 F3): `function NAME {` is a definition; its body runs only when called.
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function_keyword.test.sh",
+            "function setup {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function_keyword_line.test.sh",
+            "function setup { source scripts/cmux-next/tests/lib/git-fixture.sh; }\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9863 F1: env runs a program from PATH, never a shell function.
+        (
+            "scripts/ci/tests/temp_repo_env_calls_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nenv setup || true\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9863 F2: a call before the definition runs nothing (command not found).
+        (
+            "scripts/ci/tests/temp_repo_call_before_definition.test.sh",
+            "setup || true\nsetup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41891 F3: local, declare, readonly and typeset export nothing, and a pair exported after the last git
+        # command reaches no git.
+        (
+            "scripts/ci/tests/temp_repo_local_config_pair.test.sh",
+            "f() {\n  local GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n}\nf\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_declare_config_pair.test.sh",
+            "declare GIT_CONFIG_COUNT=1\nreadonly GIT_CONFIG_KEY_0=maintenance.auto\ntypeset GIT_CONFIG_VALUE_0=false\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_config_pair_after_git.test.sh",
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n"
+            "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
         # A child script that loads the helper covers its own span, not the rest of its physical line.
         (
             "tests/git_write_beside_child_script.py",
@@ -7831,6 +7887,68 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/reraise_called_function_ok.test.sh",
             "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nfix() {\n  a='rm -rf \"$tmp\"'\n}\nfix\n"
             "trap \"$a\" EXIT\n",
+        ),
+        # What runs still counts, at the point it runs (#41891 F1-F3, hq#9863 F1-F5).
+        (
+            "scripts/ci/tests/source_in_called_function_keyword.test.sh",
+            "function setup {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_in_called_function_keyword_line.test.sh",
+            "function setup { source scripts/cmux-next/tests/lib/git-fixture.sh; }\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_in_called_function_timed.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\ntime setup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        # hq#9863 F2: each call runs the definition active when it runs, not the file's last one.
+        (
+            "scripts/ci/tests/source_in_function_redefined_later.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nsetup() {\n  :\n}\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        (
+            "tests/test_fixture_loaded_in_setup.py",
+            "import importlib.util, subprocess, tempfile\ndef load():\n"
+            "    return importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "class T:\n    def setUp(self):\n        load()\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
+        # #41891 F3: an exported pair, by declare -x or by export after the assignment, reaches git.
+        (
+            "scripts/ci/temp_repo_declare_x_config_pair.sh",
+            "declare -x GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_assign_then_export_config_pair.sh",
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n"
+            "export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        # hq#9863 F4: a module-level `args` is not the function's own *args.
+        (
+            "scripts/ci/temp_repo_opt_out_wrapper_shadowed_args.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\nargs = ['git', 'init', d]\ndef run_it(*args):\n"
+            "    return subprocess.run(['git', *args], check=True)\nrun_it('-c', 'maintenance.auto=false', 'init', d)\n",
+        ),
+        # hq#9863 F5: the argv or command line given as args=.
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
         ),
         (
             "scripts/ci/temp_repo_opt_out_config.py",
