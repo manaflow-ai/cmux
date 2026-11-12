@@ -75,8 +75,11 @@ fn dist(samples: &[u64]) -> Dist {
 fn emit_measure(name: &str, small: u64, god: u64, unit: &str) {
     if let Some(path) = std::env::var_os("V2_GATE_OUT") {
         let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-        writeln!(file, "{{\"name\":\"v2.pr01b.{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"{unit}\"}}")
-            .unwrap();
+        writeln!(
+            file,
+            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"{unit}\"}}"
+        )
+        .unwrap();
     }
 }
 
@@ -349,8 +352,8 @@ fn god_vs_small() {
     );
     let (small_append, god_append) = (dist(&small.times), dist(&god.times));
     report.timed("append: time per row", &small_append, &god_append, true);
-    emit_timing("append_time", &small_append, &god_append);
-    emit_measure("append_bytes", small_written, god_written, "bytes");
+    emit_timing("v2.pr01.append_time", &small_append, &god_append);
+    emit_measure("v2.pr01.append_bytes", small_written, god_written, "bytes");
     report.row(
         "checkpoint: bytes",
         &format!("{} B", small.checkpoint_bytes / small.checkpoints.len() as u64),
@@ -384,7 +387,7 @@ fn god_vs_small() {
         );
         if gate {
             report.timed(&what, &small_dist, &god_dist, true);
-            emit_timing("first_window", &small_dist, &god_dist);
+            emit_timing("v2.pr01.first_window", &small_dist, &god_dist);
         }
         if rows == 400 {
             let worst = small_dist.p95.max(god_dist.p95);
@@ -412,7 +415,6 @@ fn god_vs_small() {
     }
     let (small_open, god_open) = (dist(&small_open), dist(&god_open));
     report.timed("open: one checkpoint interval", &small_open, &god_open, true);
-    emit_timing("record_layout", &small_open, &god_open);
 
     // Both sides pay first map/allocation in a new book, with exactly the same payload.
     let (mut small_cold, mut god_cold) = (Vec::new(), Vec::new());
@@ -429,7 +431,7 @@ fn god_vs_small() {
     }
     let (small_cold, god_cold) = (dist(&small_cold), dist(&god_cold));
     report.timed("cold first append", &small_cold, &god_cold, true);
-    emit_timing("cold_first_append", &small_cold, &god_cold);
+    emit_timing("v2.pr01b.cold_first_append", &small_cold, &god_cold);
 
     // ---- page: a 256 KB page is one read ----
     let (mut log, _) = open(&god_dir);
@@ -518,7 +520,7 @@ fn god_vs_small() {
     }
     let (small_torn, god_torn) = (dist(&small_torn), dist(&god_torn));
     report.timed("open that cuts off a torn record", &small_torn, &god_torn, true);
-    emit_timing("torn_open", &small_torn, &god_torn);
+    emit_timing("v2.pr01b.torn_open", &small_torn, &god_torn);
 
     let header = format!(
         "acpmux-book god vs small: {GOD_ROWS} rows against {SMALL_ROWS}. God book: {segments} segments, {:.0} MB of \
