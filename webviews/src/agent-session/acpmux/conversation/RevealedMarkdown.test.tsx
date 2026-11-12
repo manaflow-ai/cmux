@@ -4,7 +4,7 @@
 // cursor), and the text grows a whole word at a time, each word fading in, never a letter at a time
 // or with a partial word at its end. Once the stream ends, all of it shows.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
@@ -22,7 +22,9 @@ const savedFrames = { ...revealFrames };
 let queued: ((now: number) => void)[] = [];
 
 beforeEach(() => {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of KEYS) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -68,9 +70,11 @@ function frames(from: number, count: number): string[] {
   return seen;
 }
 
-const render = (text: string, streaming: boolean, artifactIdentity?: string) =>
+const render = (text: string, streaming: boolean, artifactIdentity?: string, messageAt?: number) =>
   act(() => {
-    root!.render(<RevealedMarkdown text={text} streaming={streaming} artifactIdentity={artifactIdentity} />);
+    root!.render(
+      <RevealedMarkdown text={text} streaming={streaming} artifactIdentity={artifactIdentity} messageAt={messageAt} />,
+    );
   });
 
 test("a completed reply replaced by its full historical text does not re-reveal", () => {
@@ -84,22 +88,54 @@ test("a completed reply replaced by its full historical text does not re-reveal"
 
 test("a recreated reply with a reused row id does not keep the old body", () => {
   root = createRoot(container);
-  render("The old session had a longer answer.", false, "assistant-1:old");
-  render("The new session answer.", false, "assistant-1:new");
+  render("The old session had a longer answer.", false, "assistant-1", 1001);
+  render("The new session answer.", false, "assistant-1", 2001);
 
   expect(container.querySelector(".cv-md")?.textContent).toBe("The new session answer.");
   expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
 });
 
-test("a recreated reply cancels a queued frame from the old row", () => {
-  root = createRoot(container);
-  render("The old session is still streaming.", true, "assistant-1:old");
-  render("The new session answer.", false, "assistant-1:new");
-  frames(0, 2);
+for (const strict of [false, true]) {
+  test(`a recreated reply cancels a queued frame and keeps streaming (${strict ? "StrictMode" : "ordinary"})`, () => {
+    const { pending, frame } = cancellableFrames();
+    root = createRoot(container);
+    const draw = (text: string, identity: string) =>
+      act(() => {
+        const reply = <RevealedMarkdown text={text} streaming artifactIdentity={identity} />;
+        root!.render(strict ? <StrictMode>{reply}</StrictMode> : reply);
+      });
+    const visible = () => container.querySelector(".cv-md")?.textContent ?? "";
+    draw("", "assistant-1:old");
+    draw("The old session is still streaming and has many words waiting for their first frame.", "assistant-1:old");
+    expect(visible()).toBe("");
+    expect(pending.size).toBe(1);
+    const oldHandle = [...pending.keys()][0]!;
 
-  expect(container.querySelector(".cv-md")?.textContent).toBe("The new session answer.");
-  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
-});
+    const replacement = "The new session answer is already visible.";
+    draw(replacement, "assistant-1:new");
+    expect(pending.has(oldHandle)).toBe(false);
+    expect(visible()).toBe(replacement);
+    expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+    expect(frame(0)).toBe(replacement);
+    expect(frame(16)).toBe(replacement);
+    expect(pending.size).toBe(0);
+
+    const appended = `${replacement} New words still arrive through the normal paced stream instead of appearing all at once.`;
+    draw(appended, "assistant-1:new");
+    expect(visible()).toBe(replacement);
+    expect(pending.size).toBe(1);
+    const growing = [frame(32), frame(48), frame(64)];
+    expect(growing.at(-1)!.length).toBeGreaterThan(replacement.length);
+    expect(growing.at(-1)!.length).toBeLessThan(appended.length);
+    expect(growing.every((text) => text.startsWith(replacement))).toBe(true);
+    expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
+    for (let index = 0; index < 120; index++) frame(80 + index * 16);
+
+    expect(visible()).toBe(appended);
+    expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+    expect(pending.size).toBe(0);
+  });
+}
 
 test("a truncated reconnect snapshot never hides already visible assistant text", () => {
   root = createRoot(container);
