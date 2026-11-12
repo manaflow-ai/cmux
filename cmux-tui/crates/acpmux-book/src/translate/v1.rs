@@ -90,7 +90,6 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
         return Ok(());
     }
     let msg: Message<'_> = input::value(rec.msg)?;
-    state.last_v1_seq = rec.seq;
     state.at = rec.at / 1000;
     state.at_ms = rec.at;
     if rec.dir == "mux" {
@@ -108,6 +107,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             }
         }
     }
+    state.last_v1_seq = rec.seq;
     Ok(())
 }
 fn mux(

@@ -274,7 +274,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call_update","toolCallId":"c{calls}","status":"completed"}}"#));
                     stretch.stepped = true;
                     stretch.worked = true;
-                    open = true;
+                    open = false;
                 }
                 4 => c.progress(false),
                 5 => c.progress(true),

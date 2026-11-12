@@ -294,6 +294,17 @@ impl State {
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
+    fn close_reply_for_work(&mut self, out: &mut input::Output<'_>) {
+        if let Some(facts) = self.reply.as_ref().map(|reply| reply.facts.clone()) {
+            self.fold.reply(&facts);
+        }
+        if let Some(reply) = &mut self.reply {
+            if reply.row.open {
+                reply.row.open = false;
+                out.row(&reply.row);
+            }
+        }
+    }
     fn mark_steer(&mut self) {
         if let Some(reply) = &self.reply {
             self.fold.reply(&reply.facts);
@@ -576,6 +587,12 @@ impl State {
                 deferred_cut: false,
             }
         };
+        // A tool boundary settles the current row, but a later chunk for the
+        // same message continues its body in that row.
+        if !stream.row.open && stream.message == message {
+            stream.row.open = true;
+            out.row(&stream.row);
+        }
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
             if stream.deferred_cut {
@@ -797,7 +814,7 @@ impl State {
         if starts {
             // A tool call is a work boundary: the currently streaming reply
             // settles above the call and remains the candidate before it.
-            self.close_text(out);
+            self.close_reply_for_work(out);
         }
         if !starts && !self.tools.contains_key(key) {
             self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
