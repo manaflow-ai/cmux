@@ -417,6 +417,10 @@ impl Desktop for MacDesktop {
         actions::perform_action(self, window_id, element_id, action)
     }
 
+    fn launches_by_identity(&self) -> bool {
+        true
+    }
+
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
         let ids = workspace::launch_targets(app_id);
         if ids.is_empty() {
@@ -427,17 +431,24 @@ impl Desktop for MacDesktop {
         Ok(ids)
     }
 
-    /// Starts the app `app_id` names: a bundle id, or an app's name as the
-    /// person sees it ("Notes"). A name that matches several apps is refused,
-    /// listing their bundle ids.
+    /// Starts the app `app_id` names. The engine resolves a name first
+    /// (launch_identities) and checks policy on the bundle id it got, then
+    /// passes that one bundle id here, so it launches what policy saw; a
+    /// name passed here is resolved the same way, and must name one app.
     fn launch_app(&self, app_id: &str) -> DResult<App> {
-        let ids = self.launch_identities(app_id)?;
-        let [bundle_id] = ids.as_slice() else {
-            return Err(DesktopError::Unsupported(format!(
-                "{app_id:?} names several apps ({}); launch one by its bundle id",
-                ids.join(", ")
-            )));
+        let bundle_id = if workspace::bundle_installed(app_id) {
+            app_id.to_string()
+        } else {
+            let ids = self.launch_identities(app_id)?;
+            let [only] = ids.as_slice() else {
+                return Err(DesktopError::Unsupported(format!(
+                    "{app_id:?} names several apps ({}); launch one by its bundle id",
+                    ids.join(", ")
+                )));
+            };
+            only.clone()
         };
+        let bundle_id = bundle_id.as_str();
         let a = workspace::launch(bundle_id)?;
         Ok(App {
             id: a.id(),

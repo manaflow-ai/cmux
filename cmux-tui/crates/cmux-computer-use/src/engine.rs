@@ -730,7 +730,16 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
-                let started = self.desktop.launch_app(id).map_err(|e| ToolOutput::desktop(&e))?;
+                // A name resolved to one bundle id launches that id, the one
+                // policy just checked (resolving the name again could find
+                // another after an index rebuild). Identities that are not
+                // ids to launch by (Windows' cmd -> cmd.exe) keep the name.
+                let launch = match identities.as_slice() {
+                    [only] if self.desktop.launches_by_identity() => only.as_str(),
+                    _ => id,
+                };
+                let started =
+                    self.desktop.launch_app(launch).map_err(|e| ToolOutput::desktop(&e))?;
                 // The app that started is checked too; a blocked one is reported, not handed over.
                 let started_app = TargetApp { id: started.id.clone(), name: started.name.clone() };
                 if let Some(refusal) = policy::is_blocked(&config, &started_app) {

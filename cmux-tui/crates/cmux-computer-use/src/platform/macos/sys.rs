@@ -179,6 +179,31 @@ unsafe extern "C" {
     pub fn AXValueGetTypeID() -> CFTypeID;
     pub fn AXValueGetType(v: CFTypeRef) -> u32;
     pub fn AXValueGetValue(v: CFTypeRef, ty: u32, out: *mut c_void) -> u8;
+    pub fn AXObserverCreate(pid: i32, callback: AXObserverCallback, out: *mut CFTypeRef)
+    -> AXError;
+    pub fn AXObserverAddNotification(
+        observer: CFTypeRef,
+        element: CFTypeRef,
+        notification: CFTypeRef,
+        refcon: *mut c_void,
+    ) -> AXError;
+    pub fn AXObserverRemoveNotification(
+        observer: CFTypeRef,
+        element: CFTypeRef,
+        notification: CFTypeRef,
+    ) -> AXError;
+    pub fn AXObserverGetRunLoopSource(observer: CFTypeRef) -> CFTypeRef;
+}
+
+/// An AXObserver's callback (observer, element, notification, refcon).
+pub type AXObserverCallback = unsafe extern "C" fn(CFTypeRef, CFTypeRef, CFTypeRef, *mut c_void);
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    pub fn CFRunLoopGetCurrent() -> CFTypeRef;
+    pub fn CFRunLoopAddSource(rl: CFTypeRef, source: CFTypeRef, mode: CFTypeRef);
+    pub fn CFRunLoopRemoveSource(rl: CFTypeRef, source: CFTypeRef, mode: CFTypeRef);
+    pub fn CFRunLoopRunInMode(mode: CFTypeRef, seconds: f64, return_after_source: u8) -> i32;
 }
 
 // AppKit holds NSWorkspace; linking it makes the class available to the

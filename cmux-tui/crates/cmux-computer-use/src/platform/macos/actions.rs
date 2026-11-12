@@ -39,8 +39,6 @@ fn outcome_after(route: &str, before: Option<String>, el: &Ax) -> ActionOutcome 
 
 /// How long a foreground action waits for its app to become the active app.
 const RAISE_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
-/// How often it checks meanwhile.
-const RAISE_STEP: std::time::Duration = std::time::Duration::from_millis(20);
 
 impl MacDesktop {
     /// Raises the window and its app for a Foreground delivery. This is the
@@ -54,23 +52,16 @@ impl MacDesktop {
         // AXFrontmost asks the app to activate; the window server makes it
         // the active app a little later (and may refuse under cooperative
         // activation). System-wide input (the HID tap) goes to whatever is
-        // really active, so wait, bounded, until that is the target, and
-        // refuse rather than send it elsewhere. There is no activation
-        // notification to wait on from this thread, so the system-wide focus
-        // is read at a short interval up to RAISE_WAIT.
-        let deadline = std::time::Instant::now() + RAISE_WAIT;
-        loop {
-            if super::frontmost_pid() == Some(t.window.pid) {
-                return Ok(());
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(DesktopError::Unsupported(format!(
-                    "window {}'s app did not come to the front when asked, so system-wide input would reach another app; try again, or use delivery background",
-                    t.window.id
-                )));
-            }
-            std::thread::sleep(RAISE_STEP); // bounded wait for an asynchronous activation (no notification here)
+        // really active, so wait for the app's activation notification, up to
+        // RAISE_WAIT, and refuse rather than send input elsewhere.
+        let pid = t.window.pid;
+        if super::ax::wait_activated(pid, RAISE_WAIT, &|| super::frontmost_pid() == Some(pid)) {
+            return Ok(());
         }
+        Err(DesktopError::Unsupported(format!(
+            "window {}'s app did not come to the front when asked, so system-wide input would reach another app; try again, or use delivery background",
+            t.window.id
+        )))
     }
 
     /// The route for pointer events into a window.
