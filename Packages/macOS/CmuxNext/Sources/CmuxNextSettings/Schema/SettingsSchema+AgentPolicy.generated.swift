@@ -121,7 +121,7 @@ extension SettingsSchema {
         "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine", "browser.siteEngines",
-        "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
+        "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
@@ -268,10 +268,10 @@ extension SettingsSchema {
         "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth",
         "appearance.metrics.tabPinnedWidth", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap",
         "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth",
-        "appearance.metrics.titlebarHeight", "browser.toolbar.back", "browser.toolbar.forward",
-        "browser.toolbar.reload", "browser.toolbar.home", "browser.toolbar.extensions", "browser.toolbar.downloads",
-        "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
-        "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
+        "appearance.metrics.titlebarHeight", "appearance.metrics.sidebarRowHeight", "browser.toolbar.back",
+        "browser.toolbar.forward", "browser.toolbar.reload", "browser.toolbar.home", "browser.toolbar.extensions",
+        "browser.toolbar.downloads", "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu",
+        "browser.omnibox.color", "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
         // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",

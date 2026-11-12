@@ -17,10 +17,6 @@
 
 use serde_json::{Map, Value, json};
 
-/// The width a new column beside a chat takes, as a fraction of the
-/// viewport: with the chat dock's third, the two fill the window.
-pub(super) const NEW_COLUMN_WIDTH: f64 = 0.66;
-
 /// The parent selectors a creation may name.
 pub(super) const PARENTS: [&str; 3] = ["workspace", "screen", "pane"];
 
@@ -101,7 +97,8 @@ pub(super) fn split_params(
 ) -> Map<String, Value> {
     let mut split = split_below_params(create, workspace, chat_pane);
     split.insert("direction".into(), json!("right"));
-    split.insert("viewport_width".into(), json!(NEW_COLUMN_WIDTH));
+    // A column that shares the window with the chat, never one wider than it.
+    split.insert("fit".into(), json!(true));
     split
 }
 
@@ -368,7 +365,8 @@ mod tests {
         assert_eq!(split["cwd"], "/w");
         assert_eq!(split["pane"], "pane_chat");
         assert_eq!(split["direction"], "right");
-        assert_eq!(split["viewport_width"], NEW_COLUMN_WIDTH);
+        assert_eq!(split["fit"], true);
+        assert!(split.get("viewport_width").is_none());
         assert!(split.get("name").is_none());
         let rename = rename_params(&create, "ws_a", &json!({"tab_id": "tab_new"}));
         assert_eq!(rename.as_ref().map(|r| r["tab"].clone()), Some(json!("tab_new")));

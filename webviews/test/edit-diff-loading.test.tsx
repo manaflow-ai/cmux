@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { TurnFile } from "../src/agent-session/acpmux/diff";
+import { teardownDom } from "./support/domTeardown";
 
 let pending: Promise<void>;
 let resolve: () => void;
@@ -49,13 +50,9 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = undefined;
 });
-afterAll(() => {
+afterAll(async () => {
   mock.restore();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 function file(lines: number): TurnFile {
   return {

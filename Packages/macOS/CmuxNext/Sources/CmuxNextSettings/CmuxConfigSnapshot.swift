@@ -48,6 +48,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserShowBookmarksBar = false
     /// `browser.vimKeys`; on when unset or invalid (``BrowserVimKeysSetting``).
     public var browserVimKeys = BrowserVimKeysSetting.fallback
+    /// `browser.showLoadingBar`; off when unset.
+    public var browserShowLoadingBar = BrowserLoadingBarSetting.fallback
     /// `browser.import.enabled`; on when unset or invalid.
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `browser.import.cookieBanner`; on when unset or invalid (``BrowserCookieBannerSetting``).
@@ -354,7 +356,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.take(BrowserVimKeysSetting.parse(root), \.browserVimKeys)
+        snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
+        snapshot.take(BrowserLoadingBarSetting().parse(root), \.browserShowLoadingBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
         snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)

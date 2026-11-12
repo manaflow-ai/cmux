@@ -245,7 +245,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
+                            settled: params?["settled"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)

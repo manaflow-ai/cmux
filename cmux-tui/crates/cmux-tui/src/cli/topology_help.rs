@@ -130,7 +130,7 @@ USAGE
   cmux pane <selector> close --others|--all [--now|--keep-terminals]
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
+    [--fit | --viewport-width <fraction>] [--focus] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
@@ -154,6 +154,14 @@ close keeps each terminal it leaves with no tab until the reaper's grace
 viewer is attached to keeps running; --now ends them at once,
 --keep-terminals keeps them and marks them keep (the reaper leaves them;
 `cmux closed reopen` takes the mark back).
+
+split --right --fit makes a new column that shares the window: when the
+screen's columns fit it, the new one takes an equal share and the others are
+scaled to fill the rest, so nothing scrolls sideways. Use it to open a pane
+beside a chat. --viewport-width <fraction> makes a column of exactly that
+share of the window, and the row scrolls sideways when the columns are wider
+than the window.
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal

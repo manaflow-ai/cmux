@@ -15,6 +15,7 @@ import {
   resetPresentations,
   setPresentation,
 } from "../src/agent-session/acpmux/conversation/presentation";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;
@@ -28,9 +29,10 @@ beforeEach(() => {
   setChatDisplay({});
 });
 
-afterEach(() => {
+afterEach(async () => {
   resetPresentations();
   setChatDisplay({});
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
