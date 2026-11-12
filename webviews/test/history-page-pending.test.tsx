@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { HistoryEntry } from "../src/pages/history/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -19,7 +20,7 @@ const names = [
   "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
-const saved = names.map((name) => [name, scope[name]] as const);
+const saved = names.map((name) => [name, name in scope, scope[name]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
@@ -40,13 +41,10 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+// React finishes its queued work before the window and the DOM globals go (test/support/domTeardown.ts).
+afterAll(async () => {
   act(() => root?.unmount());
-  dom.window.close();
-  for (const [name, value] of saved) {
-    if (value === undefined) delete scope[name];
-    else scope[name] = value;
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 // The History page's list can come before the owner has listed everything (`pending_kinds`,
