@@ -14,6 +14,16 @@
   rows keep a `space1` gap. Body text and icons scale with the app density. The base's shared
   `chromeRowHeight` continues to follow sidebar density and text size.
 
+- 2026-11-11: rows round as Chrome's tabs. Lawrence, verbatim: "i want us to work on the different densities
+  consistency. like same roundness as chrome. omnibar height should be same as tabbar tab heigh which should be same
+  as workspace rows height." The heights were already one (`Metrics.chromeRowHeight`); now a tab pill, the omnibar
+  and every row fill take Chromium's free-standing tab corner, `kVerticalTabCornerRadius` 8 on a `kVerticalTabHeight`
+  30 tab, at each height (`Metrics.chromeRowCornerRadius(height:)`: 5 on 20, 6 on 24, 8 on 30, 9 on 34, 11 on 42).
+  `SidebarDensityTokens.rowCornerRadius` is the tab's radius at every density: Default's row corner goes from Codex's
+  10 to Chrome's 8 (`Metrics.tabRowCornerRadius` is gone; pages read `SidebarRowTokens.listRowCornerRadius`, 8 px). The curved main pane rounds from its tabs (tab
+  radius plus the pill's inset, at most the window's) so the first pill stays concentric with it; a set
+  `layout.paneCornerRadius` or Floating Panes keep the old chain. Regression: `DensityItemConsistencyTests`,
+  `SidebarCodexMatchTests`.
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).
