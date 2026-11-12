@@ -890,6 +890,35 @@ fn hook_seq_fence_skips(
     )
 }
 
+/// Whether the agent rows' fence for `terminal_id`, as `mux` holds it, skips
+/// a `UserPromptSubmit` of session `order-1` stamped at `monotonic_ms` /
+/// `observed_at_ms` (boot `boot-a`) as journaled out of send order.
+fn hook_seq_fence_skips(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    monotonic_ms: u64,
+    observed_at_ms: u64,
+) -> bool {
+    let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(terminal_id.as_str()),
+        serde_json::json!({"session_id": "order-1"}),
+    )
+    .unwrap();
+    crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    ingress.payload["normalized"]["boot_id"] = serde_json::json!("boot-a");
+    ingress.payload["normalized"]["monotonic_ns"] =
+        serde_json::json!((monotonic_ms * 1_000_000).to_string());
+    let fences = mux.agent_hook_fences.lock().unwrap();
+    let fence = fences.get(terminal_id);
+    crate::agent_hooks::hook_event_is_reordered(
+        &ingress.kind,
+        &crate::agent_hooks::HookOrderStamp::of(&ingress.payload),
+        crate::journal_reducers::HookFence::last_order(fence, "order-1"),
+    )
+}
+
 #[test]
 fn hook_seq_the_order_survives_a_session_restart() {
     let (mux, _surface, terminal_id, root) = hook_seq_mux("restart");
