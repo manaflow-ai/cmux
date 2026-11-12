@@ -24,7 +24,14 @@ import tempfile
 import time
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script without its folder (a test, scp): the same helper as safe_log.py
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = Path(__file__).resolve().parent
 # Leave half a second for Python startup, result output and the best-effort timing receipt.

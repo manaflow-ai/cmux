@@ -114,7 +114,14 @@ import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh 
 import rj_rows  # noqa: E402  (next to this script, copied the same way)
 import rj_update  # noqa: E402  (next to this script, copied the same way)
 import launch_shift  # noqa: E402  (next to this script, copied the same way)
-from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script without its folder (a test, scp): the same helper as safe_log.py
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
