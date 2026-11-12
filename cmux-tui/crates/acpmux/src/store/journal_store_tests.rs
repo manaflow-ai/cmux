@@ -2409,6 +2409,7 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              fn b() {\n    let (tx, rx) = channel::<()>();\n    drop(tx);\n}\n",
         ),
         ("F2: a call's argument", "consume(rx.RECV);\n"),
+        ("F2: a value used by drop", "drop(rx.RECV);\n"),
         ("F2: a call's last argument after a comma", "consume(1, rx.RECV);\n"),
         ("F2: an assert! argument", "assert!(rx.RECV.is_ok());\n"),
         ("F2: a format! argument", "let shown = format!(\"{:?}\", rx.RECV);\n"),
