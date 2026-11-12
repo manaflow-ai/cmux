@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { resetKeptTailsForTests } from "./tailCache";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
+import { translate } from "./i18n";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -65,14 +66,20 @@ async function pane(store: UnsentPromptStore, answer: (text: string) => Error | 
     }
   }
   let rows: Row[] = [];
+  let socket: Relay | undefined;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => (rows = snapshot.rows as Row[]),
     undefined,
-    () => new Relay() as unknown as WebSocket,
+    () => (socket = new Relay()) as unknown as WebSocket,
   );
   client.setUnsentPromptStore(store);
-  return { client, rows: () => rows };
+  /// The connection goes while a request waits (`rejectPending`), as an acpmux restart drops it.
+  const drop = () => {
+    socket!.close();
+    (socket as unknown as { onclose: (() => void) | null }).onclose?.();
+  };
+  return { client, rows: () => rows, drop };
 }
 
 /// Lets the pane's queued work run: the host store answers at once, so the restore and the store
@@ -169,23 +176,57 @@ test("a prompt that went through is never kept", async () => {
   }
 });
 
-test("a prompt lost with its connection stays a Not sent row, never comes back as a draft", async () => {
+test("a prompt lost with its connection stays kept for a relaunch, and comes back as a quiet Not sent row", async () => {
   const host = hostStore();
-  const lost = await pane(host.store, () =>
-    Object.assign(new Error("closed"), { code: "native.timed_out", interrupted: true }),
-  );
-  const error = await lost.client.send("lost one").then(
+  const lost = await pane(host.store, () => "hang");
+  const sending = lost.client.send("lost one").then(
     () => undefined,
     (e: unknown) => e,
   );
-  // The sender sees a failed row it keeps in the chat (App.tsx `keptInChat`), not a prompt to restore.
-  expect((error as { failedRow?: unknown }).failedRow).toBe(`local-${host.all()[0]?.promptId}`);
+  await settle();
+  lost.drop();
+  const error = await sending;
+  expect((error as { lostPrompt?: unknown }).lostPrompt).toBeDefined();
+  // Its sender waits for the next connection (lostPrompt.ts keepLostPrompt), as #41513 made it:
+  // no failed row to keep in the chat from here, and the host's copy stays meanwhile.
+  expect((error as { failedRow?: unknown }).failedRow).toBeUndefined();
+  expect(host.all().map((record) => record.input)).toEqual(["lost one"]);
   lost.client.close?.();
+  // The app went before any connection showed it: the relaunch draws it, saying only "Not sent".
   const next = await pane(host.store);
   try {
     await settle();
-    expect(next.rows().find((row) => row.text === "lost one")?.failed).toBe(true);
+    const row = next.rows().find((candidate) => candidate.text === "lost one");
+    expect(row?.failed).toBe(true);
+    expect(row?.error).toBe(translate("prompt.failure.hostAway"));
+    expect(row?.error).not.toContain("taking longer");
+    expect(next.client.failedPromptCopies([row!.id])).toHaveLength(1);
+    // The lost prompt's sender draws it on its way over the restored row: one row, sending again.
+    const promptId = host.all()[0]!.promptId;
+    expect(next.client.drawLostPrompt(next.client.selectedSession ?? "", promptId, "lost one", [])).toBe(true);
+    const rows = next.rows().filter((candidate) => candidate.text === "lost one");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.failed).toBeFalsy();
+    expect(rows[0]?.pending).toBe(true);
+    // Once it showed (or went back to the composer), its sender lets the host's copy go.
+    next.client.forgetUnsentPrompt(promptId);
+    await settle();
+    expect(host.all()).toHaveLength(0);
   } finally {
     next.client.close?.();
   }
+});
+
+test("a prompt given back to the composer is not kept as a row too", async () => {
+  const host = hostStore();
+  // A remote chat's connection: no journal resends it, so it goes back to the composer at once.
+  const lost = await pane(host.store, () => Object.assign(new Error("closed"), { code: "native.timed_out" }));
+  const error = await lost.client.send("back to the composer").then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect((error as { failedRow?: unknown }).failedRow).toBeUndefined();
+  await settle();
+  expect(host.all()).toHaveLength(0);
+  lost.client.close?.();
 });

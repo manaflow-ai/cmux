@@ -32,8 +32,6 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
     /// owns it (one store, so one queue keeps each chat's writes in order). Nil outside an app
     /// bundle (package tests, tools), so they never write the app's files.
     public static var shared: AgentPaneUnsentPrompts? { AgentPanePromptJournal.shared?.unsentPrompts }
-    /// How long an unsent prompt is kept; an older one goes the next time its chat is written.
-    public static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-prompts")
     public let directory: URL
@@ -163,8 +161,7 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
         let files = FileManager.checked
         // An unreadable file still in place is never written over.
         if case .unreadable = Self.decode(url, sessionId: sessionId), !setAside(url) { return false }
-        let cutoff = now().addingTimeInterval(-Self.maximumAge)
-        let kept = entries.filter { $0.at >= cutoff }
+        // No age limit: a prompt stays until an agent takes it, or Remove or Edit takes it out.
         do {
             try files.createDirectory(at: directory, withIntermediateDirectories: true)
             // The file this write replaces stays as the one backup.
@@ -173,7 +170,7 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
                 try? files.removeItem(at: bak)
                 try files.copyItem(at: url, to: bak)
             }
-            let data = try Self.encoder.encode(Document(sessionId: sessionId, prompts: kept))
+            let data = try Self.encoder.encode(Document(sessionId: sessionId, prompts: entries))
             try data.blockingWrite(to: url, options: [.atomic])
             return true
         } catch {

@@ -2674,6 +2674,9 @@ export class AcpmuxDirectClient {
   /// Edit takes one out, so a relaunch draws every one again as its Not sent row.
   private unsentStore?: UnsentPromptStore;
   private unsentKept = new Map<string, { sessionId: string; record: UnsentPromptRecord }>();
+  /// Prompt ids whose Not sent row came from the host's store (`drawUnsentRow`): a lost prompt's
+  /// sender may draw the same prompt on its way over one (`drawLostPrompt`).
+  private restoredUnsent = new Set<string>();
   /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
   /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
   /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
@@ -10242,25 +10245,11 @@ export class AcpmuxDirectClient {
       // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
       // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
       if (!taken && (this.closed || code === "native.timed_out")) {
-        // Kept by the app host, it is not the sender's to take back: the pane's next connection
-        // draws it from there at once as Not sent, with Retry (and the host's journal may still send
-        // it, whose echo takes the row). It never comes back as a draft some time later.
-        const kept = this.unsentKept.get(promptId);
-        if (kept && this.unsentStore) {
-          const reason = (error as { reason?: unknown } | null)?.reason;
-          this.keepUnsent(kept.sessionId, {
-            ...kept.record,
-            error: failedSendText(error, this.retriedPrompts.has(promptId), sendAttachments),
-            failure: {
-              hop: "connection",
-              code: typeof code === "string" ? code : "native.timed_out",
-              ...(typeof reason === "string" ? { reason } : {}),
-              error: error instanceof Error ? error.message : errorMessage(error),
-              failedAt: Date.now(),
-            },
-          });
-          if (error && typeof error === "object") Object.assign(error, { failedRow: rowId });
-        }
+        // A lost prompt (`lostPrompt`) stays on the host's store while its sender waits for the next
+        // connection to show it (lostPrompt.ts keepLostPrompt): a relaunch meanwhile draws it again.
+        // Its sender lets go of the stored copy once it showed, or once it went back to the
+        // composer (`forgetUnsentPrompt`). Any other one goes back to the composer now: one copy.
+        if (!lostPrompt(error)) this.forgetUnsent(promptId);
         this.rows.delete(rowId);
         this.failedPrompts.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
@@ -10499,10 +10488,16 @@ export class AcpmuxDirectClient {
   /// Takes prompt `promptId` out of the host's store: an agent has it, or the person removed it or
   /// took it back into the composer.
   private forgetUnsent(promptId: string): void {
+    this.restoredUnsent.delete(promptId);
     const kept = this.unsentKept.get(promptId);
     if (!kept) return;
     this.unsentKept.delete(promptId);
     void this.unsentStore?.remove(kept.sessionId, promptId).catch(() => undefined);
+  }
+  /// A lost prompt's sender (App.tsx, lostPrompt.ts keepLostPrompt) is done with the stored copy:
+  /// the prompt showed on a later connection, or it went back into the composer, which keeps it.
+  forgetUnsentPrompt(promptId: string): void {
+    this.forgetUnsent(promptId);
   }
   /// acpmux recorded prompt `promptId` (its echo or its `queued` record): off disk, and a Not sent
   /// row a relaunch drew for it goes (the echo draws the prompt; a queued one shows in the queue).
@@ -10532,7 +10527,8 @@ export class AcpmuxDirectClient {
     let drew = false;
     for (const record of records) {
       const { promptId } = record;
-      if (this.promptsShown.has(promptId) || echoed.has(promptId)) {
+      // acpmux has it already: its echo is drawn, or its queue or record names it.
+      if (this.promptsShown.has(promptId) || echoed.has(promptId) || this.showsPrompt(sessionId, promptId)) {
         this.unsentKept.delete(promptId);
         void store.remove(sessionId, promptId).catch(() => undefined);
         continue;
@@ -10553,18 +10549,21 @@ export class AcpmuxDirectClient {
     const rowId = `local-${promptId}`;
     const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
     const failure = record.failure ?? {};
-    const error = record.error ?? translate("prompt.delivery.noAnswer");
+    // One the person never saw refused (it was on its way when the app went) says only "Not sent",
+    // with Retry: no alarm about the service (sendFailure.ts host-away). A refusal keeps its words.
+    const error = record.error ?? translate("prompt.failure.hostAway");
     const delivery: PromptDelivery = {
       state: "failed",
       promptId,
       sessionId,
       sentAt: at,
       failedAt: failure.failedAt ?? at,
-      hop: failure.hop ?? "acpmux",
-      code: failure.code ?? "timeout",
+      hop: failure.hop ?? "connection",
+      code: failure.code ?? "native.timed_out",
       ...(failure.reason ? { reason: failure.reason } : {}),
-      error: failure.error ?? error,
+      ...(failure.error ? { error: failure.error } : {}),
     };
+    this.restoredUnsent.add(promptId);
     this.promptRowKeys.set(promptId, rowId);
     this.optimisticPromptRows.set(promptId, rowId);
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
@@ -12355,7 +12354,10 @@ export class AcpmuxDirectClient {
   drawLostPrompt(sessionId: string, promptId: string, input: string, attachments: ComposerAttachment[]): boolean {
     if (this.closed || this.selectedSessionId !== sessionId || this.showsPrompt(sessionId, promptId)) return false;
     const rowId = `local-${promptId}`;
-    if (this.rows.has(rowId)) return true;
+    // A Not sent row the host's store drew for it meanwhile (a relaunch, this connection's restore)
+    // is the same prompt: it is on its way again, so that row says so instead of a second copy.
+    if (this.rows.has(rowId) && !this.restoredUnsent.delete(promptId)) return true;
+    this.failedPrompts.delete(rowId);
     const at = Date.now();
     const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
     this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
