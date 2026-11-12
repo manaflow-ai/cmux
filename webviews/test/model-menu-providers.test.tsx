@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -79,14 +80,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // A popover update left outside act() queues React scheduler work on setImmediate; let it run
-  // while the JSDOM globals still exist, or it throws "window is not defined" between tests.
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const variants = () => import("../src/agent-session/acpmux/modelVariants");

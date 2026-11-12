@@ -535,6 +535,90 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
         self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the checker stopped by Ctrl-C")
         self.assert_attempt_stamped()
 
+    # -- cmux#41765 review: a timeout is said only when the fetch's guard ended it --------------------------------
+
+    def git_whose_fetch(self, body: str) -> None:
+        """Puts a `git` first on PATH that runs BODY (python) for `fetch` and is the real git for anything else."""
+        real = shutil.which("git")
+        folder = self.tmp / "bin" / "git-stub"
+        folder.mkdir(parents=True, exist_ok=True)
+        stub = folder / "git"
+        stub.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if 'fetch' in sys.argv[1:]:\n{body}\n"
+                        f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+        stub.chmod(0o755)
+        os.environ["PATH"] = f"{folder}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    def test_a_git_that_exits_124_at_once_is_reported_with_its_real_exit(self):
+        """cmux#41765 review: the keeper's exit 124 was read as a timeout every time, so a git (or a wrapper) that
+        exits 124 at once was reported as "no answer in 30s", hiding the real failure."""
+        self.git_whose_fetch("    sys.exit(124)")
+        note = self.fetch_note()
+        # The real exit, not the limit's "no answer": the note itself says which ended the fetch.
+        self.assertIn("could not be fetched (exit 124)", note)
+        self.assertNotIn("no answer", note)
+
+    def test_a_fetch_the_guard_ends_at_the_limit_is_a_timeout(self):
+        # A fetch that never answers: it blocks on nothing until the guard ends it.
+        self.git_whose_fetch("    import select\n    select.select([], [], [])")
+        with unittest.mock.patch.object(self.push_range, "UPSTREAM_FETCH_SECONDS", 1):
+            note = self.fetch_note()
+        self.assertIn("could not be fetched (no answer in 1s)", note)
+
+class FetchGuardCancelRace(unittest.TestCase):
+    """cmux#41803 review F1: "If the caller cancels as the deadline hits, the pipe reader can close before os.write.
+    BrokenPipeError then kills the guard before os.killpg, so git and ssh live on." The row runs the real keeper
+    (push_range._FETCH_WATCHDOG) and makes that order certain: the caller's end of the guard's pipe is closed first,
+    while the caller is still there (its other pipe stays open), and the deadline fires after."""
+
+    def test_a_cancel_as_the_deadline_hits_still_ends_the_fetch(self):
+        push_range = load("stale_base_push_range_cancel_race", "scripts/cmux-next/push_range.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pid_file = Path(tmp.name) / "fetch.pid"
+        fetch = [sys.executable, "-I", "-c",
+                 f"import os, time\nopen({str(pid_file)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n"]
+        alive_read, alive_write = os.pipe()
+        fired_read, fired_write = os.pipe()
+        keeper = subprocess.Popen([sys.executable, "-I", "-c", push_range._FETCH_WATCHDOG, "2", str(fired_write),
+                                   *fetch], stdin=alive_read, pass_fds=(fired_write,), stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, start_new_session=True)
+        os.close(alive_read)
+        os.close(fired_write)
+        os.close(fired_read)  # the reader goes first; the 2 s deadline fires after it
+
+        def stop() -> None:
+            os.close(alive_write)
+            if keeper.poll() is None:
+                keeper.kill()
+            keeper.wait(timeout=10)
+        self.addCleanup(stop)
+
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(pid_file.exists(), "the fetch started")
+        pid = int(pid_file.read_text())
+
+        def alive() -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            try:  # killed but not yet reaped by the keeper is gone too
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            except (OSError, IndexError):
+                return True
+
+        deadline = time.monotonic() + 10
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = alive()
+        if left:
+            os.kill(pid, signal.SIGKILL)
+        self.assertFalse(left, "the fetch outlived a guard whose reader closed before the deadline")
+
+
 class SshBatchModeWins(StaleBaseFixture):
     """cmux#41750 review: OpenSSH keeps the FIRST value of an option, so `-o BatchMode=yes` appended after a user's
     `BatchMode=no` lost, and ssh could still ask. Each row resolves the command the fetch would run with the real ssh

@@ -148,8 +148,7 @@ fn a_failing_disk_does_not_retry_the_snapshot_on_the_next_pass() {
         false,
     );
     let wants = Plan::of(&log, std::time::Duration::from_secs(30)).wants_snapshot(
-        2,
-        (80, 24),
+        super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
         true,
         false,
         true,
@@ -565,8 +564,7 @@ fn a_flood_compacts_its_tail_at_most_once_a_second() {
     }
     let wants = |log: &TerminalLog| {
         Plan::of(log, super::super::SNAPSHOT_INTERVAL).wants_snapshot(
-            2,
-            (80, 24),
+            super::ScreenNow { digest: 2, size: (80, 24), alternate: false },
             true,
             false,
             true,

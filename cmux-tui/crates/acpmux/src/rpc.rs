@@ -483,6 +483,11 @@ pub mod method {
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// One page of a chat's transcript rows, folded in the daemon (`rows/`),
+    /// `{sessionId, afterSeq | beforeSeq, maxBytes, follow}` → `{rows, hasMore, version, count,
+    /// lastSeq, cut}`. `follow` (on an attached chat) sends the rows' later changes as
+    /// `_acpmux/rows_patch`.
+    pub const MUX_ROWS: &str = "_acpmux/rows";
     /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
     /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
     /// provenance, awaitingOwner}`.
@@ -870,6 +875,12 @@ pub mod method {
     pub const MUX_VAULT_STATUS: &str = "_acpmux/vault_status";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A followed chat's row changes since the last, `{sessionId, version, lastSeq, patches}`
+    /// (`rows/`).
+    pub const MUX_ROWS_PATCH: &str = "_acpmux/rows_patch";
+    /// A followed chat's row changes went past what acpmux keeps: read a page again,
+    /// `{sessionId, version, lastSeq}`.
+    pub const MUX_ROWS_LAGGED: &str = "_acpmux/rows_lagged";
     /// A persisted session-to-session message, projected separately so chat clients can render
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
