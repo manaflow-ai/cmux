@@ -134,3 +134,31 @@ fn watch_with_writes_hints_for_a_write_its_writer_keeps_open() {
     expect_hint(&hints, "a write to a watched file its writer keeps open");
     drop(writer);
 }
+
+/// Each watch has its own thread: a hint that runs long (the daemon's
+/// project-source import, `state/project_watch.rs`) delays no other watch.
+/// A settings file written while another watch's hint is busy is still
+/// hinted within the normal bound.
+#[test]
+fn a_busy_watch_does_not_delay_another_watch() {
+    let scratch = Scratch::new("busy");
+    let project = scratch.0.join("state.sqlite-wal");
+    let settings = scratch.0.join("cmux-next.json");
+    fs::write(&project, "").unwrap();
+    fs::write(&settings, "{}").unwrap();
+    let (busy_tx, busy) = mpsc::channel();
+    let mut armed_once = false;
+    let _project = Watcher::start_with_writes(vec![project.clone()], move || {
+        if std::mem::replace(&mut armed_once, true) {
+            let _ = busy_tx.send(());
+            // A long import on this watch's thread.
+            std::thread::sleep(Duration::from_secs(4));
+        }
+    })
+    .expect("the project watch starts");
+    let (_settings, hints) = armed(&[&settings]);
+    fs::write(&project, "commit").unwrap();
+    busy.recv_timeout(HINT_WITHIN).expect("the project watch's hint started");
+    fs::write(&settings, "{\"a\": 1}").unwrap();
+    expect_hint(&hints, "a settings change while another watch's hint is busy");
+}

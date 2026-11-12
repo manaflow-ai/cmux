@@ -79,7 +79,7 @@ fn watch_files(
 }
 
 /// Size, modification time and inode of each file.
-fn fingerprint(files: &[PathBuf]) -> Vec<Option<(u64, SystemTime, u64)>> {
+pub(crate) fn fingerprint(files: &[PathBuf]) -> Vec<Option<(u64, SystemTime, u64)>> {
     files
         .iter()
         .map(|path| {
@@ -95,7 +95,7 @@ fn fingerprint(files: &[PathBuf]) -> Vec<Option<(u64, SystemTime, u64)>> {
 
 /// Rescans every source and commits the ones whose list changed. Nothing
 /// when the daemon is gone.
-fn import_changed(
+pub(crate) fn import_changed(
     mux: &Weak<Mux>,
     layout: &Layout,
     imported: &mut HashMap<&'static str, Vec<Observation>>,
