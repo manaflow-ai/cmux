@@ -211,7 +211,10 @@ pub(super) fn rebuild_owed(source: &Connection, floor: u64) -> anyhow::Result<bo
 /// for the next start, which tries the rebuild again. A run below that count
 /// is deleted in place with no bound: it is the daily path. So is the rest
 /// of a run that the bounded deletes brought below that count, so one start
-/// can delete fewer than two times that count in all, never more.
+/// deletes fewer than two times that count of that run. The bound is of
+/// that run only: when the floor moves up in the same start, the records
+/// that it then adds to a run below that count go with no bound, as each
+/// day.
 pub(super) fn in_place_room(
     source: &Connection,
     floor: u64,

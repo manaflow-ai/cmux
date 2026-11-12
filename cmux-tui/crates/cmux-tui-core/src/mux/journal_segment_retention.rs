@@ -222,7 +222,10 @@ impl Mux {
     /// its size. A run that is not worth a rebuild has no bound: the pass
     /// deletes it as it does each day. That is also the rest of a run that
     /// the bounded deletes brought below that count, so one start deletes
-    /// fewer than two times the records one rebuild is worth, never more.
+    /// fewer than two times the records one rebuild is worth of that run.
+    /// The bound is of that run only: when the floor moves up in the same
+    /// start, the records that it then adds to a run below that count go
+    /// with no bound, as each day.
     fn next_segment_in_place(
         &self,
         registry: &crate::workspace_registry::WorkspaceRegistry,

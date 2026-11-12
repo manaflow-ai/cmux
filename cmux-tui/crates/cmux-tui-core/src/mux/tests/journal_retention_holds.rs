@@ -404,9 +404,10 @@ struct Handoff {
 /// registry lock free: at each hold's end this test gives the lock to a
 /// second thread, which keeps it until the pass is free to begin its next
 /// hold. A pass that held the lock there, or took it in between, would not
-/// get to that point. It times nothing.
+/// get to that point. It times nothing, so its failure is a hang (the
+/// time limit of the test run), not an assert.
 #[test]
-fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_free() {
+fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_free_or_hangs() {
     let root = std::env::temp_dir().join(format!(
         "cmux-journal-retention-handoff-{}",
         crate::workspace_registry::new_uuid_v4()

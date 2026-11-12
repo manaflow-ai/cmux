@@ -307,21 +307,23 @@ fn a_file_with_the_old_delete_triggers_opens_and_retention_deletes() {
     }
 }
 
-/// A kill between two transactions of the delete: the floor is at the end
+/// A close between two transactions of the delete: the floor is at the end
 /// of the segment and rows of a part of its records are there. The next
 /// start's pass selects the same segment and ends the delete; nothing above
-/// the segment changes.
+/// the segment changes. The registry is closed here (a drop), so this is
+/// not a kill: a process killed between two holds (no close, the WAL not
+/// checkpointed) is the arm `kill-hold` of the proof tool.
 #[test]
-fn a_start_after_a_kill_between_two_holds_ends_the_delete() {
+fn a_start_after_a_close_between_two_holds_ends_the_delete() {
     let mut sealed = registry("kill");
     let (old_end, head) = (sealed.old_end, sealed.registry.session_journal_head().unwrap());
     let later_before = records_with_rows(&sealed.registry.connection.get(), old_end, head);
     let segment = sealed.registry.begin_journal_segment_prune(old_end).unwrap().unwrap();
     assert!(sealed.registry.delete_pruned_segment_rows(&segment).unwrap(), "the setup: rows left");
     let left = records_with_rows(&sealed.registry.connection.get(), 0, old_end);
-    assert!(left > 0, "the setup: the kill is between two holds");
+    assert!(left > 0, "the setup: the close is between two holds");
     let Sealed { root, registry, .. } = sealed;
-    // The kill: no later hold ran.
+    // The close: no later hold ran.
     drop(registry);
 
     let mut registry = WorkspaceRegistry::open(&root, "kill").unwrap();

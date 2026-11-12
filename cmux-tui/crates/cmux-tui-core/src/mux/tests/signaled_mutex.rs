@@ -111,9 +111,10 @@ fn lock_detail_reports_per_site_hold_and_wait_percentiles() {
 /// A pass that takes the registry lock many times in a row (the journal retention pass) gives a waiting locker its
 /// turn at each gap. The mutex alone does not: the thread that released it takes it again before the locker that the
 /// release woke. No timing: the test asks at each gap how many lockers waited, and when one did, its hold is the
-/// last one before the pass has the lock again.
+/// last one before the pass has the lock again. It proves that for the gaps where `give_way_to_waiters` reports a
+/// waiter: a run in which no gap had one (the count it prints is 0) proves only the order of the holds.
 #[test]
-fn a_waiter_gets_the_registry_lock_between_two_holds_of_one_thread() {
+fn a_waiter_that_give_way_reports_gets_the_registry_lock_before_the_next_hold() {
     const ROUNDS: usize = 200;
     let mutex = Arc::new(SignaledMutex::new(Vec::<(&'static str, usize)>::new()));
     assert_eq!(mutex.give_way_to_waiters(), 0, "no locker waits, so the pass does not wait");
