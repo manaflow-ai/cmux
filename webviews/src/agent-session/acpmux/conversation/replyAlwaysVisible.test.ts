@@ -1,12 +1,13 @@
 // l10n-allow-file: recorded chat fixtures, not shipped UI.
 // A turn's last words to the person always draw under its prompt, outside its closed "Worked for",
 // and never after a later turn (Leo, 2026-11-12: "in this case you didnt respond to me at all...",
-// then "even right now the coordinator's not even really responding to me"). The coordinator had
-// answered (seq 2235884 of its acpmux log), then sent another agent a message in the same turn; the
-// pane took the answer for narration before that call and folded it, so under the prompt it drew
-// only "Worked for 27s · 1 tool call". The fixture is that turn's shape, synthetic: the prompt, a
-// read, the answer streamed between subagent and task progress, a send, the result, then the
-// notice-driven turn that followed.
+// then "even right now the coordinator's not even really responding to me"). A short answer the
+// agent followed with a call (it answered, then sent another agent a message) was taken for
+// narration and folded, so under the prompt the pane drew only "Worked for 27s · 1 tool call". The
+// fixture is that shape, synthetic: the prompt, a read, the answer streamed between subagent and
+// task progress, a send, the result, then a notice-driven turn. The coordinator's own 07:51Z turn
+// (seq 2235274-2236000 of its acpmux log), whose long answer came after its send and before its
+// helpers' work, draws as logged too (the second test).
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import type { AcpmuxRow } from "../model";
@@ -76,7 +77,7 @@ function replay(events: EventRecord[]): AcpmuxRow[] {
 const drawn = (rows: readonly AcpmuxRow[], expanded = new Set<string>()) =>
   turnView(rows, expanded, { agentFamily: "claude" });
 
-test("the coordinator's answer draws under Leo's prompt, beside its closed Worked for", () => {
+test("a short answer the agent followed with a send draws under the prompt, beside its closed Worked for", () => {
   seq = 0;
   const events = [
     prompt("in this case you didnt respond to me at all..."),
@@ -111,6 +112,78 @@ test("the coordinator's answer draws under Leo's prompt, beside its closed Worke
   expect(nextTurn < 0 || answer < nextTurn, kinds.join("\n")).toBe(true);
   // Not inside a fold: the closed line holds it nowhere.
   expect(view[answer]!.foldedReply).toBeUndefined();
+});
+
+/// An update one of the chat's helpers made, tagged with it (acpmux `_meta.acpmux.subagent`).
+const helper = (id: string, kind: string, data: Record<string, unknown>) =>
+  event(kind, "in", {
+    method: "session/update",
+    params: {
+      _meta: { acpmux: { subagent: `coord/${id}` } },
+      sessionId: `coord/${id}`,
+      update: { sessionUpdate: kind, ...data },
+    },
+  });
+const progress = (id: string, parent: string | null) =>
+  event("subagent_progress", "in", {
+    method: "session/update",
+    params: {
+      _meta: {
+        acpmux: {
+          subagents: [{ id: `coord/${id}`, name: id, parent: parent && `coord/${parent}`, state: "running" }],
+        },
+      },
+      sessionId: "coord",
+      update: { sessionUpdate: "subagent_progress", subagentSessionId: `coord/${id}` },
+    },
+  });
+
+test("the coordinator's 07:51Z turn draws its answer under Leo's prompt, as logged", () => {
+  seq = 0;
+  const spawn = (id: string) =>
+    update("tool_call", {
+      toolCallId: id,
+      title: id,
+      kind: "think",
+      status: "in_progress",
+      _meta: { claude: { tool: "Agent" } },
+    });
+  const events = [
+    prompt("Look into the deploys"),
+    started(),
+    spawn("deploys"),
+    spawn("customize"),
+    say("Started two helpers."),
+    ended(),
+    prompt("in this case you didnt respond to me at all..."),
+    started(),
+    progress("inventory", "customize"),
+    ...call("send-1", "send_message", "other"),
+    progress("inventory", "customize"),
+    helper("deploys", "agent_thought_chunk", { content: { type: "text", text: "Reading ws-deploy" } }),
+    ...ANSWER.split(/(?<= )/).map(say),
+    progress("inventory", "customize"),
+    helper("deploys", "tool_call", {
+      toolCallId: "read-9",
+      title: "Read ws-deploy",
+      kind: "execute",
+      status: "in_progress",
+    }),
+    progress("deploys", null),
+    helper("inventory", "tool_call_update", { toolCallId: "grep-3", status: "completed" }),
+    helper("customize", "tool_call_update", { toolCallId: "read-4", status: "completed" }),
+    event("turn_end", "mux", { stopReason: "end_turn" }),
+    ended(),
+  ];
+  const view = drawn(replay(events));
+  const kinds = view.map((row) => `${row.kind}:${row.text ?? ""}`).join("\n");
+  const asked = view.findIndex((row) => row.kind === "user" && row.text?.startsWith("in this case"));
+  const answer = view.findIndex((row) => row.kind === "assistant" && row.text === ANSWER);
+  expect(answer, kinds).toBeGreaterThan(asked);
+  expect(
+    view.slice(asked + 1, answer).map((row) => row.kind),
+    kinds,
+  ).toEqual([WORKED]);
 });
 
 // The whole class: random turns of chunks, calls, subagent and task progress, the person's steers
