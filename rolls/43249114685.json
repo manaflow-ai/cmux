@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43249114685",
+  "recorded_at": "2026-11-12T15:43:03Z",
+  "reason": "cmux-tui c0639d51165d changes the image's cmux-tui (pinned f130207ad96b)",
+  "dry_run": false,
+  "cmux_tui": "c0639d51165dbc002a8c714a7b67c68533e76065",
+  "fixes": [
+    {
+      "sha": "c0639d51165dbc002a8c714a7b67c68533e76065",
+      "mergedAt": "2026-11-12T07:02:07-08:00",
+      "subject": "cmux-json: JsonGet typed member reads; cmux-feed-core drops its local getters (#42036)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T15:43:03Z",
+    "snapshot_id": "sh-54f5e92b165c4a67b2fa391303e3552c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43249114685): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9a558c6f49e43f9f023422f62be4f177d99a2694",
+    "image": "cloud-native-auto-c0639d51-43249114685-1",
+    "revision": "ci-43249114685-1",
+    "at": "2026-11-12T15:43:03Z"
+  },
+  "rolled_back": false
+}
