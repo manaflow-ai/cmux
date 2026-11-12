@@ -8,6 +8,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { PickerCatalog, PickerHarness } from "../src/agent-session/acpmux/modelCatalogData";
 import type { RunVariant } from "../src/agent-session/acpmux/runOnAgents/runOnAgents";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -70,12 +71,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const harness = (id: string, name: string): PickerHarness => ({

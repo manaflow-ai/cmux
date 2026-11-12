@@ -297,9 +297,10 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
           );
           for (const target of await rows.all()) {
-            // The columns scroll independently; bring each row into its own viewport before
-            // probing its edges, including legacy models below the initial visible rows.
-            if (await target.evaluate((row) => !!row.closest(".acpmux-cols"))) await target.scrollIntoViewIfNeeded();
+            // A menu scrolls once its rows pass its cap (50vh in this 600 px page: the + menu's ten
+            // rows do), and the columns scroll independently; bring each row into its own viewport
+            // before probing its edges, including legacy models below the initial visible rows.
+            await target.scrollIntoViewIfNeeded();
             const row = await target.evaluate((row) => {
               const box = row.getBoundingClientRect();
               return {

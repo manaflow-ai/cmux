@@ -9,6 +9,7 @@ import { PlanBuildCard } from "../src/agent-session/acpmux/planBuild/PlanBuildCa
 import type { PlanBuild } from "../src/agent-session/acpmux/planBuild/planBuild";
 import { RunOnAgentsPanel } from "../src/agent-session/acpmux/runOnAgents/RunOnAgentsPanel";
 import type { RunVariant } from "../src/agent-session/acpmux/runOnAgents/runOnAgents";
+import { teardownDom } from "./support/domTeardown";
 
 const model = (id: string, shortName: string, efforts: string[] = []) =>
   ({ id, name: shortName, shortName, efforts, fast: false, searchText: id }) as PickerHarness["models"][number];
@@ -86,11 +87,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 async function mount(node: React.ReactNode) {
