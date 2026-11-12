@@ -286,7 +286,7 @@ enum Refused {
 /// join credential (to its own hub), else the person's token from the app.
 async fn caller(cloud: bool) -> Option<(String, zeroize::Zeroizing<String>)> {
     if cloud {
-        let (origin, bearer) = crate::deps::remote::joined_bearer().ok().flatten()?;
+        let (origin, bearer) = crate::deps::remote::Remote::joined_bearer().ok().flatten()?;
         return Some((origin, zeroize::Zeroizing::new(bearer)));
     }
     let (token, origin) = crate::hosted_mcp::person_token().await.ok()?;
