@@ -4,7 +4,6 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextWindowRules
 import Observation
@@ -264,7 +263,7 @@ extension AgentHandlers {
                 return nil
             } catch {
                 daemon.logger.error("agent chat workspace over a top page failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure(log: "new agent chat: \(error)", reason: PlainErrorText.words(error))
+                return ActionWorkFailure(log: "new agent chat: \(error)")
             }
         })
         return true

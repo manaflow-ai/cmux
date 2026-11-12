@@ -16,6 +16,14 @@ public nonisolated enum PlainErrorText {
         words(error) ?? generic
     }
 
+    /// `error` as a person reads it: ``words(_:)``; else the `errorDescription` cmux's own errors write for a
+    /// person (a system error's is Cocoa's text, never shown); else ``generic``.
+    public static func personal(_ error: any Error) -> String {
+        if let words = words(error) { return words }
+        if !isSystem(error), let text = (error as? any LocalizedError)?.errorDescription { return text }
+        return generic
+    }
+
     /// The plain sentence for an error cmux knows; nil for any other.
     public static func words(_ error: any Error) -> String? {
         kind(of: error).map(words)

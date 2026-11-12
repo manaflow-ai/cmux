@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import os
@@ -60,7 +59,7 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
             } catch {
                 logger.error("shortcut write failed: \(String(describing: error), privacy: .public)")
                 await settings.reload()
-                return ActionWorkFailure(log: "cmux.json write failed: \(error)", reason: PlainErrorText.words(error))
+                return ActionWorkFailure(log: "cmux.json write failed: \(error)")
             }
         })
     }

@@ -50,6 +50,7 @@ import Testing
         var failure = ActionWorkFailure("the pane is still opening")
         failure.shown = true
         #expect(Self.notices(failure).isEmpty)
+        #expect(Self.notices(ActionWorkFailure(log: "move-sessions: refused", shown: true)).isEmpty)
     }
 
     /// Every way a daemon failure is built: none of the notices names the op, the command label, a deadline or the
