@@ -430,14 +430,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const fold = page.locator('[data-row-id="worked-spacing-user"] .cv-worked');
       if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
       await settle(page);
+      // The two runs draw as one line (turns.ts mergeShortNotes; Leo, 2026-11-12, ask-bc2af01f6e), with or
+      // without the invisible replies between them, so its height is the whole gap they could add.
       return page.evaluate(() => {
         const first = document.querySelector<HTMLElement>('[data-row-id="spacing-first"]');
-        const second = document.querySelector<HTMLElement>('[data-row-id="spacing-second"]');
-        if (!first || !second) throw new Error("tool groups were not mounted");
-        const a = first.getBoundingClientRect();
-        const b = second.getBoundingClientRect();
+        if (!first) throw new Error("tool groups were not mounted");
         return {
-          gap: b.top - a.bottom,
+          height: first.getBoundingClientRect().height,
+          second: document.querySelectorAll('[data-row-id="spacing-second"]').length,
           emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
         };
       });
@@ -445,7 +445,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const normal = await gapAfterOpenFold(false);
     const withInvisible = await gapAfterOpenFold(true);
     expect(withInvisible.emptyRows).toBe(0);
-    expect(Math.abs(withInvisible.gap - normal.gap)).toBeLessThanOrEqual(0.5);
+    expect([normal.second, withInvisible.second]).toEqual([0, 0]);
+    expect(Math.abs(withInvisible.height - normal.height)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
