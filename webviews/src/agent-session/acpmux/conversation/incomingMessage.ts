@@ -179,7 +179,7 @@ export type IncomingPrompt =
 
 /// Whether an incoming prompt is a message relayed between agents: another agent's message, or
 /// acpmux's inbox notice of such messages. The chat draws none of them (Leo, 2026-11-12: "STOP
-/// FUCKING SHOWING THESE FUCKING MESSAGES", then on "messages relayed between agents are showing
+/// f***ing SHOWING THESE f***ing MESSAGES", then on "messages relayed between agents are showing
 /// up in it": "STOP"). A tool's notice and a person's own words still draw.
 export function relayedBetweenAgents(incoming: IncomingPrompt | undefined): boolean {
   if (incoming?.kind === "inbox") return true;

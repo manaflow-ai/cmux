@@ -4,7 +4,7 @@
 // reloaded, in the transcript or while they wait in the queue. The person's own prompt, the agent's
 // replies and a tool's notice still draw.
 //
-// Leo, 2026-11-12: "STOP FUCKING SHOWING THESE FUCKING MESSAGES", then, quoting "messages relayed
+// Leo, 2026-11-12: "STOP f***ing SHOWING THESE f***ing MESSAGES", then, quoting "messages relayed
 // between agents are showing up in it,": "STOP".
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
