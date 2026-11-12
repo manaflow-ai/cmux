@@ -481,6 +481,10 @@ impl State {
         if steer && self.settled_prompts.contains(&hash) {
             return Ok(());
         }
+        if !steer && !prompt_key.is_empty() && self.settled_prompts.contains(&hash) {
+            self.replayed_prompts = self.replayed_prompts.saturating_add(1);
+            return Ok(());
+        }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
         if steer {
@@ -490,9 +494,6 @@ impl State {
         } else {
             self.finish(out);
             self.finish_steers(Some(hash), out);
-            if self.settled_prompts.contains(&hash) {
-                self.replayed_prompts = self.replayed_prompts.saturating_add(1);
-            }
         }
         let prior = self.prompts.remove(&hash);
         let mut row = if let Some(p) = prior { p.row } else { self.row(RowKind::User, out)? };

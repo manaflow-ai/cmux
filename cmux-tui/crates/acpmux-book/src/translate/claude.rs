@@ -58,6 +58,9 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     }
     let Some(message) = rec.message else { return Ok(()) };
     let Some(body) = message.content else { return Ok(()) };
+    if body.get() == "null" {
+        return Ok(());
+    }
     match rec.kind.as_ref() {
         "user" => {
             let mut results = false;
@@ -189,6 +192,8 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
                 })?;
             } else if body.get().starts_with('"') {
                 let _ = input::text(body)?;
+            } else if body.get() != "null" {
+                return Err(Error::InvalidRecord("Claude content shape"));
             }
         }
     }

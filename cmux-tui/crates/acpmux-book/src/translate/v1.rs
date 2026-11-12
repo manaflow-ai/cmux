@@ -128,6 +128,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
             super::bounded(&update.kind)?;
             super::bounded(&update.status)?;
             super::bounded(&update.state)?;
+            super::bounded(&update.meta.claude.tool)?;
             if let Some(raw) = update.content {
                 input::content(raw, 0, &mut |_| Ok(()))?;
             }
