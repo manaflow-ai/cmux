@@ -425,3 +425,36 @@ test("a row's write by an older record than the newest noted still spans a cut",
   expect(rows.spanningFrom(7_001)).toBe(6_990);
   expect(rows.spanningFrom(7_051)).toBe(Infinity);
 });
+
+test("a sender claim a repair brings past a cut draws on its inbox notice above it", async () => {
+  // Codex review of #41806 at 71c4d12: the cut cleared the map from a prompt id to its inbox notice,
+  // so a claim the lag read brought could not find the notice; a full rebuild draws it there.
+  const threads = [
+    {
+      threadId: "from:grid-lane",
+      from: ["grid-lane"],
+      promptIds: ["inbox-p1"],
+      preview: "landing it now",
+      messages: [{ promptId: "inbox-p1", from: "grid-lane", text: "landing it now" }],
+    },
+  ];
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  const { cut, whole } = await cutAndWhole(
+    spanning((sessionId) => [
+      mux(sessionId, 101, "user_message", {
+        text,
+        promptId: "inbox-notice-1",
+        _meta: { provenance: { kind: "inbox_notice", noticeId: "inbox-notice-1", threads } },
+      }),
+      mux(sessionId, HELD, "sender_claim", {
+        promptId: "inbox-p1",
+        claimed: { harness: "claude-code", entrypoint: "claude-desktop", sessionId: "cc-1", selfReported: true },
+        checked: { harness: "claude-code", app: "Claude.app", peerPid: 50 },
+      }),
+    ]),
+  );
+  const notice = (snapshot: Snapshot) =>
+    JSON.stringify((snapshot.rows as { incoming?: { kind?: string } }[]).find((row) => row.incoming?.kind === "inbox"));
+  expect(notice(whole)).toContain("Claude.app");
+  expect(notice(cut)).toEqual(notice(whole));
+});
