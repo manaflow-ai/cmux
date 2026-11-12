@@ -12,7 +12,7 @@ exclusively or not at all: in a mktemp folder of the run's own, or in the user's
 home). scripts/check-test-determinism.py's predictable-tmp-path covers fixed names in tests and git hooks; this
 covers the rest of scripts/ and .github/.
 
-The detector, ported from cmuxterm-hq tests/test_noclobber_sweep.py (the same two greps):
+The detector, ported from the upstream sweep's tests (the same two greps):
 
     git grep -nE 'set -[a-zA-Z]*C\\b|set -o noclobber' -- scripts .github
     git grep -nE '((/private)?/tmp|\\$\\{?TMPDIR(:-/tmp)?\\}?)/[A-Za-z0-9._-]*(\\$\\$|\\$\\{?[A-Za-z_]|\\$\\(|\\{[A-Za-z_])' -- scripts .github
@@ -65,7 +65,20 @@ APP_NAMES = {
 ALLOWED = {
     ("scripts/cmux-next/austins-day/austins-day.sh", '"${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"'):
         "a mktemp -d template; shell_tree exempts nothing in this file because it sources $repo/scripts/cmux-next/"
-        "capture-host-env.sh through a variable it cannot follow (it may redefine mktemp), and that file defines none",
+        "capture-host-env.sh through a variable it cannot follow (it may redefine mktemp); that file defines no "
+        "mktemp, and its one eval runs the capture host's route helper, whose output sets the ssh routes to the "
+        "capture hosts (that file's own header)",
+    ("scripts/cmux-next/restore-journey-slot.sh", '"/tmp/restore-journey-$job-$(date +%H%M%S).XXXXXX"'):
+        "a mktemp -d template; shell_tree follows the source of capture-host-env.sh but exempts nothing, since that "
+        "file evals the capture host's route helper's output (it may redefine mktemp); that output sets the ssh "
+        "routes to the capture hosts (that file's own header)",
+    ("scripts/reload.sh", '"${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX"'):
+        "a mktemp -d template; shell_tree exempts nothing in this file because it sources "
+        "$PWD/scripts/lib/dev-backend-origin.sh, a path it cannot follow (it may redefine mktemp), and that file "
+        "defines none",
+    ("scripts/server-release/install.sh.in", "#!/bin/sh"):
+        "a template, not shell until scripts/server-release/render.py fills it: its @@UNIX_CASES@@ line sits where "
+        "a case pattern must, so the whole file is unparsed; its one temp name is a mktemp -d template",
     ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
         "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID"):
@@ -142,7 +155,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "9d03c9ae82c559b267af4557672c75a2151d72356e0c74d024e9979746c0d693"
+SHELL_TREE_SHA256 = "e5870ee9b762ce1122b2803b00950f3cfbf06c1e5ae46dae1343ee36ae2b3cff"
 
 
 def without_templates(line: str) -> str:
@@ -281,7 +294,7 @@ class NoclobberSweep(unittest.TestCase):
             self.assertFalse(flagged(code(line)), line)
 
     def test_a_mktemp_template_exempts_only_itself(self):
-        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole; of #1265, F1: a
+        """A downstream review, F2: a line with XXXXXX was exempt whole; another, F1: a
         template-shaped redirection target beside a bare mktemp was exempt too (shell parsed by regex)."""
         for line in ('d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$',
                      "d=$(mktemp -d) > /tmp/out.$$.XXXXXX", "mktemp /tmp/a.XXXXXX > /tmp/b.$$.XXXXXX",
@@ -293,9 +306,9 @@ class NoclobberSweep(unittest.TestCase):
                      # whole template word exempted the substitution inside it (shell read by token masking).
                      'mktemp "$(mktemp /tmp/$USER.XXXXXX).XXXXXX"; echo > /tmp/out.$$',
                      'mktemp "/tmp/$(printf secret > /tmp/out.$$)x.XXXXXX"',
-                     # Review of teamleaderleo/leo-workspace#4346, F1: the same overlap with the write on the outer
-                     # mktemp; of manaflow-ai/cmuxterm-hq#9338: XXXXXX only inside substitutions made the word a
-                     # template, masked whole; of leo-workspace#4346, F2: code() cut the line at a quoted #.
+                     # Review of upstream #4346, F1: the same overlap with the write on the outer
+                     # mktemp; of a downstream review: XXXXXX only inside substitutions made the word a
+                     # template, masked whole; of upstream #4346, F2: code() cut the line at a quoted #.
                      'mktemp "$(mktemp /tmp/a.XXXXXX).XXXXXX" > /tmp/out.$$',
                      'mktemp "$(printf /tmp/a.XXXXXX)$(printf secret > /tmp/out.$$)"',
                      "printf '%s' 'foo # bar' > /tmp/out.$$",
@@ -304,7 +317,7 @@ class NoclobberSweep(unittest.TestCase):
                      # exempts nothing.
                      'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)",
                      # Review of manaflow-ai/cmux#41306 at 7e60a832, F1: an array's words read as a command; of
-                     # manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F1: a process substitution in ${ } read as text.
+                     # a downstream review at 0ea8b97f, F1: a process substitution in ${ } read as text.
                      "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
                      "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX"):
             self.assertTrue(flagged(code(line)), line)
@@ -326,7 +339,7 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_a_whole_file_is_read_in_context(self):
-        """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
+        """A downstream review at 0ea8b97f, F2: read line by line, a here-document's
         `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
         documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
         files = shell_tree.FILES
@@ -367,7 +380,7 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual(shell_tree.bash_verdicts(twins), [False, True])
 
     def test_bash_agrees_with_the_tree(self):
-        """The differential detector (teamleaderleo/leo-workspace#4368 review at 3aa1ae3e: the parser kept quoting or
+        """The differential detector (upstream #4368 review at 3aa1ae3e: the parser kept quoting or
         line state bash does not). Each corpus line and each shell file in FILES is run by bash in a scratch folder
         (shell_tree.bash_verdicts); every one with which bash makes a name no mktemp made must be flagged by the tree
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
@@ -390,7 +403,7 @@ class NoclobberSweep(unittest.TestCase):
         self.assertGreater(len(lines), 300)
 
     def test_an_allowance_approves_only_its_own_hit(self):
-        """Review of manaflow-ai/cmuxterm-hq#9370, F2: an allowance approved its whole line, so an unsafe name on the
+        """A downstream review, F2: an allowance approved its whole line, so an unsafe name on the
         line of an approved one passed. Each hit is matched with its own entry, by its own text."""
         line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
         allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}

@@ -1840,18 +1840,68 @@ def unparsed(path: str, text: str) -> list[int]:
             for a, b in shell_blocks(path, text) if scan_block(lines[a:b]) is None]
 
 
+# A step shell: whose run: text is no POSIX shell's. Any other (bash, sh, a path, `/usr/bin/env bash {0}`, an
+# expression, an unknown) is read as shell: a wrong guess here could only let a write through (as polling_scan).
+NOT_POSIX_SHELLS = {"python", "python3", "pwsh", "powershell", "cmd", "node", "ruby", "perl", "deno", "bun"}
+
+
+def posix_shell(value: str) -> bool:
+    """False only for a step `shell:` VALUE that is clearly no POSIX shell (pwsh, python, ...), with its path and
+    options; env with options or assignments may run any word, so it stays shell."""
+    words = value.split("#", 1)[0].strip().strip("'\"").split()
+    if words and words[0].rsplit("/", 1)[-1] == "env":
+        words = words[1:]
+        if any(w.startswith("-") or "=" in w for w in words):
+            return True
+    words = [w for w in words if not w.startswith("-")]
+    return not words or words[0].rsplit("/", 1)[-1] not in NOT_POSIX_SHELLS
+
+
+def _step_keys(lines: list[str], k: int, col: int) -> list[str]:
+    """The keys (each line from its key on) of the YAML mapping whose key at column COL is on line K: the lines at
+    COL up to the list item (`- `) that starts it, and down to the next item or a line left of COL. A line further
+    right is a value's (a block scalar's, a nested mapping's), never the mapping's own."""
+    def at(j: int) -> tuple[int, bool]:
+        line = lines[j]
+        ind = len(line) - len(line.lstrip(" "))
+        m = re.match(r"-\s+", line[ind:])
+        return (ind + m.end(), True) if m else (ind, False)
+
+    out = [lines[k][col:]]
+    for step in ((1,) if at(k)[1] else (-1, 1)):  # a key on the item's own line starts the mapping
+        j = k + step
+        while 0 <= j < len(lines):
+            if lines[j].strip() and not lines[j].lstrip().startswith("#"):
+                ind, item = at(j)
+                if ind < col or (item and ind == col and step > 0):
+                    break
+                if ind == col:
+                    out.append(lines[j][col:])
+                    if item:
+                        break
+            j += step
+    return out
+
+
 def run_blocks(lines: list[str]) -> list[tuple[int, int]]:
-    """The (first, end) line ranges of each `run: |` block scalar in a YAML file's LINES."""
+    """The (first, end) line ranges of each `run: |` block scalar in a YAML file's LINES that a POSIX shell runs: a
+    step whose own `shell:` is clearly no POSIX shell (posix_shell()) is skipped (cmux#41809: six pwsh steps read as
+    bash); `defaults:` never skips one, as polling_scan reads a workflow."""
     out, k = [], 0
     while k < len(lines):
         m = RUN_BLOCK.match(lines[k])
         k += 1
         if not m:
             continue
-        base, j = len(m.group(1)), k
-        while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip(" ")) > base):
+        # The block holds the lines right of its key, not of the `- ` before it: a key after it on the item's
+        # column (`shell:`, `env:`) is the step's, never the script's.
+        col, j = lines[k - 1].index("run:"), k
+        while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip(" ")) > col):
             j += 1
-        out.append((k, j))
+        shells = [key.split(":", 1)[1] for key in _step_keys(lines, k - 1, col)
+                  if re.match(r"""(?:shell|'shell'|"shell")\s*:""", key)]
+        if not shells or posix_shell(shells[0]):
+            out.append((k, j))
         k = j
     return out
 
