@@ -277,13 +277,13 @@ const ORPHAN_LINE =
   "This task end is for your general-purpose subagent aeac1f9a, which started the task and has ended, so it comes to you.";
 const ORPHAN_QUIET: BgEnd = {
   task: "bg-2361c6b2eafd",
-  command: "cd /tmp; glaeda-gh wait pr manaflow-ai/cmuxterm-hq#9675 --until done --timeout 1800 > /tmp/ci.txt 2>&1",
+  command: "cd /tmp; gh pr checks 9675 --watch > /tmp/ci.txt 2>&1",
   exit: 0,
   output: "",
 };
 const ORPHAN_OUTPUT: BgEnd = {
   task: "bg-51f0",
-  command: "glaeda-gh wait pr manaflow-ai/cmux#41580 --until done",
+  command: "gh pr checks 41580 --watch",
   exit: 0,
   output: "merged at 4f1c2a9\nchecks: 41 green",
 };

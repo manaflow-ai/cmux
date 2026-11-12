@@ -168,17 +168,27 @@ impl Hub {
 comes to you."
             ));
         }
+        let display = orphan_display(ended.is_some(), wrote, &notice);
+        let mark = bg_run::notified_path(dir, id);
+        // A task end with nothing to say to anyone (its subagent ended, it went well, it wrote
+        // nothing) is not sent: it counts as sent, so no restart owes it (Leo, 2026-11-12, on a
+        // chat of such ends: "What the h*** is this?").
+        if display == Some("none") {
+            if let Err(e) = crate::home_fs::write(&mark, b"") {
+                tracing::warn!(mark = %mark.display(), "a dropped task end was not marked: {e}");
+            }
+            return;
+        }
         let text = crate::prompt_provenance::notice_text(&notice, &body);
         let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
         provenance.set("bgTaskId", json!(id));
         if let Some(sub) = ended {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }
-        // How the chat draws it; the agent reads the whole text either way.
-        if let Some(display) = orphan_display(ended.is_some(), wrote, &notice) {
+        // How the chat draws it: one quiet line; the agent reads the whole text.
+        if let Some(display) = display {
             provenance.set(DISPLAY, json!(display));
         }
-        let mark = bg_run::notified_path(dir, id);
         let opts = PromptOptions {
             prompt_id: Some(format!("{PROMPT_PREFIX}{id}")),
             // A send the chat took before a restart is answered from its log, never run again.
@@ -283,11 +293,12 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
 /// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
 const DISPLAY: &str = "display";
 
-/// How the chat draws a task end whose subagent ended before it (`orphan`), so it comes to the
-/// lead: one that went well and wrote nothing tells the person nothing, so it draws nothing
-/// (`"none"`); any other is one quiet line, its output behind it (`"line"`). A task end for the
-/// chat's own agent keeps its usual row (`None`). The agent reads the whole notice either way
-/// (Leo, 2026-11-12, on such an end drawn as a card: "hm? what happened here").
+/// What happens to a task end whose subagent ended before it (`orphan`), so it would come to the
+/// lead: one that went well and wrote nothing tells no one anything and is not sent (`"none"`);
+/// any other is sent and draws as one quiet line, its output behind it (`"line"`). A failure
+/// with no output is still sent: its exit is the news. A task end for the chat's own agent keeps
+/// its usual row (`None`) (Leo, 2026-11-12, on such an end drawn as a card: "hm? what happened
+/// here").
 fn orphan_display(orphan: bool, wrote: bool, notice: &Value) -> Option<&'static str> {
     if !orphan {
         return None;

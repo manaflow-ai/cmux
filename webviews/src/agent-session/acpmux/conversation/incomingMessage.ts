@@ -51,8 +51,8 @@ import {
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
+  isSystemSender,
   noticeBody,
-  noticeMarkdown,
   noticeRowText,
   provenanceNotice,
   renderedNotice,
@@ -568,26 +568,24 @@ function promptOf(
         provenance.messages
           .map((m) => (m as { from?: unknown } | null)?.from)
           .filter((from): from is string => typeof from === "string" && from.trim() !== "")
-          .map((from) => from.trim()),
+          // cmux's own parts read as cmux, never acpmux (agentNotice.ts `shownSender`).
+          .map((from) => shownSender(from.trim())),
       ),
     ];
     if (senders.length > 0) {
-      const parts = digestParts(text, provenance.messages);
+      // A task end the person never needs to see (agentNotice.ts `orphan`) leaves the card.
+      const parts = digestParts(text, provenance.messages).filter((part) => part.notice?.orphan !== "none");
+      if (parts.length === 0 && /^\d+ messages? from other agents/.test(text.trim())) return { kind: "hidden" };
       // Tools' notices alone (a background command's end, acpmux hub/bg_notify.rs, waited behind a
       // busy turn with another): one notice, the most severe, the rest counted and opened below it.
       const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
       if (notices.length && notices.length === parts.length) {
         const first = mostSevere(notices);
-        // Several: each notice under its own title, with its own links (noticeMarkdown), so no
-        // notice's links push out another's; the line's notice then carries none of its own.
-        const body =
-          parts.length === 1
-            ? parts[0]!.text
-            : parts
-                .map((part) =>
-                  `**${escapeTitle(part.notice!.title)}**\n${noticeMarkdown(part.text, part.notice!.links)}`.trim(),
-                )
-                .join("\n\n");
+        // The line's notice then carries none of its own links.
+        // Several: one line per notice, what finished and how it ended, never a card of each body
+        // (Leo, 2026-11-12, on such a group opened into cards: "Even though I intentionally, like,
+        // opened this, it's just, like... but why though?").
+        const body = parts.length === 1 ? parts[0]!.text : parts.map((part) => noticeLine(part.notice!)).join("\n");
         const more = notices.length - 1;
         return {
           kind: "message",
@@ -988,11 +986,13 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
-    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
+    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent, body) : undefined;
     if (notice) return { sender, notice, text: shownNoticeBody(notice, noticeBody(body)) };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
-    // (agentNotice.ts): read from its head, as a turn of its own reads it.
-    const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
+    // (agentNotice.ts): read from its head, as a turn of its own reads it. cmux's own parts' text
+    // is always read so: its `[notice from acpmux]` head never shows as words.
+    const named =
+      !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER) || isSystemSender(part[1]!.trim());
     const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
     if (read && "notice" in read) return { sender, notice: read.notice, text: shownNoticeBody(read.notice, read.body) };
     const signed = agentSigned(body, [sender]);
@@ -1006,11 +1006,19 @@ type DigestPart = { sender: string; text: string; notice?: AgentNotice };
 /// sender's name (a notice under its title too).
 function digestBody(parts: readonly DigestPart[]): string {
   if (parts.length === 1) return parts[0]!.notice ? noticeRowText(parts[0]!.notice, parts[0]!.text) : parts[0]!.text;
+  // A notice among messages is one line under its sender, never its body.
   return parts
     .map(({ sender, text, notice }) =>
-      notice ? `**${sender}**\n${noticeRowText(notice, text)}` : `**${sender}**\n${text}`,
+      notice ? `**${sender}** · ${escapeTitle(notice.title)}` : `**${sender}**\n${text}`,
     )
     .join("\n\n");
+}
+
+/// A notice as one Markdown list line: its title, which names what finished and how it ended,
+/// then its own links, so no notice's links push out another's.
+function noticeLine(notice: AgentNotice): string {
+  const links = notice.links.map((link) => `[${escapeTitle(link.label ?? link.url)}](${link.url})`).join(", ");
+  return `- ${escapeTitle(notice.title)}${links ? ` · ${links}` : ""}`;
 }
 
 const SEVERITY_RANK: Record<AgentNotice["severity"], number> = { info: 0, warn: 1, fire: 2 };

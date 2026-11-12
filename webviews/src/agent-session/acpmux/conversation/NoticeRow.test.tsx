@@ -240,13 +240,13 @@ test("a background command's notice never shows acpmux, its task id or bg_output
 // what happened here". It went well and wrote nothing: no row. Otherwise one quiet line whose
 // output is all it opens to, never the text the agent read.
 function orphanEnd(exit: number, output: string | undefined, display?: "none" | "line") {
-  const end = bgEnd("bg-2361c6b2eafd", "glaeda-gh wait pr x#1 --until done", exit, output ?? "");
+  const end = bgEnd("bg-2361c6b2eafd", "gh pr checks 1 --watch", exit, output ?? "");
   const body =
     output === undefined
       ? "It wrote no output."
       : `Last 3 lines of its output:\n${output}\n(bg_output reads all of it.)`;
   const head = end.text.split("\n")[0];
-  const text = `${head}\nTask bg-2361c6b2eafd: glaeda-gh wait pr x#1 --until done\n${body}\nThis task end is for your general-purpose subagent aeac1f9a, which started the task and has ended, so it comes to you.`;
+  const text = `${head}\nTask bg-2361c6b2eafd: gh pr checks 1 --watch\n${body}\nThis task end is for your general-purpose subagent aeac1f9a, which started the task and has ended, so it comes to you.`;
   const provenance = {
     ...end.provenance,
     forSubagent: { id: "aeac1f9a765e65d82", type: "general-purpose" },
@@ -309,10 +309,13 @@ test("background command ends that went in together read as their notice, never 
   expect(line.querySelector(".cv-notice__title")?.textContent).not.toBe("acpmux");
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
   const text = container.querySelector(".cv-received__text")!.textContent ?? "";
-  // Opened: each notice's own title, then its body, never the rendered head.
+  // Opened: one line per notice, its own title, never its body or the rendered head (Leo,
+  // 2026-11-12: "Even though I intentionally, like, opened this, it's just, like... but why though?").
   expect(text).toContain("Background command finished: cargo fmt --check (exit 0)");
   expect(text).not.toContain("Task bg-4");
   expect(text).not.toContain("[notice from");
+  expect(text).not.toContain("note: one");
+  expect(container.querySelectorAll(".cv-received__text li").length).toBe(2);
 });
 
 test("one notice that went in as a digest reads as that notice", () => {
@@ -342,10 +345,34 @@ test("a digest of a notice and an agent's message shows the first message's word
   ];
   const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("acpmux, lane-a");
+  expect(read.message.name).toBe("cmux, lane-a");
   expect(read.message.preview).toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(messagePreview(read.message.text)).not.toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.text).not.toContain("[notice from");
+});
+
+test("a digest drops orphan task ends with nothing to say, and reads acpmux's own text as a notice", () => {
+  const quiet = orphanEnd(0, undefined, "none");
+  const said = bgEnd("bg-12", "make", 0, "ok");
+  const text = `3 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 3] from acpmux\n${quiet.text}\n\n[agent message 2 of 3] from acpmux\n${said.text}\n\n[agent message 3 of 3] from lane-a\nShipped the fix.`;
+  const messages = [
+    { promptId: "bg-done-q", from: "acpmux", provenance: quiet.provenance },
+    // A record that lost its provenance: acpmux's own text still reads as a notice, one line.
+    { promptId: "bg-done-12", from: "acpmux" },
+    { promptId: "p3", from: "lane-a" },
+  ];
+  const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.text).not.toMatch(/\[notice from|This task end is for your|aeac1f9a|gh pr checks 1/);
+  expect(read.message.text).toContain("Background command finished: make (exit 0)");
+  expect(read.message.text).not.toContain("Last 3 lines");
+  const alone = `1 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n[agent message 1 of 1] from acpmux\n${quiet.text}`;
+  const none = incomingPrompt(alone, {
+    _meta: {
+      provenance: { kind: "agent_digest", messages: [{ promptId: "q", from: "acpmux", provenance: quiet.provenance }] },
+    },
+  });
+  expect(none).toEqual({ kind: "hidden" });
 });
 
 test("a notice whose title is longer than a line allows still reads as a notice, its title cut", () => {
