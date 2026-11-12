@@ -2066,6 +2066,35 @@ class CaseInsensitiveDestination:
         return False
 
 
+class CaseInsensitiveLookup:
+    """os.path.isfile, os.path.exists, os.path.islink and os.access as on a case- and normalization-insensitive
+    volume (macOS's default): a lookup of a name under UNDER finds the entry whose NFD casefold is equal, so a PATH
+    directory holding NODE answers for node too (cmux#41666 review: the hook found NODE as node there)."""
+
+    def __init__(self, under):
+        self.folding = CaseInsensitiveDestination(under)
+        self.real = {"isfile": os.path.isfile, "exists": os.path.exists, "islink": os.path.islink,
+                     "access": os.access}
+
+    def __enter__(self):
+        fold = self.folding.existing
+        real = self.real
+        self.patches = [
+            mock.patch.object(os.path, "isfile", lambda path: real["isfile"](fold(path))),
+            mock.patch.object(os.path, "exists", lambda path: real["exists"](fold(path))),
+            mock.patch.object(os.path, "islink", lambda path: real["islink"](fold(path))),
+            mock.patch.object(os, "access", lambda path, mode, *a, **k: real["access"](fold(path), mode, *a, **k)),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
 class ChildPathStubNamesTests(unittest.TestCase):
     """The stubs for names on PATH that CHILD_TOOLS does not list: names that differ only in
     case (or Unicode normalization) are one file on a case-insensitive temporary volume, and
@@ -2118,7 +2147,8 @@ class ChildPathStubNamesTests(unittest.TestCase):
     def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
         """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
         entry = self.path_dir("bin", "NODE")
-        with CaseInsensitiveDestination(self.temp):
+        # The lookups fold too, as on macOS: there an executable NODE is found as node (cmux#41666 review).
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
             shims = self.child_path(entry)
         self.assertEqual(self.folded(shims).count("node"), 1)
         self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
