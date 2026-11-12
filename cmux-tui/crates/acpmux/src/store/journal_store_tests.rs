@@ -2020,43 +2020,25 @@ fn every_test_wait_on_a_hold_is_bounded() {
         }
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    sources(&root, &mut files);
-    files.sort();
-    let texts: Vec<String> =
-        files.iter().map(|file| std::fs::read_to_string(file).unwrap_or_default()).collect();
-    // Modules declared `#[cfg(test)] mod name;`: their files only build under test.
-    let test_modules: std::collections::BTreeSet<String> =
-        texts.iter().flat_map(|text| test_module_decls(text)).collect();
+    let mut paths = Vec::new();
+    sources(&root, &mut paths);
+    paths.sort();
+    let files: Vec<(PathBuf, String)> = paths
+        .iter()
+        .map(|file| {
+            let relative = file.strip_prefix(&root).unwrap_or(file).to_path_buf();
+            (relative, std::fs::read_to_string(file).unwrap_or_default())
+        })
+        .collect();
+    let CrateScan { checked, unread, waits } = scan_crate(&files);
     let mut found = Vec::new();
-    let mut unread = Vec::new();
     let mut allowed_seen = vec![false; ALLOWED.len()];
-    let mut checked = 0;
-    for (file, text) in files.iter().zip(&texts) {
-        let relative = file.strip_prefix(&root).unwrap_or(file);
-        let path = relative.to_string_lossy();
-        let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let whole = stem.ends_with("tests")
-            || stem.ends_with("_bench")
-            || relative.iter().any(|part| {
-                let part = part.to_str().unwrap_or("");
-                test_modules.contains(part.strip_suffix(".rs").unwrap_or(part))
-            });
-        let scan = scan_test_waits(text, whole);
-        // The self-check: a file that writes a test module's header gives the scan its code.
-        if !whole && declares_test_module(text) && scan.ranges == 0 {
-            unread.push(path.to_string());
+    for (path, wait) in waits {
+        if let Some(i) = ALLOWED.iter().position(|(f, r, _)| *f == path && *r == wait.root) {
+            allowed_seen[i] = true;
+            continue;
         }
-        if scan.ranges > 0 {
-            checked += 1;
-        }
-        for wait in scan.waits {
-            if let Some(i) = ALLOWED.iter().position(|(f, r, _)| *f == path && *r == wait.root) {
-                allowed_seen[i] = true;
-                continue;
-            }
-            found.push(format!("{path}:{}: `{}` has no bound", wait.line, wait.call));
-        }
+        found.push(format!("{path}:{}: `{}` has no bound", wait.line, wait.call));
     }
     assert!(checked >= 50, "the scan read {checked} test sources: it no longer sees them");
     assert!(
@@ -2112,6 +2094,45 @@ struct Wait {
 struct TestScan {
     ranges: usize,
     waits: Vec<Wait>,
+}
+
+/// What the scan read of a crate's sources.
+struct CrateScan {
+    /// How many sources gave it test code.
+    checked: usize,
+    /// The files that declare a `#[cfg(test)] mod name {` it read nothing of.
+    unread: Vec<String>,
+    /// Each unbounded wait, with its file.
+    waits: Vec<(String, Wait)>,
+}
+
+/// The scan of a crate's sources, `(path under src/, text)`: which are test code, and the
+/// unbounded waits in them. A pure function of the sources, so fixtures can feed it files.
+fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
+    // Modules declared `#[cfg(test)] mod name;`: their files only build under test.
+    let test_modules: std::collections::BTreeSet<String> =
+        files.iter().flat_map(|(_, text)| test_module_decls(text)).collect();
+    let mut scan = CrateScan { checked: 0, unread: Vec::new(), waits: Vec::new() };
+    for (relative, text) in files {
+        let path = relative.to_string_lossy().to_string();
+        let stem = relative.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let whole = stem.ends_with("tests")
+            || stem.ends_with("_bench")
+            || relative.iter().any(|part| {
+                let part = part.to_str().unwrap_or("");
+                test_modules.contains(part.strip_suffix(".rs").unwrap_or(part))
+            });
+        let file = scan_test_waits(text, whole);
+        // The self-check: a file that writes a test module's header gives the scan its code.
+        if !whole && declares_test_module(text) && file.ranges == 0 {
+            scan.unread.push(path.clone());
+        }
+        if file.ranges > 0 {
+            scan.checked += 1;
+        }
+        scan.waits.extend(file.waits.into_iter().map(|wait| (path.clone(), wait)));
+    }
+    scan
 }
 
 /// The `#[cfg(test)]` modules in `tokens`, at any depth: each `mod name { ... }` body into
@@ -2408,6 +2429,29 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "fn a() {\n    let (tx, rx) = channel::<()>();\n    while let Ok(_) = rx.RECV {}\n}\n\
              fn b() {\n    let (tx, rx) = channel::<()>();\n    drop(tx);\n}\n",
         ),
+        (
+            "F1 at 699228e4: a drain whose sender is dropped inside the loop",
+            "let (tx, rx) = channel::<()>();\n\
+             while let Ok(_) = rx.RECV {\n    drop(tx);\n}\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender is dropped after the loop",
+            "let (tx, rx) = channel::<()>();\n\
+             while let Ok(_) = rx.RECV {}\n\
+             drop(tx);\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender a closure drops, not a statement",
+            "let (tx, rx) = channel::<()>();\n\
+             let later = move || drop(tx);\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender a block beside it drops",
+            "let (tx, rx) = channel::<()>();\n\
+             if done {\n    drop(tx);\n}\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
         ("F2: a call's argument", "consume(rx.RECV);\n"),
         ("F2: a value used by drop", "drop(rx.RECV);\n"),
         ("F2: a call's last argument after a comma", "consume(1, rx.RECV);\n"),
@@ -2470,6 +2514,11 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              rx.close();\n\
              while let Some(n) = rx.blocking_RECV {}\n",
         ),
+        (
+            "F1: a drain whose sender is dropped before the loop, in an enclosing block",
+            "fn t() {\n    let (tx, rx) = channel::<u8>();\n    drop(tx);\n    \
+             if go {\n        while let Ok(n) = rx.RECV {}\n    }\n}\n",
+        ),
         ("F2: a tokio timeout", "let got = tokio::time::timeout(d, rx.RECV).await;\n"),
         (
             "F2: a tokio timeout across lines",
@@ -2514,6 +2563,51 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         if !waits.is_empty() {
             let calls: Vec<&str> = waits.iter().map(|w| w.call.as_str()).collect();
             wrong.push(format!("flagged: {shape}: {calls:?}"));
+        }
+    }
+    // F2 at 699228e4: a `mod child;` inside an inline `#[cfg(test)]` module is a test file, read
+    // from where the module tree puts it (`#[path]` when given).
+    type Files<'a> = &'a [(&'a str, &'a str)];
+    let crates: &[(&str, Files<'_>)] = &[
+        (
+            "F2 at 699228e4: a child of an inline test module, by name",
+            &[
+                ("hub/foo.rs", "fn live() {}\n#[cfg(test)]\nmod tests {\n    mod child;\n}\n"),
+                ("hub/foo/tests/child.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a child of an inline test module in a mod.rs, as a folder",
+            &[
+                ("hub/mod.rs", "#[cfg(test)]\nmod checks {\n    mod deep;\n}\n"),
+                ("hub/checks/deep/mod.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a child of an inline test module, by #[path]",
+            &[
+                (
+                    "hub/foo.rs",
+                    "#[cfg(test)]\nmod tests {\n    #[path = \"probe.rs\"]\n    mod child;\n}\n",
+                ),
+                ("hub/foo/tests/probe.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a grandchild of an inline test module",
+            &[
+                ("hub/foo.rs", "#[cfg(test)]\nmod tests {\n    mod child;\n}\n"),
+                ("hub/foo/tests/child.rs", "mod grand;\n"),
+                ("hub/foo/tests/child/grand.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+    ];
+    for (shape, files) in crates {
+        let files: Vec<(PathBuf, String)> =
+            files.iter().map(|(path, text)| (PathBuf::from(path), source(text))).collect();
+        let child = files.last().map(|(path, _)| path.to_string_lossy().to_string());
+        if !scan_crate(&files).waits.iter().any(|(path, _)| Some(path) == child.as_ref()) {
+            wrong.push(format!("child file not read: {shape}"));
         }
     }
     assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
