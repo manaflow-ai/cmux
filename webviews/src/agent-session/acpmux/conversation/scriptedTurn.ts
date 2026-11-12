@@ -9,6 +9,9 @@
 //   reply streams on in a new segment.
 // - `steer`: while the reply streams the reader sends again: the composer clears, the prompt lands
 //   under the reply's text so far, and the reply streams on under it.
+// - `send-tools-send`: the follow-motion preview's whole turn (followMotionPreview.gallery.tsx): a
+//   send from the latest row, a fast reply, a tool call that runs and finishes, more reply, then the
+//   reader types and sends a second prompt while the reply streams, and the reply goes on under it.
 // The turn-transition turns (test/turn-transition-jumps.test.ts; Leo, 2026-11-07: "the jumps are
 // jarring. We want to minimize the jumps") build their rows as direct.ts does: a segment's thought
 // and tool calls are items of one activity row, and a call ends the text segment before it.
@@ -34,6 +37,7 @@ export type ScriptedTurn =
   | "send"
   | "tools"
   | "steer"
+  | "send-tools-send"
   | "text-tool"
   | "burst-thought"
   | "tool-group"
@@ -171,6 +175,43 @@ export async function playScriptedTurn(
     await wait(400);
     step("stream");
     await stream(ANSWER_ID, 100_001, REPLY, false);
+  } else if (scenario === "send-tools-send") {
+    step("send");
+    show({ sends: 1, card: CARD_EMPTY });
+    await wait(30);
+    show({ rows: [...base, prompt], working: true });
+    await wait(400);
+    step("stream");
+    const paragraphs = REPLY.split("\n\n");
+    const first = paragraphs.slice(0, 2).join("\n\n");
+    await stream(ANSWER_ID, 100_001, first, false);
+    // A call ends the text segment and opens the segment's activity row.
+    step("tool");
+    put({ id: ANSWER_ID, at: 100_001, kind: "assistant", text: first, streaming: false });
+    put(activityRow("live-activity-1", 100_002, [toolItem(0, "Read relay.ts", "read", "in_progress")]));
+    emit();
+    await wait(300);
+    step("tool-done");
+    put(activityRow("live-activity-1", 100_002, [toolItem(0, "Read relay.ts", "read", "completed")]));
+    emit();
+    await wait(150);
+    step("segment");
+    const second = paragraphs.slice(2, 4).join("\n\n");
+    await stream("live-answer-2", 100_010, second, false);
+    // The reader types a second prompt (the composer's card grows) and sends it: the card clears,
+    // acpmux's echo lands the prompt under the reply so far, and the reply goes on under it.
+    step("type-2");
+    show({ card: CARD_DRAFT });
+    await wait(250);
+    step("send-2");
+    put({ id: "live-answer-2", at: 100_010, kind: "assistant", text: second, streaming: false });
+    show({ sends: 2, card: CARD_EMPTY });
+    await wait(30);
+    put({ id: "live-steer", at: 100_020, kind: "user", text: "Also check the queue that replays requests." });
+    emit();
+    await wait(300);
+    step("segment-2");
+    await stream("live-answer-3", 100_021, paragraphs.slice(4, 8).join("\n\n"), false);
   } else {
     // The turn is running: the prompt is in (from another of the reader's devices), its live line
     // under it.

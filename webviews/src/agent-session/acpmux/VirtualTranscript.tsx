@@ -1,6 +1,7 @@
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import React, {
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -73,6 +74,7 @@ import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
+import { FollowArmOverride } from "./conversation/followArmOverride";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
@@ -1497,9 +1499,11 @@ function TranscriptView({
     () => (index: number) => references.scopeOf(turnOpener(references.cache, rows, index)),
     [rows, references],
   );
-  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
-  /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
-  const [followArm] = useState(() => experimentArm(followMotion));
+  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript; the gallery's
+  /// side-by-side preview forces one per transcript (FollowArmOverride). Every arm but `eased`
+  /// (followGlide, the view before) chases each move of the rows in view (followChase.ts).
+  const forcedFollowArm = useContext(FollowArmOverride);
+  const [followArm] = useState(() => forcedFollowArm ?? experimentArm(followMotion));
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(followArm);
