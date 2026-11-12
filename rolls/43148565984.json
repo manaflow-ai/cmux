@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43148565984",
+  "recorded_at": "2026-11-12T03:37:55Z",
+  "reason": "cmux-tui df657d374676 changes the image's cmux-tui (pinned 856a5732d189)",
+  "dry_run": false,
+  "cmux_tui": "df657d374676a5df9de2f4be5428e8d6ab113998",
+  "fixes": [
+    {
+      "sha": "df657d374676a5df9de2f4be5428e8d6ab113998",
+      "mergedAt": "2026-11-11T21:10:52-06:00",
+      "subject": "acpmux: a permission answer written while the agent host link is down reaches the agent once"
+    },
+    {
+      "sha": "e32515122b71e4b69f4b366579014b8e0262deac",
+      "mergedAt": "2026-11-11T21:10:51-06:00",
+      "subject": "acpmux tests: a permission answer given while the agent host link is down reaches the agent once (red)"
+    },
+    {
+      "sha": "2e2a0a1fb179eb7acde1945ca9168653a7605c97",
+      "mergedAt": "2026-11-11T21:10:50-06:00",
+      "subject": "acpmux tests: an answer written while the agent host link is down reaches the agent once after the reattach (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T03:37:55Z",
+    "snapshot_id": "sh-c7fecb20499d4e8cb3d03cd76f5481fd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43148565984): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e2583e01126a1077536a7158a5ed47d7f825837a",
+    "image": "cloud-native-auto-df657d37-43148565984-1",
+    "revision": "ci-43148565984-1",
+    "at": "2026-11-12T03:37:55Z"
+  },
+  "rolled_back": false
+}
