@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import type { AcpmuxRow } from "../model";
 import { SubagentFold, type Event, type Subagent } from "./subagentFold";
 import type { Folds } from "../conversation/viewFolds";
-import { SUBAGENT_EMPTY, childView } from "./subagentRows";
+import { SUBAGENT_EMPTY, childView, subagentsIn } from "./subagentRows";
 
 /// One record of the log, as `_acpmux/events` sends it.
 export type OwnLogRecord = { seq: number; at: number; dir: string; kind: string; msg?: any };
@@ -45,9 +45,30 @@ export function pendingSubagentView(id: string, loading: boolean): AcpmuxRow[] {
   ];
 }
 
-/// What a pane showing subagent `id` draws: its view from the chat's rows when they hold it, else
-/// from its own records (`own.log`), else loading while those are read and empty after. Never
-/// undefined, which would draw the chat's own rows in the subagent's place.
+/// Whether `view` (a `childView`) draws none of the subagent's own rows: only its pill and the
+/// empty row.
+const drawsNothing = (view: readonly AcpmuxRow[]) => view.some((row) => row.kind === SUBAGENT_EMPTY);
+
+/// Whether a pane on subagent `id` reads its own records (`useOwnLog`), given the chat's loaded
+/// rows: when they do not hold it, when they hold it but none of its own rows (a chat whose loaded
+/// page kept its stop and lost its work: the "Subagent stopped" line opened "No messages yet",
+/// Leo, 2026-11-12: "NO MESSAGES DISPLAYED?"), and when it is no longer running, whose page may
+/// hold only its last rows. A running subagent the page holds draws live from the chat.
+export function needsOwnLog(
+  id: string,
+  chat: { rows: readonly AcpmuxRow[]; views?: Record<string, AcpmuxRow[]> },
+): boolean {
+  const agent = subagentsIn(chat.rows, chat.views).get(id);
+  if (!agent) return true;
+  if (!chat.views?.[id]?.length) return true;
+  return agent.state !== "running";
+}
+
+/// What a pane showing subagent `id` draws: its view from the chat's rows when they hold its own
+/// rows, else from its own records (`own.log`), else loading while those are read and empty after.
+/// A finished subagent draws the fuller of the two (its own records hold its whole run; the
+/// chat's page may hold only its end). Never undefined, which would draw the chat's own rows in
+/// the subagent's place.
 export function subagentPaneView(
   id: string,
   chat: { rows: readonly AcpmuxRow[]; views?: Record<string, AcpmuxRow[]> },
@@ -55,11 +76,24 @@ export function subagentPaneView(
   expanded: Folds,
   chatName: string,
 ): AcpmuxRow[] {
-  return (
-    childView(id, chat.rows, chat.views, expanded, chatName) ??
-    (own.log && childView(id, own.log.rows, own.log.views, expanded, chatName)) ??
-    pendingSubagentView(id, own.loading)
-  );
+  const fromChat = childView(id, chat.rows, chat.views, expanded, chatName);
+  const fromOwn = own.log && childView(id, own.log.rows, own.log.views, expanded, chatName);
+  const chatDraws = fromChat !== undefined && !drawsNothing(fromChat);
+  const ownDraws = fromOwn !== undefined && !drawsNothing(fromOwn);
+  if (chatDraws && ownDraws) {
+    const running = subagentsIn(chat.rows, chat.views).get(id)?.state === "running";
+    const longer = (own.log?.views[id]?.length ?? 0) > (chat.views?.[id]?.length ?? 0);
+    return !running && longer ? fromOwn! : fromChat!;
+  }
+  if (chatDraws) return fromChat!;
+  if (ownDraws) return fromOwn!;
+  // Nothing of its own to draw yet: the pill the chat or its records give it, then loading while
+  // its records are read, empty after.
+  const shell = fromChat ?? fromOwn;
+  if (!shell) return pendingSubagentView(id, own.loading);
+  if (!own.loading) return shell;
+  // Its own version (the empty row's is 1), so the row draws again when loading ends.
+  return shell.map((row) => (row.kind === SUBAGENT_EMPTY ? { ...row, version: 3, status: "loading" } : row));
 }
 
 type OwnLogState = { key: string; log?: OwnLog; done: boolean; failed?: boolean };

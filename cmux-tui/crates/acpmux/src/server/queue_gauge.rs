@@ -6,7 +6,9 @@
 //! The queue is first in, first out, so the bytes it holds are the sizes of its newest `depth`
 //! lines, `depth` being what the channel says it holds now: each line queued notes its size, and
 //! a read drops the oldest sizes past `depth`. A reply that waited for room is noted when it got
-//! in, so the sum is near, not exact, while such replies land.
+//! in, so the sum is near, not exact, while such replies land. With the event journal on, the
+//! connection queues into its durable gate, so the lines the gate holds and the transport's own
+//! queue past it are counted too (`durable_gate.rs`).
 
 use super::*;
 use std::collections::VecDeque;
@@ -55,7 +57,7 @@ impl Queued {
     }
 
     /// The bytes `out` holds now.
-    fn bytes(&self, out: &mpsc::Sender<String>) -> usize {
+    pub(super) fn bytes(&self, out: &mpsc::Sender<String>) -> usize {
         let mut sizes = self.0.sizes.lock().unwrap_or_else(|e| e.into_inner());
         trim(&mut sizes, depth(out));
         sizes.iter().sum()
@@ -74,7 +76,7 @@ impl Queued {
     }
 }
 
-fn depth(out: &mpsc::Sender<String>) -> usize {
+pub(super) fn depth(out: &mpsc::Sender<String>) -> usize {
     out.max_capacity().saturating_sub(out.capacity())
 }
 
@@ -108,13 +110,16 @@ pub(crate) fn status() -> Value {
     let mut rows: Vec<(usize, Value)> = live
         .iter()
         .map(|conn| {
-            let bytes = conn.queued.bytes(&conn.out);
+            // With the event journal on, `out` is the gate's input: the lines the gate holds and
+            // the transport's queue past it count too (`durable_gate.rs`).
+            let (gate_lines, gate_bytes) = conn.gate.as_ref().map_or((0, 0), |gate| gate.backlog());
+            let bytes = conn.queued.bytes(&conn.out) + gate_bytes;
             let waiting = conn.queued.0.waiting.load(Ordering::Relaxed);
             let row = json!({
                 "conn": conn.id,
                 "name": conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone(),
                 "origin": origin_usage_key(conn.origin),
-                "lines": depth(&conn.out),
+                "lines": depth(&conn.out) + gate_lines,
                 "bytes": bytes,
                 "waitingReplies": conn.queued.0.waiting_replies.load(Ordering::Relaxed),
                 "waitingReplyBytes": waiting,

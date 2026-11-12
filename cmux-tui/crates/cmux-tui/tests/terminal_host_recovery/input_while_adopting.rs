@@ -291,3 +291,61 @@ fn more_than_64_kib_for_an_adopting_terminal_is_refused_and_the_queue_is_kept() 
         sender.notices
     );
 }
+
+/// An adoption that ends with its host alive but not adoptable gives the queued input back at
+/// that end, in the unclaimed notice with reason `failed`, not at the adopting queue's 120 s
+/// backstop. The host refuses every hello: its record names a wrong owner token, as a host
+/// that shares no protocol with this build refuses (no test seam: a host of this build, a
+/// record edited on disk). After the refusals the terminal is unadoptable and its host keeps
+/// running.
+#[test]
+fn input_queued_for_a_live_host_that_cannot_be_adopted_comes_back_when_the_adoption_ends() {
+    let mut harness = RecoveryHarness::start("input-while-adopting-unadoptable");
+    let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "adopting-unadoptable");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid as libc::pid_t;
+    // The harness's cleanup adopts nothing with the wrong token; never leak the host.
+    struct KillOnDrop(libc::pid_t);
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            // SAFETY: the PID is this test's terminal host (a session leader).
+            unsafe { libc::killpg(self.0, libc::SIGKILL) };
+        }
+    }
+    let _host_guard = KillOnDrop(host_pid);
+
+    harness.sigkill();
+    let mut rewritten: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record_path).unwrap()).unwrap();
+    let token = rewritten["owner_token"].as_str().unwrap().to_string();
+    let wrong: String = token.chars().map(|c| if c == 'f' { '0' } else { 'f' }).collect();
+    rewritten["owner_token"] = serde_json::json!(wrong);
+    fs::write(&record_path, serde_json::to_vec(&rewritten).unwrap()).unwrap();
+    harness.restart();
+
+    let mut connection = Connection::open(&harness.socket);
+    let reply = connection.call(serde_json::json!({
+        "id": 3, "cmd": "send", "terminal_id": terminal_id, "text": "never-adopted",
+    }));
+    assert_eq!(reply["data"]["queued"], true, "the terminal must still adopt: {reply}");
+    let sent = Instant::now();
+    let notice = connection.unclaimed();
+    let waited = sent.elapsed();
+    assert_eq!(notice["terminal_id"], terminal_id.as_str(), "{notice}");
+    assert_eq!(
+        notice["reason"], "failed",
+        "given back by the backstop, not the adoption's end: {notice}"
+    );
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(notice["bytes_base64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(bytes, b"never-adopted", "{notice}");
+    // Three refusals over at least 10 s make the host unadoptable; the backstop is 120 s.
+    assert!(waited < test_timeout(Duration::from_secs(40)), "given back after {waited:?}");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+    );
+    assert_ne!(resolved["lifecycle"], "exited", "a live host's terminal was ended: {resolved}");
+    assert!(process_exists(host_pid), "the host must keep running");
+}

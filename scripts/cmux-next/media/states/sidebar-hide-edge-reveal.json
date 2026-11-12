@@ -61,6 +61,18 @@
       "wait": 0.3
     },
     {
+      "title": "debug.mouse hover learns the pointer is on the edge: the zone read it when it was placed, and hover sends a leave only to the views it entered",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "hover",
+          "x": 2,
+          "y": 420
+        }
+      },
+      "wait": 0.3
+    },
+    {
       "title": "The pointer leaves the edge",
       "move": {
         "x": 400,

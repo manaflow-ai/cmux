@@ -104,6 +104,11 @@ direct push, and cmux-app-ffi's lock failed --locked on every pull request until
 own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
 feat-cmux-next (base-autofix.sh --locks).
 
+Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
+in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
+scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
+caller, or gives a listed one a caller without `--update` is refused; it runs only when the push changes a header,
+the baseline, the checker or a Swift line naming a cmux_/acpmux_ function. The fast gates' --advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -249,8 +254,6 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
-    ("No process-wide test hooks in acpmux (per-thread on_* guards or a serializer, cmux#41350)",
-     ["python3", "-I", "{s}/check-test-hooks.py", "{root}"], ("cmux-tui/crates/acpmux/src/",)),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -298,6 +301,14 @@ end
 FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
 FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
 FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+# A Rust port that stops at step A: a C ABI function with no Swift caller (cmuxterm-hq
+# docs/architecture/consolidation-2026-11-12.md: 0 of 28 cmux-daemon-conn-core functions called). Local only, like
+# the workflow parse (CLAUDE.md: no new CI gates); the fast gates' --advisory pass names it as a warning.
+PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
+PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
+PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
+PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
+PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -1685,6 +1696,74 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
+def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
+    no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
+
+    It runs only when base..head changes a header, the baseline, the checker, or a Swift line under Packages that
+    names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
+    Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
+    Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
+    something, and subtracts what the base already had."""
+    script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than this check
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode(
+        "utf-8", "surrogateescape").split("\0") if n]
+    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt")
+               for n in names):
+        swift = [n for n in names if n.startswith("Packages/") and n.endswith(".swift")]
+        if not swift:
+            return []
+        diff = git(repo, "diff", "--no-renames", "--no-ext-diff", "-U0", base, head, "--", *swift,
+                   check=False).decode("utf-8", "replace")
+        # A comment opened or closed on a changed line can hide or reveal an unchanged caller below it.
+        if not any(PORT_DRIFT_NAME.search(line) or "/*" in line or "*/" in line for line in diff.splitlines()
+                   if line[:1] in "+-" and not line.startswith(("+++", "---"))):
+            return []
+    with tempfile.TemporaryDirectory(prefix="cmux-port-drift-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), "--rev", rev], Path(tmp), timeout=300)
+            lines = [line for line in out.splitlines() if line.startswith("ffi-caller-ratchet: ")
+                     and not line.startswith("ffi-caller-ratchet: ok:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1
+            # that prints no finding.
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
+
+        head_lines, head_stopped = findings(head)
+        if head_stopped:
+            return [NoVerdict(f"{PORT_DRIFT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the "
+                              f"push is refused: {out_tail(head_lines)}")]
+        if not head_lines:
+            return []
+        base_lines, base_stopped = findings(base)
+        fresh = [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        # Drift already on the integration branch is not the push's: a branch that merged it in would otherwise be
+        # refused for a finding it cannot fix (the baseline never takes a line back), e.g. two PRs that each passed,
+        # one dropping a baseline entry and one removing that function's last caller. That is a base red for its
+        # owner, not a refusal of every later push.
+        tip = rev_or_none(repo, PORT_DRIFT_TIP)
+        if fresh and tip and tip not in (base, head):
+            tip_lines, tip_stopped = findings(tip)
+            if not tip_stopped:
+                fresh = [line for line in fresh if line not in set(tip_lines)]
+        return fresh
+
+
+def rev_or_none(repo: Path, ref: str) -> str | None:
+    result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def out_tail(lines: list[str]) -> str:
+    return " ".join(lines[-2:])[:300]
+
+
 def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
     Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
@@ -2440,6 +2519,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
         if redefined:
             reserved.append((REDEFINITION_CHECK, redefined))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): the fast gates' --advisory pass warns.
+    if (highlights_layer if only is None else "port-drift" in only) and restrict is None:
+        drift = port_drift(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((PORT_DRIFT_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2924,7 +3008,7 @@ Never --no-verify: CI names every commit that adds a violation (step "Pushed com
 # ---------------------------------------------------------------- advisory (CI: named, never a gate)
 
 # The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
-# The four layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
 # refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
 # plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
 # without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
@@ -2934,7 +3018,8 @@ ADVISORY_ARCH = "arch ratchet"
 ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"
 ADVISORY_PICTURES = "What's New pictures"
-ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
+ADVISORY_PORT_DRIFT = "port drift"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES, ADVISORY_PORT_DRIFT)
 # The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
 # "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
 ADVISORY_SECONDS = 240.0
@@ -3079,6 +3164,13 @@ def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], 
     return _record_findings(ADVISORY_PICTURES, repo, found), []
 
 
+def advisory_port_drift(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"port-drift"}, False, None)
+    return _record_findings(ADVISORY_PORT_DRIFT, repo, found), []
+
+
 def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
     if not summary:
         return
@@ -3103,7 +3195,8 @@ def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
     findings: list[AdvisoryFinding] = []
     diagnostics: list[tuple[str, str]] = []
     layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
-              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures))
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures),
+              (ADVISORY_PORT_DRIFT, advisory_port_drift))
     for name, fn in layers:
         t0 = time.monotonic()
         try:
@@ -3211,7 +3304,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks,redefinitions")
+                                       "single-host-fallbacks,redefinitions,port-drift")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child

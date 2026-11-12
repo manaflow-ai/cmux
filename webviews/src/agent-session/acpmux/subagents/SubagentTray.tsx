@@ -109,6 +109,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
+import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
@@ -175,6 +176,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenPanel,
   stop,
   stopProcess,
+  resume,
   placement = "tray",
   shown,
   enters = false,
@@ -214,6 +216,9 @@ export const SubagentTray = memo(function SubagentTray({
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// Resume on a stopped subagent's finished line (ResumeControl.tsx): the chat's `resumeAgent`,
+  /// as the transcript's end line has it. The tray sits outside the transcript's TurnActionsContext.
+  resume?: ResumeActions;
   /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
   placement?: SubagentTrayPlacement;
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
@@ -1015,9 +1020,11 @@ export const SubagentTray = memo(function SubagentTray({
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={toggleThis}
               after={
-                stop &&
-                item.agent.state === "running" &&
-                !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                item.agent.state === "running"
+                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                  : // A stopped one's Resume sits in Stop's column (Leo, 2026-11-12: "WHY CANT WE
+                    // RESTART AGENTS THAT WERE STOPPED").
+                    resume && <ResumeControl agent={item.agent} actions={resume} />
               }
             />,
             // An agent a shell call started stops with that call, not through the harness.
