@@ -101,7 +101,8 @@ pub const SLOW: u16 = 598;
 /// The platform's carrier route: checks the bearer, answers a Connect
 /// ticket for the open relay, a grant for the asked key, and the daemon key.
 /// `status` other than 200 (read at each request) refuses it; [`HANG`]
-/// answers nothing for a minute.
+/// answers nothing for a minute. The Cloud exec route (a parked dial's look
+/// at the machine) is always refused.
 // A stand-in's wiring: one argument per thing a test reads back.
 #[allow(clippy::too_many_arguments)]
 pub async fn platform(
@@ -167,6 +168,23 @@ pub async fn platform(
                     let body = ssh.endpoint(&request).to_string();
                     let reply = format!(
                         "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
+                // A dial that stays parked looks at the machine (carrier/adopt.rs): an
+                // exec. This stand-in runs no command, so it refuses the look, which the
+                // dial reads as `look_refused`. It is no carrier request: `asked`, `teams`
+                // and `keys` get nothing for it. Its bearer is in `bearers`, as every
+                // request's is (above).
+                if path.ends_with("/exec") {
+                    assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/exec"));
+                    let body =
+                        json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}})
+                            .to_string();
+                    let reply = format!(
+                        "HTTP/1.1 403 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = stream.write_all(reply.as_bytes()).await;
