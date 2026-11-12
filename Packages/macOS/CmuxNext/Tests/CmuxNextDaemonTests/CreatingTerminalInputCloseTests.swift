@@ -68,7 +68,8 @@ struct CreatingTerminalInputCloseTests {
 
     /// What the fixture got, as `send:<text>` and `cancel`, in order.
     private static func calls(_ connection: DaemonConnection) async throws -> [String] {
-        let got = try #require(try await connection.request(Calls()).arrayValue)
+        let reply = try await connection.request(Calls())
+        let got = try #require(reply.arrayValue, "the fixture's call list is no array")
         return got.map { call in
             #expect(call["terminal_id"] == .string(terminal), "a request names another terminal: \(call)")
             return call["cmd"] == .string("send") ? "send:\(call["text"]?.stringValue ?? "?")" : "cancel"
@@ -96,7 +97,8 @@ struct CreatingTerminalInputCloseTests {
             #expect(await input.write(Data("\r".utf8)), "a chunk of a closed view was not taken: it would go to the attach queue")
             _ = try await Self.waitFor("cancel", on: connection)
             // One more round trip: nothing else is on its way.
-            #expect(try await Self.calls(connection) == ["send:ls", "cancel"], "what the daemon got after the close is not one cancel and no later chunk")
+            let got = try await Self.calls(connection)
+            #expect(got == ["send:ls", "cancel"], "what the daemon got after the close is not one cancel and no later chunk")
         }
     }
 
@@ -106,8 +108,8 @@ struct CreatingTerminalInputCloseTests {
             #expect(await input.write(Data("ls".utf8)))
             #expect(!input.close(), "a daemon with no creating-input-cancel-v1 was sent a cancel")
             #expect(await input.write(Data("\r".utf8)), "a chunk of a closed view was not taken")
-            try await Task.sleep(for: .milliseconds(200))
-            #expect(try await Self.calls(connection) == ["send:ls"], "an older daemon got more than the chunk sent before the close")
+            let got = try await Self.calls(connection)
+            #expect(got == ["send:ls"], "an older daemon got more than the chunk sent before the close")
         }
     }
 
@@ -120,7 +122,8 @@ struct CreatingTerminalInputCloseTests {
             _ = try await Self.waitFor("send:hold", on: connection)
             #expect(input.close())
             #expect(await refused, "a chunk the daemon refused for a closed view goes to the attach queue")
-            #expect(try await Self.waitFor("cancel", on: connection) == ["send:hold", "cancel"])
+            let got = try await Self.waitFor("cancel", on: connection)
+            #expect(got == ["send:hold", "cancel"], "what the daemon got is not the held chunk and one cancel")
         }
     }
 
@@ -130,7 +133,8 @@ struct CreatingTerminalInputCloseTests {
             let input = CreatingTerminalInput(terminalID: Self.terminal, connection: connection, cancels: true) { false }
             #expect(await !input.write(Data("refuse".utf8)), "a refused chunk of an open view was dropped")
             #expect(await !input.write(Data("x".utf8)), "after a refusal a chunk still went by the terminal id")
-            #expect(try await Self.calls(connection) == ["send:refuse"])
+            let got = try await Self.calls(connection)
+            #expect(got == ["send:refuse"], "a chunk went by the terminal id after the refusal")
         }
     }
 
@@ -143,7 +147,8 @@ struct CreatingTerminalInputCloseTests {
             #expect(await input.write(Data("a".utf8)), "a chunk of a closed view whose terminal is not made was not dropped")
             known.withLock { $0 = true }
             #expect(await !input.write(Data("b".utf8)), "a chunk for a terminal that started did not go by the attachment")
-            #expect(try await Self.waitFor("cancel", on: connection) == ["cancel"], "a chunk of a closed view left the app")
+            let got = try await Self.waitFor("cancel", on: connection)
+            #expect(got == ["cancel"], "a chunk of a closed view left the app")
         }
     }
 }
