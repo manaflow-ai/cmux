@@ -1,0 +1,17 @@
+/* The stage of OutputScrollBox.gallery.tsx: its cards one under another, and the before look: the
+   old seven-line cut, drawn with the shared tokens, and the old row from the expand row's classes. */
+.output-scroll-box-gallery {
+  display: grid;
+  gap: var(--ds-space-4);
+  padding: var(--ds-space-4);
+}
+.output-scroll-box-gallery__before {
+  --cv-output-box-lines: 7;
+}
+.output-scroll-box-gallery__before .cv-scroll-box {
+  overflow: hidden;
+}
+.output-scroll-box-gallery__old-row {
+  padding-inline: var(--ds-space-3);
+  color: var(--cv-text-muted);
+}

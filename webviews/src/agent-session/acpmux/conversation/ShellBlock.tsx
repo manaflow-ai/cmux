@@ -1,26 +1,26 @@
 // An opened shell call: a "Shell" card with the folder it ran in (a leading `cd ~/wt/lanes/x &&`
 // reads as "x" beside the label), Wrap lines and Copy, the command in a block of its own with its
 // words in their code colors ("$ grep -nE …", shellHighlight.ts), its output (the end of a long one)
-// under it and, when the command failed, its exit code between the two; a caller's `footer` closes the card. Past
-// eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
-// under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
-// never pushes the transcript down; while the command runs the box follows its newest line unless
-// the reader scrolled up. By default the output wraps its long lines down under their start, but a
+// under it and, when the command failed, its exit code between the two; a caller's `footer` closes the card. Up
+// to `OUTPUT_BOX_LINES` lines the output draws whole; past them it scrolls inside a box that tall,
+// its bottom edge fading while more lies under it (outputScrollBox.css), never behind a Show all
+// button, so a long or streaming output never pushes the transcript down; while the command runs
+// the box follows its newest line unless the reader scrolled up. By default the output wraps its long lines down under their start, but a
 // table keeps each printed row on its own line, columns aligned, its right edge fading while more
 // lies past (blockWrap.ts `outputWraps`); Wrap lines flips every output block the other way.
 import { cornerAction } from "./cornerActions";
-import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { outputWraps, useBlockWrap } from "./blockWrap";
-import { Lines, PreviewMore, WrapButton } from "./BlockParts";
-import { lineCount, PREVIEW_LINES, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
+import { Lines, WrapButton } from "./BlockParts";
+import { OUTPUT_SCROLL_BOX, SIDEWAYS_SCROLLER, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
-import { OutputMore } from "./toolOutput";
-import { previewedOutput, useOutput } from "./toolOutputModel";
+import { useOutput } from "./toolOutputModel";
+import "./outputScrollBox.css";
 
 export function ShellBlock({
   id,
@@ -39,7 +39,7 @@ export function ShellBlock({
   command?: string;
   output?: string;
   exitCode?: number;
-  /** Never cut to a preview (a command a permission ask is about). */
+  /** Never held in a scroll box: every line drawn in the card (a command a permission ask is about). */
   whole?: boolean;
   /** The output starts after the beginning of what the command printed (a read tail). */
   cut?: boolean;
@@ -54,13 +54,9 @@ export function ShellBlock({
   const shaped = useMemo(() => outputWraps(raw.text), [raw.text]);
   const [wrap] = useBlockWrap("output", shaped);
   const body = useRef<HTMLPreElement>(null);
-  // Wrapped, a few printed lines can still take more than eight rows (one 10,000-character line):
-  // they are cut to eight rows too, with Show all, as a call's output is (outputViewport.ts).
-  const lines = whole ? 0 : lineCount(raw.text);
-  const tall = useWrappedRows(body, wrap && lines > 0 && lines <= PREVIEW_LINES);
-  // The output's lines, though a long output draws only its end until opened (none to cut when whole).
-  const preview = usePreview(lines, reveal, tall);
-  const shown = previewedOutput(raw, preview);
+  // The box caps rows, not printed lines (outputScrollBox.css), so a few wrapped lines that take
+  // more rows (one 10,000-character line) scroll the same way.
+  const shown = raw;
   const marked = shown.cut || Boolean(cut && shown.shown);
   // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
   // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
@@ -70,7 +66,7 @@ export function ShellBlock({
       : 0;
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
-  useFollowEnd(body, shown.shown, live && preview.cut);
+  useFollowEnd(body, shown.shown, live && !whole);
   useMoreBelowOn(body, shown.shown);
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
@@ -107,10 +103,12 @@ export function ShellBlock({
       {/* Empty (a command with no output yet), it draws nothing (conversation.css). */}
       <pre
         ref={body}
-        className="cv-shell__body selectable"
+        className={whole ? "cv-shell__body selectable" : `cv-shell__body ${OUTPUT_SCROLL_BOX} selectable`}
         data-wrap={wrap}
-        data-preview={preview.attribute}
         data-live={live || undefined}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the scroll box to read it with arrow keys.
+        tabIndex={0}
+        aria-label={t("handoff.tool_output")}
         {...SIDEWAYS_SCROLLER}
       >
         {marked && (
@@ -120,12 +118,10 @@ export function ShellBlock({
         )}
         {shown.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} windowed={live && !preview.all} startLine={shownStartLine} />
+            <Lines text={shown.shown} windowed={live} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>
-      <PreviewMore preview={preview} />
-      {!preview.long && <OutputMore output={shown} />}
       {footer}
     </div>
   );
@@ -175,47 +171,6 @@ export const ShellCommand = memo(function ShellCommand({ command }: { command: s
     </pre>
   );
 });
-
-/// Whether the output in `ref` takes more than `PREVIEW_LINES` rows, while `watching` (wrapped, with
-/// no more printed lines than the cap: more lines are cut by their count). It measures the output
-/// span, whose height the box's own cap never changes, once on mount and on each resize, so a reflow
-/// (the font loading, the pane narrowing) or a streamed chunk updates it.
-function useWrappedRows(ref: RefObject<HTMLElement | null>, watching: boolean): boolean {
-  const [tall, setTall] = useState(false);
-  useLayoutEffect(() => {
-    const box = ref.current;
-    if (!box || !watching) return;
-    const measure = () => {
-      const output = box.querySelector(".cv-shell__output");
-      const row = parseFloat(box.ownerDocument.defaultView?.getComputedStyle(box).lineHeight ?? "");
-      setTall(Boolean(output && row > 0 && output.getBoundingClientRect().height > PREVIEW_LINES * row + 1));
-    };
-    measure();
-    const view = box.ownerDocument.defaultView;
-    if (!view?.ResizeObserver) return;
-    // Everything that can throw runs before the observers exist, so the cleanup below always owns them.
-    const first = box.querySelector(".cv-shell__output");
-    const watched = new Set<Element>(first ? [first] : []);
-    const watchOutput = () => {
-      const output = box.querySelector(".cv-shell__output");
-      if (output && !watched.has(output)) {
-        watched.add(output);
-        sized.observe(output);
-      }
-      measure();
-    };
-    const sized = new view.ResizeObserver(measure);
-    const changed = new view.MutationObserver(watchOutput);
-    sized.observe(box);
-    if (first) sized.observe(first);
-    changed.observe(box, { childList: true });
-    return () => {
-      sized.disconnect();
-      changed.disconnect();
-    };
-  }, [ref, watching]);
-  return watching && tall;
-}
 
 /// While `following`, keeps the box scrolled to its newest line as `content` grows, unless the
 /// reader scrolled up from the end; scrolling back to the end follows again. A late reflow (the mono

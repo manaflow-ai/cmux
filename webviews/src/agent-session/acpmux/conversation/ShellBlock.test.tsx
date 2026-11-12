@@ -286,14 +286,21 @@ test("a live suffix keeps its final line free of an extra newline", async () => 
   expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
 });
 
-test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {
-  const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
-  await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
-  const body = container.querySelector(".cv-shell__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  // The count is the output's own lines; the command is its own block.
-  const more = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show all 30 lines");
-  expect(Boolean(more)).toBe(true);
+// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think chatgpt just lets you scroll,
+// straight up?"
+test("the output draws every line in the shared scroll box, with no Show all", async () => {
+  for (const n of [9, 30]) {
+    const output = Array.from({ length: n }, (_, at) => `case ${at + 1}`).join("\n");
+    await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
+    const body = container.querySelector(".cv-shell__body")!;
+    expect(body.classList.contains("cv-scroll-box")).toBe(true);
+    // Focusable, so the arrow keys scroll it; copy and Find read its text.
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(container.querySelectorAll(".cv-shell__output .cv-line").length).toBe(n);
+    expect(
+      [...container.querySelectorAll("button")].some((button) => /^Show (all|less)/.test(button.textContent ?? "")),
+    ).toBe(false);
+  }
   // A command with no output yet draws no output box.
   await act(async () => root!.render(<ShellBlock command="sleep 5" live />));
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");

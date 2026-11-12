@@ -1,30 +1,16 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
-/// Lines a closed block shows; past them it fades out and offers Show all.
-export const PREVIEW_LINES = 8;
+/// Lines an output or code card draws whole. Past them the card's body keeps this height and scrolls
+/// inside, as ChatGPT's output does, never behind a Show all button (Leo, 2026-11-12: "this is a
+/// really useless show all 9 lines. i think chatgpt just lets you scroll, straight up?"). The CSS
+/// token `--cv-output-box-lines` (outputScrollBox.css) is the same number; a test holds them equal.
+export const OUTPUT_BOX_LINES = 24;
 
-/// A block's preview: whether it is long enough to cut (more than `PREVIEW_LINES` lines), and
-/// whether the reader opened it. `data-preview` on its body is "cut" or "all", absent when it fits.
-/// Each new `reveal` (Find in Chat revealed the block, and a match may be past the cut) opens it.
-export function usePreview(lines: number, reveal = 0, overflows = false) {
-  const [all, setAll] = useState(reveal > 0);
-  const [revealed, setRevealed] = useState(reveal);
-  if (reveal !== revealed) {
-    setRevealed(reveal);
-    if (reveal > 0) setAll(true);
-  }
-  const long = lines > PREVIEW_LINES || overflows;
-  return {
-    long,
-    cut: long && !all,
-    all,
-    lines,
-    attribute: long ? (all ? "all" : "cut") : undefined,
-    toggle: () => setAll((value) => !value),
-  };
-}
+/// The class of every such body (outputScrollBox.css): its cap and its inner scroll, which never
+/// traps the transcript's wheel (at its edge the wheel chains on to the transcript).
+export const OUTPUT_SCROLL_BOX = "cv-scroll-box";
 
 /// Keeps the right-edge fade of `ref`'s sideways scrollers current while it is drawn.
 export function useSidewaysEdge(ref: RefObject<HTMLElement | null>) {

@@ -107,16 +107,13 @@ test("a deferred inline renderer keeps its header and line placeholders until it
   expect(host.querySelector("[data-loaded-diff]")).not.toBeNull();
   expect(host.textContent).toContain("retry.ts");
 });
-test("long pending edits keep the same preview and expand without waiting for the chunk", async () => {
+test("long pending edits sit in the same scroll box without waiting for the chunk", async () => {
   await draw(file(1284));
   const body = host.querySelector(".cv-edit-diff__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
+  expect(body.classList.contains("cv-scroll-box")).toBe(true);
   expect(body.querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(host.querySelector("button.cv-expand-row")).toBeNull();
   // A huge edit draws a bounded number of lines and one block of the rest's height.
-  expect(body.querySelectorAll(".cv-edit-diff__loading-line")).toHaveLength(400);
-  const more = host.querySelector<HTMLButtonElement>(".cv-output-more")!;
-  await act(async () => more.click());
-  expect(body.getAttribute("data-preview")).toBe("all");
   expect(body.querySelectorAll(".cv-edit-diff__loading-line")).toHaveLength(400);
   expect(body.querySelector(".cv-edit-diff__loading-rest")?.getAttribute("style")).toContain("--cv-loading-lines: 884");
 });

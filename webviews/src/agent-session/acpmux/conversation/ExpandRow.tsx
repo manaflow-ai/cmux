@@ -36,7 +36,7 @@ export function ExpandRow({
   open: boolean;
   label: string;
   onToggle: () => void;
-  /** The block's own class for the row (its place in the block: `cv-output-more`, `cv-user__more`). */
+  /** The block's own class for the row (its place in the block: `cv-user__more`, `cv-message__more`). */
   className?: string;
   /** The id of what it opens. */
   controls?: string;

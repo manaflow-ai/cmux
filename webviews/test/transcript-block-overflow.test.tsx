@@ -5,9 +5,10 @@
 //
 // Now: a prose file (md, txt) wraps with a hanging indent by default and code stays on one line,
 // with a fade at the right edge while more of it lies past it. Each block's header has Wrap lines
-// beside Copy, remembered per kind of block (prose, code, output). A block longer than eight lines
-// shows its first eight under a fade, with "Show all N lines". The same holds for a command's Shell
-// block and a call's output.
+// beside Copy, remembered per kind of block (prose, code, output). Every line is drawn, in a box that
+// scrolls inside past 24 lines (outputScrollBox.css), never behind a Show all button (Leo,
+// 2026-11-12: "i think chatgpt just lets you scroll, straight up?"). The same holds for a command's
+// Shell block and a call's output.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -181,19 +182,13 @@ test("the wrap choice holds for every block of its kind and is remembered", asyn
   expect(wrapOf(card("e.ts"))?.getAttribute("aria-pressed")).toBe("true");
 });
 
-test("a diff longer than eight lines shows its first lines under a fade, with Show all N lines", async () => {
-  await renderDiffs(await newFile("/w/notes.md", lines(21)), await newFile("/w/short.ts", lines(5)));
-  const long = card("notes.md");
-  expect(long.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
-  const more = byText("Show all 21 lines", long);
-  expect(more?.getAttribute("aria-expanded")).toBe("false");
-  await click(more);
-  expect(long.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
-  expect(byText("Show less", long)?.getAttribute("aria-expanded")).toBe("true");
-  // Five lines show whole, with nothing to open.
-  const short = card("short.ts");
-  expect(short.querySelector(".cv-edit-diff__body")?.hasAttribute("data-preview")).toBe(false);
-  expect(buttons(short).some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
+test("a diff of any length sits in the shared scroll box, with nothing to open", async () => {
+  await renderDiffs(await newFile("/w/notes.md", lines(60)), await newFile("/w/short.ts", lines(5)));
+  for (const name of ["notes.md", "short.ts"]) {
+    const block = card(name);
+    expect(block.querySelector(".cv-edit-diff__body")?.classList.contains("cv-scroll-box")).toBe(true);
+    expect(buttons(block).some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(false);
+  }
 });
 
 const call = (kind: string, output: string, command?: string) =>
@@ -209,7 +204,7 @@ async function openRow(kind: string, output: string, command?: string) {
   await click(host.querySelector("button.cv-tool"));
 }
 
-test("a Shell block caps its output at eight scrolling lines and wraps its long lines down, each line its own block", async () => {
+test("a Shell block scrolls its output in the shared box and wraps its long lines down, each line its own block", async () => {
   await openRow(
     "execute",
     lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`),
@@ -217,10 +212,8 @@ test("a Shell block caps its output at eight scrolling lines and wraps its long 
   );
   const shell = host.querySelector(".cv-shell")!;
   const body = shell.querySelector(".cv-shell__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  // The thirty lines of output; the command is a block of its own.
-  const more = byText("Show all 30 lines", shell);
-  expect(Boolean(more)).toBe(true);
+  expect(body.classList.contains("cv-scroll-box")).toBe(true);
+  expect(buttons(shell).some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(false);
   // Output that is not a table wraps down (blockWrap.ts `outputWraps`; Leo, 2026-11-11: "it goes
   // down instead of to the right"): each line its own block, a long one hanging under its start.
   // Wrap lines keeps the long rows whole, the body scrolling sideways for what runs past.
@@ -233,8 +226,6 @@ test("a Shell block caps its output at eight scrolling lines and wraps its long 
   expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(
     lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`).replace(/\n$/, ""),
   );
-  await click(more);
-  expect(body.getAttribute("data-preview")).toBe("all");
   await click(wrap);
   expect(body.getAttribute("data-wrap")).toBe("false");
 });
@@ -252,90 +243,31 @@ test("a Shell block's table keeps each row whole, its columns aligned", async ()
   expect(body.getAttribute("data-wrap")).toBe("false");
 });
 
-test("a long output's preview counts all its lines, not only the end it shows, and opens all of it", async () => {
+test("a long output draws every line, and a huge one its end, in the scroll box", async () => {
   await openRow("execute", lines(1000), "seq 1000");
   const shell = host.querySelector(".cv-shell")!;
-  // All thousand lines, though only the last 400 are drawn until opened.
-  expect(Boolean(byText("Show all 400 lines", shell))).toBe(false);
-  expect(Boolean(byText("Show all output", shell))).toBe(false);
-  await click(byText("Show all 1000 lines", shell));
   expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
-  expect(Boolean(byText("Show all output", shell))).toBe(false);
-  // Show less closes it up to the preview of its end again.
-  await click(byText("Show less", shell));
-  expect(shell.querySelector(".cv-shell__body")?.getAttribute("data-preview")).toBe("cut");
-  expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
-});
-
-test("an output opened while short stays open as it streams past the tail", async () => {
-  const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
-  await render(<ToolRow item={call("execute", lines(20), "bun test")} />);
-  await click(host.querySelector("button.cv-tool"));
-  await click(byText("Show all 20 lines"));
-  // The stream goes on past the 400 lines a closed output draws the end of.
-  await act(async () => root!.render(<ToolRow item={call("execute", lines(1000), "bun test")} />));
-  const shell = host.querySelector(".cv-shell")!;
-  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
-  expect(Boolean(byText("Show less", shell))).toBe(true);
-  // Show less closes it up to the end of the output.
-  await click(byText("Show less", shell));
-  expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
-  expect(Boolean(byText("Show all 1000 lines", shell))).toBe(true);
-});
-
-test("Find does not count the preview's Show all and Show less, nor Show all output", async () => {
-  await openRow("execute", lines(30), "bun test");
-  const shell = host.querySelector(".cv-shell")!;
-  const more = byText("Show all 30 lines", shell);
-  expect(more?.hasAttribute("data-find-skip")).toBe(true);
-  await click(more);
-  expect(byText("Show less", shell)?.hasAttribute("data-find-skip")).toBe(true);
   act(() => root?.unmount());
-  // A tail cut in one long line: too few lines for a preview, so Show all output stands alone.
-  await openRow("execute", "x".repeat(50_000), "yes x");
-  expect(byText("Show all output")?.hasAttribute("data-find-skip")).toBe(true);
+  // Past 2,000 lines only the end is drawn, so a megabyte never stalls the pane; Find draws it all.
+  await openRow("execute", lines(5000), "seq 5000");
+  const huge = host.querySelector(".cv-shell")!;
+  expect(huge.querySelector(".cv-shell__output")?.textContent?.startsWith("line 3001\n")).toBe(true);
+  expect(buttons(huge).some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(false);
 });
 
-test("Find in Chat opens a cut diff whose match lies past its first lines", async () => {
-  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
-  const { EditDiff } = await import("../src/agent-session/acpmux/conversation/EditDiff");
-  const file = await newFile("/w/notes.md", lines(21));
-  const reveal = (needle: string) => ({ rowId: "row-1", card: false, needle, repaint: () => {} });
-  await render(
-    <FindReveal.Provider value={reveal("line 15")}>
-      <EditDiff file={file} />
-    </FindReveal.Provider>,
-  );
-  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
-  act(() => root?.unmount());
-  // A match the diff does not hold leaves it cut.
-  await render(
-    <FindReveal.Provider value={reveal("not in this file")}>
-      <EditDiff file={file} />
-    </FindReveal.Provider>,
-  );
-  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
+test("Find in Chat draws all of a huge output, its head too", async () => {
+  const { ShellBlock } = await import("../src/agent-session/acpmux/conversation/ShellBlock");
+  await render(<ShellBlock command="seq 5000" output={lines(5000)} reveal={1} />);
+  expect(host.querySelector(".cv-shell__output")?.textContent?.startsWith("line 1\n")).toBe(true);
 });
 
-test("a diff Find reveals through its row opens past the cut too", async () => {
-  const { EditDiff } = await import("../src/agent-session/acpmux/conversation/EditDiff");
-  const file = await newFile("/w/notes.md", lines(21));
-  // As ToolRow passes it: bumped each time Find reveals the row.
-  const closed = { file, reveal: 0 };
-  const revealed = { file, reveal: 1 };
-  await render(<EditDiff {...closed} />);
-  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
-  await act(async () => root!.render(<EditDiff {...revealed} />));
-  expect(host.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
-});
-
-test("a call's output has Wrap lines and the same preview", async () => {
+test("a call's output has Wrap lines and the same scroll box", async () => {
   await openRow("other", lines(12));
   const card = host.querySelector(".cv-tool-output-card")!;
   // Plain lines are not a table, so they wrap down (blockWrap.ts `outputWraps`).
   expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("true");
-  expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
-  expect(Boolean(byText("Show all 12 lines", card))).toBe(true);
+  expect(card.querySelector(".cv-tool-output")?.classList.contains("cv-scroll-box")).toBe(true);
+  expect(buttons(card).some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(false);
 });
 
 test("a box wider than its content area marks its right edge until scrolled to the end, inside shadow roots too", async () => {
@@ -616,7 +548,7 @@ test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", asy
   const rule = (selector: RegExp) =>
     [...css.matchAll(new RegExp(`${selector.source}[^{]*\\{([^}]*)\\}`, "g"))].map((match) => match[1]).join("\n");
   // The preview's bottom edge and the overflow's right edge fade out (a mask), never a hard edge.
-  expect(rule(/\[data-preview="cut"\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
+  expect(rule(/\[data-more-below\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
   expect(rule(/\[data-more-right\]/)).toMatch(/--cv-fade-right:\s*\d/);
   expect(css).toMatch(/mask-image:\s*linear-gradient\(\s*to bottom[^;]*var\(--cv-fade-bottom/);
   // The fade ends above the sideways scrollbar's lane, and the bar in it stays opaque.
