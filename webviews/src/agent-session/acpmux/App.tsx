@@ -615,9 +615,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
+  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
-  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -804,6 +804,7 @@ import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
+import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
 export { VirtualTranscript } from "./VirtualTranscript";
@@ -10048,6 +10049,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .then(setHeaderState)
         .catch(() => undefined);
   }, [snapshot.sessionId, snapshot.isWorking, snapshot.turnsEnded, quick]);
+  const finishTurnSummary = useMemo(() => newestTurnSummary(snapshot.rows), [snapshot.rows]);
+  // A long turn's end, green checks and a merge: the short "done" state and its sound (finish/).
+  useFinishMoments({
+    session: snapshot.sessionId,
+    working: snapshot.isWorking,
+    turnStartedAtMs: snapshot.turnStartedAtMs,
+    clockOffsetMs: snapshot.clockOffsetMs,
+    stopping: snapshot.stopping === true,
+    pullRequest: headerPullRequest,
+    turnSummary: finishTurnSummary,
+  });
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.
   useEffect(() => {
