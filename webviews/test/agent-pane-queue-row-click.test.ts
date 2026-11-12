@@ -20,7 +20,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { gateFocusVisible } from "../scripts/postcss/focusRingGate.mjs";
 import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -361,33 +360,22 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         expect(await page.locator(`${ROW} .acpmux-queued-text`).getAttribute("aria-expanded")).toBe("true");
         await page.mouse.move(4, 4);
         await hidden();
-        // Reached by key they show; the window's blur (another pane or app has the keyboard) takes the
-        // ring away, and with it every reveal that asks for keyboard focus. This dev server serves
-        // `:focus-visible` ungated (the shipped pane gates it in build-agent-pane-web.sh, gate-css.mjs),
-        // so the reveals are read here in their shipped, gated form against the live DOM.
-        const reveals: string[] = [
-          ".acpmux-queued:is(:hover,:has(:focus-visible)) .acpmux-queued-actions",
-          ".acpmux-queued:focus-visible .acpmux-queued-actions",
-        ].map((selector: string): string => gateFocusVisible(selector));
-        const revealed = () =>
-          page.evaluate(([sel, list]) => list.some((reveal) => document.querySelector(sel)!.matches(reveal)), [
-            `${ROW} .acpmux-queued-actions`,
-            reveals,
-          ] as const);
+        // Reached by key they show; the window's blur (another pane or app has the keyboard) fades them,
+        // with DOM focus still on the row. The build leaves opacity reveals ungated by FOCUS-RING, so it
+        // is the page's key state (pageKey.ts) that drops them: read here as the computed opacity.
         await focusByKey(page, ROW);
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
-        expect(await revealed()).toBe(true);
         await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-        // The blur marks the page inactive (pageKey.ts) and takes the ring away (focusModality.ts),
-        // with DOM focus still on the row.
         expect(
           await page.evaluate(() => ({
             inactive: document.documentElement.hasAttribute("data-page-inactive"),
-            modality: document.documentElement.getAttribute("data-focus-modality"),
             focused: document.activeElement?.className ?? null,
           })),
-        ).toEqual({ inactive: true, modality: "pointer", focused: "acpmux-queued" });
-        expect(await revealed()).toBe(false);
+        ).toEqual({ inactive: true, focused: "acpmux-queued" });
+        await hidden();
+        // Back at the page (a press or key marks it key again), the keyed row's actions return.
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
         await page.close();
       });
 
