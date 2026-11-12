@@ -19,6 +19,7 @@ members = [
     "crates/acpmux",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-imessage",
@@ -129,10 +130,12 @@ members = [
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
+    "crates/cmux-source-scan",
 ]
 default-members = [
     "crates/acpmux",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
