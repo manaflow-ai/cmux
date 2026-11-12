@@ -246,6 +246,9 @@ public final class TerminalModel {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
         }
+        // Attached again: a held composer send went out (or was dropped, which says so
+        // first); a later drop must never put already-sent text back.
+        if connection.isAttached { heldComposerSend = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).
@@ -262,6 +265,12 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+            // A composer send that waited out a blip and was dropped comes back to edit.
+            if let held = heldComposerSend, composerText.isEmpty,
+               ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
+                composerText = held.text
+            }
+            heldComposerSend = nil
         case .hostGrid, .hostGridOwner:
             break
         }
@@ -479,8 +488,21 @@ public final class TerminalModel {
             sendAttachments(pressReturn: true)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
+    }
+
+    /// A composer send made while the terminal is not attached (a blip): the
+    /// session holds its keys, and drops them if the terminal does not come
+    /// back in time. Its text, with when it was sent, comes back then.
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    /// How long after a held send its text may come back (the session's hold, with room for the attach).
+    static let heldComposerSendWindow: TimeInterval = 30
+
+    private func holdComposerText() {
+        heldComposerSend = connectionState.isAttached || composerText.isEmpty
+            ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
     }
 
     /// Voice mode's prompt: the user's words typed into the terminal with
@@ -500,6 +522,7 @@ public final class TerminalModel {
             sendAttachments(pressReturn: false)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
         composerText = ""
     }
@@ -576,6 +599,24 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
+    /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
+    /// file attached when asked, for gallery captures of the composer.
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+        composerText = text
+        guard withAttachments else { return }
+        let colors: [UIColor] = [.systemOrange, .systemTeal]
+        for (index, color) in colors.enumerated() {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 168, height: 168))
+                UIColor.white.withAlphaComponent(0.35).setFill()
+                context.cgContext.fillEllipse(in: CGRect(x: 40, y: 40, width: 88, height: 88))
+            }
+            addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
+        }
+        addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }
