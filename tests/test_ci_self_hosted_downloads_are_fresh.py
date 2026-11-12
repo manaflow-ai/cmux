@@ -35,6 +35,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 WORKFLOWS = ROOT / ".github/workflows"
 SELF_HOSTED = re.compile(r"vars\.|RUNNER_POOLS|self-hosted", re.IGNORECASE)
@@ -63,12 +65,12 @@ def workspace_relative(path: str) -> str | None:
     return "/".join(parts)
 
 
-EXPRESSION = re.compile(r"^\$\{\{(.*)\}\}$", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION
 
 
 def condition(step: Mapping[str, Any]) -> str:
     text = " ".join(str(step.get("if", "")).split())
-    match = EXPRESSION.match(text)
+    match = EXPRESSION.fullmatch(text)
     return " ".join(match.group(1).split()) if match else text
 
 

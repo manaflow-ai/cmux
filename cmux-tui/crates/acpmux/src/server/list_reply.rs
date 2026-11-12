@@ -101,7 +101,12 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let text = make(&list)?;
+        // A build may parse the whole list (masking it, a delta): one of a few at once
+        // (`parse_budget.rs`).
+        let text = {
+            let _parse = crate::parse_budget::permit().await;
+            make(&list)?
+        };
         if let Some(done) = send_list(hub, conn, text, seen, reads == REBUILDS).await {
             return Ok(done);
         }

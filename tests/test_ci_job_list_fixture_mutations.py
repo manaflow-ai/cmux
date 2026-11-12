@@ -74,6 +74,15 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(TESTS))
 
 import workflow_jobs  # noqa: E402
+# Every test module a fixture runs or patches, imported by literal name: tests/test_script_module_loads.py reads
+# these to keep one module object per file, and the tables below look them up in sys.modules.
+import test_ci_fork_runner_routing  # noqa: E402,F401
+import test_ci_signing_keychain_is_deleted_before_bundle_code  # noqa: E402,F401
+import test_ci_signing_owned_mac  # noqa: E402,F401
+import test_nightly_sign_runner  # noqa: E402,F401
+import test_nightly_trusted_routing  # noqa: E402,F401
+import test_publish_app_token_workflow  # noqa: E402,F401
+import test_seed_derived_data  # noqa: E402,F401
 
 KEYCHAIN = "test_ci_signing_keychain_is_deleted_before_bundle_code"
 # The runs-on as written (workflow_jobs.runs_on, never patched): the pre-fix reader read it so.
@@ -162,7 +171,7 @@ class KeychainListFixtures(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.guard = importlib.import_module(KEYCHAIN)
+        cls.guard = sys.modules[KEYCHAIN]
         cls.documents = _documents()
 
     def test_step_level_only(self) -> None:
@@ -279,7 +288,7 @@ class ResolverGaps(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.documents = _documents()
-        cls.keychain = importlib.import_module(KEYCHAIN)
+        cls.keychain = sys.modules[KEYCHAIN]
         cls.routing = importlib.import_module("test_nightly_trusted_routing")
         cls.overflow = importlib.import_module("test_ci_overflow_pick_reads_pool")
 
@@ -376,6 +385,79 @@ class ResolverGaps(unittest.TestCase):
                 self.assertTrue(found.unresolved)
 
 
+class MatrixReadsNothingResolves(unittest.TestCase):
+    """A matrix read that is not a whole `${{ matrix.KEY }}` is a value nothing resolves, never a known cell (#40784
+    review F1): `${{ matrix[inputs.axis] }}` was kept as one literal cell, so a signing job whose matrix picks
+    vars.LINUX_RUNNER failed the keychain guard written `matrix.runner` and passed written with a computed index.
+    One row per form; each also checks the dotted twin still fails, so the row is about the form alone."""
+
+    SECRET = {"run": "sign", "env": {"K": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.keychain = sys.modules[KEYCHAIN]
+
+    def _failures(self, runs_on: str, matrix: dict) -> list[str]:
+        job = {"runs-on": runs_on, "strategy": {"matrix": matrix}, "steps": [self.SECRET]}
+        failures: list[str] = []
+        self.keychain.check_job("matrix-read-fixture.yml sign", job, failures)
+        return failures
+
+    def _assert_unresolved(self, runs_on: str, key: str = "runner") -> None:
+        matrix = {key: ["${{ vars.LINUX_RUNNER }}"], "axis": [key]}
+        self.assertTrue(self._failures("${{ matrix.runner }}", {"runner": matrix[key]}), "the dotted twin passes")
+        job = {"runs-on": runs_on, "strategy": {"matrix": matrix}}
+        self.assertIsNone(workflow_jobs.runs_on_cells(job), f"{runs_on} read as a known cell")
+        self.assertIsNone(workflow_jobs.expand_matrix(job, runs_on))
+        self.assertTrue(self._failures(runs_on, matrix), f"{runs_on} passes the keychain guard")
+
+    def test_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ matrix[inputs.axis] }}")
+
+    def test_a_computed_index_with_an_or_default(self) -> None:
+        self._assert_unresolved("${{ matrix[inputs.axis] || 'blacksmith-4vcpu-ubuntu-2404' }}")
+
+    def test_a_computed_index_in_format(self) -> None:
+        self._assert_unresolved("${{ format('{0}', matrix[inputs.axis]) }}")
+
+    def test_the_whole_matrix_through_fromjson(self) -> None:
+        self._assert_unresolved("${{ fromJSON(toJSON(matrix)).runner }}")
+
+    def test_a_literal_index_dotted_cannot_write(self) -> None:
+        self._assert_unresolved("${{ matrix['runner label'] }}", key="runner label")
+
+    def test_matrix_as_a_property_name_or_text_is_not_the_context(self) -> None:
+        runs_on = "${{ needs.matrix.outputs.runner || 'matrix-runner' }}"
+        job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+        self.assertEqual(workflow_jobs.runs_on_cells(job), [runs_on])
+
+    # A string literal may hold `}}`; a regex that ends the expression at the first `}}` cut these short, the
+    # matrix read after the cut was plain text, and the cell read as a known label (Codex review of #41768, F1).
+    def test_a_brace_format_string_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ format('{{{0}}}', matrix[inputs.axis]) }}")
+
+    def test_a_closing_brace_literal_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ '}}' && matrix[inputs.axis] }}")
+
+    def test_an_escaped_quote_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ format('it''s }} {0}', matrix[inputs.axis]) }}")
+
+    def test_an_unterminated_expression(self) -> None:
+        for runs_on in ("${{ matrix[inputs.axis]", "${{ format('}}', matrix[inputs.axis])", "macos-26 ${{ vars.X"):
+            with self.subTest(runs_on=runs_on):
+                self._assert_unresolved(runs_on)
+
+    def test_a_plain_literal_and_a_brace_string_are_known_cells(self) -> None:
+        for runs_on in ("macos-26", "${{ format('{{{0}}}', 'macos-26') }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+                self.assertEqual(workflow_jobs.runs_on_cells(job), [runs_on])
+
+    def test_a_brace_literal_resolves_as_its_value(self) -> None:
+        job = {"runs-on": "${{ vars.LINUX_RUNNER || '}}' }}"}
+        self.assertEqual(workflow_jobs.runs_on_values(job), ({"}}"}, {"vars.LINUX_RUNNER"}))
+
+
 HERE = __name__
 # Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
 PRE_FIX_GUARDS = {
@@ -408,14 +490,14 @@ PRE_FIX_ONLY = {
     "fromJSON literal matrix (a control on the nightly pool)": (("workflow_jobs", "_matrix", _matrix_as_written),),
     "SCRIPT_MADE_KEYCHAINS (a mention is no invocation)": (
         (KEYCHAIN, "script_made_keychain", lambda job: next(
-            (script for script in importlib.import_module(KEYCHAIN).KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
+            (script for script in sys.modules[KEYCHAIN].KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
             None)),),
     # Codex, #40846 F2: the pre-fix readers matched the script path anywhere in the step's or the job's text.
     "RELEASE_POOL_SIGNERS (a mention is no invocation)": (
         (KEYCHAIN, "release_pool_signer", lambda job: min(
             {path for step in job.get("steps") or [] if isinstance(step, dict)
              and workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64")
-             for path in importlib.import_module(KEYCHAIN).RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", "")))},
+             for path in sys.modules[KEYCHAIN].RELEASE_SIGNER_SCRIPT.findall(str(step.get("run", "")))},
             default=None)),),
     "MANAGED_KEYCHAINS (a mention is no invocation)": (
         (KEYCHAIN, "makes_managed_keychain", lambda job: "signing-keychain.sh create" in json.dumps(job)),),
@@ -500,7 +582,7 @@ FIXTURES = (
 
 
 def run_fixture(module: str, cls: str, method: str) -> unittest.TestResult:
-    case = getattr(sys.modules[module] if module == HERE else importlib.import_module(module), cls)(method)
+    case = getattr(sys.modules[module], cls)(method)
     result = unittest.TestResult()
     unittest.TestSuite([case]).run(result)
     return result
@@ -529,7 +611,7 @@ class PreFixMutation(unittest.TestCase):
             with self.subTest(list=label, fixture=red):
                 with (ExitStack() if label in PRE_FIX_ONLY else PreFixReader.patched()) as stack:
                     for owner, name, old in (*PRE_FIX_GUARDS.get(label, ()), *PRE_FIX_ONLY.get(label, ())):
-                        stack.enter_context(mock.patch.object(importlib.import_module(owner), name, old))
+                        stack.enter_context(mock.patch.object(sys.modules[owner], name, old))
                     found = outcome(run_fixture(module, cls, red))
                 print(f"pre-fix reader: {label}: {red}: {found}", file=sys.stderr)
                 self.assertTrue(found.startswith("red"), f"{label}: {red} stays green with the pre-fix reader")

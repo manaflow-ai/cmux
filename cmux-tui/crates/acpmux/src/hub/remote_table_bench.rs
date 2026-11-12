@@ -42,7 +42,7 @@ fn linked() -> (Arc<Hub>, Vec<Arc<Peer>>) {
         let peer = Peer::new(&name, "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..PER_PEER).map(|s| row(p, s, s + 1)).collect();
-        hub.apply_peer_notice(&name, peer.generation, PeerNotice::Sessions(list));
+        hub.apply_peer_notice(&name, peer.generation, PeerNotice::sessions_from_values(list));
         peers.push(peer);
     }
     assert_eq!(hub.remote_sessions().len(), PEERS * PER_PEER);
