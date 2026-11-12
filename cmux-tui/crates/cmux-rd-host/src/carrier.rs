@@ -29,6 +29,10 @@ pub trait Carrier {
     fn fds(&self) -> Vec<RawFd>;
     /// Takes everything waiting, without blocking. `Err` ends the session with its reason.
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String>;
+    /// Returns the latest measured path RTT, if this carrier observed one.
+    fn take_path_rtt_us(&mut self) -> Option<u64> {
+        None
+    }
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
     fn send_control(&mut self, control: &Control) -> io::Result<()>;
 }

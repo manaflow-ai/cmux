@@ -519,7 +519,6 @@ mod tests {
         args.rtt_ms = 50;
         args.seconds = 6;
         args.bulk_bytes = 0;
-        args.rd_frames_in_flight = 1;
         let clock = Arc::new(Clock(Instant::now()));
         let record: Shared = Arc::default();
         run(&args, clock, record.clone()).await.expect("bench");
