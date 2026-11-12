@@ -1088,7 +1088,8 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+/* Resume (its own control in Stop's column) lights itself, not the line around it. */
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(:has(.cv-subagent-resume-control:hover)):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
@@ -2433,4 +2434,45 @@ button.cv-subagent > :last-child {
    window in this window too: a height kept from a taller one never runs past it. */
 .acpmux-running-tray[data-sized] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
   max-height: min(calc(var(--acpmux-tray-list-height) + 2px), 70vh);
+}
+
+/* Resume on a stopped helper (ResumeControl.tsx): the end line's button, and a refusal's note before
+   it, on every row and tab that draws the helper. In the tray it takes Stop's column; a list row
+   (SubagentListRow) holds it where its Stop goes, shown at rest since a stopped row has nothing else
+   to do. A note there lies over the row's time, which steps aside while it shows. */
+.cv-subagent-resume-control {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.cv-subagent-resume-control > .cv-subagent-resume__note {
+  margin-inline-start: 0;
+  white-space: nowrap;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > .cv-subagent-resume-control {
+  position: relative;
+  pointer-events: auto;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > .cv-subagent-resume-control > .cv-subagent-resume__note {
+  position: absolute;
+  right: 100%;
+  padding-inline-end: var(--ds-space-1);
+}
+.acpmux-running-tray .acpmux-agent-line:has(.cv-subagent-resume__note) .acpmux-agent-line__trail {
+  visibility: hidden;
+}
+/* Centered on the row, whatever its height (the list's 48px, the summary card's 40px). */
+.cv-subagent-stoppable > .cv-subagent-resume-control {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
+  transform: translateY(-50%);
+}
+.cv-subagent-stoppable:has(.cv-subagent-resume__note) > .cv-subagent > .cv-subagent__time {
+  visibility: hidden;
+}
+.cv-subagent-of > .cv-subagent-resume-control {
+  pointer-events: auto;
 }

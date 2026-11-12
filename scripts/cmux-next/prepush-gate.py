@@ -104,6 +104,11 @@ direct push, and cmux-app-ffi's lock failed --locked on every pull request until
 own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
 feat-cmux-next (base-autofix.sh --locks).
 
+Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
+in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
+scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
+caller, or gives a listed one a caller without `--update` is refused; it runs only when the push changes a header,
+the baseline, the checker or a Swift line naming a cmux_/acpmux_ function. The fast gates' --advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -249,8 +254,6 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
-    ("No process-wide test hooks in acpmux (per-thread on_* guards or a serializer, cmux#41350)",
-     ["python3", "-I", "{s}/check-test-hooks.py", "{root}"], ("cmux-tui/crates/acpmux/src/",)),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -298,6 +301,14 @@ end
 FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
 FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
 FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+# A Rust port that stops at step A: a C ABI function with no Swift caller (cmuxterm-hq
+# docs/architecture/consolidation-2026-11-12.md: 0 of 28 cmux-daemon-conn-core functions called). Local only, like
+# the workflow parse (CLAUDE.md: no new CI gates); the fast gates' --advisory pass names it as a warning.
+PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
+PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
+PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
+PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
+PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -1091,17 +1102,48 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     return rust_edition(repo)
 
 
+# rustup's answers when the toolchain rust-toolchain.toml pins, or its rustfmt component, is not installed
+# (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
+# the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
+# installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
+# 'T' toolchain`. Each is the whole of stderr's first line, and rustup prints nothing after it but its own hint
+# (RUSTUP_HINT): `help: run `rustup ...` to install it`, or `To install, run `rustup ...``.
+RUSTUP_MISSING = re.compile(
+    r"error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    r"|(?:override )?toolchain '[^'\n]+' is not installed"
+    r"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    r"'[^'\n]+' toolchain)")
+RUSTUP_HINT = re.compile(r"(?:help: (?:run|use) `rustup [^`\n]+`(?: to install it)?|To install, run `rustup [^`\n]+`)\.?")
+
+
+def rustup_missing(stderr: bytes) -> bool:
+    """True when STDERR is rustup's "no such toolchain or component" answer and nothing else: its error as the first
+    line, then only rustup's own hint. A rustfmt diagnostic or a panic that carries such a line anywhere else is not
+    (#41888 review: a diagnostic quoting `let toolchain = ;` passed as a missing component)."""
+    lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+    return bool(lines) and RUSTUP_MISSING.fullmatch(lines[0]) is not None and all(
+        RUSTUP_HINT.fullmatch(line) for line in lines[1:])
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
     Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
     files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
-    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
-    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
+    toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
+    verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
+    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself: a launch that
+    # raises FileNotFoundError can also be a rustfmt that is there with a missing `#!` interpreter (#41927 review).
+    # Any file named rustfmt counts, executable or not: one that will not start is no verdict, below.
+    if not any((Path(folder) / "rustfmt").is_file() for folder in env.get("PATH", os.defpath).split(os.pathsep)
+               if folder):
+        log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
+        return ""
     findings = []
     for path in present:
         edition = rustfmt_edition(repo, tree, path)
@@ -1115,19 +1157,24 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
         except OSError as error:
-            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
-            return ""
+            # A rustfmt that is on PATH and would not start (not executable, a `#!` interpreter that is gone, raising
+            # FileNotFoundError): no verdict (#41888 and #41927 review).
+            return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
-                findings.append(f"{path}: rustfmt cannot parse it: "
-                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
-                continue
-            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns; any other
-            # failure that is not a parse error (a panic, a crash) is no verdict, never a pass (#41827 review).
-            if b"toolchain" in done.stderr or b"not installed" in done.stderr:
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, and only
+            # as the whole of stderr (rustup_missing): a rustfmt diagnostic quotes the source, which can say
+            # "toolchain" or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other
+            # failure (a panic, a crash) is no verdict, never a pass (#41827 review).
+            if rustup_missing(done.stderr):
                 log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
                     f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
                 return ""
+            # A parse error is rustfmt's exit 1 with its diagnostic first; a panic (exit 101) quoting `error:` is not.
+            first = next((line.strip() for line in done.stderr.splitlines() if line.strip()), b"")
+            if done.returncode == 1 and (first.startswith(b"error[") or first.startswith(b"error:")):
+                findings.append(f"{path}: rustfmt cannot parse it: "
+                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
+                continue
             tail = " ".join(done.stderr.decode(errors="replace").strip().splitlines()[-2:])[:300] or "no output"
             return f"rustfmt gave no verdict: exit {done.returncode} on {path}: {tail}"
         if done.stdout != source:
@@ -1433,6 +1480,25 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def tree_mode(repo: Path, rev: str, path: str) -> str | None:
+    """The Git tree mode for PATH at REV, or None when the path is absent."""
+    result = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", rev, "--", path], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        if name.decode(errors="surrogateescape") == path:
+            return header.split(b" ", 1)[0].decode("ascii")
+    return None
+
+
+def non_regular_inputs(repo: Path, rev: str, *paths: str) -> list[str]:
+    """Required check inputs present at REV that are directories, symlinks or other non-regular tree entries."""
+    return [path for path in paths if (mode := tree_mode(repo, rev, path)) is not None and not mode.startswith("100")]
+
+
 def deleted_inputs(repo: Path, base: str, head: str, *paths: str) -> list[str]:
     """Each of PATHS (a file a check reads, a declaration it judges against, or the check itself) that BASE has and
     HEAD does not. "HEAD has no such file, so the check does not apply" holds only for a branch older than the file:
@@ -1455,6 +1521,9 @@ def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None,
     never falls back to the pushed head's copy (the hook never runs code a push controls): an install that lacks a
     check HEAD has refuses the push. A push that deletes the check (BASE has it, HEAD not: deleted_inputs) still runs
     it: the installed copy on a hook run, BASE's on a manual one."""
+    malformed = non_regular_inputs(repo, head, path)
+    if malformed:
+        raise SystemExit(f"prepush-gate: {path} must be a regular file at the pushed head; refusing the check.")
     at_head = blob_at(repo, head, path)
     deleted = base is not None and bool(deleted_inputs(repo, base, head, path))
     if trusted_scripts is None:
@@ -1498,10 +1567,10 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
                 cmd += ["--base-reserved", str(work / "base-list.json")]
             code, out = run(cmd, work)
             # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict, and so
-            # is an exit 1 that prints no finding.
+            # is an exit 1 that prints no finding, and output that is not its findings (#41888 review: "could not read
+            # checker input" on both revisions subtracted to [] and passed).
             lines = [line for line in out.splitlines() if line.strip()]
-            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
-                                                            else None)
+            return lines, no_verdict(code, out, (0, 1)) or unread_findings(code, lines, RESERVED_FINDING)
 
         head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
         base_lines, base_stopped = findings(base, None) or ([], None)
@@ -1513,6 +1582,33 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
         return []
     return fresh
+
+
+# check-ghostty-reserved-keys.py's findings: each names the file it is about, then what is wrong.
+RESERVED_FINDING = re.compile(r"(?:ghostty-reserved-keys|action-surfaces)\.json: \S.*")
+# check-ui-font.py's INPUTS, for a copy too old to answer --inputs: its findings name one of these paths.
+UI_FONT_INPUTS = ("schemas/type-scale/type-scale.json", "schemas/type-scale/ui-font-pin.json",
+                  "webviews/src/pages/shared/desktop.css", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/",
+                  "webviews/src/", "Native/OptChat/")
+
+
+def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> str | None:
+    """Why LINES, a checker's verdict output for exit CODE (0 or 1), are not its findings, or None when they are:
+    exit 1 prints at least one finding and nothing that is not one (FINDING, a whole line); exit 0 prints nothing.
+    Only parsed findings subtract base from head: anything else is no verdict."""
+    if code == 1 and not lines:
+        return "exited 1 but printed no finding"
+    unread = [line for line in lines if not finding.fullmatch(line.strip())]
+    if unread:
+        return f"exited {code} with output that is not a finding: {unread[0][:200]}"
+    if code == 0 and lines:
+        return f"exited 0 but printed findings: {lines[0][:200]}"
+    return None
+
+
+def ui_font_finding(inputs: tuple[str, ...]) -> re.Pattern[str]:
+    """A check-ui-font.py finding: `<path>: <what>` or `<path>:<line>: <what>`, the path one of its INPUTS."""
+    return re.compile(r"(?:%s)[^:\s]*(?::\d+)?: \S.*" % "|".join(re.escape(i) for i in inputs))
 
 
 def ui_font_inputs(check: Path) -> tuple[str, ...] | None:
@@ -1547,13 +1643,18 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
             if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
                 return []
 
+        shape = ui_font_finding(inputs or UI_FONT_INPUTS)
+
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
-            # prints no finding (only its `ui font:` summary).
-            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
-                                                            else None)
+            # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
+            # Its INPUTS guard stop is not a finding either; it refuses on its own below.
+            reason = no_verdict(code, out, (0, 1))
+            if reason is None and not any(UI_FONT_GUARD in line for line in lines):
+                reason = unread_findings(code, lines, shape)
+            return lines, reason
 
         head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
@@ -1568,6 +1669,74 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         base_lines, base_stopped = findings("--rev", base)
         # A base pass with no verdict never subtracts: every head finding counts.
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
+
+
+def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
+    no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
+
+    It runs only when base..head changes a header, the baseline, the checker, or a Swift line under Packages that
+    names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
+    Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
+    Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
+    something, and subtracts what the base already had."""
+    script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than this check
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode(
+        "utf-8", "surrogateescape").split("\0") if n]
+    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt")
+               for n in names):
+        swift = [n for n in names if n.startswith("Packages/") and n.endswith(".swift")]
+        if not swift:
+            return []
+        diff = git(repo, "diff", "--no-renames", "--no-ext-diff", "-U0", base, head, "--", *swift,
+                   check=False).decode("utf-8", "replace")
+        # A comment opened or closed on a changed line can hide or reveal an unchanged caller below it.
+        if not any(PORT_DRIFT_NAME.search(line) or "/*" in line or "*/" in line for line in diff.splitlines()
+                   if line[:1] in "+-" and not line.startswith(("+++", "---"))):
+            return []
+    with tempfile.TemporaryDirectory(prefix="cmux-port-drift-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), "--rev", rev], Path(tmp), timeout=300)
+            lines = [line for line in out.splitlines() if line.startswith("ffi-caller-ratchet: ")
+                     and not line.startswith("ffi-caller-ratchet: ok:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1
+            # that prints no finding.
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
+
+        head_lines, head_stopped = findings(head)
+        if head_stopped:
+            return [NoVerdict(f"{PORT_DRIFT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the "
+                              f"push is refused: {out_tail(head_lines)}")]
+        if not head_lines:
+            return []
+        base_lines, base_stopped = findings(base)
+        fresh = [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        # Drift already on the integration branch is not the push's: a branch that merged it in would otherwise be
+        # refused for a finding it cannot fix (the baseline never takes a line back), e.g. two PRs that each passed,
+        # one dropping a baseline entry and one removing that function's last caller. That is a base red for its
+        # owner, not a refusal of every later push.
+        tip = rev_or_none(repo, PORT_DRIFT_TIP)
+        if fresh and tip and tip not in (base, head):
+            tip_lines, tip_stopped = findings(tip)
+            if not tip_stopped:
+                fresh = [line for line in fresh if line not in set(tip_lines)]
+        return fresh
+
+
+def rev_or_none(repo: Path, ref: str) -> str | None:
+    result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def out_tail(lines: list[str]) -> str:
+    return " ".join(lines[-2:])[:300]
 
 
 def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -1629,338 +1798,10 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
-    2026-10-22: c779988d57d landed `<<<<<<< HEAD` in SidebarNowLineTests.swift and CmuxNextAppTests
-    stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
-    opening and a closing marker to it, so a fixture that mentions one marker never matches.
-    """
-    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing. No
-    # inter-hunk context: a user's diff.interHunkContext would put unchanged lines between the added ones.
-    diff = git(repo, "diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-renames", "--no-ext-diff",
-               "--src-prefix=a/", "--dst-prefix=b/", base, head).decode("utf-8", "replace")
-    found: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
-    name, number = "", 0
-    for line in diff.splitlines():
-        if line.startswith("+++ "):
-            name = line[6:] if line.startswith("+++ b/") else ""
-        elif line.startswith("@@"):
-            match = re.search(r"\+(\d+)", line)
-            number = int(match.group(1)) if match else 0
-        elif line.startswith("+") and name:
-            text = line[1:]
-            if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
-                found[name].append((number, text))
-            number += 1
-        elif line.startswith(" ") and name:  # a context line, should one come, is a head line too
-            number += 1
-    return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
-            if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
-            for n, text in marks]
-
-
-def redefinition_record(line: str, files: list[str]) -> tuple[str, str, bool] | None:
-    """(path, dotted name, whether it is a parse error) for one checker line about one of FILES, else None. The longest
-    file the line starts with wins, so `tests/a:1.py` is never read as `tests/a` line 1."""
-    for path in sorted(files, key=len, reverse=True):
-        if line.startswith(path + ":"):
-            rest = REDEFINITION_REST.match(line[len(path) + 1:])
-            if rest:
-                return path, rest["what"] or "", bool(rest["unparsed"])
-    return None
-
-
-def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
-    """([(finding line, (path, name))], why the run gave no verdict or None) for one checker run over FILES.
-
-    No verdict: run()'s timeout, a signal, a crash or an exit outside 0 and 1 (no_verdict); a file the checker could
-    not parse, whatever the exit; an exit 1 that names no finding or prints a line the gate cannot read; an exit 0 that
-    names a finding. Exit 1 is the checker's "findings" verdict only when its output says which."""
-    found, unread, unparsed = [], [], None
-    for line in out.splitlines():
-        if not line.strip():
-            continue
-        record = redefinition_record(line, files)
-        if record is None:
-            if not REDEFINITION_SUMMARY.match(line):
-                unread.append(line)
-        elif record[2]:
-            unparsed = unparsed or line
-        else:
-            found.append((line, record[:2]))
-    if unparsed and code in (1, 2):  # its parse-error exit, or 1 from a copy older than it
-        return [], f"could not parse {unparsed}"
-    stopped = no_verdict(code, out, (0, 1))
-    if stopped:
-        return [], stopped
-    if unparsed:
-        return [], f"could not parse {unparsed}"
-    if code == 1 and (unread or not found):
-        return [], (f"exited 1 with output it cannot read: {unread[0][:200]}" if unread
-                    else "exited 1 but named no redefinition")
-    if code == 0 and found:
-        return [], "exited 0 but named a redefinition"
-    return found, None
-
-
-def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
-                               restrict: set[str] | None = None) -> list[str]:
-    """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
-    BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
-
-    The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
-    verdict (a crash, a timeout, an exit other than 0 or 1, a file it could not parse) refuses, and its refusal is a
-    NoVerdict, so gate_own never takes it off against an upstream range that failed alike."""
-    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
-                            "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
-    if restrict is not None:
-        names = [n for n in names if n in restrict]
-    if not names:
-        return []
-    if trusted_scripts is None:
-        script = blob_at(repo, head, REDEFINITION_SCRIPT)
-    else:
-        installed = trusted_scripts / Path(REDEFINITION_SCRIPT).name
-        script = installed.read_bytes() if installed.is_file() else None
-    if script is None:
-        log(f"prepush-gate: WARNING: no {Path(REDEFINITION_SCRIPT).name} in the hook's checks copy yet, so the test "
-            "redefinition check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
-        return []
-    with tempfile.TemporaryDirectory(prefix="cmux-redefinitions-") as tmp:
-        work = Path(tmp)
-        (work / "check.py").write_bytes(script)
-
-        def findings(rev: str) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
-            tree = work / rev[:12]
-            files = []
-            for name in names:
-                data = blob_at(repo, rev, name)
-                if data is None:
-                    continue
-                (tree / name).parent.mkdir(parents=True, exist_ok=True)
-                (tree / name).write_bytes(data)
-                files.append(name)
-            if not files:
-                return [], None
-            code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
-            return redefinition_verdict(code, out, files)
-
-        head_lines, stopped = findings(head)
-        if stopped:
-            return [NoVerdict(f"{REDEFINITION_SCRIPT} {stopped} at the pushed head instead of judging it, so the "
-                              "push is refused")]
-        base_lines, base_stopped = findings(base)
-
-    old = set() if base_stopped else {key for _, key in base_lines}
-    return [line for line, key in head_lines if key not in old]
-
-
-def yaml_problem(text: str) -> tuple[bool, str | None]:
-    """(whether TEXT could be parsed here, `line:column: problem` when it does not parse).
-
-    PyYAML when this Python has it (CI's guard venv and most dev Pythons), else Ruby's Psych (macOS ships it).
-    Neither: (False, None), and the caller warns; no network is needed either way."""
-    try:
-        import yaml  # noqa: PLC0415  (optional: the gate runs on Pythons without it)
-    except ImportError:
-        yaml = None
-    if yaml is not None:
-        try:
-            yaml.safe_load(text)
-        except yaml.MarkedYAMLError as error:
-            mark = error.problem_mark or error.context_mark
-            where = f"{mark.line + 1}:{mark.column + 1}" if mark else "1:1"
-            return True, f"{where}: {error.problem or error.context or error}"
-        except yaml.YAMLError as error:
-            return True, f"1:1: {error}"
-        return True, None
-    ruby = shutil.which("ruby")
-    if ruby is None:
-        return False, None
-    try:
-        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return False, None
-    if result.returncode == 0:
-        return True, None
-    first = result.stdout.strip().splitlines()
-    # No line printed: Ruby itself failed (no psych), which says nothing about the file.
-    return (True, first[0]) if first else (False, None)
-
-
-def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
-    """actionlint's [syntax-check] messages for TEXT as PATH, without their line and column; None if it did not run.
-
-    Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
-    try:
-        result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
-                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode not in (0, 1):
-        return None
-    found = set()
-    for line in result.stdout.splitlines():
-        match = re.match(r"^[^:]+:(\d+):(\d+): (.*\[syntax-check\])$", line)
-        if match:
-            found.add(f"{match.group(1)}:{match.group(2)}: {match.group(3)}")
-    return found
-
-
-def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
-    """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
-    unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
-
-    Only the head counts: GitHub loads the pushed head's file, so a broken commit fixed later in the push passes, and
-    a file the push does not change is never read. Not skippable by CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
-    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
-                ".github/").decode().split("\0")
-    files = sorted(n for n in names if n and WORKFLOW_FILE.match(n) and (restrict is None or n in restrict))
-    actionlint = shutil.which("actionlint")
-    found, unchecked = [], []
-    for path in files:
-        data = blob_at(repo, head, path)
-        if data is None:
-            continue
-        text = data.decode("utf-8", "replace")
-        checked, problem = yaml_problem(text)
-        if problem:
-            found.append(f"{path}:{problem} (the YAML does not parse; GitHub will not load this file)")
-            continue
-        if not checked:
-            unchecked.append(path)
-        if actionlint and path.startswith(".github/workflows/"):
-            now = actionlint_syntax(actionlint, path, text)
-            if now:
-                before = blob_at(repo, base, path)
-                old = actionlint_syntax(actionlint, path, before.decode("utf-8", "replace")) if before else set()
-                old_keys = {line.split(": ", 1)[1] for line in old or ()}
-                found += [f"{path}:{line} (actionlint)" for line in sorted(now)
-                          if line.split(": ", 1)[1] not in old_keys]
-    if unchecked and not actionlint:
-        log(f"prepush-gate: WARNING: no YAML parser here (PyYAML, ruby or actionlint), so {', '.join(unchecked)} "
-            "went unchecked; CI's \"Lint every workflow\" step still checks it. `pip install pyyaml` fixes this.")
-    return found
-
-
-# scripts/ci/guards-local.sh's pin, so the hook and the local guard venv read YAML with the same PyYAML.
-PYYAML_PIN = "PyYAML==6.0.3"
-
-
-def has_pyyaml(python: str) -> bool:
-    """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
-    try:
-        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-# Where Debian and Ubuntu's python3-yaml lands: the one place `apt-get install` can put PyYAML for an interpreter.
-APT_DIST_PACKAGES = "/usr/lib/python3/dist-packages"
-
-
-def interpreter_sys_path(python: str) -> list[str]:
-    """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
-    try:
-        done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
-                              capture_output=True, text=True, timeout=30)
-        listed = json.loads(done.stdout) if done.returncode == 0 else []
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return []
-    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
-
-
-# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
-# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
-# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
-# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
-#   pip       not externally managed, PURELIB writable: plain pip
-#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
-#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
-#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
-# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
-# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
-PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
-PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
-
-
-def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
-    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
-    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
-    interpreter, with PYTHON's paths taken as this interpreter's."""
-    paths = sysconfig.get_paths()
-    given = [] if stdlib is None and purelib is None else [
-        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
-    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
-        try:
-            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
-            return done.stdout.strip()
-    return "refuse"
-
-
-def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
-                           apt: bool | None = None, syspath: list[str] | None = None) -> str:
-    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
-    `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
-    PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
-    a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
-    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
-    no pip at all and what to do instead."""
-    apt = shutil.which("apt-get") is not None if apt is None else apt
-    if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
-        return "sudo apt-get install -y python3-yaml"
-    route = pep668_route(python, stdlib, purelib)
-    if route == "refuse":
-        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
-                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
-                "first on PATH")
-    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
-    return f"sudo {pip}" if route == "sudo-pip" else pip
-
-
-FALLBACKS_STATUSES = ("found", "incomplete")
-FALLBACKS_RESOLVER = "tests/workflow_jobs.py"  # the shared resolve step the checker reads runs-on through
-FALLBACKS_INCOMPLETE = "incomplete"
-
-
-def fallback_output_fault(listed: object) -> str | None:
-    """What is wrong with the checker's --json output LISTED, or None: it must be a list of objects, each with a string
-    key, a string message and a status of FALLBACKS_STATUSES (Codex on #40840: findings were str()-coerced, so
-    `[{"key": [], "message": {}}]` read as one equal finding on both sides and was subtracted)."""
-    if not isinstance(listed, list):
-        return f"a {type(listed).__name__}, not a list"
-    for index, item in enumerate(listed):
-        if not isinstance(item, dict):
-            return f"item {index} is a {type(item).__name__}, not an object"
-        for field in ("key", "message"):
-            if not isinstance(item.get(field), str):
-                return f"item {index}'s {field} is a {type(item.get(field)).__name__}, not a string"
-        if item.get("status") not in FALLBACKS_STATUSES:
-            return f"item {index}'s status is {item.get('status')!r}, not one of {', '.join(FALLBACKS_STATUSES)}"
-    return None
-
-
-def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
-    """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
-
-    Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
-    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run (BASE's when the push deletes it). Only two cases pass
-    unchecked: a branch older than the declaration (BASE and HEAD both lack it), and a hook install older than the
-    checker (a warning). Review F1 on #40894: a HEAD without the declaration was exempt whatever BASE had, so deleting
-    it with a new `runs-on: ${{ vars.X }}` passed; a push that deletes it (deleted_inputs) now refuses. A checker that runs
-    and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
-    the checker and the layer passed), whatever the cause, a missing PyYAML included.
-
-    Codex on #40840. F1: a finding whose status is "incomplete" (the scan did not run: a declaration of the wrong
-    shape, a workflow that does not load) refuses at the head whether or not the base had it too; the base's copy was
-    subtracted as old debt, so a new vars.NAME passed with no scan. F2: the output must be a list of objects, each
-    with a string key, a string message and a known status; anything else (`[{"key": [], "message": {}}]`, which
-    str() made equal on both sides) is a checker failure and refuses. A base that gives no verdict, or an incomplete
-    one, subtracts nothing."""
-    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
-    if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
-        return []
+    2026-10-22: c779988d57d landed `    malformed = non_regular_inputs(repo, head, FALLBACKS_DECLARATION)
+    if malformed:
+        return [NoVerdict(f"prepush-gate: {FALLBACKS_CHECK}: {path} must be a regular file at the pushed head, so the "
+                          "check cannot judge the declaration") for path in malformed]
     gone = deleted_inputs(repo, base, head, FALLBACKS_DECLARATION)
     if gone:
         return deleted_input_refusals(FALLBACKS_CHECK, gone)
@@ -2337,6 +2178,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
         if redefined:
             reserved.append((REDEFINITION_CHECK, redefined))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): the fast gates' --advisory pass warns.
+    if (highlights_layer if only is None else "port-drift" in only) and restrict is None:
+        drift = port_drift(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((PORT_DRIFT_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2820,7 +2666,7 @@ Never --no-verify: CI names every commit that adds a violation (step "Pushed com
 # ---------------------------------------------------------------- advisory (CI: named, never a gate)
 
 # The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
-# The four layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
 # refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
 # plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
 # without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
@@ -2830,7 +2676,8 @@ ADVISORY_ARCH = "arch ratchet"
 ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"
 ADVISORY_PICTURES = "What's New pictures"
-ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
+ADVISORY_PORT_DRIFT = "port drift"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES, ADVISORY_PORT_DRIFT)
 # The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
 # "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
 ADVISORY_SECONDS = 240.0
@@ -2974,6 +2821,13 @@ def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], 
     return _record_findings(ADVISORY_PICTURES, repo, found), []
 
 
+def advisory_port_drift(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"port-drift"}, False, None)
+    return _record_findings(ADVISORY_PORT_DRIFT, repo, found), []
+
+
 def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
     if not summary:
         return
@@ -2998,7 +2852,8 @@ def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
     findings: list[AdvisoryFinding] = []
     diagnostics: list[tuple[str, str]] = []
     layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
-              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures))
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures),
+              (ADVISORY_PORT_DRIFT, advisory_port_drift))
     for name, fn in layers:
         t0 = time.monotonic()
         try:
@@ -3105,7 +2960,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks,redefinitions")
+                                       "single-host-fallbacks,redefinitions,port-drift")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
