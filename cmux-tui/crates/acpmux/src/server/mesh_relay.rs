@@ -681,6 +681,29 @@ async fn wait_control_result(
     .flatten()
 }
 
+/// A mesh start's `session/new` params, or why it is refused: one that would forward to another
+/// daemon, and one that names no permission policy. A start with none ran at this daemon's
+/// default, `ask`, and waited on its first tool call for a person nobody showed it to (eight
+/// lanes on a GCP host sat over an hour, 2026-11-12). The sender names it: `acpmux session
+/// start` takes its starter's policy when `--policy` is left out (`cli/mesh_control.rs`).
+pub(crate) fn start_params(params: &serde_json::Value) -> Result<serde_json::Value, String> {
+    if params.get("host").is_some()
+        || params.pointer("/_meta/acpmux/peer").is_some()
+        || params.pointer("/_meta/acpmux/host").is_some()
+    {
+        return Err("mesh control start cannot forward to another daemon".to_owned());
+    }
+    let named = |v: Option<&serde_json::Value>| v.and_then(serde_json::Value::as_str).is_some();
+    if !named(params.get("policy")) && !named(params.pointer("/_meta/acpmux/policy")) {
+        return Err("mesh control start names no permission policy: a session started with \
+                    none waits on its first tool call for a person it is not shown to; send \
+                    one (`acpmux session start --policy`, or run it inside a session to take \
+                    that session's)"
+            .to_owned());
+    }
+    Ok(params.clone())
+}
+
 async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -700,14 +723,10 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
                 return Some(Ack::refused("start control body has no params object"));
             };
-            let params = params.clone();
-            if params.get("host").is_some()
-                || params.pointer("/_meta/acpmux/peer").is_some()
-                || params.pointer("/_meta/acpmux/host").is_some()
-            {
-                return Some(Ack::refused("mesh control start cannot forward to another daemon"));
+            match start_params(params) {
+                Ok(params) => params,
+                Err(why) => return Some(Ack::refused(why)),
             }
-            params
         }
         "resume" | "stop" => serde_json::json!({}),
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
@@ -1000,6 +1019,22 @@ fn start_work_allowed(message: &InMessage) -> bool {
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+
+    /// 2026-11-12: mesh starts with no policy took this daemon's default, ask, and eight lanes
+    /// sat over an hour on their first tool call. A start names its policy or is refused.
+    #[test]
+    fn a_mesh_start_without_a_policy_is_refused() {
+        let bare = serde_json::json!({"cwd": "/w", "_meta": {"acpmux": {"name": "lane"}}});
+        let why = start_params(&bare).unwrap_err();
+        assert!(why.contains("names no permission policy"), "{why}");
+        let named =
+            serde_json::json!({"cwd": "/w", "_meta": {"acpmux": {"policy": "approve-all"}}});
+        assert_eq!(start_params(&named).unwrap(), named);
+        let top = serde_json::json!({"cwd": "/w", "policy": "ask"});
+        assert!(start_params(&top).is_ok());
+        let forward = serde_json::json!({"_meta": {"acpmux": {"peer": "x", "policy": "ask"}}});
+        assert!(start_params(&forward).unwrap_err().contains("cannot forward"));
+    }
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {
