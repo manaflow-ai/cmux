@@ -31,10 +31,22 @@ if str(ROOT / "scripts/ci") not in sys.path:
 import base_red_excuse as excuse  # noqa: E402
 
 
+# tests/guard_child_env.py, loaded by path: the one child environment every spawned guard run uses.
+import importlib.util as _guard_child_importlib  # noqa: E402
+_guard_child_spec = _guard_child_importlib.spec_from_file_location("guard_child_env", ROOT / "tests/guard_child_env.py")
+guard_child_env = _guard_child_importlib.module_from_spec(_guard_child_spec)
+_guard_child_spec.loader.exec_module(guard_child_env)
+_FIXTURE_TEMP = tempfile.mkdtemp(prefix="guard-check-isolation-")
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+atexit.register(shutil.rmtree, _FIXTURE_TEMP, ignore_errors=True)
+
+
 def fixture_env() -> dict[str, str]:
     """The fixtures' red checks are not this step's: the guard runner (run_ci_guards.py) points
-    CMUX_GUARD_CHECK_RESULTS at the running step's results, so the fixtures must not inherit it."""
-    return {k: v for k, v in os.environ.items() if k != "CMUX_GUARD_CHECK_RESULTS"}
+    CMUX_GUARD_CHECK_RESULTS and the GITHUB_* step files at the running step's own, so the fixtures get
+    guard_child_env's (none of the caller's)."""
+    return guard_child_env.guard_child_env(_FIXTURE_TEMP)
 
 
 def guard_script(failing: set[str]) -> str:

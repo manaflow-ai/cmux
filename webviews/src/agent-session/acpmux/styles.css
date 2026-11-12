@@ -52,13 +52,13 @@
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 /* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
    and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
-.acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:14px;line-height:18px}
-.acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:28px;padding:0;color:var(--agent-muted)}
+.acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:var(--acpmux-composer-control,28px);padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
    look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
-.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted)}
+.acpmux-mic{flex:none;display:grid;place-items:center;width:var(--acpmux-composer-control,28px);height:var(--acpmux-composer-control,28px);padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted)}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
@@ -77,15 +77,15 @@
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
 .acpmux-chips-spacer{display:none}
 /* A registry composerChips override that still draws native selects. */
-.acpmux-composer-bar select{height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
+.acpmux-composer-bar select{height:var(--acpmux-composer-control,28px);padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
-.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
+.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-composer-control,28px);padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 .acpmux-picker-button:focus-visible,:where(button).acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
-:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap}
+:where(button).acpmux-plan{display:flex;align-items:center;gap:6px;height:var(--acpmux-composer-control,28px);padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap}
 :where(button).acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 /* Plan on is the lit-glyph ink (the accent, never fainter than at rest) with no pill at rest (Leo 2026-10-19); hover, focus and a press draw the chips' soft pill. */
 :where(button).acpmux-plan[aria-pressed=true]{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
@@ -100,7 +100,7 @@
 @media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
-.acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
+.acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). It always reads as a gauge, never a spinner: the remaining share is a clearly visible track (ComposerPickers.tsx CONTEXT_RING_LOOKS, test/context-ring-gauge.test.tsx). */
 .acpmux-context{flex:none}
@@ -114,8 +114,8 @@
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--agent-muted)}
-.acpmux-send .acpmux-icon{width:16px;height:16px}
+.acpmux-send{flex:none;display:grid;place-items:center;width:var(--acpmux-composer-control,28px);height:var(--acpmux-composer-control,28px);padding:0;border:0;border-radius:50%;background:transparent;color:var(--agent-muted)}
+.acpmux-send .acpmux-icon{width:var(--acpmux-composer-glyph,16px);height:var(--acpmux-composer-glyph,16px)}
 /* The one off look, for an empty draft and for Send turned off (composerStates.css): the same glyph, dimmed to 45% of the text. A draft brings the secondary text color back (.acpmux-send-ready). */
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){color:var(--acpmux-send-off-fg)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
@@ -387,9 +387,12 @@
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}
 .acpmux-queue-resume:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}.acpmux-hidden-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* New chat (EmptyState.tsx): a centered hero, small and muted, in place of the empty transcript. */
-.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;--acpmux-empty-gap:calc(14px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));gap:var(--acpmux-empty-gap);padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
-.acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-empty-title{margin:0;max-width:560px;font-size:calc(20px * var(--cmux-density-text-scale, var(--cmux-interface-scale, 1)));line-height:calc(28px * var(--cmux-density-text-scale, var(--cmux-interface-scale, 1)));font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
+/* The hero's folder chooser has no caret (Codex's): its name is dotted underlined as the control, "No folder" too (Lucas 2026-11-11). */
+.acpmux-empty .acpmux-project-inline .acpmux-project-button>span{text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:var(--acpmux-composer-placeholder);text-decoration-thickness:1px;text-underline-offset:4px}
+.acpmux-empty .acpmux-project-inline .acpmux-project-button:is(:hover,[aria-expanded="true"])>span{text-decoration-color:currentcolor}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
 /* A tab's chat that is not here (ChatUnavailableState.tsx): the hero's place and type, a muted line
    under it and one quiet button. */
@@ -481,7 +484,8 @@
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 /* As wide as its fullest row (design/menus.md menu-fit), from the folder menus' 184 px floor to 300 px. */
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:184px;max-width:min(300px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
+/* The project menu is wider than its rows need, so a project and its path read whole (Lucas 2026-11-11: "still too skinny"); the composer's folder menu takes the same width (composerLocation.css). */
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:max-content;min-width:min(240px,calc(100vw - 32px));max-width:min(360px,calc(100vw - 32px));max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
 .acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}

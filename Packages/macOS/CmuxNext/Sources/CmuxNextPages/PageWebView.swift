@@ -77,7 +77,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
-    /// How long ``callPageScript(_:arguments:)`` waits for a Chromium start still in flight before it
+    /// How long ``callPageScript(_:arguments:timeout:)`` waits for a Chromium start still in flight before it
     /// gives up and returns nil (on ``chromiumClock``): about a page script's own 5 s hook wait.
     var chromiumScriptWait: Duration = .seconds(5)
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
@@ -543,7 +543,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
