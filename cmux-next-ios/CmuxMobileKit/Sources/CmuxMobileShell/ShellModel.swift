@@ -162,7 +162,8 @@ final class ShellModel {
         }
         // `-cmux-mobile-refuse-next-create`: the next workspace the Mac makes is refused (New Task's draft comes back).
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
-            mock.failNext = "Agent chats start in a project folder, not the home folder. Pick a project folder."
+            mock.failNext = "web is a new folder on this Mac. Open cmux on the Mac and trust web, then start the task again."
+            mock.failNextForPerson = true
         }
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-tab") {
             mock.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"

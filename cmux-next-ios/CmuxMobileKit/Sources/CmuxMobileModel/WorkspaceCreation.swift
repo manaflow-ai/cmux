@@ -857,6 +857,8 @@ public final class UnavailableWorkspaceCreationBackend: WorkspaceCreationBackend
 @MainActor
 public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNext: String?
+    /// The refusal is the Mac's words for the person (a live chat refusal), shown as they are.
+    public var failNextForPerson = false
     /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
     public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
     private let clock: any Clock<Duration>
@@ -1099,7 +1101,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         if latency > .zero { try await clock.sleep(for: latency) }
         if let message = failNext {
             failNext = nil
-            throw WorkspaceCreationError(message)
+            throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
     }
 }
