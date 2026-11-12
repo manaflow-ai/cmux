@@ -83,6 +83,11 @@ FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it sta
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
+
+Start under load (tests/start_under_load_bench.rs):
+FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
+wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
+little of the CPU takes much longer to start.
 """
 import base64
 import hashlib
@@ -118,6 +123,17 @@ RUNNING_MCP = []
 # schema strips the draft `subagents` field, so that one does not count).
 NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
+
+
+def boot_work():
+    """FAKE_BOOT_CPU_MS: this process's CPU time, spent before it reads anything."""
+    budget = int(os.environ.get("FAKE_BOOT_CPU_MS", "0")) / 1000
+    until = time.process_time() + budget
+    while time.process_time() < until:
+        pass
+
+
+boot_work()
 
 
 def send(obj):
