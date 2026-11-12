@@ -8,8 +8,10 @@
    the page's portal, never inside the composer box, so its blur sees the page and not a backdrop
    root. No border: the rim is the one edge, so Details reaches it. */
 .acpmux-context-card.ui-card {
-  width: 260px;
-  max-width: min(260px, calc(100vw - 24px));
+  /* Its frame follows Text Size as its type does (--ui-px, ui/popupSurface.css). */
+  width: calc(260 * var(--ui-px, 1px));
+  max-width: min(calc(260 * var(--ui-px, 1px)), calc(100vw - 24px));
+  overflow: hidden;
   box-sizing: border-box;
   padding: 0;
   border-width: 0;
@@ -36,8 +38,8 @@
 /* The composer popover stays compact in both states. It uses the same glass material supplied by
    AnchoredCard (.ui-card.ui-glass), while this sheet only controls its content rhythm. */
 .acpmux-context-pop--compact.ui-card {
-  width: 230px;
-  max-width: min(230px, calc(100vw - 24px));
+  width: calc(230 * var(--ui-px, 1px));
+  max-width: min(calc(230 * var(--ui-px, 1px)), calc(100vw - 24px));
   text-align: left;
 }
 .acpmux-context-pop--compact .acpmux-context-card-title {
