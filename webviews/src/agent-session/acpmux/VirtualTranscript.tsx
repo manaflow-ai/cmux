@@ -607,12 +607,13 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
-/// Whether every row a pass brought is a send's own: the prompt (a user row) and the live line it
-/// came with. Tool rows and the reply that land in the send's window are the turn's and chase.
-function broughtOnlySentRows(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
+/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
+/// the send's window after it are the turn's and chase.
+function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
   if (after.length <= before.length) return false;
   const had = new Set(before.map((row) => row.id));
-  return after.every((row) => had.has(row.id) || (row.kind === "user" && !isLineRow(row)) || row.below === true);
+  return after.some((row) => !had.has(row.id) && row.kind === "user" && !isLineRow(row));
 }
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
@@ -3794,7 +3795,7 @@ function TranscriptView({
             if (!riding) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else if (
             sendLands &&
-            (broughtOnlySentRows(oldRows, rows) ||
+            (broughtSentPrompt(oldRows, rows) ||
               (dockSpace < box.dockSpace &&
                 rows.length === oldRows.length &&
                 rows.at(-1)?.id === oldRows.at(-1)?.id &&
