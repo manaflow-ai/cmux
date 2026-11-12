@@ -9,7 +9,7 @@
 
 .dialog-gallery-title {
   margin: 0 0 4px;
-  font-size: 15px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
