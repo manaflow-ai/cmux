@@ -43,8 +43,10 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
   // A summary without a turn count (the sidebar's listing, an older acpmux) says nothing about the
   // chat's turns: until its attach answers (`chatRead`), an existing chat is still loading, not new,
   // so it draws the loading state instead of the hero. Attached with no rows and no older history,
-  // it has no turns.
-  const turns = summary.turnCount ?? (snapshot.canLoadOlder ? 1 : snapshot.chatRead === true ? 0 : undefined);
+  // it has no turns. A chat with no session yet (a harness switch's deferred chat, whose summary is
+  // the switch's) has nothing to read: no turns.
+  const read = snapshot.chatRead === true || !snapshot.sessionId;
+  const turns = summary.turnCount ?? (snapshot.canLoadOlder ? 1 : read ? 0 : undefined);
   if (turns === undefined) return false;
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }

@@ -40,6 +40,16 @@ test("a summary that counts its turns decides before the attach", () => {
 test("a chat with no session yet is new", () => {
   const fresh = existing({ sessionId: undefined, summary: undefined });
   expect(isNewChat(fresh, true)).toBe(true);
+  // Round 9: a harness switch's deferred chat has the switch's summary (no session, no turn count)
+  // and nothing to read. It is new (its start folder holds), never loading
+  // (test/classic-new-tab-pickers.test.tsx's Return lost its folder at 38039788c842).
+  const switching = existing({
+    sessionId: undefined,
+    summary: { sessionId: "", harness: "codex" },
+    switching: { harness: "codex", name: "Codex", phase: "deferred" },
+  });
+  expect(isNewChat(switching)).toBe(true);
+  expect(chatLoad(switching)).toBeUndefined();
 });
 
 const t = ((key: string) => ({ "sidebar.newChat": "New chat", "cmuxLink.kind.chat": "Chat" })[key] ?? key) as never;
