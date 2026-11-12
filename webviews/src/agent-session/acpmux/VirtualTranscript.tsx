@@ -2212,7 +2212,10 @@ function TranscriptView({
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      else arrived.push(row);
+      // A stream can append a row in the same commit as a page fill. While the reader is moving,
+      // give it a settled box too; a live entrance transform would expose a transient band under
+      // the wheel even though the row itself is not older history.
+      else if (!readerIsMoving) arrived.push(row);
       knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
