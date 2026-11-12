@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43281298615",
+  "recorded_at": "2026-11-12T18:44:22Z",
+  "reason": "cmux-tui 02779f7afc6a changes the image's cmux-tui (pinned eca5285d7767)",
+  "dry_run": false,
+  "cmux_tui": "02779f7afc6ae05dfcbd1d62d95c4e999be662e2",
+  "fixes": [
+    {
+      "sha": "02779f7afc6ae05dfcbd1d62d95c4e999be662e2",
+      "mergedAt": "2026-11-12T10:02:02-08:00",
+      "subject": "cmux-action-catalog: six palette rows for devices, proxies, billing and notifications (step A of #38644) (#41866)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T18:44:22Z",
+    "snapshot_id": "sh-2dc94aa6b21644d987a566485917c3dc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43281298615): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6bcca31208c5c5502b841c0105cb1f1afa5472a8",
+    "image": "cloud-native-auto-02779f7a-43281298615-1",
+    "revision": "ci-43281298615-1",
+    "at": "2026-11-12T18:44:22Z"
+  },
+  "rolled_back": false
+}
