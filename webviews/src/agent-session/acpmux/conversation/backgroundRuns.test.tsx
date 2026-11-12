@@ -115,16 +115,22 @@ test("a notification followed by a real reply keeps that reply in sight", () => 
   ]);
 });
 
-test("a failed shell and a running line end a run; one line alone stays as it was", () => {
+test("a failed shell joins the run and is counted; a running line ends it", () => {
   const rows = [...prompt(), line("a"), note("fail", "failed"), line("b"), line("live", { running: true })];
   const view = turnView(rows, new Set());
+  const run = backgroundRunRowId(backgroundTurnRowId("a"));
+  expect(ids(view).slice(3)).toEqual([run, backgroundTurnRowId("live")]);
+  const drawn = view.find((entry) => entry.id === run)!;
+  expect(drawn.backgroundRun).toMatchObject({ finished: 2, failed: 1, commands: 1 });
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={drawn} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("3 background updates, 1 failed");
+});
+
+test("one line alone stays as it was", () => {
+  const rows = [...prompt(), line("a"), line("live", { running: true })];
+  const view = turnView(rows, new Set());
   expect(view.some((entry) => entry.backgroundRun)).toBe(false);
-  expect(ids(view).slice(3)).toEqual([
-    backgroundTurnRowId("a"),
-    "fail",
-    backgroundTurnRowId("b"),
-    backgroundTurnRowId("live"),
-  ]);
+  expect(ids(view).slice(3)).toEqual([backgroundTurnRowId("a"), backgroundTurnRowId("live")]);
 });
 
 test("a member line opened on its own keeps its rows inside the run", () => {
