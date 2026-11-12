@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { FileSearchSource } from "../src/agent-session/acpmux/fileSearchModel";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -29,7 +30,8 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

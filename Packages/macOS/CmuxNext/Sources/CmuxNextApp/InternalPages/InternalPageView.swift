@@ -73,8 +73,8 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
         setAccessibilityIdentifier("cmux.page.\(page.rawValue)")
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    override func layout() { PageWebView.clipChromiumFrame(of: content, in: self); super.layout() } // Chrome's frame line, clipped
 
     /// The view that takes the keyboard when the tab is focused: a native
     /// page's primary input (the docked Home's message box), a React page's

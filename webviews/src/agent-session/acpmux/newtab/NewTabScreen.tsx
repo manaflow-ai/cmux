@@ -54,6 +54,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { customizeMessage, newChatRunsElsewhere } from "../customizeCommand";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -84,6 +85,7 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
@@ -149,6 +151,7 @@ import {
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
+import { type NewTabStartFailure, StartFailure } from "./StartFailure";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
@@ -159,8 +162,13 @@ import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
+import { reportInputReadyWhenFocused } from "./inputReady";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
+/// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
+/// new tab where links go (Option-Return, an Option- or Cmd-click on a row, as in Chrome's omnibox).
+export type NewTabOpenHow = { beside?: boolean };
+
 export type NewTabScreenActions = NewTabCommandActions & {
   /// Setup can start the pending chat with its newly available harness, keeping this draft.
   onSetup?(continueWith: (harness: string) => void): void;
@@ -184,12 +192,16 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// project the person picked on this page, when there is one; it must win over the tab's
   /// inherited folder so checkout discovery uses the explicit choice.
   onFixFromLink?(url: string, cwd?: string, harness?: string, model?: string): void | Promise<void>;
-  onOpen(url: string): void;
+  /// An address the field or a row opens. Without `how` it navigates this page's own tab (Return, as in a
+  /// browser's new tab: Lawrence 2026-11-11); `how.beside` is Option-Return or an Option- or Cmd-click, a new
+  /// tab where links go.
+  onOpen(url: string, how?: NewTabOpenHow): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
-  onOpenInProfile?(url: string, id: string): void;
+  onOpenInProfile?(url: string, id: string, how?: NewTabOpenHow): void;
   /// Open in New Profile: `url` in a profile made for it, named `name` (else the host's default name).
   onOpenInNewProfile?(url: string, name?: string): void;
-  onSearch(text: string): void;
+  /// A web search for `text`, placed as ``onOpen``'s address is.
+  onSearch(text: string, how?: NewTabOpenHow): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
@@ -591,10 +603,16 @@ export function NewTabScreen(props: Props) {
   // chat starts, so a file still streaming has no next prompt to go with. A video's read holds no
   // send (Composer.tsx): the chip goes as its path.
   const holdForAttachments = useSendWhenAttached(unsettled);
+  /// Where the chat would start, as picked now (set below, once every pick is read).
+  const elsewhere = useRef(false);
   const command = useNewTabCommand(
     text,
     setText,
-    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      ...props,
+      importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed",
+      startsElsewhere: () => elsewhere.current,
+    },
     {
       attachments,
       setAttachments,
@@ -636,10 +654,13 @@ export function NewTabScreen(props: Props) {
   }, []);
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
-  const submitNow = useRef(() => {});
+  const submitNow = useRef((_beside?: boolean) => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
-  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
+  /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
+  /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  const continueAfterSetup = useRef<(harness: string, model?: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
     else openHarnessesPage();
@@ -664,20 +685,20 @@ export function NewTabScreen(props: Props) {
   // A saved environment the picker picked names where the chat starts (askInEnvironment).
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
+  // `/customize` changes this machine's cmux: refused when the chat would start anywhere else.
+  // Read when a command runs (after commit), so the ref is written in an effect, never in render.
+  const runsElsewhere = newChatRunsElsewhere({
+    mode: props.runMode?.mode,
+    machine: machine !== undefined,
+    environmentKind: environment?.kind,
+  });
+  useLayoutEffect(() => {
+    elsewhere.current = runsElsewhere;
+  }, [runsElsewhere]);
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
   useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = environment
-    ? environment.kind === "local"
-      ? environment.folder
-      : undefined
-    : none
-      ? undefined
-      : project && project !== props.cwd
-        ? project
-        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -688,6 +709,12 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
+  // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
+  // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
+  // refuses ("This folder is outside the folders this pane may use", cmux#40938). No folder sends
+  // none, and the host starts the chat in its own start folder.
+  const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
   const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
@@ -740,7 +767,15 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
-  const [startError, setStartError] = useState<string>();
+  // A refusal is about the send it answered: another mode or folder is a new pick, so it goes
+  // (it stayed over every folder and team Leo then picked, 2026-11-10).
+  const refusalPick = `${props.runMode?.mode ?? ""}\u0000${envFolder ?? ""}`;
+  const [refusedPick, setRefusedPick] = useState(refusalPick);
+  if (refusedPick !== refusalPick) {
+    setRefusedPick(refusalPick);
+    setSandboxRefusal(undefined);
+  }
+  const [startError, setStartError] = useState<NewTabStartFailure>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
   const asking = useRef(0);
@@ -762,7 +797,17 @@ export function NewTabScreen(props: Props) {
       forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
-      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
+      if (isStartCancelled(error)) return;
+      const code = (error as { code?: unknown } | undefined)?.code;
+      setStartError({
+        harness: args[0],
+        error: errorMessage(error) || t("switch.unknownError"),
+        ...(typeof code === "string" ? { code } : {}),
+        // A chat on another machine installs nothing here: its agent is set up on that machine.
+        local: !args[6]?.peer,
+        // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        retry: () => continueAfterSetup.current(args[0], args[3]),
+      });
     };
     const done = () => {
       if (asking.current !== request) return;
@@ -796,8 +841,12 @@ export function NewTabScreen(props: Props) {
     const isCommand =
       slash !== undefined &&
       (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
     const sent = isCommand
-      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      ? {
+          text: customizeMessage(words) ?? words,
+          attachments: attachments.map(({ inline: _, ...attachment }) => attachment),
+        }
       : inText;
     const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
@@ -1011,18 +1060,21 @@ export function NewTabScreen(props: Props) {
       profilePick
         ? profileRows(typed, profilePick.url, profiles ?? [])
         : touched && !shell && !commandTyping
-          ? screenRows(typed, {
-              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
-              home,
-              create: creates,
-              ...(ask ? { ask } : {}),
-              createNames: {
-                terminal: nt("create.terminal"),
-                browser: nt("create.browser"),
-                chat: nt("create.chat"),
-              },
-              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-            })
+          ? searchWords(
+              screenRows(typed, {
+                omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+                home,
+                create: creates,
+                ...(ask ? { ask } : {}),
+                createNames: {
+                  terminal: nt("create.terminal"),
+                  browser: nt("create.browser"),
+                  chat: nt("create.chat"),
+                },
+                ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+              }),
+              (words) => withoutInlineTokens(words),
+            )
           : [],
     [
       profilePick,
@@ -1134,10 +1186,18 @@ export function NewTabScreen(props: Props) {
       // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
       try {
         void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
-          setStartError(errorMessage(error) || t("switch.unknownError"));
+          setStartError({
+            error: errorMessage(error) || t("switch.unknownError"),
+            local: true,
+            retry: () => (setStartError(undefined), openCard(id)),
+          });
         });
       } catch (error) {
-        setStartError(errorMessage(error) || t("switch.unknownError"));
+        setStartError({
+          error: errorMessage(error) || t("switch.unknownError"),
+          local: true,
+          retry: () => (setStartError(undefined), openCard(id)),
+        });
       }
       return;
     }
@@ -1151,7 +1211,14 @@ export function NewTabScreen(props: Props) {
   // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
   const coldArchiveCard = (id: string, archived: boolean) => {
     void props.onColdArchive?.(id, archived).catch((error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
+      setStartError({
+        error: errorMessage(error) || t("switch.unknownError"),
+        local: true,
+        retry: () => {
+          setStartError(undefined);
+          coldArchiveCard(id, archived);
+        },
+      });
     });
   };
   const list = useRef<HTMLDivElement>(null);
@@ -1233,11 +1300,16 @@ export function NewTabScreen(props: Props) {
       else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
-    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      onInputReady.current?.(inputToken);
-    }
     const view = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T into the page at this readiness: it waits until
+    // the page has focus, or a page not focused yet loses them (reportInputReadyWhenFocused).
+    let cancelReady = () => {};
+    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(view, () => {
+        inputReadyReported.current = inputToken;
+        onInputReady.current?.(inputToken);
+      });
+    }
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
@@ -1258,20 +1330,24 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
+      cancelReady();
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
       doc?.removeEventListener("keydown", tab);
     };
   }, [inputToken, focusOnShow, fieldReady]);
 
-  const activate = (row: ScreenRow) => {
+  /// Runs `row`; `beside` (Option-Return, a modified click) opens a browser pick as a new tab instead of
+  /// navigating this page's tab.
+  const activate = (row: ScreenRow, beside = false) => {
+    const how = beside ? { beside: true } : undefined;
     switch (row.type) {
       case "search":
-        return props.onSearch(row.text);
+        return props.onSearch(row.text, how);
       case "open":
-        return props.onOpen(row.url);
+        return props.onOpen(row.url, how);
       case "history":
-        return props.onOpen(row.url);
+        return props.onOpen(row.url, how);
       case "tab":
         return props.onJump("tab", row.id);
       case "workspace":
@@ -1285,7 +1361,7 @@ export function NewTabScreen(props: Props) {
       case "inProfile":
         return enterProfilePick(row.url, row.text);
       case "profile":
-        return props.onOpenInProfile?.(row.url, row.id);
+        return props.onOpenInProfile?.(row.url, row.id, how);
       case "newProfile":
         return props.onOpenInNewProfile?.(row.url, row.name);
     }
@@ -1337,14 +1413,15 @@ export function NewTabScreen(props: Props) {
       environment || newProject || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
-  const submit = () => {
+  /// Return on the field; `beside` is Option-Return (an address or search opens as a new tab).
+  const submit = (beside = false) => {
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       props.dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
         try {
-          submitNow.current();
+          submitNow.current(beside);
         } finally {
           dictationEnded.current = false;
         }
@@ -1354,7 +1431,7 @@ export function NewTabScreen(props: Props) {
     // The profile search: Return opens the address in the highlighted profile (the first one).
     if (profilePick) {
       const row = rows[current] ?? suggested[defaultSelection(suggested)];
-      if (row) activate(row);
+      if (row) activate(row, beside);
       return;
     }
     const prompt = typed.trim();
@@ -1363,7 +1440,7 @@ export function NewTabScreen(props: Props) {
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => submitNow.current())) return;
+    if (holdForAttachments(() => submitNow.current(beside))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
@@ -1379,7 +1456,7 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
-    if (row && keeps) return activate(row);
+    if (row && keeps) return activate(row, beside);
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the
@@ -1458,16 +1535,17 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  continueAfterSetup.current = (agent) => {
+  continueAfterSetup.current = (agent, model) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    if (holdForAttachments(() => continueAfterSetup.current(agent, model)) || created.current) return;
     created.current = true;
     const prompt = shell ? "" : typed.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
+      model,
     );
     if (asked === false) created.current = false;
   };
@@ -1668,6 +1746,11 @@ export function NewTabScreen(props: Props) {
     } else if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       askTyped();
+    } else if (event.key === "Enter" && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      // Option-Return, as in Chrome's omnibox: an address or search opens as a new tab where links go; plain
+      // Return navigates this page's tab.
+      event.preventDefault();
+      submit(true);
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -2185,9 +2268,15 @@ export function NewTabScreen(props: Props) {
         {props.startNotice}
 
         {startError && (
-          <p role="alert" className="acpmux-switch-notice">
-            {startError}
-          </p>
+          <StartFailure
+            failure={startError}
+            name={snapshot.catalog.find((entry) => entry.id === startError.harness)?.name ?? startError.harness ?? ""}
+            onInstall={() => {
+              setStartError(undefined);
+              openSetup();
+            }}
+            onDismiss={() => setStartError(undefined)}
+          />
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {newProjectError && (
@@ -2679,7 +2768,8 @@ export function NewTabScreen(props: Props) {
                     // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      activate(row);
+                      // Option- or Cmd-click: a page row opens as a new tab, as in Chrome's omnibox.
+                      activate(row, event.altKey || event.metaKey);
                     }}
                   >
                     {rowFavicon(row) ? (

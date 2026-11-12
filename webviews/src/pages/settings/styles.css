@@ -417,16 +417,6 @@ mark {
   max-width: 60%;
 }
 
-/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
-   slot, on one line: the cap leaves the compact Reset slot and its gap beyond the control's
-   60 %. A wrapped slot left the control in the slot's column, to the right of the other rows'
-   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
-   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
-.row-control:has(> .reset-slot) {
-  flex-wrap: nowrap;
-  max-width: calc(60% + var(--ds-control-compact) + var(--ds-space-2));
-}
-
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
 .row-control-menu {
   display: contents;
@@ -533,6 +523,16 @@ mark {
   gap: var(--ds-space-2);
 }
 
+/* The address field sits left of its menu. Top-aligned, so a refusal that opens under the field
+   (the field grows taller) never moves the menu beside it. */
+.choice-or-url {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+
 .unit {
   color: var(--muted-text);
 }
@@ -587,14 +587,6 @@ mark {
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
-.field.number[data-inherited] {
-  color: var(--muted-text);
-}
-
-.number-editor[data-inherited] .slider {
-  opacity: 0.65;
-}
-
 .color-editor[data-inherited] .swatch {
   opacity: 0;
 }
@@ -629,10 +621,12 @@ mark {
   min-width: 0;
 }
 
+/* A segment's label stays on one line (a row with longer labels is a menu, Editor fitsSegments). */
 .segment {
   position: relative;
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   min-height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-sm);
@@ -651,9 +645,9 @@ mark {
   background: var(--input-bg);
 }
 
+/* The checked segment fills; its weight stays, so picking one never widens it and moves the rest. */
 .segment[data-checked] {
   background: var(--accent-soft);
-  font-weight: 500;
 }
 
 .segment:is(:focus-visible, :has(:focus-visible)) {
@@ -862,8 +856,7 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control,
-  .row-control:has(> .reset-slot) {
+  .row-control {
     max-width: 100%;
   }
 }
@@ -1617,6 +1610,13 @@ mark {
   box-shadow: var(--ui-popup-drop);
 }
 
+.content:has(.appearance-bar) {
+  /* While the bar floats over the page, a row scrolled into view at the bottom (a Tab stop, a
+     click's scroll) lands above the bar, not under it: the bar's height (a button and its 4px frame)
+     joins the fade's clearance. */
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 4px + var(--ds-control-row) + 10px + 6px);
+}
+
 .appearance-bar-button {
   width: 28px;
   height: 26px;
@@ -2265,30 +2265,10 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Settings > Personalization (PersonalizationCard): a jump bar pinned to the top of the content over
- * the parts, each a titled run of its home category's card or rows, with More in … on its right. */
-.personalization-jump {
-  position: sticky;
-  top: 0;
-  z-index: var(--layer-sticky);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  width: fit-content;
-  margin: 0 0 var(--ds-space-5);
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
-}
-
-.personalization-jump-link[aria-current] {
-  background: var(--accent-soft);
-}
-
+/* Settings > Personalization (PersonalizationCard): its parts under the shared jump bar (layout.css
+ * .jump-bar), each a titled run of its home category's card or rows, with More in … on its right. */
 .personalization-part {
-  scroll-margin-top: calc(var(--grid-row) * 2);
+  scroll-margin-top: var(--jump-bar-clearance);
   margin-bottom: var(--ds-space-6);
 }
 

@@ -1034,3 +1034,140 @@ async fn carried_unanswered(peer: &Peer) -> Vec<String> {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
+
+/// Review F1 of #41392 (check at the write): a cancel that waits for room in a full queue
+/// while the link switches paths and the bound request is sent again. The cancel must reach
+/// the link that carries the request when it is written, and the request must never run on
+/// the next link after its cancel. Both orders: the cancel before the resend, and after it.
+#[tokio::test(start_paused = true)]
+async fn a_cancel_queued_across_a_resend_reaches_the_link_that_carries_it() {
+    for cancel_first in [true, false] {
+        let (tx, _notices) = mpsc::channel(16);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock().unwrap().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            let ask = asking.request(method::MUX_ATTACH, json!({"sessionId": "s1"}));
+            crate::request_cancel::until_cancelled(cancelled, ask).await
+        });
+        let first = tokio::time::timeout(WAIT, out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&first.line).unwrap();
+        // The queue is full: what is sent from here waits for room.
+        let mut fillers = 0;
+        while peer
+            .out
+            .try_send(Outbound { epoch: first.epoch, key: None, line: "{}".into() })
+            .is_ok()
+        {
+            fillers += 1;
+        }
+        // The link switches paths; its bound request is due on the next link.
+        peer.switched.store(true, Ordering::SeqCst);
+        peer.link_ended();
+        let next = peer.link_epoch();
+        let resending = {
+            let peer = peer.clone();
+            async move { peer.resend_switched(next).await }
+        };
+        let resend = if cancel_first {
+            cancel.send(()).unwrap();
+            assert!(tokio::time::timeout(WAIT, task).await.unwrap().unwrap().is_none());
+            tokio::spawn(resending)
+        } else {
+            let resend = tokio::spawn(resending);
+            // The resend waits for room with the request's frame.
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            cancel.send(()).unwrap();
+            assert!(tokio::time::timeout(WAIT, task).await.unwrap().unwrap().is_none());
+            resend
+        };
+        // The link reads the queue, keeping only what is on the live link, as `serve` does.
+        let mut live = Vec::new();
+        let mut read = 0;
+        while let Ok(Some(frame)) = tokio::time::timeout(Duration::from_secs(1), out.recv()).await {
+            read += 1;
+            if frame.epoch == next {
+                live.push(serde_json::from_str::<Value>(&frame.line).unwrap());
+            }
+        }
+        tokio::time::timeout(WAIT, resend).await.unwrap().unwrap();
+        assert!(read >= fillers, "{cancel_first}: {read} of {fillers}");
+        let ran =
+            live.iter().position(|f| f["id"] == request["id"] && f["method"] == method::MUX_ATTACH);
+        let stopped = live.iter().position(|f| {
+            f["method"] == method::CANCEL_REQUEST && f["params"]["requestId"] == request["id"]
+        });
+        match ran {
+            // Sent again on the next link: its cancel goes there, after it.
+            Some(ran) => assert!(
+                stopped.is_some_and(|stopped| stopped > ran),
+                "cancel first: {cancel_first}: the resent request ran past its cancel: {live:?}"
+            ),
+            // Not sent again: nothing of it runs on the next link.
+            None => assert!(stopped.is_none() || cancel_first, "{live:?}"),
+        }
+    }
+}
+
+/// Review F2 of #41392 (check at the write): a cancel waiting for room on the shadow while the
+/// doubt clears. The shadow must not end before the cancel is written, or the copy it carried
+/// runs on the probe's connection, unstopped.
+#[tokio::test(start_paused = true)]
+async fn a_shadow_does_not_end_before_its_pending_cancel_is_written() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    peer.connected.store(true, Ordering::SeqCst);
+    peer.open.store(true, Ordering::SeqCst);
+    peer.features.lock().unwrap().push(crate::server::dual_requests::FEATURE.to_owned());
+    peer.features.lock().unwrap().push(crate::request_cancel::FEATURE.to_owned());
+    let link = peer.link_epoch();
+    let mut out = peer.out_rx.lock().await.take().unwrap();
+    let mut run = bare_shadow(&peer).await;
+    let (cancel, cancelled) = oneshot::channel();
+    let asking = peer.clone();
+    let task = tokio::spawn(async move {
+        let ask = asking.request(method::MUX_STATS, json!({}));
+        crate::request_cancel::until_cancelled(cancelled, ask).await
+    });
+    let request = loop {
+        if let Some(frame) = pump_link(&peer, &mut out, link).pop() {
+            break frame;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    };
+    let id = request["id"].clone();
+    // Other copies fill the shadow's queue.
+    let mut n = 0u64;
+    loop {
+        let before = peer.dual_stats().frames.load(Ordering::Relaxed);
+        let line = Message::request(json!(2_000_000 + n), method::MUX_STATS, json!({}));
+        peer.dual_copy(line.to_line().trim_end_matches('\n').to_owned(), None, link);
+        if peer.dual_stats().frames.load(Ordering::Relaxed) == before {
+            break;
+        }
+        n += 1;
+    }
+    cancel.send(()).unwrap();
+    assert!(tokio::time::timeout(WAIT, task).await.unwrap().unwrap().is_none());
+    tokio::task::yield_now().await;
+    // The doubt cleared (no path in doubt here): the shadow would end now, but its cancel is
+    // not written yet.
+    assert!(!peer.shadow_done(&mut run), "the shadow ends with a cancel still to write");
+    // Its loop writes what is queued; the cancel comes after the copies.
+    let mut heard = false;
+    while let Ok(Some(line)) = tokio::time::timeout(Duration::from_secs(1), run.rx.recv()).await {
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["method"] == method::CANCEL_REQUEST && v["params"]["requestId"] == id {
+            heard = true;
+            break;
+        }
+    }
+    assert!(heard, "the shadow's copy ran on: its cancel was never written");
+    tokio::task::yield_now().await;
+    assert!(peer.shadow_done(&mut run), "once its cancel is written, the shadow may end");
+}
