@@ -20,6 +20,9 @@ import { FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
 
 const CHAT = "load-chat";
 const OTHER = "load-other";
+// Each run opens chats of its own ids: the client keeps a chat's tail for its next open across clients, so a chat a
+// run before already drew would open whole, with no older page left to read.
+let opens = 0;
 let clock: VirtualClock | undefined;
 afterEach(() => {
   clock?.uninstall();
@@ -49,6 +52,8 @@ function chunked(sessionId: string, turns: number): EventRecord[] {
 
 type Snapshot = { sessionId?: string; frames: Map<string, string> };
 type Run = {
+  chat: string;
+  other: string;
   client: AcpmuxDirectClient;
   daemon: FakeDaemon;
   clock: VirtualClock;
@@ -65,26 +70,28 @@ type Run = {
 
 const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
 
-/// Opens CHAT (its first `heldTurns` turns in the daemon's log, the rest in `live`) with OTHER beside it, and records
-/// every snapshot's prompt and reply frames.
+/// Opens a chat (its first `heldTurns` turns in the daemon's log, the rest in `live`) with another beside it, and
+/// records every snapshot's prompt and reply frames.
 async function open(heldTurns: number, snapshots: Snapshot[], lose: number, seed: number): Promise<Run> {
   clock = new VirtualClock().install();
+  opens += 1;
+  const [chat, other] = [`${CHAT}-${opens}`, `${OTHER}-${opens}`];
   const daemon = new FakeDaemon();
-  const events = chunked(CHAT, 30);
+  const events = chunked(chat, 30);
   const turnEnds = events.flatMap((event, index) => (event.kind === "turn_result" ? [index + 1] : []));
   const held = turnEnds[heldTurns - 1] ?? events.length;
   daemon.add(
-    { sessionId: CHAT, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock.now },
+    { sessionId: chat, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock.now },
     events.slice(0, held),
   );
   daemon.add(
-    { sessionId: OTHER, cwd: "/home/dev/y", title: "y", harness: "claude", status: "idle", updatedAt: clock.now - 1 },
-    chunked(OTHER, 4),
+    { sessionId: other, cwd: "/home/dev/y", title: "y", harness: "claude", status: "idle", updatedAt: clock.now - 1 },
+    chunked(other, 4),
   );
   (globalThis as Record<string, unknown>).window ??= globalThis;
   let client: AcpmuxDirectClient | undefined;
   void AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: chat },
     (snapshot: { sessionId?: string; rows: readonly AcpmuxRow[] }) =>
       snapshots.push({
         sessionId: snapshot.sessionId,
@@ -96,12 +103,23 @@ async function open(heldTurns: number, snapshots: Snapshot[], lose: number, seed
   for (let step = 0; step < 200 && !client; step++) await clock.advance(10);
   await clock.advance(50);
   if (!client) throw new Error("the client did not connect");
-  return { client, daemon, clock, live: events.slice(held), lose, random: prng(seed), streamed: 0, pagedIn: 0 };
+  return {
+    chat,
+    other,
+    client,
+    daemon,
+    clock,
+    live: events.slice(held),
+    lose,
+    random: prng(seed),
+    streamed: 0,
+    pagedIn: 0,
+  };
 }
 
 /// Streams `count` live records (all when unset) into the chat, 16 ms apart.
 async function stream(run: Run, count = run.live.length, during?: (index: number) => Promise<void> | void) {
-  const session = run.daemon.sessions.get(CHAT)!;
+  const session = run.daemon.sessions.get(run.chat)!;
   const batch = run.live.splice(0, count);
   for (let index = 0; index < batch.length; index++) {
     const event = batch[index]!;
@@ -128,10 +146,10 @@ async function pageAll(run: Run, pages = 40) {
 const historyFrom = (run: Run) => (run.client as unknown as { firstSeq?: number }).firstSeq ?? Infinity;
 
 async function switchAwayAndBack(run: Run) {
-  const away = run.client.select(OTHER);
+  const away = run.client.select(run.other);
   await run.clock.advance(400);
   await away.catch(() => undefined);
-  const back = run.client.select(CHAT);
+  const back = run.client.select(run.chat);
   await run.clock.advance(400);
   await back.catch(() => undefined);
 }
@@ -225,11 +243,11 @@ for (const [name, path] of Object.entries(PATHS))
         clock?.uninstall();
         clock = undefined;
         const label = `lose ${lose} seed ${seed}`;
-        if (!snapshots.some((snapshot) => snapshot.sessionId === CHAT && snapshot.frames.size > 0))
+        if (!snapshots.some((snapshot) => snapshot.sessionId === run.chat && snapshot.frames.size > 0))
           failures.push(`${label}: the chat never drew a prompt or reply`);
         if (path.pages && run.pagedIn === 0) failures.push(`${label}: no older page came in`);
         if (path.streams && run.streamed === 0) failures.push(`${label}: nothing streamed`);
-        const found = judge(snapshots, CHAT);
+        const found = judge(snapshots, run.chat);
         if (found.length) failures.push(`${label}: ${found.length} flips or blanks: ${found.slice(0, 6).join("; ")}`);
       }
     expect(failures).toEqual([]);
