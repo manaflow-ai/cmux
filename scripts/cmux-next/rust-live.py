@@ -292,6 +292,16 @@ class Builder:
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
+                return
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            # Whether or not the build's leader exited: a child that ignores SIGTERM would outlive it
+            # (cmux#41767 review F1).
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
                 pass
 
     def run_build(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:

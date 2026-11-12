@@ -86,6 +86,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var aliases: [SettingsSection] = []
         /// Shown only in DEV builds: the page hides it when the host says it is not one.
         public var devOnly = false
+        /// Ids of retired categories (old `#/settings/<id>` links) that open this category.
+        public var legacyIDs: [String] = []
     }
 
     /// A titled run of categories in the page's sidebar (the lead run is untitled).

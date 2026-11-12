@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb'
+IR_SHA256 = '59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde'
 
 
 @dataclass(frozen=True)
@@ -311,6 +311,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cancel-creating-input': CommandMetadata(
+        'cancel-creating-input',
+        'control',
+        12,
+        'creating-input-cancel-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'chief-inspect': CommandMetadata(
@@ -1331,6 +1342,7 @@ COMMANDS = {
             'argv': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
+            'create_workspace': CommandFieldMetadata(12, 'create-terminal-workspace-v1'),
             'cwd': CommandFieldMetadata(None, None),
             'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
@@ -1345,6 +1357,7 @@ COMMANDS = {
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
+            'workspace_name': CommandFieldMetadata(12, 'create-terminal-workspace-v1'),
         },
     ),
     'create-workspace': CommandMetadata(
