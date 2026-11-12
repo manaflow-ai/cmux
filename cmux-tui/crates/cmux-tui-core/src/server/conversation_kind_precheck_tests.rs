@@ -10,6 +10,12 @@
 //! looked for the text `"conversation` anywhere, keys included, so every tree reply to a
 //! connection that did not declare `closed-conversation-tabs-v1` (the iPhone app, an older app or
 //! script) was parsed and dropped again: 18% of the reply time in a sample of the daemon.
+//!
+//! A wrong pre-check would send an older client (the iPhone app) a message that needed the rewrite
+//! without it. The property test generates trees, lists, closed history and responses with zero,
+//! one and many tabs of each kind and shape, whose titles, paths and commands hold the rewritten
+//! value strings, quoted, as keys and inside other text, and checks that for every capability set
+//! the bytes sent equal those of the path that parses and rewrites every message.
 
 use super::super::*;
 use super::may_hold_a_conversation_kind;
@@ -100,4 +106,111 @@ fn the_projected_bytes_do_not_change() {
     let without = json!({"workspaces": [{"tabs": [{"kind": "terminal", "conversation": null}]}]});
     writer.send_control(&without).unwrap();
     assert_eq!(outbound.try_pop().unwrap().trim_end(), compact(&without));
+}
+
+/// What a connection reads from the projection with no pre-check: the message parsed, rewritten
+/// for the connection, and serialized again when it changed (the reference path).
+fn always_rewritten(writer: &MessageWriter, text: &str) -> String {
+    let mut value: Value = serde_json::from_str(text).unwrap();
+    if writer.project_tab_kinds(&mut value) {
+        serde_json::to_string(&value).unwrap()
+    } else {
+        text.to_string()
+    }
+}
+
+/// Text that a tab's title, path or command may hold: the rewritten values, keys, quotes, colons
+/// and the word in other text.
+fn tricky_text() -> impl proptest::strategy::Strategy<Value = String> {
+    use proptest::prelude::*;
+    prop::sample::select(vec![
+        "conversation",
+        "conversation_tab",
+        "\"conversation\"",
+        "\"conversation\":",
+        "\"conversation_tab\" :",
+        "a conversation about tabs",
+        "conversations",
+        "~/src/conversation/tab",
+        "echo '\"conversation\"' | jq",
+        "kind:conversation",
+        "\\\"conversation\\\"",
+        "",
+        "plain",
+    ])
+    .prop_map(str::to_string)
+}
+
+/// A raw tree tab, a v2 tab or a closed record, each with free text in its title, path and command.
+fn tab() -> impl proptest::strategy::Strategy<Value = Value> {
+    use proptest::prelude::*;
+    let kind = prop::sample::select(vec!["terminal", "browser", "conversation"]);
+    let record = prop::sample::select(vec![0_u8, 1, 2, 3]).prop_map(|choice| match choice {
+        0 => Value::Null,
+        1 => json!({"conversation": "conv_1", "owner": "local"}),
+        2 => json!({"agent_session": {"host": "install:a", "session": "s1"}}),
+        _ => json!({"page": "settings"}),
+    });
+    (kind, record, tricky_text(), tricky_text(), tricky_text(), 0_u8..4).prop_map(
+        |(kind, record, title, path, command, shape)| match shape {
+            0 => json!({"surface": 1, "kind": kind, "browser_renderer": "frontend",
+                        "conversation": record, "title": title, "cwd": path,
+                        "command": command}),
+            1 => json!({"id": "tab_1", "content_kind": kind, "title": title,
+                        "extra": {"conversation": record, "cwd": path, "command": command}}),
+            2 => json!({"kind": "closed", "closed_kind":
+                            if kind == "conversation" { "conversation_tab" } else { "browser_tab" },
+                        "title": title, "path": path, "command": command}),
+            _ => json!({"surface": 2, "kind": "terminal", "conversation": null,
+                        "title": title, "cwd": path, "command": command}),
+        },
+    )
+}
+
+/// A message holding `tabs` the way the daemon sends them: a raw tree, a v2 list, closed history,
+/// a resource response or a closed group.
+fn message() -> impl proptest::strategy::Strategy<Value = Value> {
+    use proptest::prelude::*;
+    (prop::collection::vec(tab(), 0..12), 0_u8..5, tricky_text()).prop_map(
+        |(tabs, envelope, name)| match envelope {
+            0 => json!({"workspaces": [{"name": name, "screens": [{"panes": [{"tabs": tabs}]}]}]}),
+            1 => json!({"ok": true, "data": {"tabs": tabs, "name": name}}),
+            2 => json!({"entries": tabs}),
+            3 => json!({"type": "response", "result": tabs}),
+            _ => json!({"closed": [{"kind": "tab", "screens": [{"name": name, "tabs": tabs}]}]}),
+        },
+    )
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(512))]
+
+    /// For every generated message and every capability set, the bytes sent with the pre-check
+    /// equal the bytes of the path that parses and rewrites every message.
+    #[test]
+    fn the_precheck_sends_the_bytes_of_the_always_rewrite_path(
+        value in message(),
+        capabilities in proptest::sample::subsequence(
+            vec![
+                crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+                crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
+                crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
+                crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
+            ],
+            0..=4,
+        ),
+    ) {
+        crate::state::conversation_tabs_store::mark_conversation_tabs_present();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let names = capabilities.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        writer.negotiate_conversation_tabs(names.iter());
+        let text = compact(&value);
+        writer.send_control(&value).unwrap();
+        let sent = outbound.try_pop().unwrap();
+        let expected = if capabilities.len() == 4 { text } else {
+            always_rewritten(&writer, &text)
+        };
+        proptest::prop_assert_eq!(sent.trim_end(), expected.as_str());
+    }
 }
