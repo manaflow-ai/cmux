@@ -55,9 +55,9 @@ stop_after() {
   local pid=$1 secs=$2 k=0
   while kill -0 "$pid" 2>/dev/null && [ $k -lt $((secs * 4)) ]; do sleep 0.25; k=$((k + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
+    echo "selftest: still running after ${secs} s, stopping pid $pid"
     kill -TERM "$pid" 2>/dev/null; sleep 2
     pgrep -f "^$exe" | grep -qx "$pid" && kill -KILL "$pid" 2>/dev/null
-    echo "selftest: was still running after ${secs} s, stopped pid $pid" || true
   fi
   return 0
 }

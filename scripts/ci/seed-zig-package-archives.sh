@@ -247,10 +247,10 @@ run_round() {
   set +m
   ( while kill -0 "$pool" 2>/dev/null; do
       if (( SECONDS >= deadline )); then
-        # The kills come before the message: under set -e an echo to a closed stderr would end this watchdog
-        # first and leave the pool running (cmux#41803 review class: no side step before a guard's kill).
-        kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null
-        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 || true; exit 0
+        # `|| true`: under set -e an echo to a closed stderr would end this watchdog before its kills (cmux#41803
+        # review class: no side step before a guard's kill may skip it).
+        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 || true
+        kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null; exit 0
       fi
       sleep 1
     done ) &
