@@ -3896,7 +3896,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         if where in seen:
             continue
         seen.add(where)
-        if where.startswith(".."):
+        if where.startswith("..") or where.startswith("/"):
             raise Refused(f"a path crate of {lock} is outside the repository ({where})")
         found = manifest(where, True) or {}
         package = found.get("package")
@@ -3962,7 +3962,7 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
                           "read; it could reach a package outside the declared reads")
         for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
-            if path.startswith(".."):
+            if path.startswith("..") or path.startswith("/"):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
