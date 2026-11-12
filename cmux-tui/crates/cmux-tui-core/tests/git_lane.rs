@@ -911,6 +911,109 @@ fn git_lane_equal_reads_with_a_large_reply_each_get_it_and_the_connection_stays_
     assert!(!closed, "the daemon closed the connection");
 }
 
+/// A connection that stops to read while the copies of a shared reply go to
+/// it: the copies wait for room in its reply queue, and that wait holds no
+/// place of the lane. So while they wait, a `git.status` of another
+/// connection answers, a `git.status` of the same connection starts, and
+/// another connection's long reads take each of the long places.
+///
+/// The connection reads up to the first of its 60 equal replies (the sign
+/// that their one run ended) and then nothing more until the checks are
+/// done: 59 copies of about 800 KiB (46 MiB) are then not read, more than
+/// the reply queue (32 MiB) and the socket take, so copies wait. The checks
+/// end before the daemon's 2 s limit of one write closes a connection that
+/// reads nothing.
+#[test]
+fn git_lane_copies_that_wait_for_a_connection_that_does_not_read_hold_no_place() {
+    const EQUAL: usize = 60;
+    const SOON: Duration = Duration::from_millis(250);
+    let (busy, busy_gate) = repository("busy");
+    let (repo, _gate) = repository("large");
+    let (held, held_gate) = repository("held");
+    let (seen, _seen_gate) = repository("seen");
+    let (own, own_gate) = repository("own");
+    let line = "a line of a large change that a person made in one file\n";
+    std::fs::write(Path::new(&repo).join("a.txt"), line.repeat(14_000)).unwrap();
+    let socket = daemon();
+    let mut slow = Connection::open(&socket);
+    let mut other = Connection::open(&socket);
+
+    // Each read place is held, so the equal reads wait and share one run.
+    busy_gate.hold("hold-all");
+    let fill = fill_the_read_places(&mut slow, &busy, &busy_gate);
+    let params = json!({
+        "path": repo,
+        "scope": "uncommitted",
+        "include_patch": true,
+        "max_patch_bytes": 4_194_304,
+    });
+    for number in 0..EQUAL {
+        slow.send(&format!("e{number}"), "git.diff", params.clone());
+    }
+    slow.ping(9);
+    slow.reply(&json!(9));
+    held_gate.hold("hold-all");
+    busy_gate.release("hold-all");
+    // The run of the equal reads ended: its first reply is here. From now
+    // the connection reads nothing, and the copies wait.
+    let first = slow.reply(&json!("e0"));
+    assert_eq!(first["ok"], true, "the first of the equal reads: {first}");
+
+    let asked = Instant::now();
+    other.send("status", "git.status", json!({"path": seen}));
+    let status = other.reply_in(&json!("status"), SOON);
+    let other_status = asked.elapsed();
+    assert!(status.is_some(), "no git.status of another connection in {SOON:?}");
+
+    let asked = Instant::now();
+    slow.send("own-status", "git.status", json!({"path": own}));
+    while own_gate.runs_of("status") == 0 && asked.elapsed() < SOON {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let own_status = asked.elapsed();
+    assert!(own_status < SOON, "no git.status of the same connection started in {SOON:?}");
+
+    let asked = Instant::now();
+    for number in 0..LONG_GIT_RUNS {
+        let params = json!({"path": held, "scope": "uncommitted", "context_lines": number + 1});
+        other.send(&format!("long{number}"), "git.diff", params);
+    }
+    // Less than the 2 s limit of one write, which closes the slow
+    // connection and so ends the wait of its copies.
+    while held_gate.active() < LONG_GIT_RUNS && asked.elapsed() < Duration::from_secs(1) {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let long_reads = (held_gate.active(), asked.elapsed());
+    assert_eq!(
+        long_reads.0, LONG_GIT_RUNS,
+        "long reads of another connection that run while the copies wait"
+    );
+
+    // Now the connection reads: each copy and its own status come.
+    let (replies, closed) = slow.replies(fill.len() + EQUAL, LONG);
+    let copies = replies
+        .iter()
+        .filter(|reply| reply["id"].as_str().is_some_and(|id| id.starts_with('e')))
+        .filter(|reply| reply["ok"] == true)
+        .count();
+    let own_answered =
+        replies.iter().any(|reply| reply["id"] == "own-status" && reply["ok"] == true);
+    eprintln!(
+        "git-lane: {} copies of a shared reply wait for a connection that does not read: a \
+         git.status of another connection answered in {other_status:?}, a git.status of the same \
+         connection started in {own_status:?}, {} long reads of another connection ran in {:?}; \
+         then the connection read {copies} copies, its own status: {own_answered}, closed by the \
+         daemon: {closed}",
+        EQUAL - 1,
+        long_reads.0,
+        long_reads.1
+    );
+    held_gate.release("hold-all");
+    assert_eq!(copies, EQUAL - 1, "copies that came after the connection read again");
+    assert!(own_answered, "the git.status of the slow connection was answered");
+    assert!(!closed, "the daemon closed the connection");
+}
+
 /// The daemon runs at most [`MUTATION_RUNS`] git mutations at one time,
 /// whatever the count of connections. The result of a commit is not this
 /// test's subject: only how many run.
