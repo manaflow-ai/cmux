@@ -704,11 +704,11 @@ struct ListCursor {
 
 /// The watch request with `id`: the list's first page, or the rows changed after `cursor`.
 fn watch_request(id: u64, cursor: Option<&ListCursor>) -> Value {
-    let mut params = json!({"enabled": true, "limit": PAGE_SESSIONS});
-    if let Some(cursor) = cursor {
-        params["afterSeq"] = json!(cursor.seq);
-        params["listEpoch"] = json!(cursor.epoch);
-    }
+    let params = match cursor {
+        Some(cursor) => json!({"enabled": true, "limit": PAGE_SESSIONS,
+            "afterSeq": cursor.seq, "listEpoch": cursor.epoch}),
+        None => json!({"enabled": true, "limit": PAGE_SESSIONS}),
+    };
     json!({"jsonrpc": "2.0", "id": id, "method": "_acpmux/watch", "params": params})
 }
 
@@ -721,15 +721,19 @@ fn ask_follow(writer: &mut UnixStream, last_id: &mut u64, at: &ListCursor) -> st
 
 /// Whether acpmux's `initialize` reply names [`FOLLOW_CAPABILITY`].
 fn follows(initialized: &Value) -> bool {
-    initialized["result"]["_meta"]["acpmux"]["capabilities"]
-        .as_array()
+    initialized
+        .pointer("/result/_meta/acpmux/capabilities")
+        .and_then(Value::as_array)
         .is_some_and(|ids| ids.iter().any(|id| id == FOLLOW_CAPABILITY))
 }
 
 /// Whether a `session_changed` is older than the row the watch holds: its list position is
 /// lower than the one the row came with.
 fn older_than_held(held: Option<&Chat>, params: &Value) -> bool {
-    params["listSeq"].as_u64().is_some_and(|seq| held.is_some_and(|chat| chat.list_seq > seq))
+    params
+        .get("listSeq")
+        .and_then(Value::as_u64)
+        .is_some_and(|seq| held.is_some_and(|chat| chat.list_seq > seq))
 }
 
 /// Reads one connection to its end; when the watch's list came whole. The
@@ -798,13 +802,13 @@ fn read_watch(
         }
         let message = serde_json::from_slice::<Value>(&line)?;
         let Some(mux) = mux.upgrade() else { return Ok(None) };
-        if message["id"] == 1 {
+        if message.get("id").and_then(Value::as_u64) == Some(1) {
             capable |= follows(&message);
             if !capable {
                 *cursor = None;
             }
         } else if page.is_some_and(|id| message["id"] == id) {
-            let result = &message["result"];
+            let result = message.get("result").unwrap_or(&Value::Null);
             let (Some(sessions), next) = (result["sessions"].as_array(), &result["nextCursor"])
             else {
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
