@@ -438,6 +438,11 @@ public final class TerminalModel {
     public internal(set) var wideGridsShown = 0
     /// Mirror resets the page laid out again (each a replay).
     public internal(set) var mirrorResets = 0
+    /// Back in the foreground: milliseconds from the app becoming active to
+    /// the first display frame that shows the terminal right (the phone's
+    /// width on the primary screen, no held frame, no replay or output
+    /// pending); -1 before the first return, -2 when none came in 5 s.
+    public internal(set) var lastReturnMs = -1
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"

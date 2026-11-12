@@ -22,8 +22,12 @@ final class TerminalProjectionUITests: XCTestCase {
         var mac = 0
         var wide = 0
         var resets = 0
-        var description: String { "mac PTY resizes \(mac), wide grids \(wide), resets \(resets)" }
-        static func - (a: Counts, b: Counts) -> Counts { Counts(mac: a.mac - b.mac, wide: a.wide - b.wide, resets: a.resets - b.resets) }
+        /// The last return's time to the first right frame (ms; -1 none yet).
+        var returnMs = -1
+        var description: String { "mac PTY resizes \(mac), wide grids \(wide), resets \(resets), first right frame \(returnMs) ms" }
+        static func - (a: Counts, b: Counts) -> Counts {
+            Counts(mac: a.mac - b.mac, wide: a.wide - b.wide, resets: a.resets - b.resets, returnMs: a.returnMs)
+        }
     }
 
     private func counts(_ label: String) -> Counts? {
@@ -34,6 +38,7 @@ final class TerminalProjectionUITests: XCTestCase {
             if part.hasPrefix("mac"), let n = Int(part.dropFirst(3)) { out.mac = n; found += 1 }
             if part.hasPrefix("wide"), let n = Int(part.dropFirst(4)) { out.wide = n; found += 1 }
             if part.hasPrefix("rs"), let n = Int(part.dropFirst(2)) { out.resets = n; found += 1 }
+            if part.hasPrefix("ret"), let n = Int(part.dropFirst(3)) { out.returnMs = n }
         }
         return found == 3 ? out : nil
     }
@@ -86,6 +91,24 @@ final class TerminalProjectionUITests: XCTestCase {
             last = back
         }
         shot("back-from-home")
+
+        // Lock, then unlock (the simulator's lock button, when XCUIDevice has it).
+        let lock = NSSelectorFromString("pressLockButton")
+        if XCUIDevice.shared.responds(to: lock) {
+            XCUIDevice.shared.perform(lock)
+            RunLoop.current.run(until: Date().addingTimeInterval(3))
+            XCUIDevice.shared.press(.home)
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            app.activate()
+            _ = probe.waitForExistence(timeout: 10)
+            if let back = now() {
+                rows.append(("lock and unlock (3 s)", back - last))
+                last = back
+            }
+            shot("back-from-lock")
+        } else {
+            print("projection ui: lock and unlock: no lock button in this XCUIDevice")
+        }
 
         XCUIDevice.shared.orientation = .landscapeLeft
         if let turned = now() {

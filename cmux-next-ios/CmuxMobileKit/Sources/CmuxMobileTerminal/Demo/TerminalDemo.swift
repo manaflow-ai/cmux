@@ -259,7 +259,7 @@ struct TerminalDemoDriver {
     private func projection() async {
         let mac = model.session.underlyingSession as? MacPaneMockSession
         func counters(_ stage: String) {
-            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets)")
+            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)")
         }
         counters("attach")
         await wait(1)
