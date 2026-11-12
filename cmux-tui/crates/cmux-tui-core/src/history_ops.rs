@@ -142,6 +142,14 @@ pub(crate) fn list_for_test(
     merged::list(mux, fields, now_ms, local_day_start_ms(now_ms))
 }
 
+/// Sets how long `history.entries.list` folds before it answers (`None`: the
+/// daemon's own budget). With zero the list answers while its fold is behind
+/// the journal head, as it does after a start on a large journal.
+#[cfg(test)]
+pub(crate) fn set_list_fold_budget_for_test(mux: &Mux, budget: Option<std::time::Duration>) {
+    mux.history.set_list_fold_budget_for_test(budget);
+}
+
 /// One `history.*` mutation for a test, with no request envelope.
 #[cfg(test)]
 pub(crate) fn mutate_for_test(
