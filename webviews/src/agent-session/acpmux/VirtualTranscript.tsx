@@ -1466,6 +1466,11 @@ function TranscriptView({
 
   const jumpBack = useRef<JumpBack | undefined>(undefined);
   const [jumpBackHeld, setJumpBackHeld] = useState(false);
+  /// Lets go of the way back a Jump up press holds.
+  const dropJumpBack = useCallback(() => {
+    jumpBack.current = undefined;
+    setJumpBackHeld(false);
+  }, []);
   const promptScan = useRef<PromptScan>({ length: 0 });
   const jumpUpHint = useRef(-1);
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
@@ -4577,8 +4582,9 @@ function TranscriptView({
     seenSends.current = sends;
     // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
     renderRate.sent(performance.now());
-    // The reader acted: the pinned Jump up mark goes, and an idle stretch starts at the prompt's row
-    // once it comes (jumpUp.ts).
+    // The reader acted: the pinned Jump up mark goes, an idle stretch starts at the prompt's row once
+    // it comes, and a way back a Jump up press held goes with the ride to the latest message (jumpUp.ts).
+    if (jumpButton) dropJumpBack();
     if (jumpButton) idle.sent(promptScan.current.found);
     const node = ref.current;
     if (!node) return;
@@ -4889,6 +4895,9 @@ function TranscriptView({
       const { layout: placed, rows: shown } = latestLayout.current;
       idle.scrolled(restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined);
     }
+    // At the latest message nothing is left to go back to: a way back a Jump up press held goes, or
+    // the button came back at the bottom pointing down at where the reader already is.
+    dropJumpBack();
     stopJump();
     rideToLatest(node, target, reduce, true);
   };
@@ -5502,6 +5511,9 @@ function TranscriptView({
       const index = indexOfRow(rows, place.rowId, idle.hint);
       return index >= 0 ? layout.geometry.topAt(index) + place.offset : undefined;
     },
+    rows,
+    heightAt: (index) => layout.geometry.heightAt(index),
+    indexOf: (place) => indexOfRow(rows, place.rowId, idle.hint),
     totalHeight: layout.totalHeight,
     viewHeight: height,
     lastPrompt: ownPrompt?.id,
