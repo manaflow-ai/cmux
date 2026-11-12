@@ -3,6 +3,7 @@ import CmuxMobileArtifacts
 import CmuxMobileTransport
 import Foundation
 import QuartzCore
+import SwiftUI
 import Testing
 import UIKit
 @testable import CmuxMobileLive
@@ -158,6 +159,82 @@ import UIKit
         // The same model and session went from failed to attached: nothing was rebuilt.
         #expect(model.session === session)
         #expect(model.connectionState.isAttached)
+    }
+
+    /// A terminal page as it was cached: rows of text on the terminal's black.
+    static func terminalFrame(size: CGSize) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            let rows = [
+                "❯ ok but can we fundamentally design a less costly …",
+                "  you can unblock them. The agent service accepts the",
+                "  approve-all setting only from the cmux app itself,",
+                "  never from a command line or an agent.",
+                "",
+                "  What I did instead: the three most important lanes",
+                "  now run as helpers on this Mac.",
+                "",
+                "❯ ",
+            ]
+            let font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            for (index, row) in rows.enumerated() {
+                (row as NSString).draw(at: CGPoint(x: 8, y: 70 + CGFloat(index) * 18),
+                                       withAttributes: [.font: font, .foregroundColor: UIColor(white: 0.9, alpha: 1)])
+            }
+        }
+    }
+
+    /// Before/after captures of the page on a forced disconnect (PR proof):
+    /// the embedded page (`TerminalTabPage`, its overlay and composer) right
+    /// after the failed attach, and again after the quiet line's 10 s. Each
+    /// PNG is printed base64 between markers in the test's console output.
+    @Test func captureTheTabPageOnAForcedDisconnect() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.failNextAttaches = 1
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let inner = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        inner.macName = "cosmic-gray"
+        inner.reattachBackoff = []
+        let model = TerminalModel(session: inner, artifactSource: UnavailableArtifactSource(), title: "interim-coord")
+        let bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+        model.restoreLastFrame(Self.terminalFrame(size: bounds.size))
+        let host = TerminalTabHost(model: model)
+        let page = UIHostingController(rootView: TerminalTabPage(host: host, insets: EdgeInsets(top: 54, leading: 0, bottom: 84, trailing: 0),
+                                                                 isInteractive: true))
+        let window = UIWindow(frame: bounds)
+        window.rootViewController = page
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            inner.stop()
+        }
+        func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
+            let deadline = CACurrentMediaTime() + seconds
+            while !condition(), CACurrentMediaTime() < deadline {
+                try await Task.sleep(for: .milliseconds(20)) // test: waits for the page to settle
+            }
+        }
+        func capture(_ name: String) {
+            let image = UIGraphicsImageRenderer(bounds: bounds).image { _ in
+                window.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            }
+            guard let png = image.pngData() else { return }
+            print("CAPTURE-BEGIN \(name)")
+            print(png.base64EncodedString())
+            print("CAPTURE-END \(name)")
+        }
+        try await waitUntil(5) { if case .failed = inner.connectionState { true } else { false } }
+        let failedAt = CACurrentMediaTime()
+        try await waitUntil(0.5) { false }
+        capture("reconnect-0s")
+        try await waitUntil(12) { CACurrentMediaTime() - failedAt > 10.8 }
+        capture("reconnect-11s")
+        print("reconnect-capture: coldFrame=\(model.coldFrame != nil) state=\(model.connectionState)")
     }
 }
 
