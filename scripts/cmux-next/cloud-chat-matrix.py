@@ -33,6 +33,8 @@ run kills any machine still named after it at the end.
     python3 -I scripts/cmux-next/cloud-chat-matrix.py --cli "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" \\
         --out /tmp/matrix --only small-repo,secrets
 """
+from __future__ import annotations
+
 import argparse
 import base64
 import concurrent.futures

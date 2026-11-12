@@ -17,6 +17,7 @@ import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -53,6 +54,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

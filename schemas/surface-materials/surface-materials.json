@@ -164,9 +164,6 @@
   "web_floating_pending": {
     "ui/FeatureTip.tsx": "the feature tip: page glass in the agent pane, a flat-reading box beside host-glass menus",
     "agent-session/acpmux/ModelPicker.tsx": "the full model picker with its harness rail (PickerDialog): page glass, while the quick model menus are on host glass",
-    "agent-session/acpmux/SlashMenu.tsx": "the slash list: page glass over the chat",
-    "agent-session/acpmux/Composer.tsx": "the composer's inline slash list: page glass",
-    "agent-session/acpmux/MentionMenu.tsx": "the @ list: page glass",
     "agent-session/acpmux/EmojiMenu.tsx": "the emoji list: page glass",
     "agent-session/acpmux/PaletteMenu.tsx": "the in-pane palette menu: page glass",
     "agent-session/acpmux/NewTabPage.tsx": "New Tab's omni list: page glass",

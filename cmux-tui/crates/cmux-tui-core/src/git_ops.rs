@@ -1,6 +1,7 @@
 //! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
-//! without store state; each request runs git on its own connection thread,
+//! without store state; a connection's request runs git on the daemon's git lane
+//! (`server/git_lane.rs`), never on the connection's reader thread,
 //! bounded by a deadline and output limits. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the

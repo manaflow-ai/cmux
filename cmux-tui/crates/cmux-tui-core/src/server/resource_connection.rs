@@ -155,6 +155,10 @@ pub(super) fn handle_resource_connection_message(
         operation if super::cloud_api::handles(operation) => {
             super::cloud_api::handle(mux, client, request, writer)
         }
+        // Git runs a child process: never on this reader thread (server/git_lane.rs).
+        operation if crate::git_ops::handles(operation) => {
+            super::git_lane::submit(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
