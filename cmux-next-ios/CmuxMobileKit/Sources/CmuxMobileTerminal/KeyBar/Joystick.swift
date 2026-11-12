@@ -69,8 +69,9 @@ final class JoystickEngine {
     func update(_ translation: CGSize) {
         let distance = hypot(translation.width, translation.height)
         self.distance = distance
-        // The thumb stays inside the circle, as classic cmux iOS's arrow nub
-        // (user note 2026-11-11: following the finger past it overreached).
+        // The thumb's center stops on the circle's edge, near classic cmux
+        // iOS's arrow nub (user note 2026-11-11: following the finger 48 pt
+        // out overreached; the edge gives a little more reach than classic).
         thumb = JoystickGeometry().thumbOffset(for: translation)
         let newGear = Self.gear(for: distance)
         let newDirection = newGear == 0 ? nil : Self.direction(for: translation)
@@ -140,8 +141,9 @@ final class JoystickEngine {
 }
 
 /// The joystick's thumb while dragged, drawn over the whole terminal page so
-/// the key bar's clip does not cut it: it moves inside the circle with the
-/// finger (`JoystickGeometry`) and springs back on release.
+/// the key bar's clip does not cut it: its center moves with the finger up
+/// to the circle's edge (`JoystickGeometry`), half the dot past it, and
+/// springs back on release.
 struct JoystickThumbOverlay: View {
     let engine: JoystickEngine
 
@@ -174,7 +176,7 @@ struct Joystick: View {
             .fill(Color.white.opacity(0.9))
             .frame(width: 12, height: 12)
             // While dragged the dot is drawn above the key row
-            // (`JoystickThumbOverlay`), inside the circle.
+            // (`JoystickThumbOverlay`), at most on the circle's edge.
             .opacity(engine.showsFloatingThumb ? 0 : 1)
             .frame(width: size, height: size)
             // A glass circle under the dot, as classic's nub (`UIGlassEffect`);

@@ -40,7 +40,7 @@ Sources compared:
 | Modifiers | ⌃ ⌥ ⌘ ⇧: tap arms for one key, double tap locks; armed and locked use the accent fill, locked adds a border | ctrl and alt only: same tap/double-tap rule; accent fill, locked adds an underline |
 | ⌘ | ⌘← / ⌘→ send ^A / ^E (line start/end); ⌘↑ ⌘↓ send the plain arrow | Not offered |
 | ⇧ | ⇧Tab is back-tab; other keys unshifted | ⇧tab is its own key |
-| Arrow input | A 28 pt glass nub with a 12 pt dot; drag past 8 pt sends that arrow, repeating; the dot springs back in 0.15 s | A 28 pt joystick whose dot stays inside the circle (6 pt travel, as classic, since 2026-11-11); 400 ms delay then 10-18/s |
+| Arrow input | A 28 pt glass nub with a 12 pt dot; drag past 8 pt sends that arrow, repeating; the dot springs back in 0.15 s | A 28 pt joystick whose dot's center can reach the circle's edge (14 pt travel; classic stops at 6 pt; since 2026-11-11); 400 ms delay then 10-18/s |
 | Zoom | Two keys step the terminal font size | Settings only |
 | Launchers | Claude, Codex (each with Return), Ollama (`ollama run `, no Return) | None |
 | Fades | Keys dissolve at the leading edge against the compose toggle | 12 pt fades both ends; keys cut at rest are not drawn |
@@ -102,7 +102,8 @@ Kept from cmux NEXT on purpose:
 - Theming: dark style over the terminal background, glass on 85 % terminal
   background, accent fill, the `KeyCapStyle` fills, monospaced key labels.
 - The joystick's engine (400 ms then 10-18/s repeat; the dot followed past
-  the circle until the user asked for classic's 6 pt clamp on 2026-11-11):
+  the circle until the user asked for a classic-like clamp on 2026-11-11, to the circle's
+  edge for a little more reach than classic's 6 pt):
   both were user requests for cmux NEXT (2026-10-14, Codex QA F5). The
   joystick takes classic's place and 28 pt size.
 - Camera stays in the attach menu (after classic's three items), and Send without

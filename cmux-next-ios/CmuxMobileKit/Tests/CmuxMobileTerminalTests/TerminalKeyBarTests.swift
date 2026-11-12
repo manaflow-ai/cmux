@@ -238,23 +238,21 @@ import Testing
 }
 
 @Suite struct JoystickAndComposerGeometryTests {
-    @Test func theThumbStaysInsideTheCircleLikeClassic() {
+    @Test func theThumbsCenterReachesTheCirclesEdgeAndNoFarther() {
         let geometry = JoystickGeometry()
         #expect(JoystickGeometry.circle == 28)
-        // Classic cmux iOS's nub: nubSize / 2 - 8 on each axis.
-        #expect(JoystickGeometry.travel == 6)
+        // The dot's center stops on the circle's edge (14 pt), not 48 pt out.
+        #expect(JoystickGeometry.travel == 14)
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
-        // The screenshot's case: a long drag up moves the dot 6 pt, not 48.
-        #expect(geometry.thumbOffset(for: CGSize(width: 0, height: -120)) == CGSize(width: 0, height: -6))
-        #expect(geometry.thumbOffset(for: CGSize(width: 200, height: 0)) == CGSize(width: 6, height: 0))
-        // Diagonally it keeps the finger's direction at 6 pt.
+        // The screenshot's case: a long drag up moves the dot 14 pt.
+        #expect(geometry.thumbOffset(for: CGSize(width: 0, height: -120)) == CGSize(width: 0, height: -14))
+        #expect(geometry.thumbOffset(for: CGSize(width: 200, height: 0)) == CGSize(width: 14, height: 0))
+        // Diagonally it keeps the finger's direction, on the same edge.
         let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
-        #expect(abs(hypot(diagonal.width, diagonal.height) - 6) < 0.001)
+        #expect(abs(hypot(diagonal.width, diagonal.height) - 14) < 0.001)
         #expect(abs(diagonal.width / diagonal.height - 0.75) < 0.001)
-        // The dot (12 pt, 1.2x while touched) never leaves the 28 pt circle,
-        // even in a corner.
         let corner = geometry.thumbOffset(for: CGSize(width: -500, height: 500))
-        #expect(hypot(corner.width, corner.height) + 6 * 1.2 <= JoystickGeometry.circle / 2)
+        #expect(abs(hypot(corner.width, corner.height) - JoystickGeometry.circle / 2) < 0.001)
     }
 }
 
