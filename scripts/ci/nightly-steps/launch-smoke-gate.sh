@@ -25,7 +25,8 @@
 #               from either home. The same holds for an app that shows Home and says, when the
 #               harness's watch ends and again 5 s later, that its daemon is not connected (the
 #               report's `daemon_down`; --daemon, asked here only: the post-publish smoke does not
-#               ask, so a daemon never rolls a published build back). A live app that never renders
+#               ask, so a daemon never rolls a published build back). One attempt of each kind
+#               holds too, and the error line says each attempt's own cause. A live app that never renders
 #               Home is a failed smoke but does not trigger rollback. An attempt that the watchdog
 #               cut counts when its report already says so: the harness writes its verdict before
 #               it keeps the evidence, and a build
@@ -39,6 +40,9 @@
 #               harness exits as it would without that arm, and its report's `arms` says "not-run" or
 #               "cannot-run"). A pass then carries a warning and a summary line that the seeded home
 #               was not checked, so a pass of the empty home alone is never read as a pass of both.
+#               A pass also carries a warning and a summary line when a home's last daemon read was
+#               not "connected" (no answer, no such field): the app launched, its daemon was not
+#               judged, and the build is not held.
 #               Also a pass whose app used the daemon of another launch: the daemon's socket is the
 #               account's, by session, so on a host where a build of the same channel is live the
 #               app says "connected" of THAT daemon (the report's `of_launch`). The warning says so:
@@ -132,17 +136,38 @@ if verdict != "pass":
     if [ -n "$unchecked" ]; then
       echo "::warning title=nightly-next launch smoke::$unchecked; the empty home passed and the build is not held"
       printf '\nSeeded home: %s. The empty home passed; the build is not held.\n' "$unchecked" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    fi
+    # Said, never held: a home that passed with no "connected" in its last daemon read (report.json's `daemon` is the
+    # empty home's reads, `arms.seeded.daemon` the seeded home's). The harness does not judge a read with no state,
+    # so without this line an app that renames the field turns the daemon check off and nobody sees it.
+    unjudged="$(python3 -I -c 'import json, sys
+report = json.load(open(sys.argv[1]))
+seeded = (report.get("arms") or {}).get("seeded") or {}
+homes = [("the empty home", report.get("daemon"))]
+if seeded.get("verdict") == "pass":
+    homes.append(("the seeded home", seeded.get("daemon")))
+silent = [home for home, reads in homes
+          if not (isinstance(reads, list) and reads and isinstance(reads[-1], dict) and reads[-1].get("state") == "connected")]
+if silent:
+    print("the daemon was not judged in " + " and in ".join(silent) + " (the app gave no connected state when it was asked)")' "$last/report.json" 2>/dev/null)"
+    if [ -n "$unjudged" ]; then
+      echo "::warning title=nightly-next launch smoke::$unjudged; the app launched and the build is not held"
+      printf '\nDaemon: %s. The app launched; the build is not held.\n' "$unjudged" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
     fi ;;
   crash)
-    # Which home the last failure was in: report.json's `arm` (empty, or seeded when the empty home passed). And
-    # what it was: the app's end, or (`daemon_down` alone) a live app whose daemon was not connected.
+    # Which home each attempt's failure was in: report.json's `arm` (empty, or seeded when the empty home passed). And
+    # what it was: the app's end, or (`daemon_down` alone) a live app whose daemon was not connected. The 2 attempts
+    # can fail in 2 ways, so each is said by its own report; "on both attempts" only when they say the same.
     what="$(python3 -I -c 'import json, sys
-report = json.load(open(sys.argv[1]))
-home = "a seeded home (imported-cookie sync on)" if report.get("arm") == "seeded" else "a fresh home"
-ended = report.get("exit") or report.get("crash_reports") or report.get("run_exceptions")
-daemon = report.get("daemon_down") and not ended
-print(("the app'"'"'s daemon was not connected after launch" if daemon else "the app crashed at launch") + " from " + home)' "$last/report.json" 2>/dev/null)"
-    echo "::error title=nightly-next launch smoke::${what:-the app crashed at launch from a fresh home} on both attempts; this build is not published"
+def cause(path):
+    report = json.load(open(path))
+    home = "a seeded home (imported-cookie sync on)" if report.get("arm") == "seeded" else "a fresh home"
+    ended = report.get("exit") or report.get("crash_reports") or report.get("run_exceptions")
+    daemon = report.get("daemon_down") and not ended
+    return ("the app'"'"'s daemon was not connected after launch" if daemon else "the app crashed at launch") + " from " + home
+first, second = cause(sys.argv[1]), cause(sys.argv[2])
+print(first + " on both attempts" if first == second else first + " on attempt 1, and " + second + " on attempt 2")' "$dir/attempt-1/report.json" "$dir/attempt-2/report.json" 2>/dev/null)"
+    echo "::error title=nightly-next launch smoke::${what:-the app crashed at launch from a fresh home on both attempts}; this build is not published"
     exit 1 ;;
   *)
     # Said, never a pass: the app passed and used the daemon of another launch (report.json's `of_launch`).
