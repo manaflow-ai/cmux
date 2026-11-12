@@ -88,7 +88,7 @@ async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
             .expect("the link connects instead of waiting out the handshake deadline")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -135,7 +135,7 @@ async fn a_paged_watch_list_is_read_whole_before_the_link_connects() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -259,12 +259,12 @@ async fn a_change_during_a_paged_watch_list_comes_after_the_whole_list() {
         .iter()
         .enumerate()
         .filter_map(|(at, n)| match n {
-            PeerNotice::Sessions(rows) => Some((at, rows)),
+            PeerNotice::Sessions(rows) => Some((at, crate::peer::parse_rows(rows))),
             _ => None,
         })
         .collect();
     assert_eq!(lists.len(), 1, "one list, published whole: {seen:?}");
-    let (list_at, rows) = lists[0];
+    let (list_at, rows) = (lists[0].0, &lists[0].1);
     let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
     assert_eq!(ids, ["a", "b"]);
     let changed_at = seen
@@ -327,7 +327,7 @@ async fn a_request_of_a_gone_link_takes_no_page_of_the_watch_list() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -421,7 +421,7 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
             .expect("the link connects instead of failing on a list too large")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => lists.push(rows),
+            PeerNotice::Sessions(rows) => lists.push(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -571,7 +571,7 @@ async fn link_to_paced_old_peer(
     let outcome = loop {
         tokio::select! {
             notice = notices.recv() => match notice.expect("the link stays open").2 {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
                 PeerNotice::Connected => break Ok((started.elapsed(), listed.take().unwrap_or_default())),
                 _ => {}
             },
@@ -684,7 +684,7 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
