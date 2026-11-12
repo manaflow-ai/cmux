@@ -420,6 +420,32 @@ class MatrixReadsNothingResolves(unittest.TestCase):
         job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
         self.assertEqual(workflow_jobs.runs_on_cells(job), [runs_on])
 
+    # A string literal may hold `}}`; a regex that ends the expression at the first `}}` cut these short, the
+    # matrix read after the cut was plain text, and the cell read as a known label (Codex review of #41768, F1).
+    def test_a_brace_format_string_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ format('{{{0}}}', matrix[inputs.axis]) }}")
+
+    def test_a_closing_brace_literal_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ '}}' && matrix[inputs.axis] }}")
+
+    def test_an_escaped_quote_before_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ format('it''s }} {0}', matrix[inputs.axis]) }}")
+
+    def test_an_unterminated_expression(self) -> None:
+        for runs_on in ("${{ matrix[inputs.axis]", "${{ format('}}', matrix[inputs.axis])", "macos-26 ${{ vars.X"):
+            with self.subTest(runs_on=runs_on):
+                self._assert_unresolved(runs_on)
+
+    def test_a_plain_literal_and_a_brace_string_are_known_cells(self) -> None:
+        for runs_on in ("macos-26", "${{ format('{{{0}}}', 'macos-26') }}"):
+            with self.subTest(runs_on=runs_on):
+                job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+                self.assertEqual(workflow_jobs.runs_on_cells(job), [runs_on])
+
+    def test_a_brace_literal_resolves_as_its_value(self) -> None:
+        job = {"runs-on": "${{ vars.LINUX_RUNNER || '}}' }}"}
+        self.assertEqual(workflow_jobs.runs_on_values(job), ({"}}"}, {"vars.LINUX_RUNNER"}))
+
 
 HERE = __name__
 # Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
