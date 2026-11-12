@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43268939625",
+  "recorded_at": "2026-11-12T17:32:38Z",
+  "reason": "cmux-tui 909689335dd9 changes the image's cmux-tui (pinned e7dd2d9fe047)",
+  "dry_run": false,
+  "cmux_tui": "909689335dd973f0227ca209e8a633568fc0877a",
+  "fixes": [
+    {
+      "sha": "909689335dd973f0227ca209e8a633568fc0877a",
+      "mergedAt": "2026-11-12T08:53:22-08:00",
+      "subject": "acpmux: whole-list parses are bounded daemon-wide; a peer's delta reads its list row by row (#41874)"
+    },
+    {
+      "sha": "098d40385dc58a035dd31df6f9db4043d4c7500f",
+      "mergedAt": "2026-11-12T08:53:11-08:00",
+      "subject": "Rust: hand-written base64 onto the base64 crate (#42080)"
+    },
+    {
+      "sha": "16a4e678de75caa259bbaf3f815532b2a2dcecb1",
+      "mergedAt": "2026-11-12T08:36:00-08:00",
+      "subject": "cmux-tui-core: three local JSON getters read through cmux-json's JsonGet (#42053)"
+    },
+    {
+      "sha": "1f9264110ce155d467e0100b53b4085ce103a71e",
+      "mergedAt": "2026-11-12T08:29:05-08:00",
+      "subject": "fix(cmux-tui): export the Windows PTY poll handle seam (#42048)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T17:32:38Z",
+    "snapshot_id": "sh-b58aa0f4f3594b1cbe5271b2d4e75a7e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43268939625): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b5d5816e41328268862c813b3eaccef2b79d74f4",
+    "image": "cloud-native-auto-90968933-43268939625-1",
+    "revision": "ci-43268939625-1",
+    "at": "2026-11-12T17:32:38Z"
+  },
+  "rolled_back": false
+}
