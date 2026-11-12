@@ -5475,6 +5475,36 @@ a.cv-sha:focus-visible {
 .cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
 }
+/* A finished turn's footer shows at rest only the buttons a person reaches for (copy, retry, fork,
+   read aloud, reply, more); Try another approach, Pin and the Timeline's clock sit after them and
+   show with the time, under the pointer or keyboard focus, their space kept so nothing moves
+   (TurnRows.tsx TurnFooter; Leo, 2026-11-11: "holy f*** it's so shitty to look at the transcript
+   right now"). An open Timeline keeps its clock in sight. */
+.cv-turn-action-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.cv-turn-actions .cv-turn-action-quiet:not(:focus-within, :has([aria-expanded="true"], [aria-pressed="true"])) {
+  opacity: 0;
+}
+.acpmux-turnSummary[data-turn-revealed] .cv-turn-action-quiet,
+.acpmux-turnSummary:hover .cv-turn-action-quiet,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-action-quiet,
+.acpmux-turnSummary:focus-visible .cv-turn-action-quiet {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-turn-actions .cv-turn-action-quiet {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .acpmux-turnSummary:hover .cv-turn-action-quiet {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+}
+.cv-turn-action-quiet:empty {
+  display: none;
+}
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
    row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
    the reader points at the reply or a button in it has keyboard focus. */

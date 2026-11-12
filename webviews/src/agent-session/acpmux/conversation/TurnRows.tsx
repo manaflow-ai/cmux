@@ -395,6 +395,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
+  const quietTry = tryAnotherApproach !== undefined && seq !== undefined && seq === forkSeq;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -588,14 +589,20 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
-            {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
-              <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
-            )}
-            {!messages && <PinButton rowId={row.id} />}
-            {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {/* What no one uses at a glance waits for the pointer, after the row's buttons so nothing
+                leaves a hole at rest: Try another approach, Pin and the Timeline's clock (Leo,
+                2026-11-11: "holy f*** it's so shitty to look at the transcript right now"; his row is
+                copy, retry, fork, reply; conversation.css `.cv-turn-action-quiet`). */}
+            {(quietTry || !messages) && (
+              <span className="cv-turn-action-quiet">
+                {quietTry && <TryAnotherApproachButton onTry={() => tryAnotherApproach!(seq!)} />}
+                {!messages && <PinButton rowId={row.id} />}
+                {!messages && timeline.toggle}
+              </span>
+            )}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"

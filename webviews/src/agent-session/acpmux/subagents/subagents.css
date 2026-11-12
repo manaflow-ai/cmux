@@ -1332,8 +1332,29 @@ button.cv-subagent > :last-child {
 .cv-subagent-done[data-state="retrying"] {
   color: var(--cv-text-dim);
 }
-/* A failed line's Retry (SubagentDoneLine.tsx): always shown, a small outlined button in the
-   accent, or as a link after the line; a refusal's note after it, dim. */
+/* A failed line's Retry (SubagentDoneLine.tsx): a small outlined button in the accent, or a link
+   after the line; a refusal's note after it, dim. It shows under the pointer or with keyboard focus,
+   as the line's other actions do, and keeps its room at rest so nothing moves (Leo, 2026-11-11, on a
+   failed row's always-on "Ask parent to retry": "why were all these added in the first place?"). */
+.cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link):not(:focus-visible) {
+  opacity: 0;
+}
+.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link),
+.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+  opacity: 1;
+}
+.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled,
+.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+}
 .cv-subagent-retry,
 .cv-subagent-retry-link {
   all: unset;
