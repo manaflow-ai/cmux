@@ -41,15 +41,25 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         let new = any(app, "workspaces.new")
         for _ in 0..<4 {
             if new.waitForExistence(timeout: 2), onScreen(new) { return nil }
+            // The workspace page's own chevron is "Workspaces" (its navigation bar is hidden); a
+            // tab's page goes back to the workspace with "Back". The tab bar's button is not it.
+            let tabBarFrame = app.tabBars.buttons["Workspaces"].exists ? app.tabBars.buttons["Workspaces"].frame : .null
+            let chevron = app.buttons.matching(NSPredicate(format: "label == %@", "Workspaces")).allElementsBoundByIndex
+                .first { $0.frame != tabBarFrame && $0.isHittable }
             let back = app.buttons["Back"].firstMatch
-            if back.exists {
+            if let chevron {
+                chevron.tap()
+            } else if back.exists, back.isHittable {
                 back.tap()
             } else {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
                     .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
             }
         }
-        return new.waitForExistence(timeout: 3) ? nil : "could not get back to the Workspaces list"
+        if new.waitForExistence(timeout: 3) { return nil }
+        // Say what was on screen, so a failed run's log shows the way back that was missed.
+        let labels = app.buttons.allElementsBoundByIndex.filter(\.isHittable).prefix(30).map { "\($0.label)|\($0.identifier)" }
+        return "could not get back to the Workspaces list; buttons: \(labels.joined(separator: ", "))"
     }
 
     @MainActor
