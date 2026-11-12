@@ -307,9 +307,10 @@ export function Combobox({
   // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
   // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
   // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
-  // previewing picker previews nothing until the person moves.
+  // previewing picker previews nothing until the person moves. A list that always highlights its
+  // first row stays at its top: Return must never pick a row scrolled out of sight.
   useLayoutEffect(() => {
-    if (revealedCurrent.current || !isItemCurrent) return;
+    if (revealedCurrent.current || !isItemCurrent || autoHighlight === "always") return;
     const index = enabledSuggestions.findIndex((item) => isItemCurrent(item));
     if (index < 0) return;
     if (virtualized) {
