@@ -1748,7 +1748,8 @@ pub(super) fn listed_remote_row(
     states: &HashMap<String, &'static str>,
 ) -> Value {
     let mut summary = r.summary.clone();
-    summary.set("stale", Value::Bool(summary["stale"] == true));
+    let stale = summary.get("stale") == Some(&Value::Bool(true));
+    summary.set("stale", Value::Bool(stale));
     if let Some(state) = states.get(&r.peer) {
         summary.set("peerState", Value::String((*state).to_owned()));
     }

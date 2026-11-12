@@ -161,12 +161,7 @@ impl Hub {
         let mut removed: Vec<Value> = Vec::new();
         let (mut used, mut covered, mut more) = (64_usize, since.head, false);
         let remote = self.remote_sessions.snapshot();
-        let states: HashMap<String, &'static str> = if own_only {
-            HashMap::new()
-        } else {
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect()
-        };
+        let states = if own_only { HashMap::new() } else { self.peer_link_states() };
         for (seq, key, gone) in since.rows {
             let row = match (&key, gone) {
                 (RowKey::Peer { .. }, _) if own_only => continue,
@@ -184,11 +179,7 @@ impl Hub {
                         self.mesh_book_rows(mine).into_iter().next()
                     });
                     held.map(|r| {
-                        let mut summary = r.summary.clone();
-                        summary.set("stale", Value::Bool(summary["stale"] == true));
-                        if let Some(state) = states.get(peer) {
-                            summary.set("peerState", Value::String((*state).to_owned()));
-                        }
+                        let summary = super::peers::listed_remote_row(&r, &states);
                         if tools { summary } else { super::views::without_summary_tools(summary) }
                     })
                 }
