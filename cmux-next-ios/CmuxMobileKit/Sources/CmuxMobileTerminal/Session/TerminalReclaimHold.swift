@@ -103,6 +103,9 @@ public struct TerminalReclaimHold: Sendable {
             var alternate = shownAlternate
             for case .alternateScreen(let on) in events[..<start] { alternate = on }
             events = Array(events[start...])
+            // A reattach's reset goes before its grid, so it may be among
+            // what was dropped: the replay after the grid starts from one.
+            events.insert(.output(Self.reset), at: 1)
             if alternate != shownAlternate { events.insert(.alternateScreen(alternate), at: 0) }
         }
         held = nil

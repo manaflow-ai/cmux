@@ -110,6 +110,7 @@ import Testing
         let session = DaemonTerminalSession(surface: 7, clientInfo: ["device_kind": "iphone"]) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
+        defer { session.stop() }
         session.reclaimWait = .milliseconds(20)
         let box = Box()
         session.resize(columns: 50, rows: 20)

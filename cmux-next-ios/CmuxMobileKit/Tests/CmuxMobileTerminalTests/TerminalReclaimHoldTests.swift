@@ -53,6 +53,20 @@ import Testing
         _ = hold.take(.output(Data("wide".utf8)), claims: false, phoneGrid: phone, alternate: true)
         _ = hold.take(.hostGrid(columns: 50, rows: 20), claims: false, phoneGrid: phone, alternate: true)
         _ = hold.take(.output(Data("narrow".utf8)), claims: false, phoneGrid: phone, alternate: true)
-        #expect(hold.release(from: phone) == [.alternateScreen(true), .hostGrid(columns: 50, rows: 20), .output(Data("narrow".utf8))])
+        #expect(hold.release(from: phone) == [.alternateScreen(true), .hostGrid(columns: 50, rows: 20),
+                                              .output(TerminalReclaimHold.reset), .output(Data("narrow".utf8))])
+    }
+
+    /// A reattach while hidden, at the phone's grid: its reset comes before
+    /// its grid, and the release still starts the replay from a reset.
+    @Test func releasedAfterAReattachAtThePhonesGridStillResets() {
+        var hold = TerminalReclaimHold()
+        _ = hold.take(.hostGrid(columns: 120, rows: 40), claims: false, phoneGrid: phone, alternate: false)
+        hold.restart(alternate: false)
+        _ = hold.take(.output(TerminalReclaimHold.reset), claims: false, phoneGrid: phone, alternate: false)
+        _ = hold.take(.hostGrid(columns: 50, rows: 20), claims: false, phoneGrid: phone, alternate: false)
+        _ = hold.take(.output(Data("replay".utf8)), claims: false, phoneGrid: phone, alternate: false)
+        #expect(hold.release(from: phone) == [.hostGrid(columns: 50, rows: 20), .output(TerminalReclaimHold.reset),
+                                              .output(Data("replay".utf8))])
     }
 }
