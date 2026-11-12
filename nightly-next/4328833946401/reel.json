@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4328833946401",
+  "notes": "notes/4328833946401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41991,
+      "title": "ci: matrix substitution replaces whole expressions only, never text inside a string literal (#41768 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42077,
+      "title": "cmux NEXT daemon: the heartbeat and launch rules call the Rust the app already links (daemon rules step B, part 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41897,
+      "title": "Agent chat: Worked for shows the whole turn after reopening; open-breakpoint harness (god and small)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42122,
+      "title": "fix(acpmux): feat-cmux-next compiles its watch_delta tests and lints clean after #42046",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42082,
+      "title": "cargo: one workspace for the four app FFI crates (4 locks to 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42098,
+      "title": "composer: a pasted cmux link gets a space after it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41934,
+      "title": "acpmux-book: a chat as a book (rows, segment log, indexes, checkpoint, torn-tail repair), v2 PR 1",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42089,
+      "title": "Finish moments: no turn sound once the window is hidden; a replaced check stops settling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42107,
+      "title": "ci: macOS /bin/bash 3.2 empty-array guards in gh-merge-green, signing, release and top-level scripts (second half of #42019)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41652,
+      "title": "A line typed for a pane you close, or for a new page that fails to open, no longer runs in a terminal",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41842,
+      "title": "acpmux tests: every wait on a hold's arrival is bounded, with a detector (#41816 follow-up)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42038,
+      "title": "acpmux gauges: count list replies, the durable gate and the transport; fix god bench timings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42035,
+      "title": "ci: drop workflow path filters and a script call that match no tracked file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42056,
+      "title": "Jump pair: a single-disc look with no Jump up, as an arm and a gallery variant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42057,
+      "title": "Subagent tabs: stopped subagents show their messages; the tab draws the row's icon (takes over #41782)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42073,
+      "title": "cmux NEXT: no checklist toast over the composer; Cmd-Return stays with Home's chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42005,
+      "title": "Select: the trigger's accessible name includes the current value",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41866,
+      "title": "cmux-action-catalog: six palette rows for devices, proxies, billing and notifications (step A of #38644)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
