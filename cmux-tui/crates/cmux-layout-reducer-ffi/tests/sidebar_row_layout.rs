@@ -49,7 +49,7 @@ fn no_layout_answers_not_custom() {
 }
 
 #[test]
-fn a_request_that_is_not_an_object_is_refused() {
-    let (code, _) = call(br#"[1,2]"#);
+fn a_request_with_a_wrong_field_type_is_refused() {
+    let (code, _) = call(br#"{"kind":5}"#);
     assert_eq!(code, ERR_INVALID);
 }
