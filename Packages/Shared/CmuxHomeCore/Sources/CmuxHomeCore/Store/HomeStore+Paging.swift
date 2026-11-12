@@ -111,7 +111,9 @@ extension HomeStore {
         // task-owner: one first-read deadline of transcript `id`; cancelled when the read ends, by a retry and by stop()
         firstPageDeadlines[id] = Task { [weak self] in
             do { try await clock.sleep(for: HomeStore.firstPageDeadline) } catch { return }
-            guard let self, !self.stopped else { return }
+            // Woken, then cancelled before it ran again (a retry armed a fresh deadline, or the read
+            // ended): it neither drops the deadline that replaced it nor fails the page early.
+            guard !Task.isCancelled, let self, !self.stopped else { return }
             self.firstPageDeadlines[id] = nil
             if self.mirror.markFirstPageFailed(id) { self.bumpTranscript(id) }
         }

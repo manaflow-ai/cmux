@@ -10,12 +10,15 @@ extension HomeNativeTranscriptView {
     func followTranscriptLoad() {
         guard !stopped else { return }
         let store = binding.store, id = binding.conversation
-        let (page, older) = withObservationTracking {
-            (store.transcriptFirstPage(id), store.olderMessagesFailed(in: id))
+        // Rows that arrive while the first page loads (a send, events applied meanwhile) move the load
+        // state from the center to its band above them: their count is followed too.
+        let (page, older, drawn) = withObservationTracking {
+            (store.transcriptFirstPage(id), store.olderMessagesFailed(in: id), !store.transcript(for: id).isEmpty)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTranscriptLoad() }
         }
         applyTranscriptLoad(page: page, older: older)
+        if drawn != loadState.overRows { updateFirstRun() }
     }
 
     /// Shows the first page's state and a failed older page's notice.

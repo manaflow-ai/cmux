@@ -587,7 +587,11 @@ public final class HomeNativeTranscriptView: NSView {
         // page (the inbox's newest message, events buffered meanwhile) stay shown, and the load
         // state sits above them: still loading, or failed with Try Again, until the page lands.
         let drawn = !binding.store.transcript(for: conversationID).isEmpty
+        let band = loadState.overRowsBand
         loadState.show(firstPage, overRows: drawn)
+        // Over drawn rows the load state takes a band of its own, which the rows keep clear of
+        // (layoutPinnedSection): its coming, going or a change of its height lays out again.
+        if loadState.overRowsBand != band { needsLayout = true }
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
@@ -641,7 +645,7 @@ public final class HomeNativeTranscriptView: NSView {
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
-            loadState.applyColors(text: Palette.textSecondary, accent: Palette.accent)
+            loadState.applyColors(text: Palette.textSecondary, accent: Palette.accent, fill: Palette.elevatedBackground)
         }
         drop.highlight.applyTheme()
     }

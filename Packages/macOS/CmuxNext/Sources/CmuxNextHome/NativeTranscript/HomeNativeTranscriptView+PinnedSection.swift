@@ -81,8 +81,13 @@ extension HomeNativeTranscriptView {
             if card.view.frame != frame { card.view.frame = frame }
             if shown > 0 { bottom = frame.maxY }
         }
-        // The oldest message scrolls clear of the cards (only the top of the scroll range moves).
-        transcript.rowsTopClearance = bottom.map { max(0, $0 - transcript.headerHeight + 4) } ?? 0
+        // The oldest message scrolls clear of the cards (only the top of the scroll range moves),
+        // and of the first page's load state over drawn rows, which starts where the first-run
+        // panel does (`pinnedSectionClearance`) and keeps its own band (ui-state-fixes M1).
+        let cards = bottom.map { max(0, $0 - transcript.headerHeight + 4) } ?? 0
+        let band = loadState.overRowsBand
+        let loadClearance = band > 0 ? (bottom.map { $0 + 8 } ?? transcript.headerHeight) + band - transcript.headerHeight : 0
+        transcript.rowsTopClearance = max(cards, loadClearance)
     }
 
     /// The pinned section's widest.
