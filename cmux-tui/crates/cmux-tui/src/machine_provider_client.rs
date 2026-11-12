@@ -1068,7 +1068,8 @@ impl ProviderClient {
     /// Scales every request bound so tests can model slow providers quickly.
     #[cfg(test)]
     pub(crate) fn set_request_deadlines(&self, deadlines: ProviderRequestDeadlines) {
-        *self.inner.request_deadlines.lock().expect("request deadlines") = deadlines;
+        *self.inner.request_deadlines.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            deadlines;
     }
 
     pub(crate) fn supports_capability(&self, capability: &str) -> ProviderResult<bool> {
