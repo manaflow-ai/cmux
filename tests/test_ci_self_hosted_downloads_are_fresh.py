@@ -373,6 +373,22 @@ class SelfHostedDownloads(unittest.TestCase):
                 self.assertEqual(len(problems({"called.yml": called, "caller.yml": caller})), count)
         self.assertEqual(len(problems({"called.yml": called})), 1)  # no caller: nothing resolves the input
 
+    def test_a_matrix_runner_that_resolves_to_self_hosted_is_held_to_it(self) -> None:
+        # Codex (#40784 F2, BLOCK at 341c7c1b): `${{ matrix.runner }}` named no selector, so the guard skipped the
+        # job though one cell is self-hosted. Each cell is read; a matrix nothing resolves is held to it (fail closed).
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        for label, matrix in (("a self-hosted cell", {"runner": ["ubuntu-24.04", "self-hosted"]}),
+                              ("a pool cell", {"runner": ["${{ vars.LINUX_RUNNER }}"]}),
+                              ("an include cell", {"include": [{"runner": "self-hosted"}]}),
+                              ("a matrix nothing resolves", "${{ fromJSON(needs.plan.outputs.matrix) }}")):
+            with self.subTest(label):
+                document = fixture("${{ matrix.runner }}", download)
+                document["jobs"]["j"]["strategy"] = {"matrix": matrix}
+                self.assertEqual(len(problems({"w.yml": document})), 1)
+        hosted = fixture("${{ matrix.runner }}", download)
+        hosted["jobs"]["j"]["strategy"] = {"matrix": {"runner": ["ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"]}}
+        self.assertEqual(problems({"w.yml": hosted}), [])
+
     def test_every_download_of_a_job_is_checked(self) -> None:
         steps = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "${{ runner.temp }}/a"}},
                  {"uses": DOWNLOAD, "with": {"name": "b", "path": "b"}}]

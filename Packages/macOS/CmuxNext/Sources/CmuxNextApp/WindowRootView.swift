@@ -287,8 +287,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
-            // The toggle's glyph sits as far right of the lights as they sit from the window's edge (`TopRowSpacing`).
-            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(lightsInset: min(local.minX, bounds.maxX - local.maxX), glyphWidth: toolbarBand.sidebarToggle.image?.size.width ?? 0))
+            // The lights stand as far from the toggle's glyph as one top-row glyph from the next (`TopRowSpacing`).
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap)
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence

@@ -1,10 +1,11 @@
 // l10n-allow-file: the gallery fixture supplies the long tool-call transcript.
-// A collapsed tool-call group belongs to the transcript's scroll surface. Its rows may be many
-// lines tall, but the group itself must not become a second vertical scroller or trap the wheel.
+// The inline run arm belongs to the transcript's scroll surface, without a second vertical scroller.
+// The box arm intentionally scrolls long runs inside their own viewport (RunScroll.test.tsx).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
@@ -40,10 +41,11 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     await vite?.close();
   });
 
-  test("wheel over the collapsed tool rows scrolls the transcript", async () => {
+  test("inline run: wheel over the collapsed tool rows scrolls the transcript", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1200, height: 700 } });
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, { "run-scroll": "inline" });
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
     );
@@ -107,6 +109,37 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     );
     expect(await transcript.evaluate((node) => node.scrollTop)).toBeGreaterThan(before + 2);
     expect(await group.evaluate((node) => node.scrollTop)).toBe(0);
+    await page.close();
+  });
+
+  test("boxed run: wheel scrolls its calls without moving the transcript", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 1200, height: 700 } });
+    await page.addInitScript(() => localStorage.clear());
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
+    );
+    const worked = page.locator(".cv-worked").first();
+    if ((await worked.getAttribute("aria-expanded")) !== "true") await worked.click();
+    const run = page.locator(".cv-tools > .cv-tool.is-toggle").first();
+    await run.waitFor();
+    if ((await run.getAttribute("aria-expanded")) !== "true") await run.click();
+    const box = page.locator(".cv-run-scroll").first();
+    await box.waitFor();
+    await box.scrollIntoViewIfNeeded();
+    await box.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    expect(await box.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(40);
+    const transcript = page.locator(".acpmux-scroll");
+    const before = await transcript.evaluate((node) => node.scrollTop);
+    const bounds = (await box.boundingBox())!;
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.wheel(0, 40);
+    await page.waitForFunction(() => (document.querySelector<HTMLElement>(".cv-run-scroll")?.scrollTop ?? 0) > 2);
+    expect(await box.evaluate((node) => node.scrollTop)).toBeGreaterThan(2);
+    expect(await box.getAttribute("data-fade-top")).not.toBeNull();
+    expect(Math.abs((await transcript.evaluate((node) => node.scrollTop)) - before)).toBeLessThanOrEqual(1);
     await page.close();
   });
 });
