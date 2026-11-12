@@ -66,6 +66,12 @@ fn is_test_attr(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Whether an item builds only under some `cfg`: `#[cfg(test)]`, `#[cfg(windows)]`,
+/// `#[cfg(target_os = "..")]` or any other.
+fn is_cfg_gated(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident("cfg"))
+}
+
 fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     attrs.iter().find_map(|attr| {
         let syn::Meta::NameValue(nv) = &attr.meta else { return None };
@@ -144,6 +150,12 @@ fn names_a_path(ty: &syn::Type) -> bool {
 /// The names one module or block brings in: `use` imports (name to full path), glob imports
 /// (their paths), and the functions and modules it defines (which shadow a glob). A module is
 /// `opaque`: it inherits nothing from the module around it; a block sees its enclosing scopes.
+///
+/// A definition or an import under a `#[cfg(..)]` (`test`, `windows`, `target_os = ..`, any
+/// other) may be absent from the build that runs a production call, so it shadows nothing
+/// there (#41970 review F1: a `#[cfg(test)] fn metadata` hid a production `metadata(path)`). A
+/// gated import still binds its name when it imports std's, whose call is a row in the build
+/// that has it.
 #[derive(Clone, Default)]
 struct Scope {
     opaque: bool,
@@ -157,13 +169,19 @@ impl Scope {
         let mut scope = Scope { opaque, ..Scope::default() };
         for item in items {
             match item {
-                syn::Item::Use(u) if !is_test_attr(&u.attrs) => {
-                    scope.import(&mut Vec::new(), &u.tree);
+                syn::Item::Use(u) if is_test_attr(&u.attrs) => {}
+                syn::Item::Use(u) if is_cfg_gated(&u.attrs) => {
+                    let mut gated = Scope::default();
+                    gated.import(&mut Vec::new(), &u.tree);
+                    let std = |path: &Vec<String>| path.first().is_some_and(|s| s == "std");
+                    scope.imports.extend(gated.imports.into_iter().filter(|(_, p)| std(p)));
+                    scope.globs.extend(gated.globs.into_iter().filter(std));
                 }
-                syn::Item::Fn(f) => {
+                syn::Item::Use(u) => scope.import(&mut Vec::new(), &u.tree),
+                syn::Item::Fn(f) if !is_cfg_gated(&f.attrs) => {
                     scope.defined.insert(f.sig.ident.to_string());
                 }
-                syn::Item::Mod(m) => {
+                syn::Item::Mod(m) if !is_cfg_gated(&m.attrs) => {
                     scope.defined.insert(m.ident.to_string());
                 }
                 _ => {}
