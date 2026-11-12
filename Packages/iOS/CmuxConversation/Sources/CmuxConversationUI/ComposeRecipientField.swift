@@ -24,6 +24,8 @@ enum ComposeMetrics {
     static let tokenHorizontalPadding: CGFloat = 5
     static let tokenGap: CGFloat = 2
     static let textMinWidth: CGFloat = 60
+    /// The existing conversation's transcript starts this far under the To: capsule.
+    static let existingGap: CGFloat = 8
 }
 
 /// A recipient token: the name in the service color (blue iMessage, green

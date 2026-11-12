@@ -203,6 +203,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
     let session: ChiefSession
+    /// Shown under New Message's To: (``HomeNewMessage``): what watches for its first send.
+    var sentWatch: AnyObject?
     private var popRecognizers: [UIGestureRecognizer] = []
     private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
     private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
@@ -913,5 +915,10 @@ extension ChiefSession {
     /// The conversation a Chief screen shows now, nil when none is on screen:
     /// a notification about it needs no banner.
     public static var conversationOnScreen: String? { ChiefConversationContainer.shownConversation }
+}
+/// New Message shows a Chief's conversation under its To: field with this
+/// container's header slid under the field.
+extension ChiefConversationContainer: ConversationComposeEmbeddable {
+    public var composeHeaderHeight: CGFloat { conversation.headerMaxY }
 }
 #endif

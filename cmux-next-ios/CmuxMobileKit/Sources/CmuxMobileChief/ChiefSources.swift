@@ -1,3 +1,5 @@
+import CmuxConversationCore
+import CmuxMobileModel
 import Foundation
 import Network
 import Observation
@@ -59,6 +61,8 @@ public final class ChiefSources {
 
     @ObservationIgnored var http: ChiefCloudHTTP?
     @ObservationIgnored var userID: String?
+    /// ``cloudConversation(_:)``'s sessions, by conversation id (emptied on sign-out).
+    @ObservationIgnored private var cloudConversations: [String: ChiefSession] = [:]
     @ObservationIgnored private var lookup: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
@@ -213,6 +217,8 @@ public final class ChiefSources {
         lookup = nil
         http = nil
         userID = nil
+        for session in cloudConversations.values { session.backend.close() }
+        cloudConversations = [:]
         cloudState = .off
         cloudChiefs = []
         changeError = nil
@@ -445,6 +451,30 @@ public final class ChiefSources {
             }
         )
         cloud.use(backend, identity: identity)
+    }
+
+    /// A Cloud conversation other than the open Cloud Chief's (a teammate DM or
+    /// group New Message made, another Cloud Chief's main conversation), with
+    /// this account's token. One session per conversation while signed in to
+    /// the same account; nil when signed out or the build has no Cloud.
+    public func cloudConversation(_ route: CloudConversationRoute) -> ChiefSession? {
+        if let session = cloudConversations[route.conversationID] { return session }
+        let identity = ChiefIdentity(meID: userID.map { $0.hasPrefix("user_") ? $0 : "user_\($0)" } ?? "user_local",
+                                     chiefID: route.chief ?? "agent_unknown", title: route.title, avatar: homeInitials(route.title))
+        let backend: any ConversationBackend
+        if let http {
+            backend = ChiefCloudBackend(http: http, conversationID: route.conversationID, identity: identity, preferences: cloud.preferences)
+        } else {
+            #if DEBUG
+            guard DeveloperOptions.mockContentEnabled else { return nil }
+            backend = ChiefMockBackend(identity: identity)
+            #else
+            return nil
+            #endif
+        }
+        let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
+        cloudConversations[route.conversationID] = session
+        return session
     }
 
     /// The service refused the Cloud Chief's conversation: Home falls back to

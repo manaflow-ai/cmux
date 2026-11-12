@@ -182,3 +182,65 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         await #expect(throws: ConversationBackendError.self) { try await session.openConversation() }
     }
 }
+
+/// cmux Home's list under To: (``ConversationComposeListing``): sections before
+/// anything is typed, the listing's rows for typed text, nothing once someone is chosen.
+@MainActor
+@Suite struct ConversationComposeListingTests {
+    final class Listing: ConversationComposeListing {
+        func idleRows(excluding: [String]) -> [ConversationComposeRow] {
+            [.header("Chiefs")] + [kate, hank].filter { !excluding.contains($0.id) }.map(ConversationComposeRow.contact)
+                + [.action(ConversationComposeAction(id: "newChief", title: "New Chief…", systemImage: "plus"))]
+        }
+
+        func typedRows(matches: [ConversationContact], query: String) -> [ConversationComposeRow] {
+            matches.map(ConversationComposeRow.contact) + [.action(ConversationComposeAction(id: "typed:\(query)", title: query, systemImage: "plus"))]
+        }
+    }
+
+    final class Directory: ConversationDirectory, @unchecked Sendable {
+        func searchContacts(_ query: String, limit: Int, excluding: [String]) async throws -> [ConversationContact] {
+            [kate, hank].filter { !excluding.contains($0.id) && $0.name.localizedCaseInsensitiveContains(query) }
+        }
+        func lookupHandles(_ handles: [String]) async throws -> [ConversationHandleLookup] { [] }
+        func createConversation(_ recipients: [ConversationRecipientRef]) async throws -> ConversationCreation {
+            throw ConversationBackendError(code: -1, message: "unused")
+        }
+    }
+
+    @Test func emptyToShowsTheListingsSectionsAndAPickHidesThem() {
+        let listing = Listing()
+        let session = ConversationComposeSession(directory: Directory())
+        #expect(session.rows.isEmpty, "Messages' sheet lists nothing before a letter")
+        session.listing = listing
+        #expect(session.rows.first == .header("Chiefs"))
+        #expect(session.rows.contains(.contact(kate)))
+        #expect(session.rows.last.map { if case .action = $0 { true } else { false } } == true)
+
+        session.add(kate)
+        #expect(session.rows.isEmpty, "someone chosen and nothing typed: no list (their conversation or the blank page shows)")
+        session.remove("c:kate")
+        #expect(session.rows.contains(.contact(kate)), "the To: field empty again: the sections come back")
+    }
+
+    @Test func typedTextShowsTheListingsRowsForTheMatches() async throws {
+        let listing = Listing()
+        let session = ConversationComposeSession(directory: Directory())
+        session.listing = listing
+        session.setText("hank")
+        #expect(!session.rows.contains(.header("Chiefs")), "typing replaces the sections")
+        // The search answers on a task.
+        for _ in 0..<50 where !session.rows.contains(.contact(hank)) { await Task.yield() }
+        #expect(session.rows.first == .contact(hank))
+        #expect(session.rows.last == .action(ConversationComposeAction(id: "typed:hank", title: "hank", systemImage: "plus")))
+        #expect(!session.rows.contains(.header("Chiefs")))
+    }
+
+    @Test func withoutAListingTheRowsAreTheSuggestions() async {
+        let session = ConversationComposeSession(directory: Directory())
+        session.setText("ka")
+        for _ in 0..<50 where session.rows.isEmpty { await Task.yield() }
+        #expect(session.rows == [.contact(kate)])
+        #expect(session.suggestions == [kate])
+    }
+}

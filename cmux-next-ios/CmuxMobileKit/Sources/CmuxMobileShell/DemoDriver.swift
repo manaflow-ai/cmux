@@ -95,6 +95,13 @@ struct DemoDriver {
         case "call-scope-home":
             ChiefSources.shared.showDemoCloudChief(named: "Atlas")
             shell.tab = .home
+        case "new-message", "new-message-mac-only":
+            // Home's New Message (verify/new-message): a Cloud Chief (unless Mac-only), the Mac's Chiefs and
+            // conversations, and the demo team; real touches open the sheet from the compose button.
+            if name == "new-message" { ChiefSources.shared.showDemoCloudChief(named: "Atlas") }
+            ChiefSources.shared.mac.macName = "Aziz's Mac Studio"
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio")
+            shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
