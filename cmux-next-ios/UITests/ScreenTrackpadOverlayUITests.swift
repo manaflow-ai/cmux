@@ -159,8 +159,12 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"]
         app.launch()
+        let handle = app.descendants(matching: .any)["screen.trackpad.handle"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 60), "trackpad notch once connected\n\(app.debugDescription)")
+        // A tucked-away trackpad (remembered from an earlier run) comes up first: the hint plays then.
+        if app.otherElements["screen.trackpad.drawer"].value as? String == "closed" { handle.tap() }
         let pad = app.descendants(matching: .any)["screen.trackpad.pad"]
-        XCTAssertTrue(pad.waitForExistence(timeout: 30), "trackpad\n\(app.debugDescription)")
+        XCTAssertTrue(pad.waitForExistence(timeout: 10), "trackpad\n\(app.debugDescription)")
         for step in 1...6 {
             settle(app, 0.8)
             attach(app, "hint-\(step)")
