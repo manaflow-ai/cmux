@@ -211,7 +211,7 @@ async fn reply_chunks_carry_one_segment_per_run_of_text() {
     for (turn, run) in [(turns[0], first), (turns[1], second)] {
         let seg = |i: usize| run[i].1.as_str();
         // One message is one segment across a background task's note, a subagent's spawn and
-        // update, a plumbing call, a plan and a usage tick: the pane keeps it one row over them.
+        // update, a plumbing call and a usage tick: the pane keeps it one row over them.
         for i in 1..5 {
             assert_eq!(seg(0), seg(i), "{run:?}");
         }
@@ -228,6 +228,34 @@ async fn reply_chunks_carry_one_segment_per_run_of_text() {
     }
     // Every turn's segments are its own.
     assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
+}
+
+/// The pane cuts a reply's row at the turn's first TodoWrite call (shown until the turn has a
+/// checklist) and its first plan (a new checklist), and at a plan after the list was cleared, but
+/// not at a later TodoWrite or plan update, which it hides behind the checklist: the segments end
+/// at the same places (`stream.rs` `cuts_reply`). A new prompt starts a new checklist.
+#[tokio::test]
+async fn reply_segments_end_at_a_turns_first_checklist() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "checklist").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let segs: Vec<String> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(segs.len(), 14, "{segs:?}");
+    for run in segs.chunks(7) {
+        // a | first TodoWrite | b | first plan | c, second TodoWrite, d, plan update, e | cleared,
+        // f | new plan | g.
+        assert_ne!(run[0], run[1], "{run:?}");
+        assert_ne!(run[1], run[2], "{run:?}");
+        assert_eq!(run[2], run[3], "{run:?}");
+        assert_eq!(run[3], run[4], "{run:?}");
+        assert_eq!(run[4], run[5], "{run:?}");
+        assert_ne!(run[5], run[6], "{run:?}");
+    }
 }
 
 #[tokio::test]
