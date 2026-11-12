@@ -233,7 +233,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send that makes a short chat overflow lifts the thread on one glide", async () => {
+  test("a send that makes a short chat overflow puts the prompt in its place at once: no rise", async () => {
     // The longest tail that still fits the view, found on a page of its own: once a tail overflows,
     // the chat has opened, and the send below must come into one that has not.
     let rows = history().slice(0, 2);
@@ -264,11 +264,9 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const tops = await sampleFrames(page, 24, "prompt");
     const drawn = tops.filter((top) => Number.isFinite(top));
     const rest = drawn.at(-1)!;
-    // The prompt starts below where it rests and only moves up, with frames in between.
-    expect(drawn[0]! - rest).toBeGreaterThan(8);
-    for (let index = 1; index < drawn.length; index += 1)
-      expect(drawn[index]!).toBeLessThanOrEqual(drawn[index - 1]! + 0.5);
-    expect(drawn.some((top) => top < drawn[0]! - 1 && top > rest + 1)).toBe(true);
+    // Every frame that draws the prompt draws it where it rests: it never starts below and rises.
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.filter((top) => Math.abs(top - rest) > 1)).toEqual([]);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     await page.close();
