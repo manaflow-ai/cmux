@@ -319,6 +319,68 @@ type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
 // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== passes hub/watches.rs :: a bare `use helpers::Lock` beside `use super::*` reaches the parent's `mod helpers` through the glob, as rustc reads it (review of cmux#41754 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 14 no `static HOOK_TEST: Mutex<()>` :: a bare `use helpers::Lock` beside `use super::*` whose parent's `helpers::Lock` is an RwLock (review of cmux#41754 F1)
+mod helpers {
+    pub type Lock = std::sync::RwLock<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 13 no `static HOOK_TEST: Mutex<()>` :: a bare `use helpers::Lock` with no glob does not reach the parent's `mod helpers` (rustc: E0432) (review of cmux#41754 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+=== refused hub/watches.rs 17 no `static HOOK_TEST: Mutex<()>` :: the module's own `mod helpers` (an RwLock) shadows the one `use super::*` brings (review of cmux#41754 F1)
+mod helpers {
+    pub type Lock = std::sync::Mutex<()>;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    mod helpers {
+        pub type Lock = std::sync::RwLock<()>;
+    }
+    use helpers::Lock;
+    static HOOK_TEST: Lock = Lock::new(());
+}
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;

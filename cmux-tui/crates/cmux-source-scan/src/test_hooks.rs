@@ -519,6 +519,12 @@ struct Names {
     /// The file's own module in its crate (`hub::watches` for `src/hub/watches.rs`), when its path
     /// shows it.
     root: Option<Vec<String>>,
+    /// Every module the file declares, from the file's root (`tests`, `tests::inner`).
+    modules: HashSet<Vec<String>>,
+    /// The type-namespace names `defs` leaves out (traits, `extern crate`s), with their module.
+    others: HashSet<(Vec<String>, String)>,
+    /// Every glob import at a module's top level: the module it sits in and the path before `*`.
+    globs: Vec<(Vec<String>, String)>,
 }
 
 impl Names {
@@ -567,6 +573,10 @@ impl Names {
         let (mut at, rest): (Vec<String>, &[&str]) = match segs.split_first() {
             Some((&"crate", _)) if self.root.is_none() => return None,
             Some((&"crate", rest)) => (Vec::new(), rest),
+            Some((&first, _)) if !matches!(first, "self" | "super") => {
+                let from = self.glob_scope(first, module).unwrap_or_else(|| module.to_vec());
+                (root.iter().chain(&from).cloned().collect(), segs.as_slice())
+            }
             _ => (root.iter().chain(module).cloned().collect(), segs.as_slice()),
         };
         for seg in rest {
@@ -579,6 +589,53 @@ impl Names {
             }
         }
         Some((at.strip_prefix(root)?.to_vec(), last))
+    }
+
+    /// The module a bare path whose first segment is `first`, written in `module`, starts from
+    /// when `module` has no `first` of its own and a `use super::*` there brings an ancestor's
+    /// `mod first`: rustc reads a bare `use` path from the names in scope, globs included, not
+    /// from the crate root (review of cmux#41754 F1). None otherwise (no such glob, a glob of
+    /// another path, globs that disagree, an ancestor's `first` that is no module), and the path
+    /// stays in `module`, where no definition of the file sits.
+    fn glob_scope(&self, first: &str, module: &[String]) -> Option<Vec<String>> {
+        if self.names_here(first, module) {
+            return None;
+        }
+        let mut found: Option<Vec<String>> = None;
+        for (_, path) in self.globs.iter().filter(|(at, _)| at == module) {
+            let ups = path.split("::").count();
+            if !path.split("::").all(|seg| seg == "super") || ups > module.len() {
+                return None;
+            }
+            let target = module[..module.len() - ups].to_vec();
+            let mut child = target.clone();
+            child.push(first.to_string());
+            if !self.modules.contains(&child) {
+                if self.names_here(first, &target) {
+                    return None;
+                }
+                continue;
+            }
+            if found.as_ref().is_some_and(|f| *f != target) {
+                return None;
+            }
+            found = Some(target);
+        }
+        found
+    }
+
+    /// Whether `module` has a type-namespace name `first` of its own: a module, a definition, an
+    /// import, a trait or an `extern crate`.
+    fn names_here(&self, first: &str, module: &[String]) -> bool {
+        let mut child = module.to_vec();
+        child.push(first.to_string());
+        self.modules.contains(&child)
+            || self
+                .defs
+                .get(first)
+                .is_some_and(|defs| defs.iter().any(|d| d.module.as_deref() == Some(module)))
+            || self.imports.iter().any(|(n, _, at)| n == first && at == module)
+            || self.others.contains(&(module.to_vec(), first.to_string()))
     }
 
     fn bind_use(&mut self, local: String, path: String, module: &[String]) {
@@ -611,7 +668,9 @@ impl Names {
                     self.bind_use(r.rename.to_string(), path_of(&r.ident), module);
                 }
             }
-            UseTree::Glob(_) => {}
+            UseTree::Glob(_) => {
+                self.globs.push((module.to_vec(), prefix.trim_end_matches("::").to_string()));
+            }
             UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(prefix, t, module)),
         }
     }
@@ -660,6 +719,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
         self.names.mods.insert(i.ident.to_string());
         self.module.push(i.ident.to_string());
+        self.names.modules.insert(self.module.clone());
         visit::visit_item_mod(self, i);
         self.module.pop();
     }
@@ -669,7 +729,20 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         self.blocks -= 1;
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
+        let globs = self.names.globs.len();
         self.names.use_tree("", &i.tree, &self.module);
+        if self.blocks > 0 {
+            // A glob in a function body scopes that body, not the module's `use` paths.
+            self.names.globs.truncate(globs);
+        }
+    }
+    fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
+        self.names.others.insert((self.module.clone(), i.ident.to_string()));
+        visit::visit_item_trait(self, i);
+    }
+    fn visit_item_extern_crate(&mut self, i: &'ast syn::ItemExternCrate) {
+        let name = i.rename.as_ref().map_or(&i.ident, |(_, rename)| rename);
+        self.names.others.insert((self.module.clone(), name.to_string()));
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
