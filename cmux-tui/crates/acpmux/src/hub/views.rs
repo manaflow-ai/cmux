@@ -870,7 +870,7 @@ impl Hub {
         let (host_pressure, disk) =
             (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
         // Counts that missed the budget are null, never 0: readers take a missing count as busy
-        // (`RemoteAgentDaemon.idle`) and say nothing of other builds.
+        // (`RemoteAgentDaemon.idleForKeyedRestart`) and say nothing of other builds.
         let (live, other_build) =
             agents.map_or((Value::Null, Value::Null), |(l, o)| (json!(l), json!(o)));
         let stuck: Vec<Value> = sessions

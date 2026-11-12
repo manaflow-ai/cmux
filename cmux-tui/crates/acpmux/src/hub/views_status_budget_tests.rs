@@ -35,7 +35,7 @@ async fn status_answers_while_a_chat_holds_its_agent_slot() {
         .await
         .expect("status waited on a chat's agent slot");
     assert!(started.elapsed() < std::time::Duration::from_secs(3), "{:?}", started.elapsed());
-    // Never 0 while a slot is held: readers take 0 as idle (`RemoteAgentDaemon.idle`).
+    // Never 0 while a slot is held: readers take 0 as idle (`RemoteAgentDaemon.idleForKeyedRestart`).
     assert_ne!(status["liveAgents"], json!(0), "{status}");
     assert_eq!(status["sessions"], json!(1), "{status}");
     assert!(status["build"].is_string(), "{status}");
