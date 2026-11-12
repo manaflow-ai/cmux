@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import http.client
 import json
+import os
 import re
 import sys
 import time
@@ -71,10 +72,30 @@ class ManifestError(ValueError):
     """The manifest does not satisfy the raw-artifact contract."""
 
 
+def _machine_targets(skip_targets: Iterable[str]) -> tuple[str, ...]:
+    """MACHINE_TARGETS less the targets a run does not build (--skip-target)."""
+
+    skipped = set(skip_targets)
+    return tuple(target for target in MACHINE_TARGETS if target not in skipped)
+
+
+def _without_skipped(names: Iterable[str], skip_targets: Iterable[str]) -> list[str]:
+    """Drop the artifact names of a skipped target (`<name>-<target>`)."""
+
+    suffixes = tuple(f"-{target}" for target in skip_targets)
+    return [name for name in names if not (suffixes and name.endswith(suffixes))]
+
+
 def _validate_machine_manifest(
-    document: dict[str, Any], *, source: str, expected_commit: str
+    document: dict[str, Any],
+    *,
+    source: str,
+    expected_commit: str,
+    skip_targets: Iterable[str] = (),
 ) -> None:
     """Validate the strict dual-binary Chatmux machine manifest."""
+
+    machine_targets = _machine_targets(skip_targets)
 
     expected_keys = {
         "schemaVersion",
@@ -125,12 +146,12 @@ def _validate_machine_manifest(
         raise ManifestError(f"{source} machine manifest releaseUrl is invalid")
 
     artifacts = document.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != set(MACHINE_TARGETS):
+    if not isinstance(artifacts, dict) or set(artifacts) != set(machine_targets):
         actual = sorted(artifacts) if isinstance(artifacts, dict) else type(artifacts).__name__
         raise ManifestError(
-            f"{source} machine manifest target set mismatch: expected {list(MACHINE_TARGETS)}, got {actual}"
+            f"{source} machine manifest target set mismatch: expected {list(machine_targets)}, got {actual}"
         )
-    for target in MACHINE_TARGETS:
+    for target in machine_targets:
         target_artifacts = artifacts[target]
         if not isinstance(target_artifacts, dict) or set(target_artifacts) != set(MACHINE_ARTIFACT_KEYS):
             actual = sorted(target_artifacts) if isinstance(target_artifacts, dict) else type(target_artifacts).__name__
@@ -172,6 +193,7 @@ def _verify_machine_binary_digests(
     source: str,
     artifact_base_url: str | None,
     artifact_directory: Path | None,
+    skip_targets: Iterable[str] = (),
 ) -> None:
     if artifact_base_url is not None and artifact_directory is not None:
         raise ManifestError("choose one artifact base URL or artifact directory")
@@ -179,7 +201,7 @@ def _verify_machine_binary_digests(
         return
     artifacts = document["artifacts"]
     assert isinstance(artifacts, dict)
-    for target in MACHINE_TARGETS:
+    for target in _machine_targets(skip_targets):
         target_artifacts = artifacts[target]
         assert isinstance(target_artifacts, dict)
         for artifact_kind in MACHINE_ARTIFACT_KEYS:
@@ -626,19 +648,27 @@ def verify_manifest(
     required_dependency_artifacts: Iterable[str] = (),
     require_provenance: bool = False,
     machine_manifest: bool = False,
+    skip_targets: Iterable[str] = (),
 ) -> None:
     """Fetch and validate one published manifest from a public URL."""
+
+    skip_targets = tuple(skip_targets)
+    required_artifacts = _without_skipped(required_artifacts, skip_targets)
+    required_dependency_artifacts = _without_skipped(required_dependency_artifacts, skip_targets)
 
     document = _decode_manifest(_read_url(url), url)
     if machine_manifest:
         if any((required_artifacts, exact_artifacts, forbidden_artifacts, required_dependency_artifacts)):
             raise ManifestError("machine manifest cannot use generic artifact requirements")
-        _validate_machine_manifest(document, source=url, expected_commit=expected_commit)
+        _validate_machine_manifest(
+            document, source=url, expected_commit=expected_commit, skip_targets=skip_targets
+        )
         _verify_machine_binary_digests(
             document,
             source=url,
             artifact_base_url=artifact_base_url,
             artifact_directory=None,
+            skip_targets=skip_targets,
         )
     else:
         _validate_manifest(
@@ -672,8 +702,13 @@ def verify_manifest_file(
     dependency_artifact_directory: Path | None = None,
     require_provenance: bool = False,
     machine_manifest: bool = False,
+    skip_targets: Iterable[str] = (),
 ) -> None:
     """Validate the manifest generated before any R2 upload occurs."""
+
+    skip_targets = tuple(skip_targets)
+    required_artifacts = _without_skipped(required_artifacts, skip_targets)
+    required_dependency_artifacts = _without_skipped(required_dependency_artifacts, skip_targets)
 
     payload = _read_file(path, max_bytes=MAX_MANIFEST_BYTES)
     document = _decode_manifest(payload, str(path))
@@ -682,12 +717,15 @@ def verify_manifest_file(
             raise ManifestError("machine manifest cannot use generic artifact requirements")
         if dependency_artifact_directory is not None:
             raise ManifestError("machine manifest cannot use a dependency artifact directory")
-        _validate_machine_manifest(document, source=str(path), expected_commit=expected_commit)
+        _validate_machine_manifest(
+            document, source=str(path), expected_commit=expected_commit, skip_targets=skip_targets
+        )
         _verify_machine_binary_digests(
             document,
             source=str(path),
             artifact_base_url=None,
             artifact_directory=artifact_directory,
+            skip_targets=skip_targets,
         )
     else:
         _validate_manifest(
@@ -765,6 +803,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Require the strict dual-binary Chatmux machine manifest schema",
     )
     parser.add_argument(
+        "--skip-target",
+        action="append",
+        dest="skip_targets",
+        default=None,
+        help=(
+            "A Rust target this run did not build: drop its required artifacts and machine "
+            "manifest entry (repeatable). Default: CMUX_TUI_SKIP_TARGET, which "
+            "cmux-tui-artifacts.yml sets to x86_64-apple-darwin off main"
+        ),
+    )
+    parser.add_argument(
         "--dependency-artifact-directory",
         type=Path,
         help="Read and hash cmux-tui dependency binaries from this local directory",
@@ -784,6 +833,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.skip_targets is None:
+        skip = os.environ.get("CMUX_TUI_SKIP_TARGET", "").strip()
+        args.skip_targets = [skip] if skip else []
     try:
         if args.manifest_url:
             verify_manifest(
@@ -796,6 +848,7 @@ def main(argv: list[str] | None = None) -> int:
                 required_dependency_artifacts=args.required_dependency_artifacts,
                 require_provenance=args.require_provenance,
                 machine_manifest=args.machine_manifest,
+                skip_targets=args.skip_targets,
             )
             source = args.manifest_url
         else:
@@ -811,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
                 dependency_artifact_directory=args.dependency_artifact_directory,
                 require_provenance=args.require_provenance,
                 machine_manifest=args.machine_manifest,
+                skip_targets=args.skip_targets,
             )
             source = str(args.manifest_file)
     except ManifestError as error:

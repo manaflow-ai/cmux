@@ -106,6 +106,13 @@ on:
         required: false
         default: false
         type: boolean
+      include_intel_mac:
+        # The only route to the x86_64-apple-darwin binaries off main: pushes build
+        # aarch64-apple-darwin only (CMUX_TUI_SKIP_TARGET).
+        description: "Also build and publish the Intel Mac (x86_64-apple-darwin) binaries"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
@@ -131,6 +138,15 @@ concurrency:
 permissions: {}
 
 env:
+  # The Intel Mac target builds only on main (classic ships a universal app from
+  # cmux-tui/latest) and on a dispatch with include_intel_mac. Every other push,
+  # feat-cmux-next and lane branches included, builds and publishes
+  # aarch64-apple-darwin only: cmux NEXT ships arm64 only (nightly.yml decide),
+  # and the Intel legs took a 32 vCPU cross builder, or a Mac in the fallback,
+  # on every tree (Leo, 2026-11-12: "WHY DO WE KEEP FUCKING BUILDING INTEL MACS
+  # ALL THE FUCKING TIME"). verify_published_manifest.py reads this to drop the
+  # target's required artifacts; an empty value requires every target.
+  CMUX_TUI_SKIP_TARGET: ${{ !(github.ref == 'refs/heads/main' || inputs.include_intel_mac) && 'x86_64-apple-darwin' || '' }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -1218,8 +1234,9 @@ jobs:
       # this call every tree, and so every nightly-next promotion, waited
       # for it (2026-10-21: it ended last in 217 of 219 published trees).
       include_windows: false
-      # The Linux targets build in build-linux.
-      target_set: macos
+      # The Linux targets build in build-linux. The Intel Mac target only where
+      # CMUX_TUI_SKIP_TARGET is empty (main, or a dispatch with include_intel_mac).
+      target_set: ${{ (github.ref == 'refs/heads/main' || inputs.include_intel_mac) && 'macos' || 'macos-arm64' }}
       # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
       # its same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -1348,7 +1365,8 @@ jobs:
           done
           arm=missing; intel=missing
           have aarch64-apple-darwin && arm=present
-          have x86_64-apple-darwin && intel=present
+          # A run that skips the Intel Mac target never builds it, so it is not missing.
+          if [[ "${CMUX_TUI_SKIP_TARGET:-}" == x86_64-apple-darwin ]] || have x86_64-apple-darwin; then intel=present; fi
           case "$arm/$intel" in
             missing/missing) set=macos ;;
             missing/present) set=macos-arm64 ;;
@@ -1932,11 +1950,15 @@ jobs:
           if dependency_manifest_path:
               with open(dependency_manifest_path) as dependency_file:
                   dependency = json.load(dependency_file)
+              skip_target = os.environ.get("CMUX_TUI_SKIP_TARGET", "")
               required_dependency_files = [
-                  "cmux-tui-aarch64-apple-darwin",
-                  "cmux-tui-x86_64-apple-darwin",
-                  "cmux-tui-x86_64-unknown-linux-musl",
-                  "cmux-tui-aarch64-unknown-linux-musl",
+                  name for name in (
+                      "cmux-tui-aarch64-apple-darwin",
+                      "cmux-tui-x86_64-apple-darwin",
+                      "cmux-tui-x86_64-unknown-linux-musl",
+                      "cmux-tui-aarch64-unknown-linux-musl",
+                  )
+                  if not skip_target or not name.endswith("-" + skip_target)
               ]
               dependency_binaries = dependency.get("binaries", {})
               missing = [
@@ -1987,6 +2009,7 @@ jobs:
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$release_url" "$workflow_run_url" <<'PY'
           import hashlib
           import json
+          import os
           import pathlib
           import sys
           from typing import Any
@@ -2005,11 +2028,14 @@ jobs:
           source_repository = f"{server_url}/{repository}"
           if not source_repository.startswith("https://github.com/"):
               raise SystemExit("machine manifest requires a GitHub source repository")
-          targets = (
-              "aarch64-apple-darwin",
-              "x86_64-apple-darwin",
-              "x86_64-unknown-linux-musl",
-              "aarch64-unknown-linux-musl",
+          targets = tuple(
+              target for target in (
+                  "aarch64-apple-darwin",
+                  "x86_64-apple-darwin",
+                  "x86_64-unknown-linux-musl",
+                  "aarch64-unknown-linux-musl",
+              )
+              if target != os.environ.get("CMUX_TUI_SKIP_TARGET", "")
           )
 
           def record(path: pathlib.Path, name: str, prefix: str) -> dict[str, Any]:
@@ -2052,6 +2078,7 @@ jobs:
             aarch64-unknown-linux-musl
           )
           for target in "${machine_targets[@]}"; do
+            [[ "$target" == "${CMUX_TUI_SKIP_TARGET:-}" ]] && continue
             cp "assets/cmux-tui/cmux-tui-${target}" "assets/chatmux-relay/cmux-tui-${target}"
           done
           build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
