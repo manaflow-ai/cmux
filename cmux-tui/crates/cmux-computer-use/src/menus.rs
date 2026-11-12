@@ -204,6 +204,12 @@ impl MenuReport {
         Self { state: "open".into(), items, hidden, next: OPEN_NEXT.into(), ..Self::default() }
     }
 
+    /// A menu that was closed again rather than left open (it would hold
+    /// the person's keyboard): its items, for a one-call pick.
+    pub fn listed(items: Vec<MenuItemInfo>, hidden: usize) -> Self {
+        Self { state: "listed".into(), items, hidden, next: LISTED_NEXT.into(), ..Self::default() }
+    }
+
     pub fn picked(title: &str, open_ms: Option<u64>) -> Self {
         Self { state: "picked".into(), picked: title.into(), open_ms, ..Self::default() }
     }
@@ -212,6 +218,9 @@ impl MenuReport {
 /// The most items a result lists of an open menu (a font pop-up has
 /// thousands): the rest are counted in `more`.
 pub const LISTED_ITEMS_MAX: usize = 200;
+
+/// How the agent continues after a menu was listed and closed.
+pub const LISTED_NEXT: &str = "the menu was closed again: left open it would hold the person's keyboard (their own keys could reach an item Computer Use hides). Choose an item in one call: click the same place with menu_item set to its title, or a path for an item in a submenu (\"Open With > TextEdit\")";
 
 /// How the agent continues after a call left a menu open.
 pub const OPEN_NEXT: &str = "the menu is open: press an item (perform_action press or click on its element in get_ui_tree), or press_key Escape to close it";
@@ -300,17 +309,37 @@ pub enum Pick {
     Missing(ItemMatch),
 }
 
-/// Matches `wanted` against the visible items first; only when none
-/// matches is a hidden item looked for, so it is refused, never pressed.
+/// Matches `wanted`: the exact title, then the same title in any case, over
+/// every item (a hidden exact match is refused, never passed over for a
+/// visible item that merely starts the same: "Terminal" with Terminal
+/// hidden does not press "Terminals Guide"); then a unique prefix among
+/// the visible items; a prefix only a hidden item has is refused. An
+/// ambiguous prefix's indices are among the visible items.
 pub fn pick(titles: &[String], hidden: &[bool], wanted: &str) -> Pick {
-    let visible: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).collect();
-    let shown: Vec<String> = visible.iter().map(|i| titles[*i].clone()).collect();
-    match match_item(&shown, wanted) {
-        ItemMatch::Found(i) => Pick::Item(visible[i]),
-        other => match match_item(titles, wanted) {
-            ItemMatch::Found(i) if hidden[i] => Pick::Hidden,
-            _ => Pick::Missing(other),
-        },
+    let want = normalized(wanted);
+    if want.is_empty() {
+        return Pick::Missing(ItemMatch::NotFound);
+    }
+    let norm: Vec<String> = titles.iter().map(|t| normalized(t)).collect();
+    let lower = want.to_lowercase();
+    let exact = norm.iter().position(|t| *t == want);
+    let case = || norm.iter().position(|t| t.to_lowercase() == lower);
+    if let Some(i) = exact.or_else(case) {
+        return if hidden[i] { Pick::Hidden } else { Pick::Item(i) };
+    }
+    let starts = |i: &usize| !norm[*i].is_empty() && norm[*i].to_lowercase().starts_with(&lower);
+    let visible: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).filter(starts).collect();
+    match visible.as_slice() {
+        [one] => Pick::Item(*one),
+        [] if (0..titles.len()).any(|i| hidden[i] && starts(&i)) => Pick::Hidden,
+        [] => Pick::Missing(ItemMatch::NotFound),
+        // Indices among the visible items, as the caller lists them.
+        _ => {
+            let shown: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).collect();
+            Pick::Missing(ItemMatch::Ambiguous(
+                visible.iter().filter_map(|v| shown.iter().position(|s| s == v)).collect(),
+            ))
+        }
     }
 }
 

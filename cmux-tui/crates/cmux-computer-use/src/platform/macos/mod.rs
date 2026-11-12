@@ -178,7 +178,7 @@ fn grant(granted: bool) -> Grant {
 /// The frontmost app's pid: the system-wide focused application as the
 /// window server reports it (NSWorkspace's reading can lag in a process
 /// whose main run loop is busy), else NSWorkspace's.
-fn frontmost_pid() -> Option<i32> {
+pub(super) fn frontmost_pid() -> Option<i32> {
     Ax::system_wide()
         .and_then(|s| s.element("AXFocusedApplication"))
         .and_then(|a| a.pid())

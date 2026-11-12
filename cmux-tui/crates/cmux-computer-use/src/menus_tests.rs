@@ -143,3 +143,17 @@ fn a_menu_path_names_each_level() {
     assert_eq!(menu_path("Always"), vec!["Always".to_string()]);
     assert_eq!(menu_path(""), vec![String::new()]);
 }
+
+#[test]
+fn an_exact_hidden_title_is_refused_before_a_visible_prefix() {
+    let items = titles(&["Terminals Guide", "Terminal"]);
+    let hidden = [false, true];
+    assert_eq!(pick(&items, &hidden, "Terminal"), Pick::Hidden);
+    assert_eq!(pick(&items, &hidden, "terminal"), Pick::Hidden);
+    assert_eq!(pick(&items, &hidden, "Terminals"), Pick::Item(0));
+    // Ambiguous among the visible items: listed, not guessed.
+    let items = titles(&["Hidden Nev", "Never", "Never Again"]);
+    let hidden = [true, false, false];
+    // Indices among the visible items, as a caller lists them.
+    assert_eq!(pick(&items, &hidden, "Nev"), Pick::Missing(ItemMatch::Ambiguous(vec![0, 1])));
+}

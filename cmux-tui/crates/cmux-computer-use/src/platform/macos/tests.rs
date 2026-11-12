@@ -1169,14 +1169,15 @@ fn a_helper_s_menu_window_counts_only_over_the_target_s_window() {
 }
 
 #[test]
-fn the_keyboard_goes_back_for_the_target_even_before_its_menu_window_shows() {
-    // The target's notice is dropped at once; the release thread checks the
-    // window after it, and gives the keyboard back either way.
-    assert!(key_focus::gives_back(false, true, true));
-    assert!(key_focus::gives_back(true, true, true));
-    // A helper only once its menu shows.
-    assert!(key_focus::gives_back(true, false, true));
-    assert!(!key_focus::gives_back(false, false, true));
-    // Never once the person has moved to another app.
-    assert!(!key_focus::gives_back(true, true, false));
+fn the_target_s_keyboard_goes_back_when_its_menu_shows_or_when_the_call_ends() {
+    use key_focus::{ReleasePlan, release_plan};
+    // The menu shows: give it back now.
+    assert_eq!(release_plan(true, true, true), ReleasePlan::Now);
+    assert_eq!(release_plan(true, false, true), ReleasePlan::Now);
+    // The target's notice was dropped but no menu showed (yet): not on a
+    // timer, when the call disarms.
+    assert_eq!(release_plan(false, true, true), ReleasePlan::AtDisarm);
+    // A helper with no menu, or the person moved on: nothing to give back.
+    assert_eq!(release_plan(false, false, true), ReleasePlan::Miss);
+    assert_eq!(release_plan(true, true, false), ReleasePlan::Miss);
 }

@@ -135,14 +135,19 @@ Prevention, in the desktop (macOS):
     it shows, as Codex Computer Use's does; such a menu is never left open
     when it hides items while anything is denied (the person's typing could
     reach one): `click` with `menu_item`, or `set_value`, picks in one call.
-  - While anything is denied, a menu that holds the keyboard is left open
-    only when no level of it can put a hidden item in front of the person,
-    whose own arrows and Return reach every level: no hidden item, no
-    submenu AppKit fills when it opens (Open With, Services, Share, Quick
-    Actions, Recent Items) and no submenu that reads empty, all within three
-    levels and 600 elements. So a Finder context menu is not left open on
-    macOS 27; `click` with `menu_item` picks in one call and takes a path for
-    a submenu's item ("Sort By > Name").
+  - While anything is denied, a menu that holds the keyboard (the person's
+    own arrows and Return reach every level) is left open only when it hides
+    nothing and has no submenu at all: AX gives no sign of a submenu the app
+    fills when it opens. Otherwise it is closed again and its titles listed
+    (`menu.state` `listed`, submenu parents marked), and `click` with
+    `menu_item` picks in one call, with a path for a submenu's item ("Sort
+    By > Name"). On macOS 27 that is most context menus.
+  - A one-call pick holds the keyboard while it picks (about 0.5 to 1.5 s),
+    as Codex Computer Use's does.
+  - A helper process's key-focus theft (a System Settings pane's pop-up)
+    is released only once its menu window shows over the target, and the
+    notice is read before the window is up, so on macOS 12 to 26 such a
+    menu usually falls to KEYBOARD_KEPT_REFUSAL; `set_value` still picks it.
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use

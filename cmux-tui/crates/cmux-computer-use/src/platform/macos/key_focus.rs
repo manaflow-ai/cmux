@@ -44,7 +44,8 @@ const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 /// How long after a call arms the guard a theft counts as the call's menu.
 const ARMED_FOR: Duration = Duration::from_millis(2500);
 /// How long the release waits for the menu window before it releases anyway.
-const MENU_WAIT: Duration = Duration::from_millis(1000);
+// Longer than a call's own wait for its menu (menus::OPEN_WAIT, 1.5 s).
+const MENU_WAIT: Duration = Duration::from_millis(2000);
 /// How long the menu's tap drops this process's own notice.
 const LOOKUP_FOR: Duration = Duration::from_millis(500);
 /// Older ids tried when another app stole key focus in between.
@@ -160,6 +161,9 @@ struct State {
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
     /// The target's window, which a helper's menu window must overlap.
     target_frame: Option<crate::desktop::Rect>,
+    /// The target's theft (thief, person's app) that showed no menu: its
+    /// keyboard goes back when the call disarms.
+    pending: Option<(i32, i32)>,
     lookup_until: Option<Instant>,
     released: u64,
     missed: u64,
@@ -241,12 +245,32 @@ fn may_own_menu(
         })
 }
 
-/// Whether the release thread gives the keyboard back: only while the
-/// person's app is still in front, and for a helper only once its menu
-/// shows (the target's notice was dropped at once, so its keyboard goes
-/// back even when no menu window shows). Pure, for tests.
-pub(super) fn gives_back(menu_shown: bool, thief_is_target: bool, person_front: bool) -> bool {
-    person_front && (menu_shown || thief_is_target)
+/// What the release thread does once it has waited for the menu window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReleasePlan {
+    /// Give the keyboard back now (the menu shows).
+    Now,
+    /// The target's notice was dropped but no menu showed: give the keyboard
+    /// back when the call disarms (a release before a slow menu shows would
+    /// bring the target's window above the person's).
+    AtDisarm,
+    /// Nothing of the call's to give back.
+    Miss,
+}
+
+/// Pure, for tests: only while the person's app is still in front; a
+/// helper's only once its menu shows.
+pub(super) fn release_plan(
+    menu_shown: bool,
+    thief_is_target: bool,
+    person_front: bool,
+) -> ReleasePlan {
+    match (person_front, menu_shown, thief_is_target) {
+        (false, _, _) => ReleasePlan::Miss,
+        (true, true, _) => ReleasePlan::Now,
+        (true, false, true) => ReleasePlan::AtDisarm,
+        (true, false, false) => ReleasePlan::Miss,
+    }
 }
 
 /// Whether a window (owner, layer, id) is a menu window `pid` shows that
@@ -357,7 +381,8 @@ extern "C" fn menu_tap(
     }
 }
 
-/// Gives the keyboard back from `thief`'s menu to the person's app.
+/// Gives the keyboard back from `thief`'s menu to the person's app, once
+/// the menu shows (or, for the target, when the call disarms).
 fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
     let start = Instant::now();
     let menu_shows =
@@ -365,13 +390,25 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
     while start.elapsed() < MENU_WAIT && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
-    // The person moved to another app, or a helper showed no menu: nothing
-    // of the call's to give back.
-    let person_front = super::workspace::frontmost_pid() == Some(front);
-    if !gives_back(menu_shows(), thief_is_target, person_front) {
-        state().missed += 1;
-        return;
+    let person_front = super::frontmost_pid() == Some(front);
+    match release_plan(menu_shows(), thief_is_target, person_front) {
+        ReleasePlan::Now => give_back(thief),
+        ReleasePlan::AtDisarm => {
+            let mut st = state();
+            if st.armed_until.is_some() {
+                st.pending = Some((thief, front));
+            } else {
+                // The call already ended: its outcome is in.
+                drop(st);
+                give_back(thief);
+            }
+        }
+        ReleasePlan::Miss => state().missed += 1,
     }
+}
+
+/// Releases `thief`'s key focus to the person's app (SkyLight).
+fn give_back(thief: i32) {
     if !state().menus.contains_key(&thief)
         && let Some(tap) = spawn_tap(thief, menu_tap)
     {
@@ -508,7 +545,25 @@ pub(super) fn arm(
 
 /// Ends the armed window when the call that armed it returns.
 pub(super) fn disarm() {
-    state().armed_until = None;
+    let pending = {
+        let mut st = state();
+        st.armed_until = None;
+        st.pending.take()
+    };
+    // The call's outcome is in and no menu showed: the target's theft goes
+    // back to the person's app (still in front).
+    if let Some((thief, front)) = pending {
+        if super::frontmost_pid() == Some(front) {
+            let spawned = std::thread::Builder::new()
+                .name("cu-key-focus-release".into())
+                .spawn(move || give_back(thief));
+            if spawned.is_err() {
+                state().missed += 1;
+            }
+        } else {
+            state().missed += 1;
+        }
+    }
 }
 
 /// Releases and thefts that could not be released, so far.

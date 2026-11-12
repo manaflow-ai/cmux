@@ -45,12 +45,6 @@ const CLOSE_WAIT: Duration = Duration::from_millis(1000);
 const CANCEL_WAIT: Duration = Duration::from_millis(300);
 const STEP: Duration = Duration::from_millis(10);
 const ESCAPE: u16 = 53;
-/// How many submenu levels below a menu are checked before it is left
-/// open holding the person's keyboard (deeper counts as hiding).
-const SUBMENU_LEVELS: usize = 3;
-/// How many elements that check reads at most, across all levels (as the
-/// menu bar's MENU_NODES); running out counts as hiding.
-const HELD_CHECK_NODES: usize = 600;
 /// Why a press or right click showed no menu.
 const MENU_DID_NOT_OPEN: &str = "the menu did not open (the app showed no menu)";
 
@@ -66,7 +60,7 @@ pub(super) struct KeyGuard(Option<(u64, u64)>);
 
 impl KeyGuard {
     fn arm(t: &Target, guard: Option<std::sync::Arc<dyn MenuGuard>>) -> Self {
-        let armed = workspace::frontmost_pid().is_some_and(|front| {
+        let armed = super::frontmost_pid().is_some_and(|front| {
             front != t.window.pid && key_focus::arm(front, t.window.pid, t.window.frame, guard)
         });
         KeyGuard(armed.then(key_focus::counts))
@@ -415,7 +409,7 @@ impl MacDesktop {
     /// Refuses leaving a menu open in the app the person is using (it would
     /// track their pointer and keyboard until the next call).
     pub(super) fn refuse_left_open_in_persons_app(&self, t: &Target) -> DResult<()> {
-        if workspace::frontmost_pid() == Some(t.window.pid) {
+        if super::frontmost_pid() == Some(t.window.pid) {
             return Err(DesktopError::Unsupported(menus::PERSONS_APP_REFUSAL.into()));
         }
         Ok(())
@@ -732,96 +726,6 @@ impl MacDesktop {
         }
     }
 
-    /// Whether, while something is denied, a menu that holds the person's
-    /// keyboard could put a hidden item in front of them: their own Right,
-    /// Down and Return (or typing) reach every level, so refusing the agent's
-    /// keys is not enough. It could when any level (submenus too, within
-    /// SUBMENU_LEVELS and one HELD_CHECK_NODES budget across all levels):
-    /// - hides an item;
-    /// - has an item that opens one of AppKit's launch submenus (Open With,
-    ///   Services, Share, Quick Actions, Recent Items): AppKit fills those
-    ///   when they open, so their closed contents prove nothing;
-    /// - has a submenu with no titled items (filled when it opens);
-    /// - or cannot be read, or runs out of the budget.
-    fn held_menu_hides(&self, root: &Ax) -> bool {
-        let launch_titles = workspace::launch_submenu_titles();
-        let (depth0, path0) = menu_place(root);
-        let Some(path0) = path0 else { return true };
-        let mut budget = HELD_CHECK_NODES;
-        let mut queue = std::collections::VecDeque::from([(root.clone(), depth0, path0)]);
-        while let Some((menu, depth, path)) = queue.pop_front() {
-            let kids = match menu.attr("AXChildren") {
-                Ok(kids) => kids.map(|k| k.items()).unwrap_or_default(),
-                Err(_) => return true,
-            };
-            if kids.len() > budget {
-                return true;
-            }
-            budget -= kids.len();
-            // One round trip per item: its role, title and children.
-            let mut level: Vec<(String, Vec<Cf>)> = Vec::new();
-            for kid in kids.into_iter().filter_map(Ax::from_cf) {
-                let Ok(v) = kid.attrs(&["AXRole", "AXTitle", "AXChildren"]) else { return true };
-                let Ok(role) = &v[0] else { return true };
-                if role.as_ref().and_then(Cf::as_string).as_deref() != Some("AXMenuItem") {
-                    continue;
-                }
-                let Ok(title) = &v[1] else { return true };
-                let Ok(children) = &v[2] else { return true };
-                let title = title.as_ref().and_then(Cf::as_string).unwrap_or_default();
-                level.push((title, children.as_ref().map(|c| c.items()).unwrap_or_default()));
-            }
-            // A submenu with no titled items is filled when it opens.
-            if depth > depth0 && !level.iter().any(|(t, _)| !t.trim().is_empty()) {
-                return true;
-            }
-            let launch = self.opened_needs_siblings(depth) && {
-                let titles: Vec<String> = level.iter().map(|(t, _)| t.clone()).collect();
-                roles::siblings_name_apps(&titles, &workspace::apps_named_indexed)
-            };
-            for (title, children) in level {
-                let item = super::ax::OpenedItem {
-                    title: &title,
-                    title_failed: false,
-                    depth,
-                    path: Some(&path),
-                    launch,
-                };
-                if self.opened_item_known(&item) {
-                    return true;
-                }
-                if children.is_empty() {
-                    continue;
-                }
-                if launch_titles.contains(&roles::submenu_title_key(&title)) {
-                    return true;
-                }
-                if depth + 1 - depth0 > SUBMENU_LEVELS || children.len() > budget {
-                    return true;
-                }
-                budget -= children.len();
-                let mut sub = None;
-                for child in children.into_iter().filter_map(Ax::from_cf) {
-                    match child.attr("AXRole") {
-                        Ok(r)
-                            if r.as_ref().and_then(Cf::as_string).as_deref() == Some("AXMenu") =>
-                        {
-                            sub = Some(child);
-                            break;
-                        }
-                        Ok(_) => {}
-                        Err(_) => return true,
-                    }
-                }
-                let Some(sub) = sub else { continue };
-                let mut below = path.clone();
-                below.push(title);
-                queue.push_back((sub, depth + 1, below));
-            }
-        }
-        false
-    }
-
     /// Records the menu left open for `t`'s window and reports its items.
     fn leave_open(
         &self,
@@ -878,19 +782,39 @@ impl MacDesktop {
         }
         let all = items(self, &menu);
         let held = !guard.armed();
-        // A menu that holds the person's keyboard is checked at every level
-        // (Services ▸, Open With ▸ hide items in submenus too).
-        let nested_hidden = held
-            && self.denies_any()
-            && (all.iter().any(|i| i.denied) || self.held_menu_hides(&menu));
+        // A menu that holds the person's keyboard reaches every level by
+        // their own keys, and AX gives no sign of a submenu the app fills
+        // when it opens (an "Item" placeholder or a stale list that becomes
+        // "Terminal"). So while anything is denied it is left open only
+        // when it hides nothing and has no submenu at all; else it is
+        // closed and its titles listed, for a one-call pick with a path.
+        let nested_hidden =
+            held && self.denies_any() && all.iter().any(|i| i.denied || i.info.submenu);
         if nested_hidden {
-            let why = if workspace::app_names_ready() {
-                menus::HIDDEN_ITEMS_HELD_REFUSAL
-            } else {
-                menus::APP_NAMES_LOADING
-            };
-            let refused = DesktopError::Unsupported(why.into());
-            return Err(self.close_and_fail(t, &menu, &windows, refused));
+            if self.denies_any() && !workspace::app_names_ready() {
+                let refused = DesktopError::Unsupported(menus::APP_NAMES_LOADING.into());
+                return Err(self.close_and_fail(t, &menu, &windows, refused));
+            }
+            let hidden = all.iter().filter(|i| i.denied).count();
+            let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
+            let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
+            let shown: Vec<MenuItemInfo> = visible
+                .into_iter()
+                .take(menus::LISTED_ITEMS_MAX)
+                .map(|mut i| {
+                    i.detail();
+                    i.info
+                })
+                .collect();
+            if !self.cancel_or_record(t, &menu, &windows) {
+                return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
+            }
+            let mut out = ActionOutcome::delivered(route);
+            let mut report = MenuReport::listed(shown, hidden);
+            report.more = more;
+            report.keyboard = keyboard;
+            out.menu = Some(report);
+            return Ok(out);
         }
         let mut out = self.leave_open(t, menu, windows, all, (held, nested_hidden), route);
         if let Some(report) = out.menu.as_mut() {
