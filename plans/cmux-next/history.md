@@ -192,7 +192,7 @@ Chrome style runs through `ChromeRenderWidgetHostViewMacDelegate`): it starts
 only when the renderer did not take the gesture (a scroller, a script carousel
 or `overscroll-behavior-x` keeps it), draws Chrome's round arrow at the page's
 edge, and navigates on release. cmux adds no swipe of its own there: a
-second handler (`CEFSwipeNavigation` and its accent pill, no longer started since 2026-11-11; its files go next)
+second handler (`CEFSwipeNavigation` and its accent pill, removed 2026-11-11)
 showed two arrows on every swipe and could navigate twice. It needs macOS's
 "Swipe between pages". A gesture the layout takes (Command + scroll) never
 reaches the page, so it never swipes. cmux pages swipe through

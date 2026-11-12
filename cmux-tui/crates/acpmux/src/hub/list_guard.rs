@@ -393,7 +393,13 @@ impl Snapshot {
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+        made.entry(name)
+            .or_insert_with(|| {
+                let text = make(self);
+                crate::gauges::global().list_variant(name, text.len());
+                Arc::new(text)
+            })
+            .clone()
     }
 }
 
@@ -811,6 +817,7 @@ impl ListGuard {
         let (started, key) = (Instant::now(), key(hub));
         let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
+        crate::gauges::global().list_rebuilt(built.1.len(), built.0.len(), elapsed);
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),

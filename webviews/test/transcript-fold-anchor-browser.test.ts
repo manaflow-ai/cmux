@@ -572,7 +572,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.locator('[data-row-id="worked-loaded-steer"] .cv-worked').click();
     await show(page, rows);
     await settle(page);
-    const line = page.locator('[data-row-id="worked-older-prompt"] .cv-worked');
+    // The older prompt's stretch holds only the steer, so the work stays under the steer's own fold
+    // (turns.ts foldSegments `inOrder`): the fold opened at the page's edge is the one still drawn.
+    expect(await page.locator('[data-row-id="worked-older-prompt"]').count()).toBe(0);
+    const line = page.locator('[data-row-id="worked-loaded-steer"] .cv-worked');
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     expect(await line.getAttribute("aria-controls")).toContain("loaded-tool");
     const phase = page.evaluate(

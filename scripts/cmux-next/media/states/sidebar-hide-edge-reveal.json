@@ -1,18 +1,133 @@
 {
-  "title": "Sidebar hide under a pointer on the left edge, then the edge reveal (Lawrence msg 29542: the hidden sidebar floated back; the top-row buttons jumped). Before: the float comes back after the hide. After: it stays hidden until the pointer leaves the edge and returns; the toggle, Back and Forward leave with the sidebar. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-hide-edge-reveal.json --video",
+  "title": "Sidebar hide under a pointer on the left edge, then the edge reveal (Lawrence msg 29542: the hidden sidebar floated back; the top-row buttons jumped). Before: the float comes back after the hide. After: it stays hidden until the pointer leaves the edge and returns; the toggle, Back and Forward leave with the sidebar. The edge steps pair the real pointer move with debug.mouse hover: AppKit derives tracking-area crossings from window-server motion, which the capture driver's cursor warp does not make, so without the hover the edge zone never sees the pointer leave or return (DebugHover). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-hide-edge-reveal.json --video",
   "settings": null,
-  "launch_args": ["--showcase"],
+  "launch_args": [
+    "--showcase"
+  ],
   "steps": [
-    {"title": "Launch the synthetic sidebar fixture", "wait": 2},
-    {"title": "Open a workspace", "cmux": ["workspace", "new", "--name", "Edge reveal fixture"], "wait": 1},
-    {"title": "Focus it", "cmux": ["workspace", "name:Edge reveal fixture", "focus"], "wait": 1},
-    {"title": "Sidebar shown: the top row's even gaps", "shot": {"name": "shown"}, "wait": 0.5},
-    {"title": "The pointer on the sidebar, at the window's left edge", "move": {"x": 2, "y": 420}, "wait": 1},
-    {"title": "Hide the sidebar with the pointer still on the edge", "cmux": ["action", "run", "toggleSidebar"], "record": true, "wait": 1.2},
-    {"title": "After the hide: the sidebar must stay hidden (Before: it floats back)", "shot": {"name": "after-hide"}, "wait": 0.3},
-    {"title": "The pointer leaves the edge", "move": {"x": 400, "y": 420}, "wait": 0.8},
-    {"title": "The pointer returns to the edge: the float slides in", "move": {"x": 2, "y": 420}, "record": true, "wait": 0.8},
-    {"title": "Floating sidebar", "shot": {"name": "edge-reveal"}, "wait": 0.3},
-    {"title": "The pointer leaves: the float slides out", "move": {"x": 600, "y": 420}, "record": true, "wait": 1}
+    {
+      "title": "Launch the synthetic sidebar fixture",
+      "wait": 2
+    },
+    {
+      "title": "Open a workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Edge reveal fixture"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Focus it",
+      "cmux": [
+        "workspace",
+        "name:Edge reveal fixture",
+        "focus"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Sidebar shown: the top row's even gaps",
+      "shot": {
+        "name": "shown"
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "The pointer on the sidebar, at the window's left edge",
+      "move": {
+        "x": 2,
+        "y": 420
+      },
+      "wait": 1
+    },
+    {
+      "title": "Hide the sidebar with the pointer still on the edge",
+      "cmux": [
+        "action",
+        "run",
+        "toggleSidebar"
+      ],
+      "record": true,
+      "wait": 1.2
+    },
+    {
+      "title": "After the hide: the sidebar must stay hidden (Before: it floats back)",
+      "shot": {
+        "name": "after-hide"
+      },
+      "wait": 0.3
+    },
+    {
+      "title": "The pointer leaves the edge",
+      "move": {
+        "x": 400,
+        "y": 420
+      },
+      "wait": 0
+    },
+    {
+      "title": "Its tracking areas see it leave (the edge rearms)",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "hover",
+          "x": 400,
+          "y": 420
+        }
+      },
+      "wait": 0.8
+    },
+    {
+      "title": "The pointer returns to the edge",
+      "move": {
+        "x": 2,
+        "y": 420
+      },
+      "wait": 0
+    },
+    {
+      "title": "Its tracking area sees it enter: after the 100 ms intent delay the float slides in on the drawer curve",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "hover",
+          "x": 2,
+          "y": 420
+        }
+      },
+      "wait": 0.8,
+      "record": true
+    },
+    {
+      "title": "Floating sidebar",
+      "shot": {
+        "name": "edge-reveal"
+      },
+      "wait": 0.3
+    },
+    {
+      "title": "The pointer leaves",
+      "move": {
+        "x": 600,
+        "y": 420
+      },
+      "wait": 0
+    },
+    {
+      "title": "The float slides out",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "hover",
+          "x": 600,
+          "y": 420
+        }
+      },
+      "wait": 1,
+      "record": true
+    }
   ]
 }
