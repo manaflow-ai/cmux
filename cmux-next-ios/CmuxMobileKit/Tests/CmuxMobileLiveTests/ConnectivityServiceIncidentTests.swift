@@ -122,25 +122,48 @@ import Testing
 
 /// Several sockets of one surface (each open Cloud Chief conversation) read as one service.
 @Suite struct ServiceSocketsTests {
-    @Test func liveWhileAnySocketIsLiveAndADropOnlyWhenTheLastLiveOneEnds() {
+    static let live = ConnectivityIncidentDetector.LinkState.connected(transport: "websocket")
+
+    @Test func liveWhileAnySocketIsLiveAndADropOnlyWhenTheLastLiveOneFails() {
         var s = ServiceSockets()
-        #expect(s.set("a", .trying(reason: nil), newDial: true).state == .trying(transport: "websocket", reason: nil, newDial: true))
-        #expect(s.set("a", .connected).state == .connected(transport: "websocket"))
-        _ = s.set("b", .connected)
-        // One of two live sockets ending: the service is still live, no drop.
-        let one = s.set("a", .trying(reason: "socket ended"), dropReason: "socket ended")
-        #expect(one.state == .connected(transport: "websocket"))
+        #expect(s.apply("a", .dialing).state == .trying(transport: "websocket", reason: nil, newDial: true))
+        #expect(s.apply("a", .connected).state == Self.live)
+        _ = s.apply("b", .connected)
+        // One of two live sockets failing: the service is still live, no drop.
+        let one = s.apply("a", .failed(reason: "socket ended"))
+        #expect(one.state == Self.live)
         #expect(one.droppedReason == nil)
         #expect(!one.changed)
-        // The last live one ending is a drop.
-        let last = s.set("b", .trying(reason: "socket ended"), dropReason: "socket ended")
+        // The last live one failing is a drop.
+        let last = s.apply("b", .failed(reason: "socket ended"))
         #expect(last.droppedReason == "socket ended")
         #expect(last.state == .trying(transport: "websocket", reason: "socket ended", newDial: false))
         // A failed dial (never live) is no drop.
-        #expect(s.set("a", .trying(reason: "refused"), dropReason: nil).droppedReason == nil)
+        #expect(s.apply("a", .failed(reason: "refused")).droppedReason == nil)
         // Every socket closed: not wanted.
-        _ = s.set("a", nil)
-        #expect(s.set("b", nil).state == .notWanted(.linkClosed))
+        _ = s.apply("a", .closed)
+        #expect(s.apply("b", .closed).state == .notWanted(.linkClosed))
+    }
+
+    @Test func aDeliberateRestartOfALiveSocketIsNoDrop() {
+        var s = ServiceSockets()
+        _ = s.apply("p", .connected)
+        let restart = s.apply("p", .restarting)
+        #expect(restart.droppedReason == nil)
+        #expect(restart.state == .trying(transport: "websocket", reason: nil, newDial: false))
+    }
+
+    /// Review finding 1: close() during the welcome let `.connected` arrive after `.closed`.
+    @Test func aSocketClosedMidWelcomeNeverLooksLive() {
+        var s = ServiceSockets()
+        _ = s.apply("a", .dialing)
+        _ = s.apply("a", .closed)
+        let late = s.apply("a", .connected)
+        #expect(!late.changed)
+        #expect(late.state == .notWanted(.linkClosed))
+        // Another conversation's socket failing is then the service's state, not hidden by a phantom.
+        _ = s.apply("b", .dialing)
+        #expect(s.apply("b", .failed(reason: "timeout")).state == .trying(transport: "websocket", reason: "timeout", newDial: false))
     }
 }
 

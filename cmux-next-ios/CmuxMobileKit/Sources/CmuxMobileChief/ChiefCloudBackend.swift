@@ -496,7 +496,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 while !closed, !Task.isCancelled {
                     guard let text = try await Self.receive(task) else { continue }
                     if try await handle(text, on: task) {
-                        if !welcomed { ChiefCloudSocketSignals.shared.emit(signalID, .connected) }
+                        // close() may have run while the welcome awaited: a closed socket is never live.
+                        if !welcomed, !closed { ChiefCloudSocketSignals.shared.emit(signalID, .connected) }
                         welcomed = true
                     }
                 }

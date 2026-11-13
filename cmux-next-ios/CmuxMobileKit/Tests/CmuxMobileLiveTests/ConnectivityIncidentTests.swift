@@ -1,4 +1,5 @@
 @testable import CmuxMobileLive
+import CmuxMobileChief
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -737,3 +738,121 @@ import Testing
         #expect(JSONSerialization.isValidJSONObject(body))
     }
 }
+
+/// The reporter's service wiring: presence updates and Cloud Chief signals as the coordinator passes them.
+extension ConnectivityIncidentReporterTests {
+    /// The app in front, ticks every 5 s for `seconds`, `step` run before each tick.
+    func drive(_ r: ConnectivityIncidentReporter, now: Now, seconds: Int, step: () -> Void = {}) async {
+        for _ in 0..<(seconds / 5) {
+            now.advance(5)
+            step()
+            r.tick()
+            await Task.yield()
+        }
+    }
+
+    @Test func aPresenceSocketThatKeepsFailingIsReportedUnderPresence() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        r.appActive(true)
+        r.presence(id: "p1", .dialing)
+        await drive(r, now: now, seconds: 45) {
+            r.presence(id: "p1", .failed("hello timed out"))
+            r.presence(id: "p1", .connected(false))
+            r.presence(id: "p1", .dialing)
+        }
+        await settle { sent.all.count == 1 }
+        let open = sent.all.first?.0
+        #expect(open?.kind == .serviceUnreachable)
+        #expect(open?.surface == .presence)
+        #expect(open?.lastError == "hello timed out")
+        r.presence(id: "p1", .connected(true))
+        await settle { sent.all.count == 2 }
+        #expect(sent.all.map(\.0.state) == [.open, .resolved])
+    }
+
+    @Test func aPresenceKickIsNoDropAndAListenerReplacedOnATeamSwitchIsNoOutage() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        r.appActive(true)
+        now.advance(20)
+        r.presence(id: "p1", .connected(true))
+        // Foreground kicks: connected(false) with no failure, then a dial and live again, many times.
+        await drive(r, now: now, seconds: 400) {
+            r.presence(id: "p1", .connected(false))
+            r.presence(id: "p1", .dialing)
+            r.presence(id: "p1", .connected(true))
+        }
+        // The listener stops (team switch); a late update of the old one changes nothing.
+        r.serviceSocket(.presence, id: "p1", .closed)
+        r.presence(id: "p1", .connected(true))
+        r.presence(id: "p2", .dialing)
+        r.presence(id: "p2", .connected(true))
+        await drive(r, now: now, seconds: 60)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(sent.all.isEmpty)
+    }
+
+    /// Review finding 1: a Chief socket closed while its welcome was in flight must not keep the
+    /// service "up", or a later Cloud Chief outage would never be reported.
+    @Test func aChiefSocketConnectedAfterItsCloseDoesNotHideALaterOutage() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        r.appActive(true)
+        now.advance(20)
+        r.chiefSocket(id: "old", .dialing)
+        r.chiefSocket(id: "old", .closed)
+        r.chiefSocket(id: "old", .connected)
+        r.chiefSocket(id: "new", .dialing)
+        await drive(r, now: now, seconds: 45) {
+            r.chiefSocket(id: "new", .ended(wasLive: false, reason: "no access token"))
+            r.chiefSocket(id: "new", .dialing)
+        }
+        await settle { sent.all.count == 1 }
+        #expect(sent.all.first?.0.kind == .serviceUnreachable)
+        #expect(sent.all.first?.0.surface == .chiefCloud)
+    }
+
+    /// Review finding 2: a hub restart during an outage keeps it counting (no "stopped using it" end),
+    /// even when the re-registration fails and no socket starts.
+    @Test func aHubRestartDuringAnOutageKeepsItOpen() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        r.appActive(true)
+        r.serviceSocket(.deviceHub, id: "h", .dialing)
+        await drive(r, now: now, seconds: 40) {
+            r.serviceSocket(.deviceHub, id: "h", .failed(reason: "hub down"))
+            r.serviceSocket(.deviceHub, id: "h", .dialing)
+        }
+        await settle { sent.all.count == 1 }
+        #expect(sent.all.first?.0.surface == .deviceHub)
+        // Pull to refresh: the hub restarts its socket; registration fails, so nothing more arrives.
+        r.serviceSocket(.deviceHub, id: "h", .restarting)
+        await drive(r, now: now, seconds: 60)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(sent.all.count == 1)
+        #expect(sent.all.allSatisfy { $0.0.state == .open })
+    }
+
+    @Test func stopForgetsTheSignInsSockets() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        r.appActive(true)
+        r.chiefSocket(id: "a", .connected)
+        r.stop()
+        r.appActive(true)
+        // After stop nothing of before is live: a failing socket now is the whole service.
+        await drive(r, now: now, seconds: 45) {
+            r.chiefSocket(id: "b", .ended(wasLive: false, reason: "timeout"))
+            r.chiefSocket(id: "b", .dialing)
+        }
+        await settle { sent.all.contains { $0.0.state == .open } }
+        #expect(sent.all.contains { $0.0.kind == .serviceUnreachable && $0.0.state == .open })
+    }
+}
+

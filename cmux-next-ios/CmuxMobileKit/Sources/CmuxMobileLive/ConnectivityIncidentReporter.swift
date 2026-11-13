@@ -1,4 +1,5 @@
 import CmuxConnectivityTelemetry
+import CmuxMobileChief
 import Foundation
 import Network
 import OSLog
@@ -294,20 +295,52 @@ public final class ConnectivityIncidentReporter {
     // MARK: Service sockets
 
     private var serviceSockets: [ConnectivityIncidentDetector.Surface: ServiceSockets] = [:]
+    /// Presence sockets whose last event was a failure: the `connected(false)` that follows it is
+    /// that failure, not a deliberate replacement.
+    private var presenceFailed: Set<String> = []
 
-    /// One socket of a service surface changed (`nil`: it is no longer wanted). A surface with one
-    /// socket (presence, the device hub) uses one id; Cloud Chief keeps one per open conversation.
-    /// `dropReason` names why a live socket ended (a drop, when no other socket of it is live).
-    public func serviceSocket(_ surface: ConnectivityIncidentDetector.Surface, id: String, connected: Bool?,
-                              newDial: Bool = false, reason: String? = nil, dropReason: String? = nil) {
-        let socket: ServiceSockets.Socket? = connected.map { $0 ? .connected : .trying(reason: reason) }
-        let change = serviceSockets[surface, default: ServiceSockets()].set(id, socket, newDial: newDial, dropReason: dropReason)
+    /// One socket of a service surface: see ``ServiceSocketEvent``. A surface with one socket at a time
+    /// (presence, the device hub) gives each socket it starts its own id; Cloud Chief keeps one per open
+    /// conversation.
+    public func serviceSocket(_ surface: ConnectivityIncidentDetector.Surface, id: String, _ event: ServiceSocketEvent) {
+        let change = serviceSockets[surface, default: ServiceSockets()].apply(id, event)
         guard change.changed else { return }
         let date = now()
-        if let dropReason = change.droppedReason {
-            handle(detector.serviceDropped(surface, reason: dropReason, at: date))
+        if let reason = change.droppedReason {
+            handle(detector.serviceDropped(surface, reason: reason, at: date))
         }
         handle(detector.service(surface, change.state, at: date))
+    }
+
+    /// The presence listener `id`'s update, as the `presence` surface.
+    public func presence(id: String, _ update: PresenceListener.Update) {
+        switch update {
+        case .dialing:
+            presenceFailed.remove(id)
+            serviceSocket(.presence, id: id, .dialing)
+        case .failed(let reason):
+            presenceFailed.insert(id)
+            serviceSocket(.presence, id: id, .failed(reason: reason))
+        case .connected(true):
+            presenceFailed.remove(id)
+            serviceSocket(.presence, id: id, .connected)
+        case .connected(false):
+            // After a failure it is that failure (already told); else the listener replaced its socket
+            // on purpose (a foreground, a network change): not a drop.
+            if !presenceFailed.contains(id) { serviceSocket(.presence, id: id, .restarting) }
+        case .snapshot, .mac:
+            break
+        }
+    }
+
+    /// A Cloud Chief conversation socket's change, as the `chief_cloud` surface.
+    public func chiefSocket(id: String, _ signal: ChiefCloudSocketSignals.Signal) {
+        switch signal {
+        case .dialing: serviceSocket(.chiefCloud, id: id, .dialing)
+        case .connected: serviceSocket(.chiefCloud, id: id, .connected)
+        case .ended(_, let reason): serviceSocket(.chiefCloud, id: id, .failed(reason: reason))
+        case .closed: serviceSocket(.chiefCloud, id: id, .closed)
+        }
     }
 
     /// Time passed (the tick loop calls it; tests call it directly).
@@ -325,6 +358,10 @@ public final class ConnectivityIncidentReporter {
     /// Sign-out (and the coordinator stopping): open incidents end now as `signed_out`.
     public func stop() {
         stopTicking()
+        // A reporter is not reused after stop, but nothing of this sign-in's sockets may carry over:
+        // sockets that close after this (asynchronously) never reach it.
+        serviceSockets = [:]
+        presenceFailed = []
         retryTask?.cancel()
         for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
         lifecycleObservers = []

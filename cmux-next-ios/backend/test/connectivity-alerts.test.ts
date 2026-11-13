@@ -345,7 +345,7 @@ describe("the desk", () => {
     applyReport(desk, report(), tina, TEAM, AWAKE(T0), T0)
     const second = applyReport(desk, report({ serviceReachable: false }), ted, TEAM, AWAKE(T0), T0 + 60_000)
     expect(text(second)).toContain("1 other teammate lost a Mac within 10 minutes of this: likely service-side")
-    expect(text(second)).toContain("could not reach the cmux service either")
+    expect(text(second)).toContain("The cmux mobile service didn't answer the phone's health check either (the internet worked): likely a cmux mobile service outage")
     // Far apart in time: no correlation.
     const apart = applyReport(desk, report({}, T0 + 3_000_000), { key: "tom", email: "tom@manaflow.com" }, TEAM, AWAKE(T0 + 3_000_000), T0 + 3_000_000)
     expect(text(apart)).not.toContain("other teammate")
@@ -411,6 +411,14 @@ describe("service incidents", () => {
     const resolved = service({ id: open.id, kind: "service_unstable", surface: "device_hub", state: "resolved", durationMs: 700_000 }, T0 + 700_000)
     const end = applyReport(desk, resolved, tina, TEAM, { liveness: null }, T0 + 700_000)
     expect(text(end, 1)).toBe("Resolved: stable again after 11m 40s.")
+  })
+
+  it("names the mobile service as what the phone checked, for Chief and the hub", () => {
+    const chief = applyReport(emptyDesk(), service({ surface: "chief_cloud", serviceReachable: false }), tina, TEAM, { liveness: null }, T0)
+    expect(text(chief)).toContain("The cmux mobile service also didn't answer the phone's health check (the internet worked)")
+    expect(text(chief)).not.toContain("likely a cmux mobile service outage")
+    const presence = applyReport(emptyDesk(), service({ serviceReachable: false }), ted, TEAM, { liveness: null }, T0)
+    expect(text(presence)).toContain("likely a cmux mobile service outage")
   })
 
   it("flags two teammates losing the same service, not a different one", () => {

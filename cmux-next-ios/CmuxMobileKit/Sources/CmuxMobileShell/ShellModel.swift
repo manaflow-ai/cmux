@@ -84,6 +84,9 @@ final class ShellModel {
     }
 
     var live: LiveCoordinator?
+    /// The device hub socket's id for the connectivity incident reporter; a new one after each close
+    /// (the reporter treats a closed id as final).
+    @ObservationIgnored var hubSocketID = UUID().uuidString
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
@@ -805,13 +808,21 @@ extension ShellModel {
 
     /// The device hub socket's state, as the connectivity incident detector's `device_hub` surface.
     private func hubConnection(_ state: DeviceHubSocket.State?) {
-        guard let live else { return }
-        let id = "device-hub"
+        let event = Self.hubSocketEvent(state)
+        live?.serviceSocket(.deviceHub, id: hubSocketID, event)
+        if event == .closed { hubSocketID = UUID().uuidString }
+    }
+
+    /// What a hub socket state means for the `device_hub` surface. `.disconnected` comes only when the
+    /// hub restarts its socket (pull to refresh after a failure, a retry): still wanted, so a
+    /// registration that then fails keeps the outage counting. Sign-out arrives as nil.
+    nonisolated static func hubSocketEvent(_ state: DeviceHubSocket.State?) -> ServiceSocketEvent {
         switch state {
-        case .connecting: live.serviceSocket(.deviceHub, id: id, connected: false, newDial: true)
-        case .connected: live.serviceSocket(.deviceHub, id: id, connected: true)
-        case let .reconnecting(reason): live.serviceSocket(.deviceHub, id: id, connected: false, reason: reason, dropReason: reason)
-        case .disconnected, .replaced, .removed, .signedOut, nil: live.serviceSocket(.deviceHub, id: id, connected: nil)
+        case .connecting: .dialing
+        case .connected: .connected
+        case let .reconnecting(reason): .failed(reason: reason)
+        case .disconnected: .restarting
+        case .replaced, .removed, .signedOut, nil: .closed
         }
     }
 }

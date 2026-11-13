@@ -614,8 +614,14 @@ const headline = (incident: Incident, report: IncidentReport): string => {
 /** The whole message for `incident` in the state `report` describes. */
 export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number, opts: { announceHeld?: boolean } = {}): string => {
   const lines = [headline(incident, report)]
+  // The phone's check asks the cmux mobile service (`/v1/health`), the one presence runs on; Cloud Chief and the
+  // device hub are other services, so for them it only says the mobile service failed too.
   if (isUnreachable(report.kind) && report.serviceReachable === false)
-    lines.push("• :warning: The phone could not reach the cmux service either (the internet worked): likely a cmux service outage")
+    lines.push(
+      report.surface === "chief_cloud" || report.surface === "device_hub"
+        ? "• :warning: The cmux mobile service also didn't answer the phone's health check (the internet worked)"
+        : "• :warning: The cmux mobile service didn't answer the phone's health check either (the internet worked): likely a cmux mobile service outage"
+    )
   const others = isUnreachable(report.kind) ? othersAffected(desk, incident) : 0
   if (others > 0)
     lines.push(
