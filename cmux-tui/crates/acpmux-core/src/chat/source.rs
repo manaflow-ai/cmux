@@ -25,11 +25,24 @@ pub struct Chunk {
     places: Places,
     pub at_end: bool,
     pub hint: u64,
+    /// The source stamp captured while this chunk was read.
+    pub stamp: u64,
 }
 
 impl Chunk {
     pub fn new(bytes: Vec<u8>, base: u64, places: Places, at_end: bool, hint: u64) -> Self {
-        Self { bytes, base, places, at_end, hint }
+        Self { bytes, base, places, at_end, hint, stamp: 0 }
+    }
+
+    pub fn with_stamp(
+        bytes: Vec<u8>,
+        base: u64,
+        places: Places,
+        at_end: bool,
+        hint: u64,
+        stamp: u64,
+    ) -> Self {
+        Self { bytes, base, places, at_end, hint, stamp }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -186,7 +199,14 @@ impl RawSource for FileSource {
             return Err(invalid("raw cursor past file"));
         }
         if self.looked == length {
-            return Ok(Chunk::new(Vec::new(), place, byte_places, true, length));
+            return Ok(Chunk::with_stamp(
+                Vec::new(),
+                place,
+                byte_places,
+                true,
+                length,
+                self.stamp(),
+            ));
         }
         let prefix = self.looked - place;
         let base = self.looked;
@@ -205,7 +225,14 @@ impl RawSource for FileSource {
         self.stats.scanned = self.stats.scanned.saturating_add(scanned as u64);
         self.looked = base + scanned as u64;
         let Some(newline) = newline else {
-            return Ok(Chunk::new(Vec::new(), place, byte_places, self.looked == length, length));
+            return Ok(Chunk::with_stamp(
+                Vec::new(),
+                place,
+                byte_places,
+                self.looked == length,
+                length,
+                self.stamp(),
+            ));
         };
         let end = base + newline as u64 + 1;
         if prefix != 0 {
@@ -218,7 +245,14 @@ impl RawSource for FileSource {
             bytes.truncate(newline + 1);
         }
         self.cursor = end;
-        Ok(Chunk::new(bytes, place, byte_places, self.looked == length, length))
+        Ok(Chunk::with_stamp(
+            bytes,
+            place,
+            byte_places,
+            self.looked == length,
+            length,
+            self.stamp(),
+        ))
     }
 
     fn holds(&mut self, place: u64) -> io::Result<bool> {
@@ -287,7 +321,7 @@ mod tests {
                 }
                 bytes.extend_from_slice(line);
             }
-            Ok(Chunk::new(bytes, 0, seq_places, at_end, self.hint()?))
+            Ok(Chunk::with_stamp(bytes, 0, seq_places, at_end, self.hint()?, self.stamp))
         }
         fn hint(&self) -> io::Result<u64> {
             self.bytes

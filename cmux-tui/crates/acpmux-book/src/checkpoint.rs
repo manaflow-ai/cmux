@@ -8,7 +8,7 @@ use crate::log::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const ACTOR: u8 = 128;
 /// The translator caps bulk rows at 64; its group and 32 steers are additional.
 /// Their bodies use the same storage and must also survive a checkpoint.
@@ -40,6 +40,7 @@ pub struct Person {
 pub struct Checkpoint {
     pub edition: u32,
     pub translator_version: u32,
+    pub boot_id: u64,
     pub translator: Vec<u8>,
     pub cursors: Vec<Cursor>,
     /// Last allocated row, including open rows. The log envelope owns the settled mark.
@@ -57,6 +58,7 @@ impl Checkpoint {
         Self {
             edition: 1,
             translator_version,
+            boot_id: 0,
             translator: Vec::new(),
             cursors: Vec::new(),
             last_row: 0,
@@ -85,6 +87,7 @@ impl Checkpoint {
         e.u32(VERSION)?;
         e.u32(self.edition)?;
         e.u32(self.translator_version)?;
+        e.u64(self.boot_id)?;
         e.u64(self.last_row)?;
         e.u64(self.folds_len)?;
         e.blob(&self.translator)?;
@@ -168,6 +171,7 @@ impl Checkpoint {
         let mut result = Self::new(0);
         result.edition = d.u32()?;
         result.translator_version = d.u32()?;
+        result.boot_id = d.u64()?;
         result.last_row = d.u64()?;
         result.folds_len = d.u64()?;
         result.translator = d.blob()?.to_vec();

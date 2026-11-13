@@ -18,6 +18,12 @@ pub struct Folds {
     stopped: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub group: u64,
+    pub last: u64,
+}
+
 impl Folds {
     /// Reads only the final checkpointed entry, independent of the number of groups.
     pub fn open(path: &Path, checkpoint_len: u64) -> Result<Self, Error> {
@@ -84,6 +90,29 @@ impl Folds {
         fsio::sync(&self.file)?;
         self.stopped = false;
         Ok(())
+    }
+
+    /// Returns the closed fold containing a row, when one exists.
+    pub fn containing(&mut self, row_id: u64) -> Result<Option<Entry>, Error> {
+        if row_id == 0 {
+            return Ok(None);
+        }
+        let count = self.len / ENTRY_BYTES;
+        let mut lo = 0u64;
+        let mut hi = count;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            self.file.seek(SeekFrom::Start(mid.saturating_mul(ENTRY_BYTES)))?;
+            let (group, last) = read_entry(&mut self.file)?;
+            if row_id < group {
+                hi = mid;
+            } else if row_id > last {
+                lo = mid.saturating_add(1);
+            } else {
+                return Ok(Some(Entry { group, last }));
+            }
+        }
+        Ok(None)
     }
 }
 

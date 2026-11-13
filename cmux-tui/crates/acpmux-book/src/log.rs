@@ -226,6 +226,9 @@ pub struct Recovered {
     pub truncated: u64,
     /// Segment record bytes read at open, excluding the fixed segment preambles.
     pub scanned_bytes: u64,
+    /// Raw map boundary recorded by the checkpoint. The actor replays complete lines after it.
+    pub raw_files: u32,
+    pub raw_map_len: u64,
 }
 
 /// Counters of what the log did since it was opened. Gauges for the `status` stream.
@@ -403,6 +406,17 @@ impl Log {
         Self::open_with_raw_holds(dir, options, |_, _| Ok(true))
     }
 
+    /// Opens the durable files while deliberately ignoring the checkpoint. This is the
+    /// recovery-side entry point used when the checkpoint head or body cannot be read: the
+    /// derived indexes are rebuilt from the segments and the caller replays `raw.map` into a
+    /// fresh checkpoint.
+    pub fn open_without_checkpoint(
+        dir: &Path,
+        options: Options,
+    ) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_holds_mode(dir, options, |_, _| Ok(true), true)
+    }
+
     /// Checks each known raw range's end through a bounded question to its source.
     /// A false answer cuts the replayable suffix, just like a bad crc. Source I/O errors
     /// propagate without turning a failed read into a cut. The actor separately checks
@@ -410,7 +424,16 @@ impl Log {
     pub fn open_with_raw_holds(
         dir: &Path,
         options: Options,
+        holds: impl FnMut(u32, u64) -> io::Result<bool>,
+    ) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_holds_mode(dir, options, holds, false)
+    }
+
+    fn open_with_raw_holds_mode(
+        dir: &Path,
+        options: Options,
         mut holds: impl FnMut(u32, u64) -> io::Result<bool>,
+        ignore_checkpoint: bool,
     ) -> Result<(Log, Recovered), Error> {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
@@ -444,14 +467,18 @@ impl Log {
         }
 
         let mut stats = Stats::default();
-        let saved_bytes = match File::open(dir.join("checkpoint")) {
-            Ok(file) => {
-                let mut bytes = Vec::new();
-                file.take(MAX_CHECKPOINT as u64 + 1).read_to_end(&mut bytes)?;
-                Some(bytes)
+        let saved_bytes = if ignore_checkpoint {
+            None
+        } else {
+            match File::open(dir.join("checkpoint")) {
+                Ok(file) => {
+                    let mut bytes = Vec::new();
+                    file.take(MAX_CHECKPOINT as u64 + 1).read_to_end(&mut bytes)?;
+                    Some(bytes)
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                Err(error) => return Err(Error::Io(error)),
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(Error::Io(error)),
         };
         let saved = match saved_bytes.as_deref() {
             Some(bytes) => {
@@ -499,6 +526,8 @@ impl Log {
             Some((mark, state, _)) => {
                 recovered.state = state.to_vec();
                 recovered.edition = mark.edition;
+                recovered.raw_files = mark.raw_files;
+                recovered.raw_map_len = mark.raw_map_len;
                 mark
             }
             None => Mark {
@@ -798,6 +827,43 @@ impl Log {
         self.stats.writes = self.stats.writes.saturating_add(1);
         self.stats.syncs = self.stats.syncs.saturating_add(1);
         Ok(file)
+    }
+
+    /// Reads complete raw lines after a checkpoint without changing the raw map.
+    /// Each tuple is `(raw file number, byte offset, bytes)`.
+    pub fn raw_tail(
+        &mut self,
+        from_file: u32,
+        from_offset: u64,
+    ) -> Result<Vec<(u32, u64, Vec<u8>)>, Error> {
+        let end = self.raw_map.metadata()?.len();
+        if from_offset > end {
+            return Err(Error::Corrupt("raw.map is shorter than its checkpoint"));
+        }
+        let mut out = Vec::new();
+        let mut file_no = from_file.saturating_add(1);
+        let mut offset = from_offset;
+        let mut line_start = from_offset;
+        let mut line = Vec::new();
+        let mut chunk = vec![0u8; 128 * 1024];
+        while offset < end {
+            let want = usize::try_from((end - offset).min(chunk.len() as u64)).unwrap_or(0);
+            let read = fsio::read_at(&self.raw_map, &mut chunk[..want], offset)?;
+            if read == 0 {
+                break;
+            }
+            for (index, byte) in chunk[..read].iter().enumerate() {
+                if *byte == b'\n' {
+                    out.push((file_no, line_start, std::mem::take(&mut line)));
+                    file_no = file_no.saturating_add(1);
+                    line_start = offset.saturating_add(index as u64).saturating_add(1);
+                } else {
+                    line.push(*byte);
+                }
+            }
+            offset = offset.saturating_add(read as u64);
+        }
+        Ok(out)
     }
 
     /// Appends a row that has just settled; its seq. `text` is the row's wire text
