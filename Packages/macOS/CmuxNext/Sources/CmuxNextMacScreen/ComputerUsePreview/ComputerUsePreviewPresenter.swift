@@ -86,8 +86,7 @@ public final class ComputerUsePreviewPresenter {
     public func focusChanged() {
         guard started, !updateQueued else { return }
         updateQueued = true
-        // task-owner: one coalesced look at the focus, on the main actor's next turn.
-        Task { @MainActor [weak self] in
+        MainDelivery().later { [weak self] in
             self?.updateQueued = false
             self?.update()
         }

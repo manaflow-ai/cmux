@@ -169,7 +169,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
-  nothing, the decode pipeline reads them; MacScreenUnixStream),
+  nothing, the decode pipeline reads them; MacScreenUnixStream), `cmux-cu-preview-read` (one Computer Use
+  live preview's `computer-use-preview` channel from cmux Remote, user-interactive: it blocks only on that
+  socket's reads, parses the framed messages and builds each H.264 frame's sample, and hands them to the
+  main queue in order; at most one per shown preview, about 30 frames a second, and the preview's close
+  shuts the socket, which ends it; ComputerUsePreviewStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
