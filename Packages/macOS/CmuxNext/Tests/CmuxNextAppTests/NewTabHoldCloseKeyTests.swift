@@ -69,6 +69,35 @@ struct NewTabHoldCloseKeyTests {
     /// A run of the CLI that may not change the view, as `ActionRegistry` binds it for the handler.
     private static let scriptRun = ActionRunScope(origin: .cli, allowsViewChange: false)
 
+    /// The keys that a test left in the router's menu-pick hold (`KeyRouter.menuPickKeys`). That hold sends each one on
+    /// with `NSApp.sendEvent` on a later turn of the main actor, after the menu's end: after the body of the test, and
+    /// with no wait after its teardown too, where each key monitor of the process got the key inside a test of another
+    /// suite. `withAHeldLine` waits here until the app sent each key on, and the key goes no further: no window gets it.
+    @MainActor private final class MenuPickKeysSentLater {
+        private var owed: [NSEvent] = []
+        private var monitor: Any?
+
+        /// The router's menu-pick hold has `event`.
+        func owes(_ event: NSEvent) {
+            owed.append(event)
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] sent in
+                guard let self, let index = self.owed.firstIndex(where: { $0 === sent || ($0.timestamp == sent.timestamp && $0.keyCode == sent.keyCode && $0.windowNumber == sent.windowNumber) })
+                else { return sent }
+                self.owed.remove(at: index)
+                return nil
+            }
+        }
+
+        /// Waits until the app sent each owed key on (2 s at most), then stops the watch.
+        func settle() async {
+            for _ in 0..<200 where !owed.isEmpty { try? await Task.sleep(for: .milliseconds(10)) }
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            #expect(owed.isEmpty, "\(owed.count) key(s) of the router's menu-pick hold were not sent on before the teardown: they run again inside a later test")
+        }
+    }
+
     /// What `withAHeldLine` made.
     @MainActor private struct Held {
         let services: AppServices
@@ -84,6 +113,8 @@ struct NewTabHoldCloseKeyTests {
         /// With `newWindowHold`: a second window of the app, its pane, and the probe that has the keyboard there.
         var other: (window: NSWindow, pane: PaneController, probe: KeyProbe)?
         var input: NewTabInputCoordinator { services.keyRouter.newTabInputCoordinator }
+        /// The keys the test left in the router's menu-pick hold: `withAHeldLine` waits for them before its teardown.
+        let sentLater = MenuPickKeysSentLater()
 
         /// A view that takes the keyboard after the opening (the new page's or the new terminal's). It is in the
         /// page's pane, which is the focused pane in each test that uses it: the window gives the keyboard back
@@ -219,7 +250,10 @@ struct NewTabHoldCloseKeyTests {
         try #require(input.isHolding(in: window) && probe.typed.isEmpty, "the line is not held: probe \"\(probe.typed)\", \(input.log)")
         try #require(window.firstResponder === probe, "the keyboard left the probe before the hold ended (first responder \(String(describing: window.firstResponder)))")
 
-        try body(Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token, other: other))
+        let held = Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token, other: other)
+        let end = Result { try body(held) }
+        await held.sentLater.settle() // before the teardown (the `defer` above)
+        try end.get()
     }
 
     /// What every test here needs from the end of a hold: it is over, and the old view got no key.
@@ -279,6 +313,7 @@ struct NewTabHoldCloseKeyTests {
             // The control: the router's menu-pick hold takes a key now. If not, the notice did not reach it, and the
             // asserts below are true for a wrong reason.
             let tracks = held.services.keyRouter.menuPickKeys.capture(control)
+            if tracks { held.sentLater.owes(control) }
             held.passTheLimit()
             // global-notice-allow: the end of the same menu, in the same call as its begin (see above)
             NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
@@ -307,6 +342,7 @@ struct NewTabHoldCloseKeyTests {
             NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
             let taken = router.interceptKeyDown(typed, in: held.window)
             let inTheNewTabHold = holdKeys()
+            if taken, inTheNewTabHold == 4 { held.sentLater.owes(typed) } // the menu-pick hold has it
             // global-notice-allow: the end of the same menu, in the same call as its begin (see above)
             NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
             #expect(taken, "the router did not take a key typed while a menu tracked (hold log \(held.input.log))")
@@ -339,6 +375,7 @@ struct NewTabHoldCloseKeyTests {
             NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
             // The control: the router's menu-pick hold takes a key now. If not, the asserts below are true for a wrong reason.
             let tracks = held.services.keyRouter.menuPickKeys.capture(control)
+            if tracks { held.sentLater.owes(control) }
             // The field reports ready, as the page does (`NewTabPage.open`).
             held.input.acknowledge(held.token, in: held.window)
             let reachedThePage = gestures.isAvailable

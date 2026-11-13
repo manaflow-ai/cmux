@@ -201,6 +201,49 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False}, "Info.plist")
         self.assertIn("privacy.purpose-string", self.rules(lint))
 
+    def manifests(self, app: list[str], **extensions: list[str]) -> None:
+        def body(categories: list[str]) -> str:
+            return plistlib.dumps({"NSPrivacyTracking": False, "NSPrivacyAccessedAPITypes": [
+                {"NSPrivacyAccessedAPIType": c, "NSPrivacyAccessedAPITypeReasons": ["X.1"]} for c in categories]}).decode()
+        write(self.root, "cmux-next-ios/App/PrivacyInfo.xcprivacy", body(app))
+        for name in ("NotificationContent", "NotificationService"):
+            if name in extensions:
+                write(self.root, f"cmux-next-ios/{name}/PrivacyInfo.xcprivacy", body(extensions[name]))
+
+    def privacy_rules(self) -> set[str]:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_privacy_manifests()
+        return self.rules(lint)
+
+    def test_a_required_reason_api_the_manifest_omits_blocks(self) -> None:
+        # ITMS-91053: PreviewStorage read free space with no DiskSpace entry (2026-11-12).
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileArtifacts/PreviewStorage.swift",
+              "let v = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])\n")
+        self.manifests([], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+        self.manifests(["NSPrivacyAccessedAPICategoryDiskSpace"], NotificationContent=[], NotificationService=[])
+        self.assertEqual(self.privacy_rules(), set())
+
+    def test_an_extension_without_its_own_manifest_blocks(self) -> None:
+        self.manifests([], NotificationContent=[])
+        self.assertIn("privacy.manifest", self.privacy_rules())
+
+    def test_an_extensions_manifest_covers_its_own_sources(self) -> None:
+        write(self.root, "cmux-next-ios/NotificationService/NotificationService.swift", "let d = UserDefaults.standard\n")
+        self.manifests(["NSPrivacyAccessedAPICategoryUserDefaults"], NotificationContent=[], NotificationService=[])
+        self.assertIn("privacy.required-reason", self.privacy_rules())
+
+    def test_local_network_without_bonjour_browsing_needs_no_bonjour_services(self) -> None:
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertNotIn("privacy.bonjour", {f.rule for f in lint.findings})
+        write(self.root, "cmux-next-ios/App/Find.swift", "let b = NWBrowser(for: .bonjour(type: \"_x._tcp\", domain: nil), using: .tcp)\n")
+        lint = gate.Lint(self.root, "appstore")
+        lint.check_info_plist({"ITSAppUsesNonExemptEncryption": False,
+                               "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network."}, "Info.plist")
+        self.assertIn("privacy.bonjour", {f.rule for f in lint.findings})
+
     def test_vpn_entitlement_blocks_only_the_app_store_lane(self) -> None:
         ents = {"com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]}
         store = gate.Lint(self.root, "appstore")
