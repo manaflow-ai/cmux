@@ -15,6 +15,8 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     fedMode: false,
     disposed: false,
     rows: new OrderedRows(),
+    // The rail's indexed prompt slots, which every row publish reads (#42298).
+    indexedPlaceholders: new Map(),
     sessions: [],
     askedSessions: [],
     asks: { sessions: () => undefined, list: () => [], listGrouped: () => [] },
