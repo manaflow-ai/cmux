@@ -2,7 +2,9 @@
 //! acpmux, the Cloud receiver and `cmux host` itself, plus cmux-tui-hook)
 //! on the newest feat-cmux-next build by itself, with no image bake in the
 //! way (plans/cmux-next/vm-image.md 4.5). The image is a cache: a machine
-//! from a stale image only boots one update later.
+//! from a stale image only boots one update later. Its first start, and the
+//! `Bound` of its new id, take no hold ([`role::role_start`]), so it takes
+//! the channel's build at its first check when nothing is attached.
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on

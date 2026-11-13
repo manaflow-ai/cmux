@@ -437,11 +437,13 @@ struct Worker {
 pub struct UpdaterRole {
     paths: Paths,
     worker: Option<Worker>,
+    /// A new machine's id until its first `Bound` ([`bound_takes_hold`]).
+    new_machine: Option<String>,
 }
 
 impl UpdaterRole {
     pub fn new(paths: Paths) -> Self {
-        Self { paths, worker: None }
+        Self { paths, worker: None, new_machine: None }
     }
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
@@ -495,7 +497,14 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        start_hold(&self.paths, wall_ms(), crate::linux::realtime_minus_boottime_ns());
+        let instance = ctx.instance_id.as_deref().unwrap_or_default();
+        let start = role_start(
+            &self.paths,
+            instance,
+            wall_ms(),
+            crate::linux::realtime_minus_boottime_ns(),
+        );
+        self.new_machine = (start == Start::NewMachine).then(|| instance.to_owned());
         hold_after_restore(&self.paths);
         HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -524,10 +533,15 @@ impl Role for UpdaterRole {
                 // A resume is the machine's own wake; `Bound` is a person's machine.
                 match event {
                     HostEvent::Resumed => {
+                        self.new_machine = None;
                         hold_connects(&self.paths, HoldKind::Resume);
                     }
-                    HostEvent::Bound { .. } => {
-                        hold_connects(&self.paths, HoldKind::Connect);
+                    HostEvent::Bound { instance_id } => {
+                        if bound_takes_hold(&mut self.new_machine, instance_id) {
+                            hold_connects(&self.paths, HoldKind::Connect);
+                        } else {
+                            log("a new machine's own first bind: no connect hold");
+                        }
                     }
                     _ => {}
                 }
@@ -554,13 +568,9 @@ impl Role for UpdaterRole {
 /// takes its own connect hold, and a pause or restore its resume hold, as on
 /// any machine; attached carrier sessions and busy agent turns still hold the
 /// flip. True when it was the own flip's restart.
+#[cfg(test)]
 pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
-    if Gate::new(paths).take_own_flip(now_ms, offset_ns) {
-        log("the restart after this machine's own update: no start hold");
-        return true;
-    }
-    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
-    false
+    start_for(paths, now_ms, offset_ns, false) == Start::OwnFlip
 }
 
 /// What the role's start was ([`role_start`]).
@@ -574,16 +584,64 @@ pub(super) enum Start {
     Cold,
 }
 
-/// The role's start on `instance` at `now_ms`.
+/// The role's start on `instance` at `now_ms` (`realtime - boottime` at
+/// `offset_ns`): the own flip's restart takes no hold ([`start_hold`]), nor
+/// does the first start on a machine an image made. That machine runs the
+/// image's cmux-tui, which can be a roll behind the channel (2026-11-13: the
+/// census first saw 04824385, 7d3458da and 96db467d from new machines on the
+/// images of those pins, one swapping 5m02s later at the end of this hold).
+/// So its first check takes the channel's build at once when nothing is
+/// attached. Any other start (a reboot of the same machine) takes the 5 min
+/// hold as before. A bind or a new carrier session after it takes its own
+/// connect hold, and an attached session or a busy turn still holds the flip.
 pub(super) fn role_start(paths: &Paths, instance: &str, now_ms: u64, offset_ns: i128) -> Start {
-    let _ = instance;
-    if start_hold(paths, now_ms, offset_ns) { Start::OwnFlip } else { Start::Cold }
+    start_for(paths, now_ms, offset_ns, record_start_on(paths, instance))
 }
 
-/// Whether the `Bound` of `instance` takes the connect hold.
-pub(super) fn bound_takes_hold(new_machine: &mut Option<String>, instance: &str) -> bool {
-    let _ = (new_machine, instance);
+/// [`role_start`] once it knows whether this is a new machine's first start.
+fn start_for(paths: &Paths, now_ms: u64, offset_ns: i128, new_machine: bool) -> Start {
+    if Gate::new(paths).take_own_flip(now_ms, offset_ns) {
+        log("the restart after this machine's own update: no start hold");
+        return Start::OwnFlip;
+    }
+    if new_machine {
+        log("the first start on this machine (an image made it): no start hold");
+        return Start::NewMachine;
+    }
+    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    Start::Cold
+}
+
+/// Records `instance` as the machine the updater started on
+/// ([`super::STARTED_ON_FILE`]): true when the record named another, or none.
+fn record_start_on(paths: &Paths, instance: &str) -> bool {
+    let file = paths.at(super::STARTED_ON_FILE);
+    let before = fs::read_to_string(&file).ok();
+    if before.as_deref().map(str::trim) == Some(instance) {
+        return false;
+    }
+    let written = (|| {
+        if let Some(dir) = file.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let part = file.with_extension("part");
+        fs::write(&part, format!("{instance}\n"))?;
+        fs::rename(&part, &file)
+    })();
+    if let Err(e) = written {
+        // Unrecorded, the next start finds another id again: a cold start
+        // keeps its hold only when this one could not say it was new.
+        log(&format!("could not record the machine it started on: {e}"));
+        return false;
+    }
     true
+}
+
+/// Whether the `Bound` of `instance` takes the connect hold: not the first one
+/// of a new machine's own id (`new_machine`, taken here), which is that
+/// machine coming up from its image, not a person's link; every later one does.
+pub(super) fn bound_takes_hold(new_machine: &mut Option<String>, instance: &str) -> bool {
+    new_machine.take().as_deref() != Some(instance)
 }
 
 /// Waits `d` or until a message: false when the role stops.

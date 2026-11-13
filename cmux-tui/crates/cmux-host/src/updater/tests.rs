@@ -2289,7 +2289,7 @@ fn a_machine_an_image_made_takes_the_channel_build_at_its_first_start() {
     let paths = Paths::new(dir.path());
     let now = role::wall_ms();
     assert_eq!(role::role_start(&paths, INSTANCE, now, FLIP_OFFSET_NS), role::Start::NewMachine);
-    let id = format!("new-machine/{}#1", now);
+    let id = format!("new-machine/{now}#1");
     let (gated, _) = role::flip_in_gate(
         &paths,
         || now + 2_000,
