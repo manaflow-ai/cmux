@@ -136,6 +136,7 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
+  disclosureChevron,
   children,
 }: {
   tool: Tool;
@@ -150,6 +151,7 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
+  disclosureChevron?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -178,6 +180,7 @@ function SessionCard({
       queued={live?.queued}
       disclosure={disclosure}
       disclosureKey={disclosureKey}
+      disclosureChevron={disclosureChevron}
       findItems={findItems}
       // The row is the session's name by its harness's mark, no "Started sub-session" in front of it
       // (design/chat-transcript.md: no narration, the icon names the type; transcript audit HQ#5154).
@@ -202,6 +205,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
       disclosure={true}
+      disclosureChevron={false}
       disclosureKey={`subsession-start:${tool.id}`}
     >
       {call.prompt && <CardCopy text={call.prompt} />}

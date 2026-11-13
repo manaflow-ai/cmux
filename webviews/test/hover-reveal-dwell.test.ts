@@ -166,10 +166,9 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     return trace;
   };
 
-  const ROWS = [
-    { name: "a prompt's time and Copy", row: ".cv-user", control: ".cv-user__actions" },
-    { name: "a reply's time", row: ".acpmux-turnSummary", control: ".cv-turn-time" },
-  ];
+  // A reply's footer has no hover control left: its time is gone (the Codex app shows none; Lawrence,
+  // 2026-11-11 standup) and its buttons show at rest. The prompt's row is the case.
+  const ROWS = [{ name: "a prompt's time and Copy", row: ".cv-user", control: ".cv-user__actions" }];
 
   for (const { name, row, control } of ROWS) {
     test(`${name}: an 80 ms brush peaks faint and reverses, with no flash to full`, async () => {

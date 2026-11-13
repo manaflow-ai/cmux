@@ -18,11 +18,11 @@ import sys
 from pathlib import Path
 
 from test_ci_nightly_push_throttle import NEXT_ENV, run_decide
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = nightly_text()
+TEXT = write_out_step_aliases(nightly_text())
 FOUR = ["appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"]
 
 
