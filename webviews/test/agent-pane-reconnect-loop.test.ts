@@ -99,4 +99,6 @@ test("a connection that stayed up is reconnected at once when it drops, whatever
     next: RETRY_FIRST_MS * 2,
   });
   expect(lostRetryDelay(2_000, CONNECTION_STABLE_MS - 1)).toEqual({ wait: 2_000, next: 4_000 });
+  // After a long outage before the first connect, a quick drop still waits at most the cap.
+  expect(lostRetryDelay(64_000, 100)).toEqual({ wait: FLAP_RETRY_MAX_MS, next: FLAP_RETRY_MAX_MS });
 });

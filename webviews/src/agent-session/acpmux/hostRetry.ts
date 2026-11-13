@@ -86,7 +86,9 @@ export const FLAP_RETRY_MAX_MS = 10_000;
 /// connected, while the backoff stood at `delay`, and the backoff after it. Never start the backoff
 /// over at a connect: only a connection that stayed up does (agent-pane-reconnect-loop.test.ts).
 export function lostRetryDelay(delay: number, upForMs: number): { wait: number; next: number } {
-  const wait = upForMs >= CONNECTION_STABLE_MS ? RETRY_FIRST_MS : Math.max(delay, RETRY_FIRST_MS);
+  // Capped too: the handshakes before a first connect may have backed off far past it (a long outage).
+  const wait =
+    upForMs >= CONNECTION_STABLE_MS ? RETRY_FIRST_MS : Math.min(Math.max(delay, RETRY_FIRST_MS), FLAP_RETRY_MAX_MS);
   return { wait, next: Math.min(wait * 2, FLAP_RETRY_MAX_MS) };
 }
 
