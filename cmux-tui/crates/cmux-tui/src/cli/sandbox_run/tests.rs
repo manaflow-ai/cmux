@@ -115,7 +115,7 @@ fn the_receipt_reads_reply_first_then_status_time_cost_and_cleanup() {
     let failed = json!({ "status": "failed", "timedOut": true, "timings": {}, "cost": { "vmSeconds": null, "estimateUsd": null }, "cleanup": "pending", "error": "timed out" });
     assert_eq!(
         receipt_text(&failed, messages),
-        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: destroy pending (the reaper finishes it)"
+        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: delete pending (cmux keeps trying while the app runs)"
     );
     assert_eq!(exit_code(&failed), 1);
     // A cancelled receipt (the deadline cancel's answer) exits 1 like a failed one; 4 is only

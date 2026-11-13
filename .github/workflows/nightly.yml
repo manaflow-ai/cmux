@@ -3331,9 +3331,12 @@ jobs:
           BUILD_SHA: ${{ steps.build.outputs.build_sha }}
           ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: bash scripts/ci/nightly-steps/chief-input-key.sh
+      # A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer
+      # push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047
+      # of the older c31b2b678). It runs before any build job starts. A push run leaves it only with the variable.
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
-        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'
+        if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '')
         env:
           GH_TOKEN: ${{ github.token }}
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
@@ -7210,6 +7213,13 @@ jobs:
       - *x15
       - *x16
       - *x17
+      # The notices read no build output (git fetches of the pinned crates' sources, cargo tree): 95-134 s after the
+      # Release build in runs 43390156751 and 43395323737. They run beside it into the hand-off the notices step takes.
+      - name: Start the third-party notices (they need no build output)
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+        run: bash scripts/ci/nightly-steps/app-third-party-notices.sh start
       - *x18
       - *x19
       - *x20
@@ -7232,6 +7242,11 @@ jobs:
       - *x35
       - *x36
       - *x37
+      # A failed background run packs no hand-off: the notices step then generates them itself, as before.
+      - name: Finish the third-party notices
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        continue-on-error: true
+        run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" notices
       - *x38
       - *x39
       - *x40

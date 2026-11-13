@@ -516,6 +516,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     static let openBytes = 128 * 1024
     /// Each older page's byte cap (``loadEarlierHistory()``, as the reader scrolls up).
     static let olderBytes = 256 * 1024
+    /// A tool call record past this goes in a page with its output cut to its head
+    /// (`toolOutputMaxBytes`, cmux-tui acpmux `hub/tool_output_cut.rs`), and is read whole when
+    /// the person opens the output (``fullToolOutput(_:)``). A page always carries its records
+    /// whole, so one 2 MB command log was a page nine times its byte cap, on the wire and in the
+    /// parse. An older Mac ignores it and sends the record whole, as before.
+    static let toolOutputMaxBytes = 64 * 1024
     /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
     /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
     /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
@@ -1374,6 +1380,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return data
     }
 
+    /// The whole record of a tool output the Mac sent cut (``ACPToolOutputCut``): that one seq,
+    /// read with no cut, decoded off the main actor. Nil when the link is down, the read fails or
+    /// the record is no tool call; the next open of the output asks again.
+    public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? {
+        guard cut.seq > 0, let hub, hub.isReady else { return nil }
+        guard let reply = try? await hub.request("_acpmux/events", .object([
+            "sessionId": .string(sessionID), "afterSeq": .number(Double(cut.seq - 1)), "limit": .number(1),
+        ]), timeout: Self.pageTimeout),
+              let record = reply["events"]?.arrayValue?.first,
+              record["seq"]?.numberValue == Double(cut.seq) else { return nil }
+        let mapper = records
+        return await Task.detached(priority: .userInitiated) { mapper.toolCallUpdate(in: record) }.value
+    }
+
     /// Recorded prompt images read this launch, by acpmux id (the newest few: bubbles scroll back).
     private var imageCache: [String: Data] = [:]
     private var imageCacheOrder: [String] = []
@@ -1608,6 +1628,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             ]
             if read.firstAttach {
                 params["maxBytes"] = .number(Double(openBytes))
+                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
             } else {
                 params["afterSeq"] = .number(Double(read.after))
                 if read.allowGap, !read.fromKept {
@@ -1617,6 +1638,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // open reads, not every record it missed.
                     params["beforeSeq"] = .number(tailBeforeSeq)
                     params["maxBytes"] = .number(Double(openBytes))
+                    params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
                 }
                 // From kept records the read stays forward: a gap past one page drops the kept
                 // copy (`keptTooOld`) instead of filling in behind it.
@@ -1780,7 +1802,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     page = try await hub.request("_acpmux/events", .object([
                         "sessionId": .string(sessionID), "afterSeq": .number(Double(fill.cursor)),
                         "limit": .number(Double(Self.pageSize)), "maxBytes": .number(Double(Self.gapBytes)),
-                        "kinds": Self.kinds(hub),
+                        "toolOutputMaxBytes": .number(Double(Self.toolOutputMaxBytes)), "kinds": Self.kinds(hub),
                     ]), timeout: Self.pageTimeout)
                 } catch {
                     if self?.generation == generation {
@@ -2095,7 +2117,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             while true {
                 let reply = try await hub.request("_acpmux/events", .object([
                     "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
-                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": kinds(hub),
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)),
+                    "toolOutputMaxBytes": .number(Double(toolOutputMaxBytes)), "kinds": kinds(hub),
                 ]), timeout: pageTimeout)
                 var events = reply["events"]?.arrayValue ?? []
                 let hasMore = reply["hasMore"] == .bool(true)
