@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43383200847",
+  "recorded_at": "2026-11-13T07:14:23Z",
+  "reason": "cmux-tui d33b7e7101f7 changes the image's cmux-tui (pinned fec133ada624)",
+  "dry_run": false,
+  "cmux_tui": "d33b7e7101f7410ee0db69a400494dc0b96a49f3",
+  "fixes": [
+    {
+      "sha": "8502ce6c6024a7d0590009dabd943db679c36bce",
+      "mergedAt": "2026-11-13T00:39:21-06:00",
+      "subject": "fix(home): a person's oversized send goes as a text file; the Not Delivered mark opens Try Again and Delete"
+    },
+    {
+      "sha": "e0e4a783254448be5d362f0390204f1f21cc6281",
+      "mergedAt": "2026-11-13T00:39:15-06:00",
+      "subject": "test(home): oversized person send must commit as a text file (red)"
+    },
+    {
+      "sha": "a99381f0f8de3067a56ab4b0ef40dc1134094f92",
+      "mergedAt": "2026-11-13T00:36:39-06:00",
+      "subject": "cmux-host: the restart gate's and the updater's flocks unlock before they close"
+    },
+    {
+      "sha": "44ee78bcf2faa3d6093d718fc00ec1e5480fe27a",
+      "mergedAt": "2026-11-13T00:36:39-06:00",
+      "subject": "cmux-host tests: a dropped gate lock and updater lock are free while a forked child keeps its descriptor (red)"
+    },
+    {
+      "sha": "86d4ecb3ac4cda5ad34c995c5a0d5693464f3bdd",
+      "mergedAt": "2026-11-12T22:36:17-08:00",
+      "subject": "acpmux tests: the held-home lint resolves paths as Rust does and fails closed (#42003 F1, #42139 F1) (#42352)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T07:14:23Z",
+    "snapshot_id": "sh-5f2db2133f9f4033b531f8b82dc679a8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43383200847): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "44b30483c9dbd381c3e5ba58073c881bd3bf0b71",
+    "image": "cloud-native-auto-d33b7e71-43383200847-1",
+    "revision": "ci-43383200847-1",
+    "at": "2026-11-13T07:14:23Z"
+  },
+  "rolled_back": false
+}
