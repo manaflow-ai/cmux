@@ -153,7 +153,7 @@ import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
 import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
-import { errorMessage, startCancelled } from "./transportErrors";
+import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
@@ -5215,9 +5215,11 @@ export class AcpmuxDirectClient {
       return;
     this.stopAfterSeq = undefined;
     this.stoppingEnded();
-    const reason =
-      typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
-    this.transient(translate("queue.stopRefused", { reason }));
+    // acpmux's message is English for its CLI ("only the owner can stop this session"): the log
+    // keeps it, and the toast says a reason only when the pane words that reason itself.
+    const reason = knownRefusalText({ reason: params.reason, code: params.code });
+    console.warn("agent pane: acpmux refused Stop", params.message ?? params.reason);
+    this.transient(reason ? translate("queue.stopRefused", { reason }) : translate("queue.stopRefusedPlain"), "error");
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -10685,7 +10687,7 @@ export class AcpmuxDirectClient {
         // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
         await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
           (error: unknown) => {
-            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+            this.notice(switchFailedText("mode", held.modeId, error));
           },
         );
       }
@@ -13538,7 +13540,8 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.transient(errorMessage(error) || String(error));
+      console.warn("agent pane: taking over the session failed", error);
+      this.transient(knownRefusalText(error) ?? translate("watch.takeOverFailed"), "error");
       return false;
     }
   }
@@ -13559,14 +13562,15 @@ export class AcpmuxDirectClient {
   }
   /// Where feedback on a click goes (App.tsx: the pane's toasts, paneToasts.ts). Unset (a test, a
   /// client with no pane), it is a transcript line as before.
-  toastSink: ((text: string) => void) | undefined;
+  toastSink: ((text: string, kind?: "error") => void) | undefined;
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
-  /// agent refused, a take-over that failed): a toast, never a transcript line.
-  transient(text: string): void {
+  /// agent refused, a take-over that failed): a toast, never a transcript line. `kind: "error"`
+  /// draws a failure as one.
+  transient(text: string, kind?: "error"): void {
     // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
     // about a pane that is gone: neither the new pane's toasts nor a line.
     if (this.closed) return;
-    if (this.toastSink) this.toastSink(text);
+    if (this.toastSink) this.toastSink(text, kind);
     else this.notice(text);
   }
   /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
@@ -13848,8 +13852,13 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {
         // Feedback on the person's Fork: a toast, never a transcript row (review of #37629).
-        const reason = errorMessage(error) || undefined;
-        this.transient(reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"));
+        // The pane's own reason when it knows one (a refusal it words); acpmux's text goes to the log.
+        const reason = knownRefusalText(error);
+        if (!reason) console.warn("agent pane: fork failed", error);
+        this.transient(
+          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+          "error",
+        );
       }
       return undefined;
     } finally {
