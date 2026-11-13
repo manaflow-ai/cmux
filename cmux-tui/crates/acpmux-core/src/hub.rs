@@ -1127,6 +1127,9 @@ mod tests {
         match &batch[0].1 {
             PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
             PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
+            PendingUpdate::Origin { .. } | PendingUpdate::Takeover { .. } => {
+                panic!("origin update occupied summary slot")
+            }
         }
     }
 
