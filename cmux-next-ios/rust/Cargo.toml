@@ -55,3 +55,8 @@ smoltcp = { path = "../../cmux-tui/vendor/smoltcp" }
 
 [profile.release]
 lto = "off"
+# The Mac app ships cmux-mobile-host at Contents/Resources/bin; its symbol table is
+# about 1 MB there and nothing reads it (no panic-log backtraces, no dSYM). Only that
+# binary: uniffi library mode reads the FFI dylib's symbols (build-xcframework.sh).
+[profile.release.package.cmux-mobile-host]
+strip = true
