@@ -144,12 +144,6 @@ public nonisolated enum SidebarTunables {
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
-    /// One list (`sidebar.groupByComputer` off) draws a quiet "Workspaces" heading over its rows, as the Codex sidebar
-    /// heads its list "Recents" (https://github.com/manaflow-ai/cmux/issues/39956). Off draws the bare list (cx-mdo0).
-    public static let listHeading = Tunable<Bool>.toggle(
-        "sidebar.listHeading", .sidebar, "Workspaces heading over the list",
-        help: "Draws a quiet Workspaces heading over the sidebar's one workspace list, as the Codex sidebar heads its list. Off: the list starts with its first row.",
-        default: true, code: "SidebarTunables.listHeading")
 
     /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
     /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956). Off by default: the sidebar is the
@@ -273,7 +267,6 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
-            listHeading.descriptor,
             surfaceDimDark.descriptor,
             surfaceDimLight.descriptor,
             laneStatus.descriptor,

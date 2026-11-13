@@ -34,7 +34,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverflowButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/CmuxOverlayModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SignInButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/ThemedSpinner+SwiftUI.swift
