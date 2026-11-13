@@ -94,7 +94,7 @@ fn retain(value: Option<&mut Value>, keys: &[&str]) {
     }
 }
 
-fn extra(row: &Map<String, Value>) -> Value {
+fn selected_extra(row: &Map<String, Value>) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
         .filter(|(key, value)| {
@@ -121,7 +121,11 @@ fn extra(row: &Map<String, Value>) -> Value {
             retain(Some(warning), &["text"]);
         }
     }
-    let mut value = Value::Object(values);
+    Value::Object(values)
+}
+
+fn extra(row: &Map<String, Value>) -> Value {
+    let mut value = selected_extra(row);
     cut_values(&mut value);
     value
 }
@@ -228,13 +232,18 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     summary = summary.prepare()?;
     let mut local = Form { row: summary, extra: extra(row) };
 
-    // v1 recognizes a summary by these three keys. Keep them on the temporary
+    // Mask before cutting: a text boundary must not leave a partial secret.
+    // v1 bounds the scan itself. It recognizes a summary by these three keys.
+    // Keep them on the temporary
     // mask input, then convert the result to the same typed Summary shape.
-    let mut mask_input = local.extra.as_object().cloned().unwrap_or_default();
+    let mut mask_input = selected_extra(row).as_object().cloned().unwrap_or_default();
     mask_input.insert("sessionId".into(), Value::String(local.row.chat_id.clone()));
     mask_input.insert("harness".into(), Value::String(local.row.harness.clone()));
     mask_input.insert("lastSeq".into(), row.get("lastSeq").cloned().unwrap_or(Value::from(0)));
-    mask_input.insert("title".into(), Value::String(local.row.title.clone()));
+    mask_input.insert(
+        "title".into(),
+        Value::String(row.get("title").and_then(Value::as_str).unwrap_or(&meta.name).to_owned()),
+    );
     let masked = crate::server::peer_text::masked(&crate::rpc::Message::Response {
         id: Value::from(0),
         result: Some(Value::Object(mask_input)),
@@ -245,7 +254,14 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
             let mut summary = local.row.clone();
             summary.title =
                 masked.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
-            Some(Form { row: summary, extra: extra(&masked) })
+            cut(&mut summary.title, TEXT_CHARS);
+            summary = summary.prepare()?;
+            let peer_extra = extra(&masked);
+            if summary.title == local.row.title && peer_extra == local.extra {
+                None
+            } else {
+                Some(Form { row: summary, extra: peer_extra })
+            }
         }
         _ => None,
     };
