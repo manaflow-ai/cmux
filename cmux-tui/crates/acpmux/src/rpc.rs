@@ -686,6 +686,20 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
+    // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
+    // also the local app; every change and every ChatGPT call: the unix socket only.
+    pub const MUX_CONNECTIONS: &str = "_acpmux/connections";
+    pub const MUX_CONNECTIONS_ORDER_SET: &str = "_acpmux/connections/order.set";
+    pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
+    pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
+    pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
+    pub const MUX_CONNECTIONS_CHANGED: &str = "_acpmux/connections.changed";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";

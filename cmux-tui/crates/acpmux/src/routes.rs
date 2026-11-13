@@ -99,6 +99,7 @@ fn builtin_routes() -> Vec<Route> {
             account_home: None,
             shadow_of: None,
             disabled: false,
+            provider: None,
         },
         path: PathBuf::new(),
     };
@@ -122,6 +123,7 @@ fn builtin_routes() -> Vec<Route> {
                 account_home: None,
                 shadow_of: None,
                 disabled: false,
+                provider: None,
             },
             path: PathBuf::new(),
         },
@@ -149,6 +151,10 @@ pub enum RouteKind {
     CmuxRouter,
     CustomAnthropic,
     CustomOpenai,
+    /// Sign in with ChatGPT (`crate::chatgpt`): a ChatGPT plan's OAuth login this daemon holds
+    /// and refreshes in `<acpmux home>/chatgpt/<id>.json`. Served only through the inference
+    /// gateway (`_acpmux/connections/chatgpt.token`); a local spawn never runs on it.
+    ChatgptPlan,
 }
 
 impl RouteKind {
@@ -161,6 +167,7 @@ impl RouteKind {
         Self::CmuxRouter,
         Self::CustomAnthropic,
         Self::CustomOpenai,
+        Self::ChatgptPlan,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -173,6 +180,7 @@ impl RouteKind {
             Self::CmuxRouter => "cmux-router",
             Self::CustomAnthropic => "custom-anthropic",
             Self::CustomOpenai => "custom-openai",
+            Self::ChatgptPlan => "chatgpt-plan",
         }
     }
 
@@ -188,7 +196,7 @@ impl RouteKind {
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
-            Self::DirectSubscription => Auth::Subscription,
+            Self::DirectSubscription | Self::ChatgptPlan => Auth::Subscription,
             Self::DirectApiKey => Auth::ApiKey,
             Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
@@ -273,6 +281,27 @@ pub struct RouteFile {
     /// so. A chat bound to it still runs on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disabled: bool,
+    /// The provider an API-key route's key is for (`anthropic`, `openai`, `openrouter`,
+    /// `google`, `xai`; [`PROVIDERS`]). Absent: its family's (claude: anthropic, else openai).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+/// The providers an API-key connection may name (`_acpmux/connections/key.add`).
+pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "xai"];
+
+impl RouteFile {
+    /// The provider this route pays: its own `provider`, a ChatGPT plan's OpenAI, else its
+    /// family's (claude: anthropic, else openai).
+    pub fn provider(&self) -> &str {
+        if let Some(p) = self.provider.as_deref() {
+            return p;
+        }
+        match self.families.first().map(String::as_str) {
+            Some(f) if is_anthropic_family(f) => "anthropic",
+            _ => "openai",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,6 +339,7 @@ impl Route {
         }
         match self.file.kind {
             RouteKind::DirectSubscription | RouteKind::DirectApiKey => true,
+            RouteKind::ChatgptPlan => !is_anthropic_family(family),
             _ => {
                 if is_anthropic_family(family) {
                     self.file.anthropic_base_url.is_some() || self.file.kind.relayed()
@@ -340,6 +370,7 @@ impl Route {
             "accountHome": self.file.account_home,
             "shadowOf": self.file.shadow_of,
             "enabled": !self.file.disabled,
+            "provider": self.file.provider,
             "path": self.path,
         })
     }
@@ -523,6 +554,20 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     if file.kind == RouteKind::CustomOpenai && file.openai_base_url.is_none() {
         return Err(RouteError::BadParams("a custom-openai route needs openaiBaseUrl".into()));
     }
+    if let Some(p) = &file.provider
+        && !PROVIDERS.contains(&p.as_str())
+    {
+        return Err(RouteError::BadParams(format!(
+            "unknown provider {p:?}: one of {}",
+            PROVIDERS.join(", ")
+        )));
+    }
+    if file.kind == RouteKind::ChatgptPlan && (file.secret.is_some() || !file.headers.is_empty()) {
+        return Err(RouteError::BadParams(
+            "a chatgpt-plan route holds no secret or header: its tokens are the daemon's own"
+                .into(),
+        ));
+    }
     crate::route_account::validate(file)
 }
 
@@ -629,6 +674,7 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
             Some(enabled) => !enabled,
             None => params.get("disabled").and_then(Value::as_bool).unwrap_or(false),
         },
+        provider: text("provider"),
     };
     validate(&file)?;
     Ok(file)
@@ -698,6 +744,7 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
             b.chats.retain(|_, r| r != id);
             b.workspaces.retain(|_, r| r != id);
             b.families.retain(|_, r| r != id);
+            b.connection_order.retain(|r| r != id);
             if b.global.as_deref() == Some(id) {
                 b.global = None;
             }
@@ -742,6 +789,13 @@ pub struct Bindings {
     pub workspaces: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub chats: BTreeMap<String, String>,
+    /// The person's connection order (`_acpmux/connections/order.set`); empty: the default
+    /// order (`server/connections.rs`).
+    #[serde(default, rename = "connection_order", skip_serializing_if = "Vec::is_empty")]
+    pub connection_order: Vec<String>,
+    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spread: Option<bool>,
 }
 
 static BINDINGS_LOCK: Mutex<()> = Mutex::new(());
@@ -955,6 +1009,12 @@ pub fn local_router_with(
 
 /// The env a route gives a spawn of `family`.
 pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, RouteError> {
+    if route.file.kind == RouteKind::ChatgptPlan {
+        return Err(RouteError::Unavailable(format!(
+            "route {} is a ChatGPT plan sign-in: it serves Cloud threads through the inference gateway, not a chat on this Mac",
+            route.id
+        )));
+    }
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",

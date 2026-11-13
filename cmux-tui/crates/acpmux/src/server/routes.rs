@@ -178,6 +178,12 @@ pub(super) async fn handle(
             let route = text("routeId").map(str::to_owned);
             if let Some(id) = &route {
                 let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+                // A ChatGPT plan serves Cloud threads through the gateway, never a chat here.
+                if found.file.kind == routes::RouteKind::ChatgptPlan {
+                    return Err(RpcError::invalid_params(format!(
+                        "{id} is a ChatGPT plan sign-in: it serves Cloud threads, not new chats on this Mac"
+                    )));
+                }
                 // A route turned off is no default: new chats would keep running on it.
                 if found.file.disabled {
                     return Err(RpcError::invalid_params(format!(

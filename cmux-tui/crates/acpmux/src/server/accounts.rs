@@ -30,7 +30,7 @@ use crate::rpc::{RpcError, method};
 mod usage;
 
 /// The listed id of the Claude Code CLI's own login (not a route).
-const CLAUDE_LOGIN_ID: &str = "claude-login";
+pub(super) const CLAUDE_LOGIN_ID: &str = "claude-login";
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -95,7 +95,12 @@ fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
 
 /// Whether account `id` of `family` is the one a new chat of that family runs
 /// on: the family binding, else the global one, else the CLI's own login.
-fn is_default(bindings: &routes::Bindings, family: &str, id: &str, builtin: bool) -> bool {
+pub(super) fn is_default(
+    bindings: &routes::Bindings,
+    family: &str,
+    id: &str,
+    builtin: bool,
+) -> bool {
     match bindings.families.get(family).or(bindings.global.as_ref()) {
         Some(bound) => bound == id,
         None => builtin,
@@ -226,15 +231,15 @@ fn set(
 }
 
 #[derive(Default)]
-struct Login {
-    signed_in: bool,
-    plan: Option<String>,
-    email: Option<String>,
+pub(super) struct Login {
+    pub(super) signed_in: bool,
+    pub(super) plan: Option<String>,
+    pub(super) email: Option<String>,
 }
 
 /// A Codex login folder's sign-in: its `auth.json`, and the plan and email
 /// its id token names.
-fn codex_login(folder: &Path) -> Login {
+pub(super) fn codex_login(folder: &Path) -> Login {
     let Ok(text) = std::fs::read_to_string(folder.join("auth.json")) else {
         return Login::default();
     };
@@ -265,7 +270,7 @@ fn codex_login(folder: &Path) -> Login {
 /// or the OAuth account `.claude.json` names (macOS keeps the token in the
 /// Keychain, so the file is all there is to read). The email comes from
 /// `.claude.json`.
-fn claude_login(folder: Option<&Path>) -> Login {
+pub(super) fn claude_login(folder: Option<&Path>) -> Login {
     let Some(home) = dirs::home_dir() else { return Login::default() };
     let (store, file) = match folder {
         Some(folder) => (folder.to_path_buf(), folder.join(".claude.json")),
@@ -331,6 +336,7 @@ mod tests {
             account_home: None,
             shadow_of: None,
             disabled: false,
+            provider: None,
         };
         routes::add(Some(&dir), "claude-key", &file, false).unwrap();
         routes::update_bindings(&state, |b| {
