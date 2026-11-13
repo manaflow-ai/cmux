@@ -46,6 +46,8 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
         return { [weak self] in
             let (stream, continuation) = AsyncStream.makeStream(of: [PaletteTargetOption].self, bufferingPolicy: .bufferingNewest(1))
             // task-owner: this open picker observes machine changes until its page closes.
+            // main-hop-allow: an Observation subscription, not view work: each inventory change emits one
+            // cached snapshot to the palette's scheduled provider; the consumer cancels it on page close.
             let task = Task { @MainActor [weak self] in
                 guard let self else { continuation.finish(); return }
                 await refresh()
