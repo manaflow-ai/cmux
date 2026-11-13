@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43361104352",
+  "recorded_at": "2026-11-13T03:51:28Z",
+  "reason": "cmux-tui 3a8ebdfee96f changes the image's cmux-tui (pinned dd4a8e85a4dc)",
+  "dry_run": false,
+  "cmux_tui": "3a8ebdfee96f53e09d2b687659b1c2b40376366a",
+  "fixes": [
+    {
+      "sha": "3a8ebdfee96f53e09d2b687659b1c2b40376366a",
+      "mergedAt": "2026-11-12T19:09:19-08:00",
+      "subject": "source-scan: rows assert the complete set; an unparsed file fails the scan (#41567 F1/F2) (#42341)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T03:51:28Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
