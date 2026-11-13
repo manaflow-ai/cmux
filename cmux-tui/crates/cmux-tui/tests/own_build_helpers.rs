@@ -28,32 +28,20 @@ fn unique_root() -> PathBuf {
     root.canonicalize().unwrap()
 }
 
-/// Writes `contents` as an executable file through a short-lived `sh`, so no
-/// fork of this test process holds a write descriptor to it (ETXTBSY).
-fn write_executable(path: &Path, contents: &str) {
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_bytes()).unwrap();
-    assert!(child.wait().unwrap().success(), "write {}", path.display());
-}
-
 /// A copy of this build under `dir`, as a second install would place it.
 fn install_build(dir: &Path, name: &str, hook_log: &Path) -> PathBuf {
     fs::create_dir_all(dir).unwrap();
     let exe = dir.join("cmux-tui");
     let source = env!("CARGO_BIN_EXE_cmux-tui");
     if fs::hard_link(source, &exe).is_err() {
-        fs::copy(source, &exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(source), &exe).unwrap();
     }
     fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
-    write_executable(
+    cmux_test_exec::write_executable(
         &dir.join("cmux-tui-hook"),
-        &format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
-    );
+        format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
     exe
 }
 
@@ -210,15 +198,16 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     // execs its own bundled CLI): no pane of these builds may run it.
     let shared_helper = data.join("cmux-tui/bin/cmux-tui-hook");
     fs::create_dir_all(shared_helper.parent().unwrap()).unwrap();
-    write_executable(
+    cmux_test_exec::write_executable(
         &shared_helper,
-        &format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
-    );
+        format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
     // The real `claude`: records what the wrapper gave it, then runs the
     // hook helper the way Claude Code runs a hook command.
-    write_executable(
+    cmux_test_exec::write_executable(
         &fakebin.join("claude"),
-        &format!(
+        format!(
             "#!/bin/sh\nsettings=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --settings ] && settings=$2; shift; done\n\
              \"$CMUX_TUI_HOOK\" claude SessionStart < /dev/null\n\
              out='{}/claude-'\"$OB_TAG\".txt\n\
@@ -226,12 +215,13 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
              mv \"$out.tmp\" \"$out\"\n",
             root.display()
         ),
-    );
+    ).unwrap();
     let user_helper = root.join("user-hook");
-    write_executable(
+    cmux_test_exec::write_executable(
         &user_helper,
-        &format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
-    );
+        format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
     let path = format!("{}:/usr/bin:/bin", fakebin.display());
     let exe_a = install_build(&root.join("build-a"), "build-a", &hook_log);
     let exe_b = install_build(&root.join("build-b"), "build-b", &hook_log);
