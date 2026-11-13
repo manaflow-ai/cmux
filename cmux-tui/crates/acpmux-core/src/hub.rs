@@ -848,15 +848,19 @@ impl Hub {
             {
                 return Err(HubError::InvalidPage);
             }
+            // Validate the complete key family before touching the index or
+            // cold-row provider. Mixed summary/folder requests are rejected
+            // atomically, so an invalid key cannot trigger a partial read.
+            if keys.iter().any(|key| !matches!(key, crate::wire::PageKey::Summary(_))) {
+                return Err(HubError::InvalidPage);
+            }
             let index = self.snapshot();
             let mut rows = Vec::with_capacity(keys.len());
             let mut missing = Vec::new();
             let mut unknown = Vec::new();
             let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
             for key in keys {
-                let crate::wire::PageKey::Summary(key) = key else {
-                    return Err(HubError::InvalidPage);
-                };
+                let crate::wire::PageKey::Summary(key) = key else { continue };
                 let row_key = book_key(key).row;
                 if let Some(row) = index.get_row(&row_key) {
                     rows.push(row);

@@ -221,6 +221,36 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
     assert!(hub.subscribe(&s).is_err());
 }
 
+#[test]
+fn summary_keyed_pages_reject_folder_keys_before_any_lookup() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Probe(Arc<AtomicUsize>);
+    impl crate::hub::PageProvider for Probe {
+        fn row(&self, _: &acpmux_book::index::RowKey) -> std::io::Result<Option<Arc<Summary>>> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(None)
+        }
+    }
+
+    let (hub, _writer) = Hub::new(SummaryIndex::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    hub.set_page_provider(Arc::new(Probe(calls.clone())));
+    let summary = PageKey::Summary(crate::wire::ListKey {
+        origin: "local".into(),
+        chat_id: "missing".into(),
+        last_activity: 0,
+    });
+    let folder = PageKey::Folder(crate::wire::FolderIdentity {
+        origin: "local".into(),
+        folder: "/a".into(),
+    });
+    let mut request = Page::new("summary", "list", PageSide::After, 0);
+    request.keys = Some(vec![summary, folder]);
+    assert!(hub.page(&request).is_err());
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+}
+
 #[tokio::test]
 async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
     use acpmux_book::index::SortedSnapshot;
