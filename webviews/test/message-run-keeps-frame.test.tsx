@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
 // runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
@@ -69,12 +70,8 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { defaultRegistry } = await import("../src/agent-session/acpmux/rows/registry");
 const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let n = 0;

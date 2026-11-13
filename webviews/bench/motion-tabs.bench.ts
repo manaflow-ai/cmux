@@ -16,7 +16,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle } from "./stability";
 

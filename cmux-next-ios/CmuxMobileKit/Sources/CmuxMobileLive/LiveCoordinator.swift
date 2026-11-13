@@ -88,6 +88,8 @@ public final class LiveCoordinator {
     /// before the first look). Without one, WebRTC outside the Mac's network
     /// may fail, and the app says so.
     public internal(set) var relayAvailable: Bool?
+    /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
+    @ObservationIgnored let appearance = MacAppearanceFeed()
     /// The focused Mac's Feed source.
     public var feed: LiveFeed { focused.feed }
     /// The focused Mac's terminal agents' events in the Feed.
@@ -674,6 +676,7 @@ public final class LiveCoordinator {
         guard macID != focusedMacID else { return }
         if let old = focusedMacID { lastShown[old] = ContinuousClock.now }
         focusedMacID = macID
+        appearance.focus(macID: macID)
         if let macID { lastShown[macID] = ContinuousClock.now }
         pairingState = focused.pairingState
         chiefFollowsFocus()
@@ -777,6 +780,8 @@ public final class LiveCoordinator {
     private func closeAllSessions() {
         for id in Array(sessions.keys) { closeSession(id) }
         focusedMacID = nil
+        // The chrome keeps the last Mac's theme (a device look, cached), and no link changes it now.
+        appearance.focus(macID: nil)
         pairingState = .idle
         chiefOffline()
         lastShown = [:]
