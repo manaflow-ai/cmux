@@ -11,7 +11,7 @@ name: cmux-next degenerate lab
 #   - `degenerate-lab-god-small`: god-small.json, the rows the nightly quality report reads with
 #     --god-small (cmuxterm-hq docs/handbook/perf-regresses-on-degenerate-sessions.md: a row fails
 #     over 1.2x), and summary.md;
-#   - `degenerate-lab-results`: every run's JSON, logs, perf report and traces (kept 7 days).
+#   - `degenerate-lab-results`: every run's JSON, logs, perf report and traces (kept 3 days, the cap for Actions artifacts).
 # The quality report (cmux-next-quality-report.yml) fetches the newest god-small.json and posts it in
 # the cmuxterm-hq issue "cmux NEXT nightly quality report". Nothing here gates a build.
 on:
@@ -111,7 +111,7 @@ jobs:
           path: |
             ${{ runner.temp }}/degenerate-lab/god-small.json
             ${{ runner.temp }}/degenerate-lab/summary.md
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: warn
 
       - name: Keep the results
@@ -120,7 +120,7 @@ jobs:
         with:
           name: degenerate-lab-results
           path: ${{ runner.temp }}/degenerate-lab
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: warn
 
       - name: Mark tonight's run done
