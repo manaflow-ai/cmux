@@ -710,6 +710,27 @@ class UnderPython39(unittest.TestCase):
         with self.assertRaisesRegex(scope_resolver.ScopeResolutionError, r"scope.*recursion"):
             scope_resolver.Resolver(tree)
 
+    def test_unsettled_call_signatures_are_uncertain(self):
+        calls = [
+            "__import__('xml.etree.ElementTree', **options)",
+            "__import__('xml.etree.ElementTree', level=level)",
+            "__import__('xml.etree.ElementTree', fromlist=['x'], level=1)",
+            "__import__('xml.etree.ElementTree', *args)",
+            "__import__('xml.etree.ElementTree', unknown=True)",
+            "getattr(sys, 'version_info', default)",
+            "getattr(sys, 'version_info', **options)",
+        ]
+        for call in calls:
+            with self.subTest(call=call):
+                tree = ast.parse("import sys\nvalue = " + call + "\nresult = value\n")
+                resolver = scope_resolver.Resolver(tree)
+                self.assertFalse(resolver.dotted_info(tree.body[-1].value)[1])
+
+    def test_repeated_known_bindings_keep_a_complete_value_set(self):
+        tree = ast.parse("import sys\nvalue = sys\nvalue = sys\nresult = value\n")
+        resolver = scope_resolver.Resolver(tree)
+        self.assertEqual(resolver.dotted_info(tree.body[-1].value), ({"sys"}, True))
+
     def test_import_as_shadowing_is_lexical(self):
         self.scan("import ast as parser\n"
                   "def shadow(parser):\n    return parser.match_case\n"

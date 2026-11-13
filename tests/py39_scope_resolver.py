@@ -502,8 +502,6 @@ class Resolver:
                 break
             held = self.in_handler(o, name, at)
             sites = held if held is not None else o.sites.get(name, [])
-            if len(sites) > 1:
-                complete = False
             for site in sites:
                 got, ok = self._site_value(site, name)
                 out |= got
