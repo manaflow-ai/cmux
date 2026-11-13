@@ -196,7 +196,7 @@ public final class PointerHover: NSObject {
     private static let index = TargetIndex()
     private static var refreshing = false
     private static var pending: [NSWindow] = []
-    /// The process's one observer of key-window changes (tests set its `mainWindow`).
+    /// The process's one observer of key-window changes (tests read what it knows).
     static private(set) var keyObserver: KeyWindowObserver?
 
     /// Recomputes `window`'s hover from the pointer and the current frames: the targets that
@@ -255,9 +255,11 @@ public final class PointerHover: NSObject {
 ///   window server for the topmost window at the pointer once for each target under it (a
 ///   synchronous round trip; 39 main-thread samples of a 10 switch recording). A panel, a sheet or
 ///   a popup of the window is not inside it: it can show over the pointer as it takes the key.
-/// - The key moved to another window: both windows are refreshed, as each notice did before.
+/// - The key moved to another window, or to or from a page window whose window is not known:
+///   both windows are refreshed, as each notice did before.
 /// - A window resigned and no window became key by the end of that pass of the run loop (another
-///   app came to the front): that window is refreshed then, before the pass's frame is committed.
+///   app came to the front): that window is refreshed then, once, in that pass. A become in a
+///   later pass refreshes its window as before.
 ///
 /// Chromium does the same job with one synthesized mouse move after a change
 /// (`Widget::SynthesizeMouseMoveEvent`), not one hit test for each view at each notice.
@@ -268,6 +270,12 @@ public final class PointerHover: NSObject {
 /// their synchronous order.
 @MainActor
 final class KeyWindowObserver {
+    /// A Chromium page window and the window it was a child of, both weak.
+    private struct PageHome {
+        weak var page: NSWindow?
+        weak var window: NSWindow?
+    }
+
     private var observations: [MainActorObservation] = []
     /// The window that resigned key, while no window became key after it.
     private weak var resigned: NSWindow?
@@ -275,10 +283,10 @@ final class KeyWindowObserver {
     private weak var resignedHome: NSWindow?
     /// The end-of-pass read of `resigned` is queued.
     private var settles = false
-    /// The app's main window (`NSApp.mainWindow`; nil with no app, as in a test process). A
-    /// Chromium page window never takes main (`ChromiumPageWindowMain`), so the main window is
-    /// the cmux window the person works in while the key is in one of its pages.
-    var mainWindow: @MainActor () -> NSWindow? = { NSApp?.mainWindow }
+    /// The window each Chromium page window was a child of when a key change last saw it with a
+    /// parent, by the page window's identifier. It keeps no window alive, a window that closes
+    /// leaves it, and each key change that sees the page with a parent writes the entry again.
+    private var homes: [ObjectIdentifier: PageHome] = [:]
 
     fileprivate init() {
         let window: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
@@ -288,13 +296,15 @@ final class KeyWindowObserver {
         observations.append(MainActorObservation(NSWindow.didBecomeKeyNotification, read: window) { [weak self] in
             self?.become($0)
         })
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // A closed window's synthesized pointer must not pass to a new window
-        // that reuses its address.
-        observations.append(MainActorObservation(NSWindow.willCloseNotification, read: window) { closed in
-            if let closed { PointerHover.debugPointers[ObjectIdentifier(closed)] = nil }
+        observations.append(MainActorObservation(NSWindow.willCloseNotification, read: window) { [weak self] in
+            guard let closed = $0 else { return }
+            self?.closed(closed)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // A closed window's synthesized pointer must not pass to a new window
+            // that reuses its address.
+            PointerHover.debugPointers[ObjectIdentifier(closed)] = nil
+            #endif
         })
-        #endif
     }
 
     /// Where the key goes is not known yet: the become of this change posts after the resign, in
@@ -308,6 +318,8 @@ final class KeyWindowObserver {
         resignedHome = home(of: window)
         guard !settles else { return }
         settles = true
+        // A block of the run loop, not a timer and not a job of the main queue: it runs in the
+        // pass that the notice is in (the pass that starts now, when the notice came between two).
         MainRunLoopBlock.perform { [weak self] in self?.settle() }
     }
 
@@ -324,22 +336,46 @@ final class KeyWindowObserver {
         PointerHover.refresh(in: window)
     }
 
-    /// The window `window` is a part of, for the pointer: itself, or the window a Chromium page
-    /// window (`CefNSWindow`) is the content of: its parent, or with no parent the main window.
-    /// Chromium can make a page window key before the fork places it as its window's child, and
-    /// a page that leaves is ordered out, which takes it from its parent (a workspace switch
-    /// between browser tabs); `WindowKeyFamily` reads a page with no parent the same way.
-    /// Nil: a page with no parent and no main window.
+    /// The window `window` is a part of, for the pointer: itself, or for a Chromium page window
+    /// (`CefNSWindow`) the window it is the content of. That is its parent; a page with no parent
+    /// (a page that leaves at a workspace switch is ordered out, which takes it from its parent)
+    /// is the content of the window a key change last saw it in (`homes`). Nil: a page window
+    /// that no key change saw with a parent. The caller then recomputes the hover; nothing is
+    /// guessed from the main window.
     private func home(of window: NSWindow) -> NSWindow? {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return window }
-        var current = window
+        guard let pageClass = NSClassFromString("CefNSWindow"), window.isKind(of: pageClass) else { return window }
+        let key = ObjectIdentifier(window)
+        guard var current = window.parent else { return knownHome(of: window) }
         // A page in a page at most; the bound only stops a cycle.
         for _ in 0..<4 {
-            guard current.isKind(of: pageClass) else { return current }
-            guard let parent = current.parent else { return mainWindow() }
+            guard current.isKind(of: pageClass) else {
+                if homes.count > 32 { homes = homes.filter { $0.value.page != nil && $0.value.window != nil } }
+                homes[key] = PageHome(page: window, window: current)
+                return current
+            }
+            guard let parent = current.parent else { break }
             current = parent
         }
+        homes[key] = nil
         return nil
+    }
+
+    /// The window `page` was a child of when a key change last saw it with a parent, while both
+    /// are open.
+    func knownHome(of page: NSWindow) -> NSWindow? {
+        guard let entry = homes[ObjectIdentifier(page)] else { return nil }
+        // The identifier of a freed window can come again with a new window.
+        guard entry.page === page, let window = entry.window else {
+            homes[ObjectIdentifier(page)] = nil
+            return nil
+        }
+        return window
+    }
+
+    /// `window` closes: as a page it leaves `homes`, and so do the pages that were its.
+    private func closed(_ window: NSWindow) {
+        homes[ObjectIdentifier(window)] = nil
+        homes = homes.filter { $0.value.window !== window }
     }
 
     /// The pass that had a resign ends: with no become since, the key left the app's windows.
