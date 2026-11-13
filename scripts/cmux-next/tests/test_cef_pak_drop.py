@@ -247,6 +247,35 @@ def test_cli_drops_pages_and_sounds_and_leaves_pages_without_maps():
         assert all(after[rid] == data for rid, data in read(source).items() if rid in after)
 
 
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + b"p" * 20
+# The omnibox popup's map lists images/create_images.png (id 20900), which Chromium's
+# native code also loads as a bitmap at startup: dropping it LOG(FATAL)s "Unable to
+# load bitmap image with id 20900" (cef-157.0.0-cmux.48, PR 42293).
+BITMAP_MAP = [("omnibox_popup.html", 20901), ("omnibox_popup_aim.html", 20902),
+              ("omnibox_popup_full.html", 20903), ("images/create_images.png", 20904),
+              ("images/gz.png", 20905), ("animations/native.json", 20906), ("popup.js", 20907)]
+
+
+def test_bitmaps_and_native_lottie_of_a_dropped_page_stay():
+    import gzip
+    binary = macho(sorted(p for p, _ in BITMAP_MAP), [BITMAP_MAP])
+    data = {20901: b"<html>", 20902: b"<html2>", 20903: b"<html3>", 20904: PNG,
+            20905: gzip.compress(PNG), 20906: b"LOTTIE" + b"{}" * 8, 20907: b"js()"}
+    source = pak(sorted(data.items()))
+    with tempfile.TemporaryDirectory() as tmp:
+        path, header, fw = (os.path.join(tmp, n) for n in ("resources.pak", "cef_pack_resources.h", "CEF"))
+        Path(header).write_text(HEADER)
+        Path(fw).write_bytes(binary)
+        Path(path).write_bytes(source)
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), path, header, "--webui", fw],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, done
+        assert "omnibox popup" in done.stdout, done.stdout
+        after = read(Path(path).read_bytes())
+        assert set(after) == {20904, 20905, 20906}, sorted(after)
+        assert all(after[rid] == data[rid] for rid in after)
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
