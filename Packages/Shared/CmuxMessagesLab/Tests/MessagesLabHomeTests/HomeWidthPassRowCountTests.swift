@@ -68,6 +68,7 @@ import Testing
         var out = Drag()
         out.loadedRows = demo.model.liveCount
         var width: CGFloat = 700
+        let measureCalls = demo.measureWindowCalls, measureStarts = demo.measureWindowStarts
         for _ in 0..<30 {
             width -= 4
             let visited = demo.widthRowsVisited, t0 = CACurrentMediaTime()
@@ -76,6 +77,10 @@ import Testing
             out.visited.append(demo.widthRowsVisited - visited)
             out.shownAtOtherWidth += Self.shownAtOtherWidth(demo)
         }
+        // No assert: the count for the PR text. The loop above gives the main queue no turn, so a measure that started
+        // cannot end in it: the calls are how often the rest signal fired in a drag with one width step a frame.
+        print("HOMEWIDTHPASS rows \(rows) in the 30 steps the rest signal asked for the measure of every loaded message"
+              + " \(demo.measureWindowCalls - measureCalls) times, the measure started \(demo.measureWindowStarts - measureStarts) times")
         // The person scrolls to the oldest row at once (no turn of the main queue since the last step, so the exact
         // rows of the resting width are not in): the rows that come on screen are at the transcript's width.
         demo.collection.contentOffset = CGPoint(x: demo.collection.contentOffset.x, y: demo.minOffset)

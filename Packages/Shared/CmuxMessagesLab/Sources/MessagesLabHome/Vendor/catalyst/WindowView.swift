@@ -614,6 +614,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     static var widthRowsDerived = 0
     /// cmux: rows that width passes handed to measuring (bench and test evidence, HomeWidthPassRowCountTests).
     private(set) var widthRowsVisited = 0
+    /// cmux: how often the rest signal asked for the exact rows of every loaded message (`measureWindow`), and how
+    /// often that measure started (one runs at a time). Tests read them.
+    private(set) var measureWindowCalls = 0, measureWindowStarts = 0
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -842,8 +845,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private func measureWindow(width: CGFloat) {
+        measureWindowCalls += 1 // cmux
         guard measuringWidth == nil else { return }
         measuringWidth = width
+        measureWindowStarts += 1 // cmux
         let msgs = store.state.conversation.messages, scale = renderScale
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             MeasureCache.shared.prefetch(msgs, width: width, scale: scale)
