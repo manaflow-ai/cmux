@@ -345,6 +345,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_HARNESS_INVENTORY_WATCH, Run(json!({"enabled": true}))),
         (method::MUX_WATCH, Run(json!({}))),
         (method::MUX_EVENTS, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_ROWS, Run(json!({"sessionId": "$S"}))),
         (
             method::MUX_ATTACHMENT,
             Run(

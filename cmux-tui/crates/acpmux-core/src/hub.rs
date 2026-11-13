@@ -810,6 +810,7 @@ impl Hub {
                 after_key: None,
                 missing,
                 unknown,
+                rest: Vec::new(),
             };
             let frame = Frame::json(FrameKind::Page, &reply)?;
             if frame.encoded_len() > max {
@@ -869,6 +870,7 @@ impl Hub {
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
             unknown: Vec::new(),
+            rest: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {
