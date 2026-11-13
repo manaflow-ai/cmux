@@ -207,3 +207,11 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_vacuum_backlog::/)'
 success-output = "final"
+
+# VEHICLE ONLY (perf/git-status-measure-nomerge never merges): the cost measure of the git
+# children (cmux-tui-core tests/git_cost_measure.rs) prints its rows on stderr, and its 3 states
+# of 30 rounds take minutes in a repository of 50 000 files.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_cost_measure)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
