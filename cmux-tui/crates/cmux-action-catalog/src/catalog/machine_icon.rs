@@ -19,6 +19,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("machineSection", "identity", 0).folder("appearance").label(t("Localizable", "menu.icon.set", "Set Icon…"))], ..SurfacePlan::DEFAULT },
         arguments: &[args::ICON.optional()],
+        palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "machine set-icon",
         ..Action::DEFAULT
@@ -32,6 +33,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "xmark.circle",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("machineSection", "identity", 1).folder("appearance").label(t("Localizable", "menu.icon.remove", "Remove Icon"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "machine clear-icon",
         ..Action::DEFAULT
