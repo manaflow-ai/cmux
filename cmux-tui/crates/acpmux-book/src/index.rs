@@ -417,9 +417,10 @@ impl SummaryIndex {
     }
 
     pub fn from_disk(disk: Option<Arc<DiskSnapshot>>, edition: u32) -> Self {
-        let origins = disk.as_ref().map_or_else(OrdMap::new, |disk| {
-            disk.origins().map(|origin| (origin.id.clone().into(), origin.clone())).collect()
-        });
+        let origins: OrdMap<Arc<str>, OriginRecord> =
+            disk.as_ref().map_or_else(OrdMap::new, |disk| {
+                disk.origins().map(|origin| (origin.id.clone().into(), origin.clone())).collect()
+            });
         let removed_origins = origins
             .values()
             .filter(|origin| origin.state == OriginState::Removed)
@@ -492,7 +493,12 @@ impl SummaryIndex {
     ) -> (Self, ChangedRows) {
         let mut next = self.clone();
         next.disk = Some(snapshot);
-        next.removed_snapshot_seq.retain(|_, seq| snapshot.seq() < *seq);
+        next.removed_snapshot_seq = next
+            .removed_snapshot_seq
+            .iter()
+            .filter(|(_, seq)| snapshot.seq() < **seq)
+            .map(|(id, seq)| (id.clone(), *seq))
+            .collect();
         let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
         (next, retired_shadow)
     }
