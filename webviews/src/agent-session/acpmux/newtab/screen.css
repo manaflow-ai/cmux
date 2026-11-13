@@ -425,9 +425,14 @@
   /* New Tab's box corner: its 20 px at Default, at this scale, so it keeps that roundness at every density and is
      never a full pill (Lucas 2026-11-13). */
   --nt-box-radius: calc(20px * var(--nt-density));
+  /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
+     line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
+     10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
+     smaller text draws a smaller box (test/newtab-input-scale.test.ts) and each look keeps its line's inset. */
+  --nt-text-room: max(1, var(--acpmux-density-text, 1));
   --nt-input-pad-block: max(
     4px,
-    calc((48px * var(--nt-density) - var(--text-content--line-height)) / 2)
+    calc(var(--text-content) * (24 * var(--nt-density) - 10 * var(--nt-text-room)) / (14 * var(--nt-text-room)))
   );
   --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--nt-density)) / 2));
 }
@@ -476,9 +481,6 @@
   width: calc(var(--acpmux-chip-glyph) * 13 / 16);
   height: calc(var(--acpmux-chip-glyph) * 13 / 16);
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
-  /* 1 pt under the box's centre: a solid square reads high beside lowercase names, whose ink sits low in the
-     line (Lucas 2026-11-14: "the folder/project image ... needs to drop by 1pt"). */
-  translate: 0 1px;
 }
 /* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
    inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
@@ -489,15 +491,15 @@
   padding-top: 0;
   padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
 }
-/* A chip's leading glyph (the computer's laptop, the folder) drops 1 pt as a project's picture does (above), so the
-   tray's marks share one line beside its lowercase names (Lucas 2026-11-14: "make sure the laptop icon is aligned"). */
-.nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
+/* A tray chip's leading mark (the folder, the laptop, a project's picture or mark) sits 1 pt under the label's line
+   box, where a lowercase name's ink sits, so the marks and the names share one line (Lucas 2026-11-14: "the
+   folder/project image ... needs to drop by 1pt", "make sure the laptop icon is aligned"). */
+.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
   translate: 0 1px;
 }
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
   align-self: center;
-  margin-inline: auto;
 }
 .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child) > svg {
   width: var(--acpmux-chip-chevron);

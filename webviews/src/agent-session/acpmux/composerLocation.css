@@ -1493,11 +1493,10 @@
      enough of a space at the bottom"). The top and the bottom are always equal. */
   --acpmux-composer-block-inset: var(--grid-composer-block-inset);
   --acpmux-composer-lead-gap: calc(8px * var(--acpmux-density));
-  /* The text, not the controls, moves for optical centering (design/grid.md rule 7). The system font's caps center
-     on its line box and its lowercase's center sits about 0.1 em under them, so the line box rises 0.05 em: the controls'
-     center falls midway between the caps' center and the lowercase's, at every size (Lucas 2026-11-13, measured at Compact: a 1 px drop
-     put the caps 1.5 pt and the lowercase 2.5 pt under the + and Send). A negative drop raises the line. */
-  --acpmux-text-drop: calc(var(--text-content, 14px) * -0.05);
+  /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
+     sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
+     and its ink centers on the box's middle, where the controls are. */
+  --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
 }
 /* The type steps the composer reads, at its density: only the composer's own subtree and New Tab's suggestions
    under it (a portal), not the dock's toasts, asks and lists, which keep the transcript's sizes. */
