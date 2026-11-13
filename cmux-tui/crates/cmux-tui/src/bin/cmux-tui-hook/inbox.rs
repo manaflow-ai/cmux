@@ -13,7 +13,7 @@ use cmux_json::JsonSet as _;
 
 /// Queued messages one hook asks the daemon for, oldest first.
 const PAGE: u64 = 50;
-const DEADLINE: Duration = Duration::from_millis(1500);
+pub(crate) const DEADLINE: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Delivery {
@@ -165,7 +165,7 @@ fn acknowledge_delivered(socket: &Path, terminal: &str, deadline: Instant) -> an
 }
 
 /// One `cmux.protocol/2` request on its own connection.
-pub(super) fn request(
+pub(crate) fn request(
     socket: &Path,
     operation: &str,
     mut params: Value,

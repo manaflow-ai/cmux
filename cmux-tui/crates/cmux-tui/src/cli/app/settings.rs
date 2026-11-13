@@ -9,8 +9,9 @@
 //!   build's key list without a connection (shell completion).
 //! - `schema`: the JSON Schema of the settings file, for editors and agents.
 //! - `validate [FILE]`: the problems the settings owner would report for the
-//!   file (default: the settings file), without the app. Exit 1 when the
-//!   file does not parse or a value is refused.
+//!   file (default: the settings file, which in a cmux terminal is its
+//!   owner's, feature_flags/settings_file.rs), without the app. Exit 1 when
+//!   the file does not parse or a value is refused.
 //!
 //! A few keys have a short CLI name, read as the key by `get`, `set`, `reset` and `unset`
 //! ([`KEY_ALIASES`](super::super::command::KEY_ALIASES)): `cmux config set on cloud` sets `chat.on`, the default `cmux chat` target.
@@ -86,7 +87,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         "validate" => {
             return match args {
                 [] => Ok(AppCommand::Settings(Command::Local(validate(
-                    &cmux_config::config_path(),
+                    &crate::feature_flags::settings_file::path(),
                     false,
                 )))),
                 [file] if !file.starts_with("--") => Ok(AppCommand::Settings(Command::Local(

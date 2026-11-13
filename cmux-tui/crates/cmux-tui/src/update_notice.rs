@@ -271,9 +271,13 @@ pub(crate) fn channel() -> InstallChannel {
 
 /// This process's decision, read from the real environment, policy and settings.
 pub(crate) fn decision(channel: InstallChannel) -> Check {
+    decision_with(channel, crate::feature_flags::settings())
+}
+
+/// [`decision`] with the settings file's document `settings`.
+fn decision_with(channel: InstallChannel, settings: Option<Value>) -> Check {
     let env = |name: &str| std::env::var(name).ok();
     let managed = cmux_config::managed::default_reader(env).read();
-    let settings = crate::feature_flags::settings();
     #[cfg(debug_assertions)]
     let test_registry = env(TEST_URL_ENV).is_some_and(|url| !url.is_empty());
     #[cfg(not(debug_assertions))]
@@ -295,7 +299,12 @@ pub(crate) fn print_on_exit() {
         return;
     }
     let channel = channel();
-    if decision(channel) != Check::Allowed {
+    // The settings file can only turn the notice off, and in a cmux terminal
+    // a client asks its owner which file that is (`cli_settings`): read it
+    // only when nothing else has turned the notice off.
+    if decision_with(channel, None) != Check::Allowed
+        || decision_with(channel, crate::feature_flags::cli_settings()) != Check::Allowed
+    {
         return;
     }
     let Some(cached) = crate::feature_flags::state_root().and_then(|root| read_cache(&root)) else {

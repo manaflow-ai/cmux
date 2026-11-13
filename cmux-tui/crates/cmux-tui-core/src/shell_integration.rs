@@ -224,8 +224,8 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
 }
 
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
-/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`] and the incognito markers a
-/// launch with environment `env` must not inherit.
+/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`], [`OWNER_SETTINGS_FILE_ENV`] and
+/// the incognito markers a launch with environment `env` must not inherit.
 fn keys_to_unset_in_child_from(
     env: &[(String, String)],
     inherited: &dyn Fn(&str) -> Option<String>,
@@ -233,9 +233,20 @@ fn keys_to_unset_in_child_from(
     cmux_pty::UNSET_IN_TERMINAL_CHILDREN
         .iter()
         .copied()
+        .chain(std::iter::once(OWNER_SETTINGS_FILE_ENV))
         .chain(inherited_keys_to_unset_from(env, inherited))
         .collect()
 }
+
+/// `CMUX_NEXT_CONFIG_FILE`: the settings file this owner was started on
+/// (plans/cmux-next/settings-react.md, section 7, item 1). No terminal child
+/// gets it, inherited or passed by a caller: a daemon that a test starts in a
+/// terminal with only its own `HOME` would write this owner's file. The
+/// `cmux` CLI in the terminal asks the owner for the file instead
+/// (`settings.snapshot` `path`). It is not in
+/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`]: a remote workspace's child has
+/// no owner socket to ask, so it keeps the variable.
+const OWNER_SETTINGS_FILE_ENV: &str = cmux_config::CONFIG_OVERRIDE;
 
 fn inherited_keys_to_unset_from(
     env: &[(String, String)],

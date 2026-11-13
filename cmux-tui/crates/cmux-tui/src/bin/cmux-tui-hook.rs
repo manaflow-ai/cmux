@@ -263,7 +263,7 @@ use journal_append::{
 
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
-mod inbox;
+pub(crate) mod inbox;
 
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]

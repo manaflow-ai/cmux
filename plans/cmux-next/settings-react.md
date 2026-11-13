@@ -284,15 +284,27 @@ these from the daemon first:
    its own (an empty value is no value). The client that spawns the owner makes a relative value
    absolute from its own directory, so a restart from another directory keeps the file.
    `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
-   Open, to decide before the app sets the variable: terminal children inherit it from the owner.
-   A test daemon started in a cmux terminal with only `HOME` isolation would then write the
-   user's file, so the review asked to remove it from terminal children
-   (`shell_integration::keys_to_unset_in_child`). But the `cmux` CLI in a terminal finds the
-   owner's file only by that variable: `cmux mcp` and `cmux setup mcp` (`mcp.enabled`,
-   `cli/mcp.rs`), `cmux settings validate` without a file, the version report's cohort and the
-   update notice (`feature_flags::settings`), `remote.ultraMode`. Without it they read the
-   default file while `cmux settings set` writes the owner's file. Not removed yet. One way:
-   those readers ask the owner for `path` first, then the variable goes.
+   Terminal children, done: a terminal child of the owner does not get the variable
+   (`shell_integration::keys_to_unset_in_child`, the four local child launch paths), so a test
+   daemon started in a cmux terminal with only `HOME` isolation writes its own default file, not
+   the owner's. The `cmux` CLI readers in a terminal use one helper
+   (`cmux-tui/crates/cmux-tui/src/feature_flags/settings_file.rs`): `cmux mcp`, `cmux setup mcp`
+   and the workflow runner (`mcp.enabled`), `cmux settings validate` without a file, the version
+   report's cohort and the update notice (`feature_flags::settings`), and `remote.ultraMode`.
+   The rule: the reader's own `CMUX_NEXT_CONFIG_FILE` wins; else, with `CMUX_TUI_SOCKET` or
+   `CMUX_MUX_SOCKET` in its environment, it asks that local owner for `settings.snapshot` `path`
+   once per process, within 1.5 s, and uses it when it is another file than the reader's own
+   default; else the default file. No owner, no answer in time and an answer without `path`
+   (an older owner) also give the default file, and the command does not fail. Outside a cmux
+   terminal nothing is asked. An owner never asks: it keeps the file of its own launch.
+   Tests: `ensure_settings_file.rs` (the reader with the owner's socket, no reachable owner, a
+   terminal child's environment, a second daemon in a terminal).
+   Not removed, still inherited from the daemon: remote workspace children
+   (`cmux-remote` `workspace/process.rs`; that machine has no owner socket to ask) and acpmux
+   agent sessions (acpmux and the helpers it starts read the file by the variable and do not
+   ask). Open: an acpmux daemon that a person starts from a cmux terminal no longer gets the
+   variable and reads the default file; acpmux needs the same ask before the app sets the
+   variable for a non-default file.
    Swift half, to do (no Swift changed yet):
    - Launch: `DaemonLauncher.forApp` gets `CMUX_NEXT_CONFIG_FILE = CmuxConfigFile.launchURL().path`
      in `daemonEnvironment`, always, also for the default file. As read in

@@ -1539,7 +1539,7 @@ fn start_wireguard(
 /// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
 /// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
 fn ultra_setting() -> Option<cmux_wg::UltraMode> {
-    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
+    crate::feature_flags::settings_file::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {

@@ -10,11 +10,12 @@ pub(super) use cmux_tui_core::user_settings::strip_jsonc;
 #[cfg(test)]
 pub(super) use cmux_tui_core::user_settings::{CONFIG_OVERRIDE, path_from};
 
-/// The settings file the app writes: `CMUX_NEXT_CONFIG_FILE`, else
+/// The settings file the app writes: `CMUX_NEXT_CONFIG_FILE`, else the file
+/// of this terminal's owner (feature_flags/settings_file.rs), else
 /// `~/.config/cmux/cmux-next.json` (classic `cmux.json` before the app's
 /// first launch).
 pub(super) fn path() -> PathBuf {
-    cmux_tui_core::user_settings::config_path()
+    crate::feature_flags::settings_file::path_or(cmux_tui_core::user_settings::config_path)
 }
 
 /// `mcp.enabled` as the file says it: `None` when the file or the key is
