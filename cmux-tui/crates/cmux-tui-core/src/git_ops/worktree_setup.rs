@@ -730,6 +730,26 @@ mod ports {
         root.to_string_lossy().into_owned()
     }
 
+    #[cfg(all(test, unix))]
+    mod lock_tests {
+        use super::*;
+
+        /// An allocation lets go of the repository's port lock, also while a child the server
+        /// forked meanwhile has the descriptor: else every other session host's allocation for
+        /// the repository waits for that child.
+        #[test]
+        fn a_dropped_port_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+            let dir = crate::fork_tests::Scratch::new("worktree_ports");
+            let path = dir.path().join("cmux-worktree-ports.json");
+            let held = lock(&path);
+            let keeper = crate::fork_tests::Keeper::fork();
+            drop(held);
+            let free = crate::fork_tests::free(&path.with_extension("lock"));
+            drop(keeper);
+            assert!(free, "a dropped port lock stayed held through a forked child's copy");
+        }
+    }
+
     pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
         let path = path(git_dir)?;
         let _guard = lock(&path);
