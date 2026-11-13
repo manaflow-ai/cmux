@@ -769,6 +769,28 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), a)
         self.assertEqual((work / "shared.txt").read_text(), "three\n")
 
+    def test_dispatch_deepens_when_the_base_is_cut_below_the_merge_base_the_head_reaches_past(self):
+        # #25858 at d834cc3a: the branch forked thousands of commits behind the base and later merged a recent
+        # base commit. The head reached the root through its fork; the base's walk was cut below that merge base,
+        # so the old base history read as the PR's own commits and the Sidebar-Look check judged 600 of them.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(module.FETCH_DEPTH + 10):
+            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        git(seed, "checkout", "-q", "pr")
+        git(seed, "merge", "-q", "--no-edit", "feat-cmux-next")
+        own = commit(seed, {"own.txt": "own\n"}, "the pull request's change after the merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        commit(seed, {"tip2.txt": "tip2\n"}, "the base moves past the merged commit")
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "rev-list", "--no-merges", "HEAD^1..HEAD").split(), [own, self.pr_head])
+
     def test_dispatch_refuses_a_head_that_moved_after_resolve(self):
         work = self.clone()
         result = self.dispatch(work, head="e" * 40)

@@ -197,7 +197,14 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
     cuts = set(shallow.read_text().split()) if shallow.exists() else set()
     behind = ["--not", *bases] if len(bases) == 1 else []
-    return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
+    if cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split()):
+        return False
+    # The base's own history can be cut below the merge base while the head reaches deeper through a branch that
+    # forked long before it (#25858: forked 2,392 commits behind the base, the head reached the root, the base was
+    # cut 5,000 deep, and the Sidebar-Look check judged 600 old commits as the PR's). What HEAD adds over BASE is
+    # what the gates judge; a cut or a root there means the base's walk stopped short of excluding it.
+    judged = git(repo, "rev-list", "--parents", head, "--not", base).stdout.splitlines()
+    return all(len(line.split()) > 1 for line in judged)
 
 
 def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:
@@ -209,7 +216,9 @@ def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> N
         if deep_enough(repo, head, base):
             return
         git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
-    if not deep_enough(repo, head, base):
+    # A deepen can complete the history, and --unshallow refuses a complete repository.
+    shallow = git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
+    if shallow and not deep_enough(repo, head, base):
         git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
 
 
