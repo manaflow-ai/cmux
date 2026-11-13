@@ -158,6 +158,17 @@ fn longest(value: &mut Value) -> Option<&mut String> {
         Value::Object(values) => values
             .iter_mut()
             .filter_map(|(key, value)| {
+                if matches!(key.as_str(), "pullRequests" | "subagentNames")
+                    && let Value::Array(values) = value
+                {
+                    return values
+                        .iter_mut()
+                        .filter_map(|value| match value {
+                            Value::String(text) if text.chars().count() > 1 => Some(text),
+                            _ => None,
+                        })
+                        .max_by_key(|text| text.len());
+                }
                 if shrinkable(key)
                     && let Value::String(text) = value
                 {
