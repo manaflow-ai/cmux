@@ -110,27 +110,33 @@ test("the bubble, its Copy and its editor read `/name`; Edit sends `/$name`, Ret
   await act(async () => button("Copy")!.click());
   expect(copied).toEqual([SHOWN]);
 
-  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter): it sends the prompt as sent.
+  // The completed reply menu resends the prompt as sent, preserving skill dollars.
   expect(button("Retry")).toBeUndefined();
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
-  const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const last = turnView([...rows] as never, new Set())
-    .filter((row) => row.kind === "turnSummary")
-    .at(-1)!;
-  const footerHost = host.ownerDocument.createElement("div");
-  host.ownerDocument.body.append(footerHost);
-  const footerRoot = createRoot(footerHost);
-  act(() =>
-    footerRoot.render(
-      <TurnActionsContext.Provider value={actions}>
-        <TurnFooter row={last} />
-      </TurnActionsContext.Provider>,
-    ),
+  const { sendPromptAgain, sendPromptAgainTarget } =
+    await import("../src/agent-session/acpmux/conversation/sendPromptAgain");
+  const projected = turnView([...rows] as never, new Set());
+  const retryState = {
+    sessionId: "chat-a",
+    selectedSessionId: "chat-a",
+    drawnSessionId: "chat-a",
+    canSend: true,
+    rows: projected,
+    models: [],
+  };
+  const target = sendPromptAgainTarget(retryState)!;
+  await sendPromptAgain(
+    { sessionId: "chat-a", rowId: target.footerId },
+    {
+      read: () => retryState,
+      pickModel: async () => false,
+      restore: async (_rowId, prompt) => prompt,
+      send: async (prompt) => {
+        retried.push(prompt);
+      },
+    },
   );
-  act(() => footerHost.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
   expect(retried).toEqual([SENT]);
-  act(() => footerRoot.unmount());
-  footerHost.remove();
 
   act(() => button("Edit")!.click());
   const editor = host.querySelector("textarea")!;
