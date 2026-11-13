@@ -17,7 +17,7 @@ public final class CloudMoveProgress {
     struct Facts: Encodable, Equatable {
         var direction: Direction, stage: Stage, machine: String?, name: String?, stageMs: UInt64, copy: SeedProgress?
         /// How long the step had run when `copy` came: Rust counts its estimate down from then, and says when it is stale.
-        var copyMs: UInt64? = nil
+        var copyMs: UInt64?
     }
     /// Rust's answer: the line, and how long until it changes on its own.
     struct Line: Decodable, Equatable { var text: String, nextMs: UInt64? }

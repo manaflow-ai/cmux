@@ -2,7 +2,8 @@ import Foundation
 
 /// Update Machine's text (the App's `CloudMachineUpdate`, and the automatic update's reasons,
 /// `CloudMachineUpdateTarget`). Keys live in Resources/Cloud.xcstrings with every app locale.
-public nonisolated enum CloudMachineUpdateStrings {
+public nonisolated struct CloudMachineUpdateStrings {
+    public init() {}
     /// The button on a `machine_outdated` stop's toast.
     public static var button: String {
         String(localized: "cloud.machineUpdate.button", defaultValue: "Update Machine", table: "Cloud", bundle: .module)
