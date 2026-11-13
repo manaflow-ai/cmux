@@ -107,7 +107,7 @@ struct TerminalSizingMacsPage: View {
     }
 
     var body: some View {
-        List {
+        List { Group {
             Section {
                 if macs.isEmpty, store.awaitsAccountData {
                     // The account's Macs are still on their way: not "No Macs.".
@@ -123,6 +123,9 @@ struct TerminalSizingMacsPage: View {
             } footer: {
                 Text("How a terminal is sized when this iPhone and other devices show it at once. Each Mac keeps its own setting.")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Terminal Size When Shared")
     }
@@ -145,8 +148,11 @@ struct TerminalSizingMacPage: View {
     }
 
     var body: some View {
-        List {
+        List { Group {
             HostSizePolicyEditor(model: model)
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("\(title)")
         // Asked again when the Mac's link comes up.
@@ -174,7 +180,7 @@ public struct TerminalConnectedDevicesSheet: View {
 
     public var body: some View {
         NavigationStack {
-            List {
+            List { Group {
                 let presentation = presentation
                 Section {
                     if let grid = presentation.gridTitle {
@@ -209,6 +215,9 @@ public struct TerminalConnectedDevicesSheet: View {
                     }
                 }
                 HostSizePolicyEditor(model: model, presentation: presentation)
+            }
+            // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+            .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Connected Devices")

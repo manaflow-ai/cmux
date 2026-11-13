@@ -32,7 +32,7 @@ struct AccountPage: View {
     @ScaledMetric(relativeTo: .body) private var signInGlyph: CGFloat = 18
 
     var body: some View {
-        List {
+        List { Group {
             if let user = auth.user {
                 // The header card only: name and email once, centered, with
                 // no row background (Apple Account).
@@ -102,6 +102,9 @@ struct AccountPage: View {
             } footer: {
                 Text("Permanently deletes your account and data across all cmux apps.")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
@@ -182,7 +185,7 @@ struct TeamPage: View {
     @State private var members: SettingsLoad<[TeamMember]> = .loading
 
     var body: some View {
-        List {
+        List { Group {
             Section {
                 Button(action: edit) {
                     // Avatars centered on the icon column: every title, header
@@ -238,6 +241,9 @@ struct TeamPage: View {
             }
             }
         }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
+        }
         .settingsPage(LocalizedStringKey(team.name))
         .task(id: team.id) { await loadMembers() }
         .refreshable { await loadMembers() }
@@ -259,7 +265,7 @@ struct TerminalPage: View {
 
     var body: some View {
         @Bindable var settings = settings
-        List {
+        List { Group {
             Section {
                 Stepper(value: $settings.terminalFontSize, in: CmuxMobilePreferences.terminalFontSizes) {
                     SettingsLabel("Font size", symbol: "textformat.size", value: "\(settings.terminalFontSize) pt")
@@ -303,6 +309,9 @@ struct TerminalPage: View {
                 Text("Key clicks follow the silent switch.")
             }
         }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
+        }
         .settingsPage("Terminal")
     }
 }
@@ -312,7 +321,7 @@ struct ComposerPage: View {
 
     var body: some View {
         @Bindable var settings = settings
-        List {
+        List { Group {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
@@ -327,6 +336,9 @@ struct ComposerPage: View {
                 // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
                 Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Composer")
     }
@@ -347,7 +359,7 @@ struct NotificationsPage: View {
 
     var body: some View {
         @Bindable var settings = settings
-        List {
+        List { Group {
             Section {
                 Button {
                     if permission == .notDetermined {
@@ -382,6 +394,9 @@ struct NotificationsPage: View {
                     .accessibilityIdentifier("settings.notifications.macsUnavailable")
                 }
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Notifications")
         .task { await refresh() }
@@ -462,7 +477,7 @@ struct TransportPage: View {
 
     var body: some View {
         @Bindable var settings = settings
-        List {
+        List { Group {
             Section {
                 ForEach(TransportKind.allCases) { kind in
                     Button {
@@ -529,6 +544,9 @@ struct TransportPage: View {
             }
             #endif
         }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
+        }
         .settingsPage("Transport")
     }
 
@@ -579,7 +597,7 @@ struct TransportDetails: View {
 
 struct AcknowledgementsPage: View {
     var body: some View {
-        List {
+        List { Group {
             ForEach(Acknowledgement.groups, id: \.id) { group in
                 Section {
                     ForEach(group.items, id: \.name) { item in
@@ -599,6 +617,9 @@ struct AcknowledgementsPage: View {
                     Text(group.title)
                 }
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Acknowledgements")
     }

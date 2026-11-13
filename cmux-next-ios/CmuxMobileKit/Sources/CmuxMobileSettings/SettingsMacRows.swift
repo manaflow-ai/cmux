@@ -28,7 +28,7 @@ struct LongPressMenusPage: View {
     @State private var hidden = CmuxMobileMenuCustomization.hidden()
 
     var body: some View {
-        List {
+        List { Group {
             ForEach(CmuxMobileMenuCustomization.menus) { menu in
                 Section(menu.title) {
                     ForEach(menu.items) { item in
@@ -52,6 +52,9 @@ struct LongPressMenusPage: View {
             } footer: {
                 Text("Items you turn off leave the long-press menu on this iPhone. The Mac's menus stay as they are.")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Long-Press Menus")
     }

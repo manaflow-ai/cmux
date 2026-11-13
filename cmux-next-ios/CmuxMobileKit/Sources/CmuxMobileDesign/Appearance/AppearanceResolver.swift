@@ -147,7 +147,10 @@ public enum CmuxMobileAppearanceResolver {
         // is drawn once under every screen, and pages and their containers
         // (`cmuxMobilePage()`) let it through. Without one the page is the opaque theme color.
         case .bg, .bgGrouped: return backdrop ? rgba(bg, alpha: 0) : rgba(bg)
-        case .surface, .sheet, .card: return rgba(t.overlayFill)
+        // Rows and cards over a picture let it through at the theme's background-opacity,
+        // as the Mac's panes do (translucency is intended; never an opaque slab).
+        case .surface, .card: return backdrop ? rgba(t.overlayFill, alpha: clamp(t.backgroundOpacity, 0, 1) * t.overlayFill.a) : rgba(t.overlayFill)
+        case .sheet: return rgba(t.overlayFill)
         case .surfaceRaised: return over(t.chromeBackground)
         case .bubble: return chat?.sent.map { CmuxMobileRGBA(hex: $0) } ?? over(t.pressedFill)
         case .onBubble: return chat?.sentText.map { CmuxMobileRGBA(hex: $0) } ?? rgba(t.textPrimary)

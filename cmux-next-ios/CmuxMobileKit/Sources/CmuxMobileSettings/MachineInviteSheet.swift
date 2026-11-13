@@ -25,7 +25,7 @@ public struct MachineInviteSheet: View {
     }
 
     public var body: some View {
-        List {
+        List { Group {
             Section {
                 VStack(spacing: 8) {
                     Text(invite.display)
@@ -54,6 +54,9 @@ public struct MachineInviteSheet: View {
             } footer: {
                 Text("Then confirm the new machine on your Mac when its four words match.")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .navigationTitle("Pair Another Machine")
         .navigationBarTitleDisplayMode(.inline)

@@ -84,7 +84,7 @@ struct DevicesPage: View {
         // rows and the same-name tags).
         let macs = macs
         let rows = DeviceRowContext(sameNames: sameNames, otherBuilds: SettingsDeviceRows.otherBuilds(macs))
-        List {
+        List { Group {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
                     CmuxMobileGutterRow {
@@ -155,6 +155,9 @@ struct DevicesPage: View {
             if let loadError = list.loadError {
                 Section { Text(loadError).font(theme.type.meta).foregroundStyle(theme.colors.danger).cmuxMobileTextColumn() }
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Devices")
         .sheet(isPresented: $scanning) {

@@ -28,7 +28,7 @@ struct ChiefCallsPage: View {
 
     var body: some View {
         @Bindable var preferences = preferences
-        List {
+        List { Group {
             Section {
                 if editing {
                     keyField
@@ -90,6 +90,9 @@ struct ChiefCallsPage: View {
                 LinkRow("Get an API key", symbol: "key", url: "https://platform.openai.com/api-keys")
                 LinkRow("Usage and billing", symbol: "chart.bar", url: "https://platform.openai.com/usage")
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Chief Calls")
         .confirmationDialog("Remove your OpenAI API key?", isPresented: $confirmsRemove, titleVisibility: .visible) {

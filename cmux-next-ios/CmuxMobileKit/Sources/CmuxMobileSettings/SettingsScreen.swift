@@ -64,7 +64,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         @Bindable var settings = settings
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
-            List {
+            List { Group {
                 accountSection.id("top")
                 // Plan: the current plan and the App Store plans screen; nothing
                 // when the root injected no billing model (mock, DEBUG, staging).
@@ -208,6 +208,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 } footer: {
                     VersionFooter().id("bottom")
                 }
+            }
+            // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+            .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
