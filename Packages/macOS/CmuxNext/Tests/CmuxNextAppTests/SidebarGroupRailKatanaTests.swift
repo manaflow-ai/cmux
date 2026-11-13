@@ -69,22 +69,27 @@ import Testing
                 func a(_ x: Int, _ y: Int) -> Int { Int(alpha[y * w + x]) }
                 let body = a(w / 2, h / 2)
                 try #require(body > 64, "\(c): the rail's body is not drawn (alpha \(body))")
-                // Two pixel rows (a quarter point) in from each end, past the edge row's anti-aliasing. Which bitmap end is
-                // the rail's top depends on the context's row order, so each end is read for its shape; that the tip is the
-                // header's end is `SidebarGroupLineShape.body`'s (the path's y 0, the flipped view's top; theRailsTopIsTheKatana).
-                // The katana: the left edge runs square to the tip and the right is cut. The round cap: both sides rounded
-                // off, its middle reaching the end.
+                // Which bitmap end is the rail's top depends on the context's row order, so each end is read for its shape;
+                // that the tip is the header's end is `SidebarGroupLineShape.body`'s (the path's y 0, the flipped view's top;
+                // theRailsTopIsTheKatana). `render(in:)` ignores `maskedCorners` and rounds every corner of the clip, so the
+                // checks read six rows (three quarters of a point) in from each end, past that rounding (fleet step
+                // 09b38faf5197fa34cb5dc6c9 drew the tip's left edge rounded only in the bitmap).
+                // The katana: the right edge cut away while the left is full. The round cap: both sides full there, and
+                // its middle reaching the end row.
+                let inset = 6
                 func isTip(_ row: Int) -> Bool { a(0, row) >= body / 2 && a(w - 1, row) < body / 3 }
-                func isCap(_ row: Int) -> Bool { a(0, row) < body / 3 && a(w - 1, row) < body / 3 && a(w / 2, row) >= body / 2 }
-                let ends = [(tip: 2, cap: h - 3), (tip: h - 3, cap: 2)]
-                if !ends.contains(where: { isTip($0.tip) && isCap($0.cap) }) {
+                func isCap(_ row: Int, end: Int) -> Bool {
+                    a(0, row) >= body / 2 && a(w - 1, row) >= body / 2 && a(w / 2, end) >= body / 2
+                }
+                let ends = [(tip: inset, cap: h - 1 - inset, capEnd: h - 1), (tip: h - 1 - inset, cap: inset, capEnd: 0)]
+                if !ends.contains(where: { isTip($0.tip) && isCap($0.cap, end: $0.capEnd) }) {
                     let dump = (Array(0..<min(h, 8)) + Array(max(0, h - 8)..<h)).map { r in
                         "\(r):" + (0..<w).map { String(format: "%02x", a($0, r)) }.joined(separator: " ")
                     }.joined(separator: " | ")
                     let shape = "w \(w) h \(h) body \(body) rows \(dump)"
                     #expect(shape == "a katana over a round cap", "\(c)")
                 }
-                // Below the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
+                // Past the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
                 let tip = Int((SidebarGroupLineShape.tipLength(width: frame.width) * Self.scale).rounded())
                 #expect(a(w - 1, tip + 2) >= body / 2 && a(w - 1, h - 1 - tip - 2) >= body / 2, "\(c): the rail is not full width past its ends")
             }
