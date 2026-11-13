@@ -21,6 +21,10 @@ import Testing
 // d. chat_reconnect_catch_up   reattach after missing 10 vs 20,000 records until the store shows
 //                              the newest turn (tail-first: the gap fills after, untimed). 150 ms.
 // e. chat_older_page           one scroll-up page of older history. 50 ms.
+// f. chat_scroll_fill          a 60 Hz fling up a chat's history over a phone's link: p95 of each
+//                              frame's time to a filled viewport. 16.7 ms (one frame).
+// g. chat_scroll_fill_ui       the same fling on the transcript list itself (ChatScrollFillUITests.swift,
+//                              iOS): its layout, cells and reloads, not estimated heights. 16.7 ms.
 //
 // The suite is serialized and CI runs this target on its own (no other suite on the cores).
 // Numbers are from a Debug build (`swift test`, `xcodebuild test`), as the kit's tests build.
@@ -274,8 +278,185 @@ struct InstantPerfTests {
         let god = try await older(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_older_page", target: 50, small: small, god: god,
+            // Both sizes halved since the read's records map off the main actor and only those
+            // the page shows (simulator: small 27 to 9 ms, god 50 to 20 ms), but god's first older
+            // page carries the 2 MB log whole: about 10 ms more on the wire and in the parse,
+            // whatever the phone does with it. Next: the Mac sends a page's oversized tool output
+            // cut, with the whole read on tap. Scrolling never waits for this read any more
+            // (`chat_scroll_fill`: it runs four screens ahead).
             knownRed: [.ratio],
-            why: "an older page is up to 256 KiB of whole records (more when one record is larger), decoded and turned into turns before it shows",
+            why: "god's first older page carries a 2 MB tool output whole (256 KiB plus 2 MB on the wire and parsed), small's 256 KiB",
             note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
+    }
+
+    // MARK: Scrolling up (chat_scroll_fill)
+
+    /// The reader the fling moves: where it is, as the list knows it.
+    struct FlingReader {
+        /// The transcript's height on an iPhone, in points.
+        static let viewport: Double = 800
+        /// 60 Hz.
+        static let frame: Duration = .microseconds(16_667)
+        /// A flick's speed, and UIScrollView's normal deceleration (0.998 per ms); a person
+        /// flicks again each time the list slows under `reflick`.
+        static let flick: Double = 8_000
+        static let decay: Double = 0.998
+        static let reflick: Double = 1_000
+        /// Frames in one fling (six seconds of flicking up).
+        static let frames = 360
+        /// The link: a relayed phone's round trip and throughput.
+        static let rtt: Duration = .milliseconds(50)
+        static let bytesPerSecond: Double = 4_000_000
+
+        /// A turn's height as the list draws it, near enough for where its rows are: the prompt
+        /// bubble, each message's lines (about 42 characters a line on a phone) and one row per
+        /// tool call, plan or subagent (collapsed, as history shows them).
+        static func height(_ turn: AgentTurn) -> Double {
+            turn.items.reduce(96) { total, item in
+                if case .message(_, let markdown) = item {
+                    return total + 16 + 22 * (Double(markdown.utf8.count) / 42).rounded(.up)
+                }
+                return total + 52
+            }
+        }
+    }
+
+    /// What the list does on a scroll step (`ChatTranscriptList.scrollViewDidScroll`):
+    /// `screensAbove` is how far the top of the viewport is below the oldest row shown, in
+    /// screens. Within four, the page before it is asked for (``AgentChatStore/readAhead(screensAbove:)``).
+    /// Before the read-ahead, the read started when the oldest row (`session-start`) drew,
+    /// about 46 pt from the top: `if screensAbove * FlingReader.viewport < 46 { store.loadEarlier() }`.
+    static func scrollStep(_ store: AgentChatStore, screensAbove: Double) {
+        store.readAhead(screensAbove: screensAbove)
+    }
+
+    /// One fling up `log` from its newest turn: each 60 Hz frame moves the reader, tells the
+    /// store (`scrollStep`) and is timed to a filled viewport: the step's own work, an older
+    /// page landing on the main actor since the last frame, and, when the viewport passed the
+    /// oldest row shown while the chat holds older ones (a blank or placeholder top), the wait
+    /// for rows; every frame that passes during such a wait counts, at its own wait.
+    static func fling(_ log: AgentChatLog) async throws -> (fills: [Double], blank: Int, pages: Int, screens: Double) {
+        let fake = InstantPerfAcpmux(log)
+        let hub = AcpmuxHub()
+        await hub.bind(fake.channel(rtt: FlingReader.rtt, bytesPerSecond: FlingReader.bytesPerSecond))
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: summary))
+        let newest = try #require(log.lastTurn(before: log.count))
+        let shown = await waitUntil { shows(store, newest) }
+        try #require(shown, "the chat never showed \(newest)")
+        defer { withExtendedLifetime(store) {} }
+
+        let viewport = FlingReader.viewport
+        var heights: [String: Double] = [:]
+        func height(_ turn: AgentTurn) -> Double {
+            if let known = heights[turn.id] { return known }
+            let made = FlingReader.height(turn)
+            heights[turn.id] = made
+            return made
+        }
+        // At the newest turn: the content above the viewport's top.
+        var above = max(store.turns.reduce(0) { $0 + height($1) } - viewport, 0)
+        var oldest = store.turns.first?.id
+        var pages = 0
+        var landed = store.earlierApplyTime
+        /// Older turns that went in above since the last look: the list keeps the reader's
+        /// rows in place, so the reader is that much further from the top.
+        func absorb() -> Double {
+            guard let first = oldest, store.turns.first?.id != first,
+                  let index = store.turns.firstIndex(where: { $0.id == first }) else { return 0 }
+            above += store.turns[..<index].reduce(0) { $0 + height($1) }
+            oldest = store.turns.first?.id
+            pages += 1
+            let applied = store.earlierApplyTime
+            defer { landed = applied }
+            return InstantPerfReport.ms(applied - landed)
+        }
+        // The list's first layout reports where the reader is; a person starts the fling a
+        // moment after the chat shows.
+        scrollStep(store, screensAbove: above / viewport)
+        try await Task.sleep(for: .milliseconds(750)) // test: a person's pause before scrolling
+        _ = absorb()
+
+        var fills: [Double] = []
+        var blank = 0
+        var speed = FlingReader.flick
+        var travelled = 0.0
+        let frameMs = InstantPerfReport.ms(FlingReader.frame)
+        let start = ContinuousClock.now
+        var frame = 0
+        while frame < FlingReader.frames {
+            let due = start + FlingReader.frame * frame
+            try await Task.sleep(until: due, clock: .continuous) // test: the display's next frame
+            let woke = ContinuousClock.now
+            let landing = absorb()
+            // The frame's scroll: UIScrollView's deceleration over one frame.
+            let step = speed * frameMs / 1_000
+            speed *= pow(FlingReader.decay, frameMs)
+            if speed < FlingReader.reflick { speed = FlingReader.flick }
+            above -= step
+            travelled += step
+            scrollStep(store, screensAbove: max(above, 0) / viewport)
+            if above >= 0 || !store.hasEarlierHistory {
+                fills.append(InstantPerfReport.ms(woke.duration(to: .now)) + landing)
+                if above < 0 { break } // the chat's start: the fling is over
+                frame += 1
+                continue
+            }
+            // The viewport passed the oldest row shown: until rows come, it is blank at the top.
+            let came = await waitUntil(.seconds(30)) { store.turns.first?.id != oldest || !store.hasEarlierHistory }
+            #expect(came, "the older page never came")
+            let filled = ContinuousClock.now
+            var waiting = frame
+            while start + FlingReader.frame * waiting < filled {
+                fills.append(InstantPerfReport.ms((start + FlingReader.frame * waiting).duration(to: filled)))
+                blank += 1
+                waiting += 1
+            }
+            // The list stopped at its top while it waited; the rows that came go in above it.
+            above = max(above, 0)
+            _ = absorb()
+            if !came || above < 0 && !store.hasEarlierHistory { break }
+            frame = waiting
+        }
+        await hub.bind(nil)
+        return (fills, blank, pages, travelled / viewport)
+    }
+
+    static func p95(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        guard !sorted.isEmpty else { return .nan }
+        return sorted[max(Int((Double(sorted.count) * 0.95).rounded(.up)) - 1, 0)]
+    }
+
+    @Test("chat_scroll_fill")
+    func chatScrollFill() async throws {
+        func flings(_ log: AgentChatLog) async throws -> (p95s: [Double], blank: Int, pages: Int, screens: Double, worst: Double) {
+            var blank = 0, pages = 0, screens = 0.0, worst = 0.0
+            let p95s = try await InstantPerfReport.sample(runs: min(InstantPerfReport.defaultRuns, 3)) {
+                let run = try await Self.fling(log)
+                blank += run.blank
+                pages += run.pages
+                screens += run.screens
+                worst = max(worst, run.fills.max() ?? 0)
+                return .microseconds(Int64((Self.p95(run.fills) * 1_000).rounded()))
+            }
+            return (p95s, blank, pages, screens, worst)
+        }
+        let small = try await flings(AgentChatFixture.smallPaged)
+        let god = try await flings(AgentChatFixture.god)
+        let target = 16.7
+        InstantPerfReport.record(
+            "chat_scroll_fill", target: target, small: small.p95s, god: god.p95s,
+            // Green since the read-ahead: the older read starts four screens before the top,
+            // and the source holds the page after it, decoded.
+            note: String(format: "p95 per fling of each 60 Hz frame's time to a filled viewport (%d frames, flicks of 8,000 pt/s, 800 pt viewport) over a %d ms, 4 MB/s link; frames with a blank top: small %d, god %d (warm-up included); pages shown: small %d, god %d; worst frame: small %.1f ms, god %.1f ms",
+                         FlingReader.frames, 50, small.blank, god.blank, small.pages, god.pages, small.worst, god.worst))
+        // The gate (Leo, 2026-11-12: "I don't ever want to be, like, waiting for it to load"):
+        // one frame at p95 on both, and no frame with a blank top.
+        let gate: () -> Void = {
+            #expect(InstantPerfReport.median(small.p95s) <= target, "small's p95 frame is over one frame")
+            #expect(InstantPerfReport.median(god.p95s) <= target, "god's p95 frame is over one frame")
+            #expect(small.blank == 0 && god.blank == 0, "rows were blank while scrolling: small \(small.blank), god \(god.blank) frames")
+        }
+        gate()
     }
 }
