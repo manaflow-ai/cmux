@@ -95,7 +95,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
-                                        machineSignIn: machineSignIn, attached: credentialCheck.map { check in { await check(surface) } })
+                                        machineSignIn: machineSignIn, attached: RemoteAcpmuxWire.attached(credentialCheck, surface: surface))
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
