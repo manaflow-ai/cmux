@@ -494,6 +494,20 @@ def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime 
     return status in ("identical", "ahead")
 
 
+def next_holds_dispatch(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None,
+                        errors: list[Exception] | None = None) -> bool:
+    """`next_carries_tip`, and also any nightly-next push run, whatever commit it builds. nightly-next
+    pushes share one concurrency group (nightly.yml on feat-cmux-next), so a dispatch beside a started
+    push build starts nothing beside it: its promotion's push run waits on the group, and the next one
+    gets it cancelled. 13 of 17 nightly-next builds went that way on 2026-11-12 (Leo, ask-4f5b99b22b).
+    The tick promotes the newest tip when that build finishes; a push run that has not started does
+    not reach this (`started`), so a stuck holder still lets the dispatch through."""
+    if run.get("event") == "push" and run.get("head_branch") == "nightly-next" \
+            and not RESUME_TITLE.match(str(run.get("display_title") or "")):
+        return True
+    return next_carries_tip(gh, run, tip, tip_landed, errors)
+
+
 def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
     """Whether an active run can already be building `tip`.
 
@@ -835,7 +849,7 @@ def main(argv: list[str]) -> int:
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train),
-        carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed, api_errors),
+        carries=lambda run, tip, landed: next_holds_dispatch(gh, run, tip, landed, api_errors),
         api_errors=api_errors), api_errors)
     # cmux NIGHTLY's feed on its own: its staleness comes from the two feeds, so neither a failed
     # re-run nor an API error elsewhere can turn a stale feed green.
