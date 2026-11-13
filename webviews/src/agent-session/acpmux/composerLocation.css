@@ -1436,15 +1436,17 @@
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
 .acpmux-dock,
-:is(.acpmux-composer, .nt-composer) {
+:is(.acpmux-composer, .nt-composer, .nt-popover) {
   /* Density (Lawrence 2026-11-11: "if I change densities, this should change the size of everything
      on this page"; "the Ask Anything thing is still too fat" at the most compact one). The host's
-     --cmux-density-scale is the density's control height over Default's and goes below 1, where the
+     --cmux-density-scale is the density's row height over Default's and goes below 1, where the
      page-wide --cmux-interface-scale stops at 1 (Typography+PageDensity.swift). Every size in the
      composer is drawn from these two: the controls, glyphs and insets from the size scale, the chrome
-     text from the text scale. The prompt keeps the reading size (--text-content). Outside the app (the
-     gallery) both fall back to the interface scale. */
-  --acpmux-density: var(--cmux-density-scale, var(--cmux-interface-scale, 1));
+     text from the text scale; the prompt is the chat's text, which chatDisplay.ts draws at the density. Outside the app (the gallery) both fall back to the
+     interface scale. */
+  /* The composer's boxes stop at 0.8 of Default's, so at Compact it is smaller than Default but still roomy (Lucas
+     2026-11-13: "too small"); its text follows the density (Lucas 2026-11-13: smaller at Compact). */
+  --acpmux-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
      page scale, so the composer redeclares the ones it uses. */
@@ -1490,14 +1492,15 @@
      enough of a space at the bottom"). The top and the bottom are always equal. */
   --acpmux-composer-block-inset: var(--grid-composer-block-inset);
   --acpmux-composer-lead-gap: calc(8px * var(--acpmux-density));
-  /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
-     sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
-     and its ink centers on the box's middle, where the controls are. */
-  --acpmux-text-drop: calc(var(--text-content, 14px) / 14);
+  /* The text, not the controls, moves for optical centering (design/grid.md rule 7). The system font's caps center
+     on its line box and its lowercase sits under them, so the line box rises 0.07 em: the controls' center falls
+     between the caps' center and the lowercase's, at every size (Lucas 2026-11-13, measured at Compact: a 1 px drop
+     put the caps 1.5 pt and the lowercase 2.5 pt under the + and Send). A negative drop raises the line. */
+  --acpmux-text-drop: calc(var(--text-content, 14px) * -0.07);
 }
-/* The type steps the composer reads, at its density: only the composer's own subtree, not the dock's
-   toasts, asks and lists, which keep the transcript's sizes. */
-:is(.acpmux-composer, .nt-composer) {
+/* The type steps the composer reads, at its density: only the composer's own subtree and New Tab's suggestions
+   under it (a portal), not the dock's toasts, asks and lists, which keep the transcript's sizes. */
+:is(.acpmux-composer, .nt-composer, .nt-popover) {
   --text-caption: calc(11px * var(--acpmux-density-text));
   --text-caption--line-height: calc(14px * var(--acpmux-density-text));
   --text-detail: calc(12px * var(--acpmux-density-text));
@@ -1508,6 +1511,11 @@
   --text-control--line-height: var(--text-body--line-height);
   --text-title: calc(15px * var(--acpmux-density-text));
   --text-title--line-height: calc(20px * var(--acpmux-density-text));
+  /* The prompt is the chat's text (chatDisplay.ts draws it at the density), a step over the chips, and above
+     Default the text scale once more, so a roomy density's prompt reads big in its fat box (Lucas
+     2026-11-13: Spacious's prompt should be bigger; about 18 px there). */
+  --text-content: calc(var(--cv-font-size, 14px) * max(1, var(--acpmux-density-text)));
+  --text-content--line-height: calc(var(--cv-line-height, 22.75px) * max(1, var(--acpmux-density-text)));
 }
 .acpmux-composer-box[data-composer-grid] {
   display: grid;
@@ -1518,7 +1526,7 @@
     calc((var(--acpmux-composer-control) + 2 * var(--acpmux-composer-block-inset) - var(--text-content--line-height)) / 2)
   );
   /* The drop never outgrows the padding it moves (a large chrome size has none under the line). */
-  --acpmux-prompt-drop: min(var(--acpmux-text-drop), var(--acpmux-prompt-inset));
+  --acpmux-prompt-drop: clamp(calc(-1 * var(--acpmux-prompt-inset)), var(--acpmux-text-drop), var(--acpmux-prompt-inset));
   /* The controls stay centered on the last content line as its size changes. */
   --acpmux-prompt-control-bottom: max(
     0px,

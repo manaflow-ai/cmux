@@ -1539,8 +1539,8 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// Codex's user bubble keeps 10px padding on each side at every reading size.
-const userBubblePadding = () => 5 * gridLength("base") * chromeScale;
+/// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`).
+const userBubblePadding = () => 5 * gridLength("base") * chromeScale * chatDensityTextScale();
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -1844,7 +1844,7 @@ const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const userBubbleSides = () => 2 * BUBBLE.paddingInline * chromeScale;
+const userBubbleSides = () => 2 * BUBBLE.paddingInline * chromeScale * chatDensityTextScale();
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
 const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
@@ -3600,7 +3600,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import { chatDensityTextScale, currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

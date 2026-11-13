@@ -28,16 +28,59 @@ export const SPACING_RANGE = { min: 0.5, max: 2 } as const;
 export const FONT_RANGE = { min: 9, max: 20 } as const;
 
 /** Default's chrome body text in points: the ChatGPT and Codex desktop apps' size. */
-const DEFAULT_BODY_POINTS = 13;
+const DEFAULT_BODY_POINTS = 14;
+/** Ultra-compact's body text: a step under Compact's 12 (Lucas 2026-11-13). */
+const ULTRA_COMPACT_BODY_POINTS = 11;
+/** Comfortable's body text: Default's, never smaller (Lucas 2026-11-13). */
+const COMFORTABLE_BODY_POINTS = 14;
+/** Spacious's body text: a step over Comfortable's (Lawrence 2026-11-13: "spacious font size bigger"). */
+const SPACIOUS_BODY_POINTS = 16;
 
 /** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
  * localized name. Default keeps the id `cozy` so saved files still name it. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
-  { id: "ultraCompact", name: "Ultra-compact", nameKey: "settings.choice.ultraCompact", level: -0.5, spacing: 0.75 },
-  { id: "compact", name: "Compact", nameKey: "settings.choice.compact", level: 0 },
-  { id: "cozy", name: "Default", nameKey: "settings.choice.default", level: 0.5, fontSize: DEFAULT_BODY_POINTS },
-  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1.25, spacing: 1.1 },
-  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 2.25, spacing: 1.35 },
+  // Ultra-compact's text is a step under Compact's (Lucas 2026-11-13: "even less font size").
+  {
+    id: "ultraCompact",
+    name: "Ultra-compact",
+    nameKey: "settings.choice.ultraCompact",
+    level: -0.5,
+    spacing: 0.75,
+    fontSize: ULTRA_COMPACT_BODY_POINTS,
+  },
+  // Lawrence 2026-11-13: Compact is 20 px tall everywhere, Default is Helium's text (30 px rows, a 36 px strip),
+  // Comfortable is Chrome's text, Spacious has bigger text. Default's row is as drawn (Swift adds its Codex fill).
+  {
+    id: "compact",
+    name: "Compact",
+    nameKey: "settings.choice.compact",
+    level: 0,
+    tokens: { sidebarRowHeight: 20, tabHeight: 20, tabStripHeight: 26 },
+  },
+  {
+    id: "cozy",
+    name: "Default",
+    nameKey: "settings.choice.default",
+    level: 0.5,
+    fontSize: DEFAULT_BODY_POINTS,
+    tokens: { sidebarRowHeight: 30, tabHeight: 30, tabStripHeight: 36 },
+  },
+  {
+    id: "comfortable",
+    name: "Comfortable",
+    nameKey: "settings.choice.comfortable",
+    level: 1.25,
+    spacing: 1.1,
+    fontSize: COMFORTABLE_BODY_POINTS,
+  },
+  {
+    id: "spacious",
+    name: "Spacious",
+    nameKey: "settings.choice.spacious",
+    level: 2.25,
+    spacing: 1.35,
+    fontSize: SPACIOUS_BODY_POINTS,
+  },
 ];
 /** The density when appearance.density is unset (Swift `DensitySetting.fallback`). */
 export const DEFAULT_DENSITY = "cozy";
@@ -93,7 +136,9 @@ export function resolve(density: Density): Resolved {
     sidebarRowHeight: metric("sidebarRowHeight"),
     tabHeight: metric("tabHeight"),
     tabStripHeight: metric("tabStripHeight"),
-    itemCornerRadius: metric("itemCornerRadius"),
+    // A row's corner is Chrome's tab corner on its height, 8 on 30 (Swift `chromeRowCornerRadius`), so every
+    // density rounds alike.
+    itemCornerRadius: density.tokens?.itemCornerRadius ?? Math.round((metric("sidebarRowHeight") * 8) / 30),
     iconSize: density.tokens?.iconSize ?? glyph(PAIRS.iconSize, level),
     body: density.fontSize ?? levelBody,
     caption: text(CAPTION),
