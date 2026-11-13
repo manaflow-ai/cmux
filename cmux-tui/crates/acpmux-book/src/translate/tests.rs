@@ -1015,6 +1015,54 @@ fn a_queued_steer_belongs_to_the_turn_that_reads_it() {
 }
 
 #[test]
+fn queued_entries_are_idempotent_bounded_and_raw() {
+    let mut state = State::default();
+    let first = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
+    t(&mut state, Harness::V1, first.as_bytes()).unwrap();
+    let queued = mux(2, "queued", r#"{"text":"hé","promptId":"q"}"#);
+    let ops = super::translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    assert!(ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Queue(QueueChange::Add(entry))
+            if entry.place == 700 && entry.span == 3 && entry.text_len == "hé".len() as u32
+    )));
+    assert_eq!(state.queue.len(), 1);
+    let duplicate = super::translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    assert!(duplicate.is_empty());
+
+    let paused = mux(3, "queue_paused", r#"{"held":["q"]}"#);
+    let paused_ops = super::translate(&mut state, Harness::V1, 701, 1, paused.as_bytes()).unwrap();
+    assert!(paused_ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Queue(QueueChange::Add(entry)) if entry.held()
+    )));
+    let resumed = mux(4, "queue_resumed", r#"{"promptIds":["q"]}"#);
+    super::translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
+    assert!(!state.queue.values().next().unwrap().held());
+
+    let read = mux(5, "steer_read", r#"{"promptId":"q"}"#);
+    let read_ops = super::translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
+    assert!(read_ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Body { source: BodySource::Raw { place: 700, span: 3 }, .. }
+    )));
+    assert!(state.queue.is_empty());
+}
+
+#[test]
+fn queue_cap_counts_the_1025th_entry_without_holding_it() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for n in 0..1025u64 {
+        let line = mux(n + 2, "queued", &format!(r#"{{"text":"q-{n}","promptId":"q-{n}"}}"#));
+        super::translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
+    }
+    assert_eq!(state.queue.len(), 1024);
+    assert_eq!(state.counters().queue_overflowed, 1);
+    assert!(state.checkpoint().unwrap().len() < 96 * 1024);
+}
+
+#[test]
 fn turn_start_after_a_result_is_not_compared_with_the_old_turn() {
     let (_, m) = replay(&[
         mux(1, "user_message", r#"{"text":"one","turnId":"t1"}"#),

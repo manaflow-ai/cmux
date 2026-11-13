@@ -620,6 +620,7 @@ impl State {
             out.raw_body(row.id, BodyField::Content, false, entry.place, u64::from(entry.span));
             row.open = false;
             out.row(&row);
+            self.fold.extra(row.id);
             self.settled_prompt(hash);
             return Ok(());
         }
@@ -683,6 +684,7 @@ impl State {
                 row.turn = self.turn;
             }
             row.fields.insert("steer".into(), "true".into());
+            self.fold.extra(row.id);
         } else {
             row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);
