@@ -10804,6 +10804,9 @@ export class AcpmuxDirectClient {
     /// The prompt is between tries, waiting for acpmux to answer (sendWhenReady.ts): no request of it
     /// is out, so its no-answer deadline below does not run down meanwhile.
     let heldForHost = false;
+    /// When the last hold ended (`Date.now()`): the no-answer deadline counts from there, so a prompt
+    /// that waited out an outage gets its whole wait once acpmux is back.
+    let heldUntil: number | undefined;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -10867,12 +10870,12 @@ export class AcpmuxDirectClient {
       // A prompt held for an acpmux that is away (a restart, its machine rebooting) has no
       // request out to go unanswered: it waits on, and goes once acpmux answers (Leo,
       // 2026-11-12: "it should just automatically do stuff"). Its deadline starts again then.
-      if (heldForHost) {
+      const failAfter = this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs;
+      const sinceHold = heldUntil === undefined ? failAfter : Date.now() - heldUntil;
+      if (heldForHost || sinceHold < failAfter) {
         this.deliveries
           .get(promptId)
-          ?.timers.push(
-            setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs),
-          );
+          ?.timers.push(setTimeout(failUnanswered, heldForHost ? failAfter : failAfter - sinceHold));
         return;
       }
       // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
@@ -10921,6 +10924,7 @@ export class AcpmuxDirectClient {
     try {
       const answer = await untilHostAnswers(
         () => {
+          if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
           return this.request("session/prompt", {
             sessionId,
