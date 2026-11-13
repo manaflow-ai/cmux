@@ -388,10 +388,12 @@ mod tests {
     #[test]
     fn a_replayed_set_says_so_and_a_refusal_keeps_its_code() {
         let body = br#"{"ok":true,"op":"team.agent_key.set","value":{"agent":"claude","set":true,"kind":"api_key","generation":1,"updated_at":1,"updated_by":"user_a","hint":"abcd"},"transaction":"t","idempotency_key":"ck_1","replayed":true,"stream":"s","sequence":3}"#;
-        let read = cmux_cloud_client::ops::read_answer::<TeamAgentKeySetOp>(200, body).unwrap();
+        let read =
+            cmux_cloud_client::ops::read_answer::<TeamAgentKeySetOp>(200, None, body).unwrap();
         assert_eq!(answer(read).unwrap()["replayed"], json!(true));
         let refused = br#"{"ok":false,"op":"team.agent_key.set","error":{"code":"team_agent_key.not_configured","message":"no sealing key","retryable":false},"transaction":"t","idempotency_key":"ck_1","replayed":false,"stream":"s","sequence":3}"#;
-        let read = cmux_cloud_client::ops::read_answer::<TeamAgentKeySetOp>(200, refused).unwrap();
+        let read =
+            cmux_cloud_client::ops::read_answer::<TeamAgentKeySetOp>(200, None, refused).unwrap();
         assert_eq!(
             answer(read).unwrap_err().code.as_deref(),
             Some("team_agent_key.not_configured")

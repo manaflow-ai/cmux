@@ -650,7 +650,7 @@ fn a_clone_failure_fallback_does_not_copy_newly_skipped_secret_blobs() {
             .args(["cat-file", "-e", &format!("{secret_id}^{{blob}}")])
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .stderr(std::process::Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .unwrap()
             .success()
