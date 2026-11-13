@@ -31,11 +31,13 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import queue
 import signal
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -56,7 +58,7 @@ BUNDLE = "com.example.fresh-smoke-stub"
 # The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync |
 # seeded-no-home | empty-sync | own-report | quit-report | helper-report | first-report | other-report |
 # home-report | blank-report | blank-crash | torn-report | late-quit-report) comes from the bundle's Resources/mode
-# file. late-quit-report: healthy, and it "crashes while it quits": a report of this process lands 3 s after it
+# file. late-quit-report: healthy, and it "crashes while it quits": a report of this process lands 4 s after it
 # was stopped. sync-crash,
 # no-sync, empty-sync (the sync saves a baseline of no site) and seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
 # this process appears while it is up. quit-report: healthy, and the empty home's process "crashes while it quits":
@@ -249,7 +251,7 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
             if start_clone_helper:
                 start_clone_helper()
             # Detached, its command line never names the root: it outlives this launch as ReportCrash does.
-            subprocess.Popen([sys.executable, "-c", "import os, time\ntime.sleep(3)\n"
+            subprocess.Popen([sys.executable, "-c", "import os, time\ntime.sleep(4)\n"
                               "open(os.environ['STUB_REPORT'] + '.part', 'w').write(os.environ['STUB_REPORT_TEXT'])\n"
                               "os.replace(os.environ['STUB_REPORT'] + '.part', os.environ['STUB_REPORT'])\n"],
                              cwd="/", start_new_session=True,
@@ -1721,12 +1723,17 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
         self.assert_cleaned_up(report)
 
-    def test_the_clone_parent_goes_only_when_this_launchs_clone_was_its_last(self):
+    def test_the_clone_parent_stays_as_chromiums_helper_leaves_it(self):
+        # The parent is where each launch of this bundle id makes its clone, and this removal holds no lock that
+        # such a launch waits for: a parent that goes in the moment that another launch makes its clone there
+        # breaks that launch. Chromium's own helper leaves the (empty) parent too.
         self.clone_helper = "stays"
         env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0.5"}
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", env=env)
         self.assertEqual(status, smoke.PASS, output)
-        self.assertEqual(sorted(path.name for path in self.clones.iterdir()), [], output)
+        self.assertEqual(list(report["clone_cleanup"]["clones"].values()), ["removed by this tool"])
+        self.assertEqual(self.clones_left(), [], output)
+        self.assertEqual(sorted(path.name for path in self.clones.iterdir()), [f"{BUNDLE}.code_sign_clone"], output)
 
     def test_a_clone_that_no_helper_names_is_never_removed(self):
         # The suffix is a read of the launch's own helper. Without it the tool cannot know which folder is this
@@ -1742,35 +1749,98 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
 
-    def cut_at_home(self, helper: str, *args: str, homes: int = 1) -> tuple[str, dict]:
-        """A run with a helper bound of 600 s that gets SIGTERM when its launch number HOMES shows Home, as the
-        gate's watchdog cuts a run that takes too long. The run must end in 60 s."""
-        app, out = make_app(self.dir / "run-1", "healthy"), self.dir / "out-cut"
+    def cut_at(self, mode: str, helper: str, line: str, *args: str, count: int = 1,
+               within: float = 60.0) -> tuple[str, dict]:
+        """A run on a stub of MODE, with a helper bound of 600 s, that gets SIGTERM when its log has COUNT lines
+        that start with LINE, as the gate's watchdog cuts a run that takes too long. The line must show in WITHIN
+        seconds, and the run must end in 60 s after the cut."""
+        app, out = make_app(self.dir / "run-1", mode), self.dir / "out-cut"
         (app / "Contents" / "Resources" / "clone").write_text(json.dumps(
             {"dir": str(self.clones), "bundle": BUNDLE, "helper": helper}))
         env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "600"}
         harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
                                     "--startup-timeout", "10", *args],
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        lines = []
+        read: queue.Queue = queue.Queue()
+
+        def reader() -> None:
+            for text in harness.stdout:
+                read.put(text)
+            read.put(None)
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        lines, cut, deadline = [], False, time.monotonic() + within
         try:
-            for line in harness.stdout:
-                lines.append(line)
-                if sum(seen.startswith("ok: Home rendered") for seen in lines) == homes:
+            while True:
+                try:
+                    text = read.get(timeout=max(0.0, deadline - time.monotonic()))
+                except queue.Empty:
+                    # The line did not show, or the run did not end after the cut: SIGTERM, so that the run
+                    # stops its own processes and removes its root, then the assertions below say which it was.
                     harness.terminate()
-                    homes = -1
+                    break
+                if text is None:
+                    break
+                lines.append(text)
+                if not cut and sum(seen.startswith(line) for seen in lines) == count:
+                    harness.terminate()
+                    cut, deadline = True, time.monotonic() + 60
             status = harness.wait(timeout=60)
         finally:
             if harness.poll() is None:
                 harness.kill()
+            thread.join(timeout=10)
             harness.stdout.close()
+        while not read.empty():
+            lines.append(read.get() or "")
         output = "".join(lines)
+        self.assertTrue(cut, f"the run's log had no {count} line(s) {line!r} in {within:.0f} s\n{output}")
         self.assertEqual(status, 128 + signal.SIGTERM, output)
         report = json.loads((out / "report.json").read_text())
         time.sleep(0.2)
         self.assertEqual(smoke.pids_under(Path(report["root"])), [], output)
         self.assert_cleaned_up(report)
         return output, report
+
+    def cut_at_home(self, helper: str, *args: str, homes: int = 1) -> tuple[str, dict]:
+        """cut_at for a healthy stub, when its launch number HOMES shows Home."""
+        return self.cut_at("healthy", helper, "ok: Home rendered", *args, count=homes)
+
+    def assert_cut_in_the_helpers_wait(self, report: dict, output: str) -> None:
+        """The run was cut before a launch's clone cleanup ended: the report has the cleanup of the run's end,
+        which did not wait, stopped the helper and removed the launch's clone."""
+        self.assertEqual(self.clones_left(), [], output)
+        self.assertNotIn("clone_cleanup", report)
+        told = report["clone_cleanup_at_end"]
+        self.assertEqual((told["helpers"], told["helper_ended"], told["wait"]), (1, False, 0.0), told)
+        self.assertEqual(list(told["clones"].values()), ["removed by this tool"])
+
+    def test_a_failed_launch_that_is_cut_while_its_helper_is_awaited_keeps_its_verdict(self):
+        # The verdict is in the report and in the log BEFORE the helper gets its time: the gate's watchdog that
+        # cuts a run in that wait must read "fail" (a crash holds the nightly), never a run with no verdict
+        # (cannot-run, which holds nothing).
+        output, report = self.cut_at("first-report", "stays", "FAIL:", "--seconds", "0", within=20)
+        self.assertEqual((report["verdict"], report["failures"]),
+                         ("fail", ["crash report: stub-2026-11-11-000000.ips"]), output)
+        self.assert_cut_in_the_helpers_wait(report, output)
+
+    def test_a_passed_launch_that_is_cut_while_its_helper_is_awaited_keeps_its_verdict(self):
+        output, report = self.cut_at("healthy", "stays", "==> fresh-home launch smoke OK", "--seconds", "0",
+                                     within=20)
+        self.assertEqual(report["verdict"], "pass", output)
+        self.assert_cut_in_the_helpers_wait(report, output)
+
+    def test_a_failed_seeded_launch_that_is_cut_while_its_helper_is_awaited_keeps_its_verdict(self):
+        # The first launch's helper ends by itself; the seeded launch's never does.
+        output, report = self.cut_at("own-report", "seeded-stays", "FAIL:", "--seconds", "0",
+                                     "--arms", "empty,seeded", "--seeded-seconds", "0", within=30)
+        self.assertEqual((report["verdict"], report["arm"]), ("fail", "seeded"), output)
+        self.assertEqual(report["failures"], ["seeded home: crash report: stub-2026-11-11-000000.ips"], output)
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "fail")
+        self.assertTrue(report["arms"]["empty"]["clone_cleanup"]["helper_ended"], report["arms"]["empty"])
+        self.assertNotIn("clone_cleanup", report["arms"]["seeded"])
+        self.assert_cut_in_the_helpers_wait(report, output)
 
     def test_a_run_that_is_cut_does_not_wait_for_the_helper_and_removes_its_launchs_clone(self):
         # The gate's watchdog sends SIGTERM to a run that takes too long: its end must not take the helper's bound.
@@ -1794,7 +1864,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(list(told["clones"].values()), ["removed by this tool"])
 
     def test_a_report_that_lands_while_the_helper_is_awaited_changes_no_verdict(self):
-        # The app "crashes while it quits", and its report lands 3 s after its end. A launch that stayed up gets
+        # The app "crashes while it quits", and its report lands 4 s after its end. A launch that stayed up gets
         # one look for its crash reports, at once after its processes were stopped: this launch passes. The wait
         # for the helper comes after that look, never before it: a later look would make this pass a fail, and
         # two failed attempts hold a nightly.
@@ -1809,6 +1879,21 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # The report did land while the run waited for the helper.
         self.assertGreaterEqual(told["helper_seconds"], 6.0, told)
         self.assertTrue((self.dir / "diagnostics" / "stub-2026-11-11-000000.ips").exists(), output)
+        self.assert_cleaned_up(report)
+
+    def test_a_report_that_lands_while_the_seeded_launchs_helper_is_awaited_changes_no_verdict(self):
+        # The same in the seeded home: the first launch's helper ends by itself, the seeded launch's stays for
+        # its bound of 6 s, and the seeded app's quit report lands 4 s after its end.
+        self.clone_helper = "seeded-stays"
+        env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "6"}
+        status, output, report = self.run_smoke("late-quit-report", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", env=env)
+        self.assertEqual(status, smoke.PASS, output)
+        seeded = report["arms"]["seeded"]
+        self.assertEqual((seeded["verdict"], seeded["crash_reports"]), ("pass", []), output)
+        told = seeded["clone_cleanup"]
+        self.assertEqual((told["helpers"], told["helper_ended"]), (1, False), told)
+        self.assertGreaterEqual(told["helper_seconds"], 6.0, told)
         self.assert_cleaned_up(report)
 
     def test_a_clone_that_its_helper_left_is_removed_and_the_log_says_so(self):
@@ -1858,15 +1943,18 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             self.assertTrue((kept / "code_sign_clone.Ab12").is_dir())
 
     def test_the_helpers_suffix_is_read_from_its_own_command_line(self):
-        root = Path("/tmp/cmux-fresh-abc")
+        root = self.dir / "run"
         table = [(11, f"{root}/Stub.app/Contents/MacOS/stub -ApplePersistenceIgnoreState YES"),
                  (12, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
                       "--unique-temp-dir-suffix=Ab12Cd --wait-for-parent-exit"),
                  (13, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup --wait-for-parent-exit"),
-                 (14, "/tmp/cmux-fresh-other/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
+                 (14, f"{self.dir}/other/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
                       "--unique-temp-dir-suffix=Zz99"),
                  (15, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
-                      "--unique-temp-dir-suffix=../../etc")]
+                      "--unique-temp-dir-suffix=../../etc"),
+                 # Another process type whose name only starts as the helper's.
+                 (16, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup-x "
+                      "--unique-temp-dir-suffix=Qq11")]
         with mock.patch.object(smoke, "user_processes", return_value=table):
             self.assertEqual(smoke.clone_helpers(root), {12: "Ab12Cd", 13: None, 15: None})
 
@@ -1878,7 +1966,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
 
     def test_a_launch_with_a_cleanup_helper_looks_again_for_what_is_left_after_the_wait(self):
-        root = Path("/tmp/cmux-fresh-abc")
+        root = self.dir / "run"
         helper = (12, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
                       "--unique-temp-dir-suffix=Ab12Cd --wait-for-parent-exit")
         stopped: list[list[int]] = []
@@ -1892,23 +1980,87 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(read.call_count, 2)
         self.assertEqual((told["helpers"], told["helper_ended"], told["clones"]), (1, False, {"Ab12Cd": "gone"}))
 
-    def faulty_end(self, environment: dict, **patches) -> tuple[dict, list[list[int]]]:
-        """stop_own for a run with one process (11) and one cleanup helper (12, it does not end) whose clone
-        is there, with PATCHES of the tool; what it told and what it stopped."""
-        root = Path("/tmp/cmux-fresh-abc")
-        helper = (12, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
-                      "--unique-temp-dir-suffix=Ab12Cd --wait-for-parent-exit")
+    def faulty_end(self, environment: dict, reads: list | None = None, helper: bool = True,
+                   **patches) -> tuple[dict, list[list[int]]]:
+        """stop_own for a run with one process (11) and, when HELPER, one cleanup helper (12, it does not end)
+        whose clone is there, with PATCHES of the tool; what it told and what it stopped. READS: the errors that
+        the first reads of the process list raise, one each."""
+        root = self.dir / "run"
+        table = [(11, f"{root}/x")]
+        if helper:
+            table.append((12, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
+                              "--unique-temp-dir-suffix=Ab12Cd --wait-for-parent-exit"))
+        turns = list(reads or [])
+
+        def read() -> list:
+            if turns:
+                raise turns.pop(0)
+            return table
+
         stopped: list[list[int]] = []
         with tempfile.TemporaryDirectory() as d, \
                 mock.patch.dict(os.environ, {"CMUX_FRESH_SMOKE_CLONE_DIR": d, **environment}), \
-                mock.patch.object(smoke, "user_processes", return_value=[(11, f"{root}/x"), helper]), \
+                mock.patch.object(smoke, "user_processes", read), \
                 mock.patch.object(smoke, "stop", side_effect=lambda pids, grace=5.0: stopped.append(list(pids))), \
                 mock.patch.object(smoke, "alive", return_value=True), \
                 (mock.patch.multiple(smoke, **patches) if patches else contextlib.nullcontext()):
-            (Path(d) / f"{BUNDLE}.code_sign_clone" / "code_sign_clone.Ab12Cd").mkdir(parents=True)
+            if helper:
+                (Path(d) / f"{BUNDLE}.code_sign_clone" / "code_sign_clone.Ab12Cd").mkdir(parents=True)
             told = smoke.stop_own(root, BUNDLE)
-            self.assertEqual(sorted(path.name for path in Path(d).iterdir()), [])
+            self.assertEqual(list(Path(d).glob("*/*")), [], told)
         return told, stopped
+
+    def test_a_fault_that_loses_the_helper_list_still_stops_the_helper_and_removes_its_clone(self):
+        # The first read of the process list fails: no helper is known, and the run's other processes may still
+        # run. The end reads again, does not wait (the bound here is 5 s) and removes the clone that the helper
+        # names.
+        told, stopped = self.faulty_end({"CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "5"},
+                                        reads=[RuntimeError("no list")])
+        self.assertIn("RuntimeError", told["error"])
+        self.assertEqual(stopped, [[11, 12]])
+        self.assertEqual((told["helpers"], told["wait"], told["clones"]),
+                         (1, 0.0, {"Ab12Cd": "removed by this tool"}), told)
+
+    def test_a_fault_in_the_first_stop_of_a_launch_with_no_helper_still_stops_what_is_left(self):
+        told, stopped = self.faulty_end({}, reads=[RuntimeError("no list")], helper=False)
+        self.assertIn("RuntimeError", told["error"])
+        self.assertEqual(stopped, [[11]])
+        self.assertEqual(told["helpers"], 0)
+
+    def test_a_fault_in_the_last_stop_is_told_and_never_raised(self):
+        # The end of a launch runs after the verdict: a fault in it must never be the run's result.
+        told, stopped = self.faulty_end({"CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0"},
+                                        own_pids=mock.Mock(side_effect=[[11], RuntimeError("no list")]))
+        self.assertIn("RuntimeError", told["error"])
+        self.assertEqual(stopped, [[11]])
+        self.assertEqual((told["helpers"], told["clones"]), (1, {"Ab12Cd": "removed by this tool"}))
+
+    def test_the_helpers_bound_counts_from_the_stop_of_the_launch(self):
+        # The look for crash reports and the verdict's evidence come between the stop and this wait: their time
+        # is the helper's time too. 100 s after the stop, a bound of 50 s is over.
+        root = self.dir / "run"
+        state = {"helpers": {12: "Ab12Cd"}, "asked": time.monotonic() - 100}
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CMUX_FRESH_SMOKE_CLONE_DIR": d}), \
+                mock.patch.object(smoke, "user_processes", return_value=[]), mock.patch.object(smoke, "stop"), \
+                mock.patch.object(smoke, "alive", return_value=True), \
+                mock.patch.object(smoke.time, "sleep", side_effect=AssertionError("it waited")):
+            told = smoke.end_clones(root, BUNDLE, state, wait=50)
+        self.assertNotIn("error", told)
+        self.assertEqual((told["helper_ended"], told["wait"]), (False, 50))
+        self.assertGreaterEqual(told["helper_seconds"], 100)
+
+    def test_a_bound_that_is_no_number_of_seconds_is_no_wait_and_a_valid_report(self):
+        root = self.dir / "run"
+        for given, used in (("nan", 0.0), ("-5", 0.0), ("inf", 600.0), ("2", 2.0)):
+            with self.subTest(given=given), tempfile.TemporaryDirectory() as d, \
+                    mock.patch.dict(os.environ, {"CMUX_FRESH_SMOKE_CLONE_DIR": d,
+                                                 "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": given}), \
+                    mock.patch.object(smoke, "user_processes", return_value=[]), mock.patch.object(smoke, "stop"), \
+                    mock.patch.object(smoke, "alive", return_value=False):
+                told = smoke.end_clones(root, BUNDLE, {"helpers": {12: "Ab12Cd"}, "asked": time.monotonic()})
+                self.assertEqual(told["wait"], used, told)
+                self.assertNotIn("error", told)
+                json.dumps(told, allow_nan=False)
 
     def test_a_fault_while_the_helper_is_awaited_still_stops_it_and_removes_its_clone(self):
         told, stopped = self.faulty_end({"CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "soon"})
