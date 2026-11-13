@@ -60,7 +60,7 @@ impl Held {
         match (key, update) {
             (UpdateKey::Origin(_), PendingUpdate::Origin { record }) => self.record = Some(record),
             (UpdateKey::Source(_), PendingUpdate::Takeover { source, .. }) => {
-                self.source = Some(source)
+                self.source = Some(source);
             }
             (UpdateKey::Row(key), update) => {
                 if !self.rows.contains_key(&key) {
@@ -130,7 +130,36 @@ impl HubWriter {
         key: UpdateKey,
         update: PendingUpdate,
     ) -> Result<(), HubError> {
-        self.origins.held.entry(key.origin().to_owned()).or_default().insert(key, update)
+        if let PendingUpdate::Summary { source, .. } | PendingUpdate::Gone { source } = &update {
+            let owner = self
+                .origins
+                .held
+                .get(key.origin())
+                .and_then(|held| held.source)
+                .or_else(|| self.sources.load().get(key.origin()).copied());
+            if let Some(owner) = owner
+                && owner != *source
+            {
+                REFUSED_SOURCE_SUBMITS.fetch_add(1, Ordering::Relaxed);
+                return Err(HubError::SourceRefused {
+                    origin: key.origin().into(),
+                    incoming: *source,
+                    owner,
+                });
+            }
+        }
+        let row_key = match &key {
+            UpdateKey::Row(key) => Some(key.clone()),
+            _ => None,
+        };
+        self.origins.held.entry(key.origin().to_owned()).or_default().insert(key, update)?;
+        // A newly accepted value wins even if the previous append failed.
+        // Invalidate here, before retry dispatch could put the old value back
+        // into this held slot while the remaining backlog is released.
+        if let Some(key) = row_key {
+            self.retry_log.remove(&key);
+        }
+        Ok(())
     }
 
     pub(super) fn origin_work_pending(&self) -> bool {

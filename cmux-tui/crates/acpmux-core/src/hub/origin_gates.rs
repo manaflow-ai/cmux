@@ -106,7 +106,7 @@ fn run_removed_origin(rows: usize) -> u128 {
     for _ in 0..(rows / 256 + 8) {
         writer.process_batch();
         batches += 1;
-        if hub.snapshot().len() == 0 {
+        if hub.snapshot().is_empty() {
             break;
         }
     }

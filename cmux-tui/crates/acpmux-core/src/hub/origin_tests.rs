@@ -420,6 +420,99 @@ fn held_updates_beyond_one_batch_are_not_discarded_or_starved() {
 }
 
 #[test]
+fn a_newer_held_row_or_gone_invalidates_an_older_retry_before_sync() {
+    for gone in [false, true] {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        seed(&mut writer, 500);
+        writer.origin("peer", OriginState::Removed, 2).unwrap();
+        writer.origin("peer", OriginState::Connected, 3).unwrap();
+        for n in 0..600 {
+            writer.apply_from(Source::V1, returned(n)).unwrap();
+        }
+        writer.advance_origins(256);
+        writer.advance_origins(256);
+        assert!(!hub.snapshot().is_origin_leaving("peer"));
+        assert!(writer.holds_origin("peer"), "the held backlog must exceed a turn");
+
+        // Model a failed append of a released row while other held rows remain.
+        let mut old = returned(0);
+        old.title = "older failed append".into();
+        let key = old.key();
+        assert!(hub.snapshot().get_row(&key).is_some());
+        writer.retry_log.insert(
+            key.clone(),
+            (
+                Source::V1,
+                acpmux_book::index::IndexRecord {
+                    seq: hub.snapshot().seq() + 1,
+                    origin: old.origin.clone(),
+                    chat_id: old.chat_id.clone(),
+                    summary: old,
+                    gone: false,
+                },
+            ),
+        );
+        if gone {
+            writer.remove_from(Source::V1, &key.origin, &key.chat_id).unwrap();
+        } else {
+            let mut newer = returned(0);
+            newer.title = "newest accepted held row".into();
+            writer.apply_from(Source::V1, newer).unwrap();
+        }
+        assert!(
+            !writer.retry_log.contains_key(&key),
+            "accepting the newer held update must invalidate the old retry before sync"
+        );
+        writer.sync_batch().unwrap();
+        drive(&mut writer, 8);
+        if gone {
+            assert!(hub.snapshot().get_row(&key).is_none());
+            assert_eq!(hub.snapshot().len(), 599);
+        } else {
+            assert_eq!(hub.snapshot().get_row(&key).unwrap().title, "newest accepted held row");
+            assert_eq!(hub.snapshot().len(), 600);
+        }
+    }
+}
+
+#[test]
+fn wrong_source_cannot_replace_a_rightful_held_row_or_gone_after_takeover() {
+    for takeover in [false, true] {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        seed(&mut writer, 500);
+        writer.origin("peer", OriginState::Removed, 2).unwrap();
+        writer.origin("peer", OriginState::Connected, 3).unwrap();
+        let (owner, wrong) = if takeover {
+            writer.takeover("peer", Source::Mirror).unwrap();
+            (Source::Mirror, Source::V1)
+        } else {
+            (Source::V1, Source::Mirror)
+        };
+        for n in 0..600 {
+            writer.apply_from(owner, returned(n)).unwrap();
+        }
+        writer.remove_from(owner, "peer", &returned(26).chat_id).unwrap();
+        let refused = refused_source_submits();
+        let mut invalid = returned(25);
+        invalid.title = "wrong source".into();
+        assert!(matches!(writer.apply_from(wrong, invalid), Err(HubError::SourceRefused { .. })));
+        assert!(matches!(
+            writer.remove_from(wrong, "peer", &returned(25).chat_id),
+            Err(HubError::SourceRefused { .. })
+        ));
+        assert!(matches!(
+            writer.apply_from(wrong, returned(26)),
+            Err(HubError::SourceRefused { .. })
+        ));
+        assert!(refused_source_submits() >= refused + 3);
+        drive(&mut writer, 8);
+        assert_eq!(hub.snapshot().get_row(&returned(25).key()).unwrap().title, returned(25).title);
+        assert!(hub.snapshot().get_row(&returned(26).key()).is_none());
+        assert_eq!(hub.snapshot().len(), 599);
+    }
+}
+
+#[test]
 fn a_leaving_origin_holds_at_most_16384_distinct_rows_but_accepts_replacements() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 500);
@@ -698,6 +791,40 @@ async fn remote_marks_can_wait_for_bounded_startup_hydration() {
     );
     assert!(hub.snapshot().get_row(&RowKey::new("peer", "row-0")).is_none());
     assert_eq!(hub.snapshot().len(), 599);
+}
+
+#[tokio::test]
+async fn requested_compaction_waits_for_startup_hydration_and_releases_waiters() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    for n in 0..600 {
+        index = index.apply(n + 1, remote(format!("row-{n}"), n + 1));
+    }
+    SortedSnapshot::write(directory.path().join("index.snap"), &index).unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    writer.apply(Summary::new("local-change")).unwrap();
+    writer.next_compaction = Some(std::time::Instant::now());
+    writer.maybe_compact();
+    assert!(writer.compaction.is_none(), "compaction started before any hydration turn");
+    for _ in 0..2 {
+        writer.process_batch();
+        assert!(writer.hydration.is_some());
+        assert!(matches!(*hub.hydrated.borrow(), disk::HydrationState::Loading));
+        assert!(writer.compaction.is_none(), "compaction started during partial hydration");
+    }
+    writer.process_batch();
+    assert!(writer.hydration.is_none());
+    tokio::time::timeout(std::time::Duration::from_secs(1), hub.wait_hydrated())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(writer.compaction.is_some(), "the requested compaction must resume after hydration");
+    assert_eq!(hub.snapshot().iter().filter(|row| row.origin == "peer").count(), 600);
+    writer.finish_compaction(true).await;
+    writer.install_compaction();
+    drive(&mut writer, 4);
+    writer.finish_compaction(true).await;
+    assert_eq!(hub.snapshot().iter().filter(|row| row.origin == "peer").count(), 600);
 }
 
 #[tokio::test]
