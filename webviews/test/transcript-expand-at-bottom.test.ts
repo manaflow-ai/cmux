@@ -185,6 +185,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     last: number;
     fromEnd: number;
     over: number;
+    /// The frame's time (ms).
+    at: number;
     /// How long after its frame the read ran (ms).
     lag: number;
   };
@@ -218,6 +220,40 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     }
     return { places, late, seen: seen.join(" ") };
   };
+  /// What the reads of one fold say about its largest step. A step is one frame's move only when
+  /// both of its reads ran in time and their frames are next to each other (less than a frame and a
+  /// half apart); the first read follows the place before the click. A late read, or a frame that
+  /// got no read, joins the moves of two or three frames into one step, which says nothing about
+  /// one frame: an open of 48px whose frames moved 22.3px and 12.4px was read as one step of 34.8px
+  /// (#42351). `largest` is the largest one-frame step, `judged` how many of them there were and
+  /// `joined` how many moves were not one frame's. `jumped` needs no read in time: a read at
+  /// `from` and the next read at `to`, run within three frames of the first one's frame, is all of
+  /// the move at once.
+  const steps = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
+    let largest = 0;
+    let judged = 0;
+    let joined = 0;
+    let jumped = false;
+    let last: { top: number; at?: number; late: boolean } = { top: from, late: false };
+    for (const frame of frames) {
+      const top = frame[key];
+      const late = frame.lag > FRAME_MS;
+      const step = Math.abs(top - last.top);
+      if (!late && !last.late && (last.at === undefined || frame.at - last.at < FRAME_MS * 1.5)) {
+        judged += 1;
+        largest = Math.max(largest, step);
+      } else if (step > 0.5) joined += 1;
+      if (
+        last.at !== undefined &&
+        Math.abs(last.top - from) <= 1 &&
+        Math.abs(top - to) <= 1 &&
+        frame.at + frame.lag - last.at <= FRAME_MS * 3
+      )
+        jumped = true;
+      last = { top, at: frame.at, late };
+    }
+    return { largest, judged, joined, jumped };
+  };
   const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
     const watching = page.evaluate(
       ({ selector, duration }) =>
@@ -241,6 +277,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               last: rows.at(-1)!.getBoundingClientRect().bottom,
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
+              at: painted,
               lag: performance.now() - painted,
             });
             if (performance.now() - start < duration) return;
@@ -332,10 +369,6 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             const at = { direction, index, ...frame };
             expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
           }
-        const tops = [before[moving], ...frames.map((frame) => frame[moving])];
-        let largest = 0;
-        for (let index = 1; index < tops.length; index++)
-          largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
         // Three new places or more strictly between where it was and where it settles: the glide,
         // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
         const { places, late, seen } = glide(frames, moving, before[moving], after[moving]);
@@ -344,6 +377,15 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             `no verdict: late frames (${engineName} ${direction}: ${places} new places between in time, ${late} late reads; from ${before[moving].toFixed(1)} to ${after[moving].toFixed(1)}, places read, L = late: ${seen})`,
           );
         else expect({ direction, places, between: places >= 3 }).toEqual({ direction, places, between: true });
+        // No frame moves most of the way: the largest one-frame step. A move read over a late read
+        // or over a frame with no read is two or three frames' moves: it says so and is not judged,
+        // but all of the move between two reads next to each other is a jump however they ran.
+        const { largest, judged, joined, jumped } = steps(frames, moving, before[moving], after[moving]);
+        if (joined > 0)
+          console.log(
+            `no verdict: joined steps (${engineName} ${direction}: ${joined} moves read over a late read or a frame with no read, ${judged} one-frame steps judged, the largest ${largest.toFixed(1)} of ${Math.abs(total).toFixed(1)})`,
+          );
+        expect({ direction, jumped }).toEqual({ direction, jumped: false });
         expect({ direction, largest, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({
           direction,
           largest,
