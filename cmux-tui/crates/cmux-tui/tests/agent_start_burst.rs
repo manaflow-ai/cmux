@@ -33,6 +33,9 @@ const NO_OTHER_AGENT: &str = "No other agent runs in this session now.";
 /// The connections that the daemon serves for its terminals at one time
 /// (`MAX_TERMINAL_CONNECTIONS`, `cmux-tui-core` `server/bounded_outbound.rs`).
 const TERMINAL_LANE: usize = 48;
+/// The connections of terminals that may hold a stream, a wait or a follow at
+/// one time (`MAX_LONG_TERMINAL_CONNECTIONS`, the same file).
+const LONG_BOUND: usize = 256;
 
 fn test_timeout(timeout: Duration) -> Duration {
     let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -419,7 +422,7 @@ impl Gate {
 /// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
 fn long_holder_script(dir: &Path, index: usize) -> String {
     format!(
-        "exec '{tui}' --json session current events >/dev/null 2>'{dir}/held/{index}.err'",
+        "exec '{tui}' --jsonl session current events >/dev/null 2>'{dir}/held/{index}.err'",
         tui = env!("CARGO_BIN_EXE_cmux-tui"),
         dir = dir.display(),
     )
@@ -624,5 +627,125 @@ fn agent_start_long_holders_leave_room_for_a_hook_and_a_typed_command() {
         typed.printed.contains(&terminal),
         "the typed command must print its terminal: {}",
         typed.shown()
+    );
+}
+
+/// The daemon's thread count and descriptor count (Linux: `/proc`).
+fn process_counts(daemon: &Daemon) -> String {
+    let pid = daemon.child.id();
+    let threads = fs::read_to_string(format!("/proc/{pid}/status")).ok().and_then(|status| {
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix("Threads:"))
+            .map(|count| count.trim().to_owned())
+    });
+    let descriptors = fs::read_dir(format!("/proc/{pid}/fd")).ok().map(Iterator::count);
+    match (threads, descriptors) {
+        (Some(threads), Some(descriptors)) => {
+            format!("the daemon has {threads} threads and {descriptors} descriptors")
+        }
+        _ => "the daemon's threads and descriptors are not counted on this system".to_owned(),
+    }
+}
+
+/// The program of a terminal that asks for a long connection above the
+/// bound, then makes a typed command. It keeps the exit code of each one.
+fn over_the_bound_script(dir: &Path) -> String {
+    format!(
+        "D='{dir}/over'; \
+         '{tui}' --jsonl session current events >\"$D/events.out\" 2>\"$D/events.err\"; \
+         echo $? >\"$D/events.rc\"; \
+         '{tui}' --json terminal \"$CMUX_TUI_TERMINAL_ID\" show \
+            >\"$D/typed.out\" 2>\"$D/typed.err\"; \
+         echo $? >\"$D/typed.rc.part\"; mv \"$D/typed.rc.part\" \"$D/typed.rc\"; \
+         exec /bin/cat",
+        dir = dir.display(),
+        tui = env!("CARGO_BIN_EXE_cmux-tui"),
+    )
+}
+
+/// The long connections of the terminals have a bound, because each one holds
+/// a thread and a socket of the daemon until it ends. At the bound the daemon
+/// refuses no connection: the request that asks for one more stream gets an
+/// error that names the limit and what a person can do, and a typed command
+/// of the same terminal is served.
+#[test]
+fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
+    let daemon = Daemon::start("bound");
+    let mut control = Control::open(&daemon.socket);
+    for folder in ["held", "over"] {
+        fs::create_dir_all(daemon.dir.join(folder)).unwrap();
+    }
+    eprintln!("agent start long holders: with no terminal {}", process_counts(&daemon));
+
+    // The holders start in groups smaller than the short lane: each one is a
+    // short connection until its stream starts.
+    let group = TERMINAL_LANE / 2;
+    for first in (0..LONG_BOUND).step_by(group) {
+        let last = (first + group).min(LONG_BOUND);
+        for index in first..last {
+            control.run_in_terminal(&format!("h{index}"), &long_holder_script(&daemon.dir, index));
+        }
+        let wanted = u64::try_from(last).unwrap();
+        let held = wait_until(test_timeout(Duration::from_secs(60)), || {
+            control.handled("session.events") >= wanted
+        });
+        let streams = control.handled("session.events");
+        assert!(
+            held,
+            "the daemon opened {streams} of the first {wanted} event streams, each from its own \
+             terminal: {LONG_BOUND} terminals must each get one"
+        );
+    }
+    let full = control.connections();
+    eprintln!(
+        "agent start long holders: {LONG_BOUND} terminals each hold an event stream; the daemon \
+         counts {} of {} short connections and refused {}; {}",
+        full.active,
+        full.limit,
+        full.refused,
+        process_counts(&daemon)
+    );
+    assert_eq!(full.refused, 0, "setup: the daemon refused a connection of a holder");
+    let first_error = (0..LONG_BOUND)
+        .map(|index| daemon.dir.join("held").join(format!("{index}.err")))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .find(|error| !error.trim().is_empty());
+    assert_eq!(first_error, None, "setup: a holder below the bound got an error");
+    assert!(
+        full.active < u64::try_from(TERMINAL_LANE).unwrap(),
+        "the holders must not be in the short lane: {} short connections are counted",
+        full.active
+    );
+
+    let over = daemon.dir.join("over");
+    control.run_in_terminal("over", &over_the_bound_script(&daemon.dir));
+    let ended =
+        wait_until(test_timeout(Duration::from_secs(60)), || over.join("typed.rc").exists());
+    let file = |name: &str| fs::read_to_string(over.join(name)).unwrap_or_default();
+    let said = format!("{} {}", file("events.out").trim(), file("events.err").trim());
+    assert!(ended, "the terminal above the bound did not end its two commands: {said:?}");
+    let after = control.connections();
+    eprintln!(
+        "agent start long holders: the stream above the bound: exit {:?}, it said {:?}; the typed \
+         command after it: exit {:?}; the daemon admitted {} and refused {} connections; {}",
+        file("events.rc").trim(),
+        said.chars().take(600).collect::<String>(),
+        file("typed.rc").trim(),
+        after.accepted - full.accepted,
+        after.refused - full.refused,
+        process_counts(&daemon)
+    );
+    assert_ne!(file("events.rc").trim(), "0", "a stream above the bound must not start: {said:?}");
+    assert!(
+        said.contains(&format!("limit {LONG_BOUND}")) && said.contains("then try again"),
+        "the error must name the limit and what a person can do: {said:?}"
+    );
+    assert_eq!(after.refused, 0, "the daemon must refuse no connection at the bound");
+    assert_eq!(
+        file("typed.rc").trim(),
+        "0",
+        "a typed command of the same terminal must be served: {:?}",
+        file("typed.err")
     );
 }
