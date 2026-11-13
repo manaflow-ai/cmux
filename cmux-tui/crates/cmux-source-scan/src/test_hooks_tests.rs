@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::rows::unmatched;
 use crate::source::rust_files;
 
 const SRC: &str = "cmux-tui/crates/acpmux/src/";
@@ -29,28 +30,48 @@ fn rows() -> Vec<(String, String, String)> {
     out
 }
 
-/// Why a row fails, or None when the check judges it as the row says.
+/// Why a row fails, or None when the check judges it as the row says. A `refused` row names the
+/// findings its source holds, `LINE [WORDS]` each, joined by ` & `: the check must find exactly
+/// those, each once, so a second copy of one fails the row as a missing one does (#42341 F1).
 fn judge_row(args: &str, source: &str) -> Option<String> {
-    let mut parts = args.splitn(4, ' ');
-    let kind = parts.next().unwrap_or("");
-    let first = parts.next().unwrap_or("");
-    let line: usize = parts.next().map_or(0, |l| l.parse().expect("a row's line number"));
-    let words = parts.next().unwrap_or("");
+    let (kind, rest) = args.split_once(' ').unwrap_or((args, ""));
+    let (first, rest) = rest.split_once(' ').unwrap_or((rest, ""));
     let (file, text) = match kind {
         "chain" => ("chain.rs".to_string(), format!("{CHAIN_PRELUDE}{source}")),
         _ => (first.to_string(), source.to_string()),
     };
     let found: Vec<String> =
         judge_source(&format!("{SRC}{file}"), &text).iter().map(ToString::to_string).collect();
-    let at = format!("{SRC}{file}:{line}:");
+    let at = |line: &str| format!("{SRC}{file}:{line}:");
     let ok = match (kind, first) {
         ("passes", _) | ("chain", "passes") => found.is_empty(),
+        // A chain carries only the python check's verdict, not the findings.
         ("chain", "refused") => !found.is_empty(),
-        // Exactly what the row names: one more finding fails it as a missing one does.
         ("refused", _) => {
-            !found.is_empty() && found.iter().all(|f| f.starts_with(&at) && f.contains(words))
+            let named: Vec<(String, &str)> = rest
+                .split(" & ")
+                .map(|one| {
+                    let (line, words) = one.split_once(' ').unwrap_or((one, ""));
+                    line.parse::<usize>().expect("a row's line number");
+                    (at(line), words)
+                })
+                .collect();
+            let left = unmatched(&named, &found, |(head, words), f| {
+                f.starts_with(head.as_str()) && f.contains(words)
+            });
+            if !left.is_empty() {
+                return Some(format!(
+                    "named but not found {:?}; found but not named {:#?}",
+                    left.missing, left.extra
+                ));
+            }
+            true
         }
-        ("clear", _) => !found.iter().any(|f| f.starts_with(&at)),
+        // Nothing at the line: no finding there at all, so any() is the whole claim.
+        ("clear", _) => {
+            let line = rest.split(' ').next().unwrap_or("");
+            !found.iter().any(|f| f.starts_with(&at(line)))
+        }
         _ => return Some(format!("no such row kind: {args}")),
     };
     (!ok).then(|| format!("found {found:#?}"))
@@ -190,24 +211,21 @@ fn the_tree_follows_paths_into_other_files() {
     }
     let found = judge_tree(&dir).expect("the tree this test wrote reads");
     std::fs::remove_dir_all(&dir).expect("remove the tree this test wrote");
-    let why = |name: &str| found.iter().find(|f| f.name == name).map(|f| f.why.clone());
-    for name in ["OK_USE", "OK_PATH", "OK_TESTS_USE", "OK_GENERIC", "OK_CHILD"] {
-        assert_eq!(why(name), None, "{name}: {found:#?}");
-    }
-    for name in ["BAD_PATH", "BAD_REEXPORT", "BAD_ARG", "BAD_ONE_CFG", "BAD_INLINE", "BAD_CHILD"] {
-        assert!(
-            why(name).is_some_and(|w| w.starts_with("a closure in a process-wide cell")),
-            "{name}: {found:#?}"
-        );
-    }
-    assert!(
-        why("BAD_NO_FILE").is_some_and(|w| w.contains("unresolved: its type names crate::nope::X")),
-        "{found:#?}"
-    );
+    // Exactly these findings, each once: an OK_ static found, or a BAD_ one found twice, fails.
+    let closure = "a closure in a process-wide cell";
+    let named: &[(&str, &str)] = &[
+        ("BAD_PATH", closure),
+        ("BAD_REEXPORT", closure),
+        ("BAD_ARG", closure),
+        ("BAD_ONE_CFG", closure),
+        ("BAD_INLINE", closure),
+        ("BAD_CHILD", closure),
+        ("BAD_NO_FILE", "unresolved: its type names crate::nope::X"),
+    ];
+    let left = unmatched(named, &found, |(name, why), f| f.name == *name && f.why.contains(why));
+    assert!(left.is_empty(), "{left:#?}\nof {found:#?}");
     // One file alone still calls each of these unresolved.
     let alone = judge_source(&format!("{SRC}lib.rs"), files[0].1);
-    assert!(
-        alone.iter().any(|f| f.name == "OK_USE" && f.why.starts_with("unresolved")),
-        "{alone:#?}"
-    );
+    let ok_use: Vec<&Finding> = alone.iter().filter(|f| f.name == "OK_USE").collect();
+    assert!(ok_use.len() == 1 && ok_use[0].why.starts_with("unresolved"), "{alone:#?}");
 }

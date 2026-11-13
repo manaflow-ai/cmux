@@ -2,10 +2,10 @@
 //! cmux-source-scan (crates/cmux-source-scan/src/test_hooks.rs) over this crate's `src`, run by
 //! `cargo test -p acpmux --lib`. Its rows and the property are in that crate.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Instant;
 
+use cmux_source_scan::rows::unmatched;
 use cmux_source_scan::source::rust_files;
 use cmux_source_scan::test_hooks::{Finding, judge_tree};
 
@@ -32,15 +32,12 @@ fn the_crate_adds_no_process_wide_test_hook() {
 }
 
 /// What is wrong with the crate's findings against KNOWN: one line each, none when they agree.
+/// Each KNOWN row stands for one finding, so a second finding with its key is new (#42341 F1).
 fn tree_drift(found: &[Finding], known: &[&str]) -> Vec<String> {
     let key = |f: &Finding| format!("{} {}", f.rel.trim_start_matches(SRC), f.name);
-    let keys: BTreeSet<String> = found.iter().map(key).collect();
-    let new: Vec<String> = found
-        .iter()
-        .filter(|f| !known.contains(&key(f).as_str()))
-        .map(ToString::to_string)
-        .collect();
-    let gone: Vec<&&str> = known.iter().filter(|k| !keys.contains(**k)).collect();
+    let left = unmatched(known, found, |k, f| *k == key(f));
+    let new: Vec<String> = left.extra.iter().map(ToString::to_string).collect();
+    let gone: Vec<&&str> = left.missing;
     let mut out = Vec::new();
     if !new.is_empty() {
         out.push(format!(

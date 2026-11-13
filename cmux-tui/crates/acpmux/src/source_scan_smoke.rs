@@ -4,10 +4,10 @@
 //! timing check's KNOWN_MISSES: each row stays a miss, and the tree holds exactly the instances
 //! of the shape marked `in_tree`.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use cmux_source_scan::nextest::FileTests;
+use cmux_source_scan::rows::unmatched;
 use cmux_source_scan::test_hooks::judge_source;
 use cmux_source_scan::timing_ratio::{KNOWN_MISSES, Scan, scan_text, scan_with, spread_bounds};
 
@@ -49,7 +49,8 @@ fn rows() -> Vec<Row> {
 }
 
 /// What the row's check says, or None when it says what the row does: a refused or flagged row
-/// holds exactly the one finding it names, so a missing or an extra finding fails it.
+/// holds exactly the one finding it names, so a missing finding, another one, or a second copy
+/// of the named one (#42341 F1) fails it.
 fn judge(row: &Row) -> Option<String> {
     // Each finding, and whether it is the one the row names.
     let found: Vec<(bool, String)> = match row.check.as_str() {
@@ -71,19 +72,24 @@ fn judge(row: &Row) -> Option<String> {
         .collect(),
         other => return Some(format!("no check `{other}`")),
     };
-    let named = found.iter().filter(|(hit, _)| *hit).count();
+    let named: &[()] = match row.verdict.as_str() {
+        "refused" | "flagged" => &[()],
+        "passes" | "clean" => &[],
+        other => return Some(format!("no verdict `{other}`")),
+    };
+    let left = unmatched(named, &found, |(), (hit, _)| *hit);
     let all: Vec<&String> = found.iter().map(|(_, f)| f).collect();
-    match row.verdict.as_str() {
-        "refused" | "flagged" if named == 0 => {
-            Some(format!("no finding `{} {}`; found {all:?}", row.what, row.words))
-        }
-        "refused" | "flagged" if all.len() != 1 => {
-            Some(format!("found more than `{} {}`: {all:?}", row.what, row.words))
-        }
-        "passes" | "clean" if !all.is_empty() => Some(format!("found {all:?}")),
-        "refused" | "flagged" | "passes" | "clean" => None,
-        other => Some(format!("no verdict `{other}`")),
+    if !left.missing.is_empty() {
+        return Some(format!("no finding `{} {}`; found {all:?}", row.what, row.words));
     }
+    (!left.extra.is_empty()).then(|| {
+        let extra: Vec<&String> = left.extra.iter().map(|(_, f)| f).collect();
+        if named.is_empty() {
+            format!("found {extra:?}")
+        } else {
+            format!("found more than `{} {}`: {extra:?}", row.what, row.words)
+        }
+    })
 }
 
 #[test]
@@ -134,12 +140,14 @@ fn each_known_miss_of_the_timing_check_stays_a_miss() {
 }
 
 /// What is wrong with the tree's scan against the KNOWN_MISSES sites marked `in_tree`: one line
-/// each, none when the scan parsed every file and holds exactly them.
-fn tree_drift(scan: &Scan, known: &BTreeSet<String>) -> Vec<String> {
-    let sites: BTreeSet<String> =
+/// each, none when the scan parsed every file and holds exactly them, each as many times as it
+/// is listed (a second instance of a site is new, #42341 F1).
+fn tree_drift(scan: &Scan, known: &[String]) -> Vec<String> {
+    let sites: Vec<String> =
         scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
-    let new: Vec<&String> = sites.difference(known).collect();
-    let gone: Vec<&String> = known.difference(&sites).collect();
+    let left = unmatched(known, &sites, |k, s| k == s);
+    let new: Vec<&String> = left.extra;
+    let gone: Vec<&String> = left.missing;
     let mut out = Vec::new();
     if !scan.unparsed.is_empty() {
         out.push(format!(
@@ -167,7 +175,7 @@ fn the_tree_holds_no_new_instance_of_a_known_miss() {
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let roots: Vec<PathBuf> = vec![checkout.join("cmux-tui/crates")];
     let scan = scan_with(&checkout, &roots, spread_bounds).expect("cmux-tui/crates scans");
-    let known: BTreeSet<String> =
+    let known: Vec<String> =
         KNOWN_MISSES.iter().filter(|m| m.in_tree).map(|m| m.site.to_string()).collect();
     let drift = tree_drift(&scan, &known);
     assert!(drift.is_empty(), "{}", drift.join("\n"));
@@ -238,8 +246,7 @@ fn the_tree_check_fails_on_a_second_instance_of_a_known_site() {
         text: "g50 < 500.0".to_string(),
     };
     let scan = Scan { found: vec![instance(3), instance(4)], files: 1, ..Scan::default() };
-    let known: BTreeSet<String> =
-        ["cmux-tui/crates/demo/tests/timing.rs t g50 < 500.0".to_string()].into();
+    let known = ["cmux-tui/crates/demo/tests/timing.rs t g50 < 500.0".to_string()];
     let drift = tree_drift(&scan, &known);
     assert!(!drift.is_empty(), "a second instance of a known site passed");
 }
@@ -253,6 +260,6 @@ fn the_tree_check_fails_on_a_file_it_could_not_parse() {
         files: 1,
         ..Scan::default()
     };
-    let drift = tree_drift(&scan, &BTreeSet::new());
+    let drift = tree_drift(&scan, &[]);
     assert!(drift.iter().any(|d| d.contains("demo/src/broken.rs")), "drift: {drift:?}");
 }
