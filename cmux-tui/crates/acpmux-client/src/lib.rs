@@ -1898,7 +1898,10 @@ tail"#;
         while client.take_send().is_some() {}
         let window = Frame::json(
             FrameKind::Window,
-            &serde_json::json!({"sid":"m","cursor":1,"rows":[{"chatId":"a","origin":"local","lastActivity":1,"state":"idle"}],"hasBefore":false,"hasAfter":false,"edition":1}),
+            &serde_json::json!({"sid":"m","cursor":1,"rows":[
+                {"chatId":"a","origin":"local","lastActivity":1,"state":"idle"},
+                {"chatId":"b","origin":"local","lastActivity":1,"state":"idle"}
+            ],"hasBefore":false,"hasAfter":false,"edition":1}),
         )
         .unwrap()
         .encode();
@@ -1909,7 +1912,7 @@ tail"#;
             FrameKind::Delta,
             &serde_json::json!({"sid":"m","ops":[
                 {"op":"summary","seq":2,"summary":{"chatId":"a","origin":"local","lastActivity":2,"state":"closed"}},
-                {"op":"summary","seq":3,"summary":{"chatId":"a","origin":"local","lastActivity":3}}
+                {"op":"summary","seq":3,"summary":{"chatId":"b","origin":"local","lastActivity":3}}
             ]}),
         )
         .unwrap()
@@ -1929,6 +1932,7 @@ tail"#;
         .unwrap()
         .encode();
         client.received(&hello);
+        while client.take_send().is_some() {}
         let mut sub = Sub::new("m", "list");
         sub.rows = Some("v1".into());
         client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
