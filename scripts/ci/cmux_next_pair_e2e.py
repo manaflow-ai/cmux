@@ -191,10 +191,11 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
-    # The theme leg: the Mac runs this Ghostty config, and once paired the phone opens that Mac's
-    # terminal; both screens are kept (theme-*.png).
-    ap.add_argument("--theme", metavar="GHOSTTY_CONFIG")
     a = ap.parse_args()
+    # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
+    # takes no argument for it): the Mac runs that config, and once paired the phone opens that
+    # Mac's terminal; both screens are kept (screens/theme-*.png).
+    a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -488,6 +489,9 @@ def main():
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
 
 
 def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
