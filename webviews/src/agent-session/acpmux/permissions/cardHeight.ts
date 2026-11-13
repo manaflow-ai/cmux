@@ -123,7 +123,8 @@ const PLAN_BUILD_CHEVRON = 26;
 
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
   // The prompt bubble's padding in the card's unscaled units: drawn at the density text scale (conversation.css).
-  if (permission.question) return questionHeight(permission.question, width / scale, chatDensityTextScale() / scale) * scale;
+  if (permission.question)
+    return questionHeight(permission.question, width / scale, chatDensityTextScale() / scale) * scale;
   const room = Math.max(1, width / scale - 2 * EDGE);
   const external = permission.externalAccess;
   const plan = permission.plan;

@@ -138,7 +138,8 @@ export function resolve(density: Density): Resolved {
   // A tab is the density's row unless the density sets its own (Swift `Metrics.tabHeight`, tabs follow rows); a strip
   // without its own height grows by as much as the tab outgrows the level's tab (Swift `Metrics.tabStripHeight`).
   const tabHeight = density.tokens?.tabHeight ?? metric("sidebarRowHeight");
-  const levelStrip = at(PAIRS.tabStripHeight, level, Math.round) + Math.max(0, tabHeight - at(PAIRS.tabHeight, level, Math.round));
+  const levelStrip =
+    at(PAIRS.tabStripHeight, level, Math.round) + Math.max(0, tabHeight - at(PAIRS.tabHeight, level, Math.round));
   return {
     sidebarRowHeight: metric("sidebarRowHeight"),
     tabHeight,
