@@ -258,6 +258,29 @@ class TagGate(unittest.TestCase):
                 self.assertEqual(self.check(fixture(job("publish", step(UPLOAD, condition)))), [])
                 self.assertEqual(self.check(fixture(job("publish", step(UPLOAD), f"    if: {condition}\n"))), [])
 
+    def test_explicit_read_methods_with_input_stay_reads_and_unknown_methods_write(self) -> None:
+        for method in ("GET", "HEAD", "get", "head"):
+            run = f"gh api repos/o/r/releases --method {method} --input body.json"
+            with self.subTest(run=run):
+                self.assertFalse(publishing_command(run.split()))
+        for args in (
+                ["gh", "api", "repos/o/r/releases", "--method"],
+                ["gh", "api", "repos/o/r/releases", "--method", "$METHOD", "--input", "body.json"],
+                ["gh", "api", "repos/o/r/releases", "--method", "PATCH", "--input", "body.json"],
+        ):
+            with self.subTest(args=args):
+                self.assertTrue(publishing_command(args), args)
+
+    def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
+        policy = POLICIES["app-ffi-release.yml"]
+        branch = "github.ref == 'refs/heads/feat-cmux-next'"
+        allowed = "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+        for other in ("github.event_name == 'schedule'", "github.event_name == 'workflow_run'",
+                      "github.event_name == 'repository_dispatch'", "github.event_name != 'pull_request'"):
+            condition = f"{branch} && ({allowed} && {other})"
+            with self.subTest(condition=condition):
+                self.assertFalse(gated(condition, policy))
+
     def test_a_gate_upstream_covers_a_job_that_needs_it_unless_a_status_function_runs_it_anyway(self) -> None:
         gate = job("gate", "      - run: echo ok\n", f"    if: {PUSH_TAG}\n")
         chained = fixture(gate + job("publish", step(UPLOAD), "    needs: gate\n"))
@@ -279,6 +302,8 @@ class TagGate(unittest.TestCase):
             "cargo publish": "      - run: cargo publish --token x\n",
             "npm publish": "      - run: cd pkg && npm publish --provenance\n",
             "twine": "      - run: python3 -m twine upload dist/*\n",
+            "quoted env operand and publisher": '      - run: env "X=1" g"h" release create v1\n',
+            "quoted env operator and publisher": '      - run: env X"="1 g"h" release create v1\n',
             "gh release create": "      - run: gh release create v1 dist/*\n",
             "gh api write": "      - run: gh api -X POST repos/o/r/releases -f tag_name=v1\n",
             "codesign": "      - run: codesign --force --sign - dist/x\n",
