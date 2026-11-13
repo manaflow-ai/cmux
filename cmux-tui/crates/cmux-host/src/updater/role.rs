@@ -493,7 +493,7 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        hold_connects(&self.paths, HoldKind::Resume);
+        start_hold(&self.paths, wall_ms(), crate::linux::realtime_minus_boottime_ns());
         hold_after_restore(&self.paths);
         HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -540,6 +540,12 @@ impl Role for UpdaterRole {
             _ => Ok(()),
         }
     }
+}
+
+/// The role start's hold at `now_ms` (red: every start holds, as before).
+pub(super) fn start_hold(paths: &Paths, now_ms: u64, _offset_ns: i128) -> bool {
+    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    false
 }
 
 /// Waits `d` or until a message: false when the role stops.
@@ -806,7 +812,7 @@ fn check_inner(
             short_hex(&plan.cmux_tui.sha256),
             short_hex(&plan.commit)
         ));
-        inside.restart_queued(wall_ms());
+        inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
         restart_after_flip(&store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });

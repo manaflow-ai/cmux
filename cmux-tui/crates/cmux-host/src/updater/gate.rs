@@ -142,6 +142,11 @@ impl Inside<'_> {
         let _ = self.gate.write(&state);
     }
 
+    /// [`Inside::restart_queued`] for an update's flip (red: no mark yet).
+    pub fn flip_restart_queued(&self, now_ms: u64, _offset_ns: i128) {
+        self.restart_queued(now_ms);
+    }
+
     /// Starts or extends a connect hold under the flock already held (a new
     /// carrier session the flip's last look found), so the next flip sees it.
     pub fn hold_connects(&self, now_ms: u64) {
