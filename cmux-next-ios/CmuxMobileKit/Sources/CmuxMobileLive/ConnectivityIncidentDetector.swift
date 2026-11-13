@@ -220,9 +220,9 @@ public struct ConnectivityIncidentDetector: Sendable {
             if case .phoneOffline = track.check { track.check = .none }
         case .notWanted(.macOffline) where track.unreachable != nil || track.unstable != nil || !track.drops.isEmpty:
             // A Mac that drops offline in the middle of trouble (its host restarting) gets the grace
-            // period to come back; `evaluate` ends the incident if it does not.
+            // period to come back; `evaluate` ends the incident if it does not. A check in flight is
+            // about the phone's own internet and stays valid.
             track.downSince = nil
-            track.check = .none
             if track.offlineSince == nil { track.offlineSince = date }
         case .notWanted(let why):
             track.downSince = nil
