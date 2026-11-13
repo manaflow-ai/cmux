@@ -689,6 +689,52 @@ mod tests {
     }
 
     #[test]
+    fn listed_under_matches_v1_root_and_archive_rules() {
+        let mut parent = Summary::new("parent");
+        let mut child = Summary::new("child");
+        child.parent = Some(parent.key());
+        assert!(Summary::listed_under(&child, Some(&parent)));
+        assert!(!Summary::listed_under(&child, None));
+
+        let mut nested = Summary::new("nested");
+        nested.parent = Some(parent.key());
+        parent.parent = Some(RowKey::new("local", "root"));
+        assert!(!Summary::listed_under(&nested, Some(&parent)));
+
+        parent.parent = None;
+        parent.extra = RawValue::from_string("{\"tags\":{\"archived\":true}}".to_owned()).unwrap();
+        assert!(!Summary::listed_under(&child, Some(&parent)));
+
+        parent.extra = RawValue::from_string("{\"tags\":{}}".to_owned()).unwrap();
+        child.parent = Some(RowKey::new("local", "other"));
+        assert!(!Summary::listed_under(&child, Some(&parent)));
+    }
+
+    #[test]
+    fn live_pages_use_the_live_ordered_set() {
+        let mut running = summary("running", 3, "{}");
+        running.state = "running".to_owned();
+        let mut closed = summary("closed", 2, "{}");
+        closed.state = "closed".to_owned();
+        let mut waiting = summary("waiting", 1, "{}");
+        waiting.state = "waiting".to_owned();
+        let index = SummaryIndex::new().apply(1, running).apply(2, closed).apply(3, waiting);
+        let page = index.read_live_page(None, ReadSide::After, 10, 64 * 1024).unwrap();
+        assert_eq!(
+            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+            ["running", "waiting"]
+        );
+        let mut closed_again = Summary::new("closed");
+        closed_again.state = "closed".to_owned();
+        let closed = index.apply(4, closed_again);
+        let page = closed.read_live_page(None, ReadSide::After, 10, 64 * 1024).unwrap();
+        assert_eq!(
+            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+            ["running", "waiting"]
+        );
+    }
+
+    #[test]
     fn composite_identity_and_typed_edges_survive_log_snapshot_and_restart() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("index.log");
