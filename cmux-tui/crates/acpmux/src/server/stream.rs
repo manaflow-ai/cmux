@@ -67,6 +67,7 @@ pub(super) async fn serve_stream(
             None,
             None,
             None,
+            None,
         ),
     );
     if let (Some(upgrade), Some(v2)) = (upgrade, v2) {
