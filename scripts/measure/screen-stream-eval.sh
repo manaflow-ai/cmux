@@ -92,6 +92,7 @@ if [[ "$tools_only" == 1 ]]; then
   for tool in preflight scene ocr; do
     swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
   done
+  swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-window-id" "$here/window-id.swift" || exit 4
   swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
     "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" || exit 4
   bash "$here/targets/rd.sh" build || exit 4
@@ -211,7 +212,15 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   launch="$root/.build/screen-stream-eval-launcher"
   rm -rf "$launch"
   mkdir -p "$launch"
-  if app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
+  install_status=0
+  if [[ -n "$prebuilt" ]]; then
+    # The prebuilt route is for a bench Mac that must not compile anything. The
+    # installed launcher is checked above and already carries its console grants.
+    app="$home/Applications/CmuxScreenEvalLauncher.app"
+  else
+    app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") || install_status=$?
+  fi
+  if [[ "$install_status" == 0 ]]; then
     # --request also lists the app under Privacy & Security, where the grant is made.
     open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request \
       >"$launch/open.log" 2>&1 || echo "open exited $?" >>"$launch/open.log"
@@ -243,7 +252,7 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
     fi
     finish "this worker's step processes lack Screen Recording or Accessibility, and so does $app; grant both to it once at the console (System Settings > Privacy & Security, where it is listed) ($grants)"
   else
-    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log"))"
+    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log" 2>/dev/null))"
   fi
   exit 3
 fi

@@ -22,7 +22,12 @@ case "$verb" in
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }
     if [[ -n "${EVAL_PREBUILT:-}" ]]; then
-      [[ -x "$EVAL_BIN/screen-eval-window-id" ]] || { echo "apple-$mode: prebuilt window-id helper missing" >&2; exit 1; }
+      helper="$EVAL_PREBUILT/screen-eval-window-id"
+      [[ -x "$helper" ]] || { echo "apple-$mode: prebuilt window-id helper missing or not executable: $helper" >&2; exit 1; }
+      cp "$helper" "$EVAL_BIN/screen-eval-window-id" || {
+        echo "apple-$mode: could not copy prebuilt window-id helper" >&2
+        exit 1
+      }
     else
       swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$EVAL_ROOT/scripts/measure/screen-stream-eval/window-id.swift"
     fi
