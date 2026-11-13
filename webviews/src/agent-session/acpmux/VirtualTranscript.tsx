@@ -2171,6 +2171,9 @@ function TranscriptView({
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
   const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key):
+  /// read by the rows' render below (a page landing under a scrub draws whole), so declared first.
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   loadFade.current ??= new LoadFadeWindow();
   if (sessionChanged) loadFade.current.clear();
   loadFade.current.phase(loading);
@@ -2967,8 +2970,6 @@ function TranscriptView({
   /// The rows' going clamped the offset to the shorter tail's end, the bottom, and nothing found
   /// the reader's row again. Only the reader's own input, Jump to latest or a send lets it go.
   const heldPlace = useRef<ScrollAnchor | undefined>(undefined);
-  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
-  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
