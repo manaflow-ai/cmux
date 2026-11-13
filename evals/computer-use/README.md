@@ -17,6 +17,8 @@ arms/              cmux-cu.json, cua-driver-0.38.0.json, resolve_cua_driver.py,
                    cua-driver-LICENSE.txt
 prompts/system.md  the one system prompt every arm gets
 scripts/linux-xvfb.sh  deterministic tiers on a fresh Linux VM
+agentenv/cmux/     cmux as an AgentEnv computer driver, for Scale's port of
+                   trycua's Cua Driver Bench (agentenv/cmux/README.md)
 ```
 
 ## 1. Self-test (anywhere, seconds)

@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: MIT
+# macOS (unverified): the protocol with MacOSDriver for the computer/v1 operations.
+agentenv-framework-protocol[computer,macos]==0.1.536

@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# What a composed Linux computer installs into the driver's venv: the protocol with X11Driver (its x11 extra), whose
+# MCP client reaches cmux's server. Pinned to the protocol agentenv-framework 0.9.1521 ships. cmux itself is the
+# binary install.sh unpacks, whose sha256 the driver checks.
+agentenv-framework-protocol[computer,x11]==0.1.536

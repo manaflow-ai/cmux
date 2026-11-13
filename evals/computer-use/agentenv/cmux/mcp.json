@@ -1,0 +1,728 @@
+{
+ "server": {
+  "name": "cmux-computer-use",
+  "version": "1.0.0"
+ },
+ "instructions": "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. App menu commands are in the tree's menu bar: click a menu item to run it. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.",
+ "tools": [
+  {
+   "name": "status",
+   "description": "cmux Computer Use on this machine: platform, display server, permissions, mode (fullAccess, approvedApps, askEveryTime, lookOnly, off) and denied apps. Call first when something is refused.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "list_machines",
+   "description": "Your other machines running cmux that this agent can use (signed in as you, Computer Use on). Pass a name as `machine` to any tool.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "list_apps",
+   "description": "Running apps: id (bundle id, executable or desktop id), name, pid, frontmost. Denied apps are listed with denied: true and cannot be used.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "list_windows",
+   "description": "Top-level windows, front to back: window_id, app_id, title, frame (points), on_screen, minimized. Filter with app_id.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "app_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "screenshot",
+   "description": "A screenshot of one window (window_id, works when covered) or of a display (no window_id). Coordinates you pass to click, scroll and drag are pixels of the latest screenshot of that window or display. Returns unchanged: true and no image when nothing changed since your last screenshot of it (pass force to get it anyway).",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "display": {
+      "description": "A display id; omit for the main display.",
+      "type": "string"
+     },
+     "force": {
+      "type": "boolean"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "get_ui_tree",
+   "description": "The window's accessibility tree: element ids, roles, names, values, frames (screenshot pixels) and actions. Prefer element_id targets over coordinates: they work in the background and survive layout changes. On macOS the tree ends with the app's menu bar (role menu bar), every menu's items listed while the menus stay closed: click a menu item's element_id to run it (About, Save As..., Make Plain Text) without opening a menu.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "max_nodes": {
+      "maximum": 5000,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "click",
+   "description": "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result's menu lists the items, and the next call presses one (perform_action press or click on its element in get_ui_tree). With menu_item, the menu opens, that item is pressed and the menu closes in this one call (a context menu too; use it when the menu would hide items or hold the person's keyboard). To choose a pop-up item in one call, set_value also works. Menu bar menus are not opened in the background.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "button": {
+      "enum": [
+       "left",
+       "right",
+       "middle"
+      ],
+      "type": "string"
+     },
+     "count": {
+      "maximum": 3,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "delivery": {
+      "description": "background (default): never takes focus or moves your pointer. foreground: raises the window and uses system-wide input; only when background fails and the person allowed it.",
+      "enum": [
+       "background",
+       "foreground"
+      ],
+      "type": "string"
+     },
+     "element_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "menu_item": {
+      "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix), or a path for an item in a submenu (\"Sort By > Name\"); the menu opens, the item is pressed and the menu closes in one call.",
+      "type": "string"
+     },
+     "modifiers": {
+      "description": "shift, ctrl, alt/option, cmd/meta",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     },
+     "x": {
+      "type": "number"
+     },
+     "y": {
+      "type": "number"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "type_text",
+   "description": "Type text into the window's focused field, or into element_id. Background by default.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "delivery": {
+      "description": "background (default): never takes focus or moves your pointer. foreground: raises the window and uses system-wide input; only when background fails and the person allowed it.",
+      "enum": [
+       "background",
+       "foreground"
+      ],
+      "type": "string"
+     },
+     "element_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "text"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "press_key",
+   "description": "Press a key combo in a window: \"Return\", \"cmd+s\", \"ctrl+shift+Tab\", \"F5\".",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "delivery": {
+      "description": "background (default): never takes focus or moves your pointer. foreground: raises the window and uses system-wide input; only when background fails and the person allowed it.",
+      "enum": [
+       "background",
+       "foreground"
+      ],
+      "type": "string"
+     },
+     "keys": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "keys"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "scroll",
+   "description": "Scroll at a point (x, y in screenshot pixels) or over element_id. dy > 0 scrolls down, dx > 0 right, in lines.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "dx": {
+      "type": "number"
+     },
+     "dy": {
+      "type": "number"
+     },
+     "element_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     },
+     "x": {
+      "type": "number"
+     },
+     "y": {
+      "type": "number"
+     }
+    },
+    "required": [
+     "window_id"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "drag",
+   "description": "Drag from one point to another in a window (screenshot pixels).",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "button": {
+      "enum": [
+       "left",
+       "right",
+       "middle"
+      ],
+      "type": "string"
+     },
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "delivery": {
+      "description": "background (default): never takes focus or moves your pointer. foreground: raises the window and uses system-wide input; only when background fails and the person allowed it.",
+      "enum": [
+       "background",
+       "foreground"
+      ],
+      "type": "string"
+     },
+     "from_x": {
+      "type": "number"
+     },
+     "from_y": {
+      "type": "number"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "to_x": {
+      "type": "number"
+     },
+     "to_y": {
+      "type": "number"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "from_x",
+     "from_y",
+     "to_x",
+     "to_y"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "set_value",
+   "description": "Set an element's value directly (text fields, sliders, checkboxes), with no typing. On a pop-up or menu button, the value is the title of the item to choose (exact, any case, or a unique prefix): it is picked without opening the menu when the pop-up lists its items while closed, else its menu opens, the item is pressed and the menu closes in this one call. An item that is not there closes the menu again and the error lists the items. On macOS a slider or stepper whose value is read-only (volume, brightness) is stepped to the value; give a number in its own range or a percentage such as \"25%\".",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "element_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "value": {
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "element_id",
+     "value"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "perform_action",
+   "description": "Perform one of an element's accessibility actions (from get_ui_tree): press, confirm, increment, decrement, expand, collapse, select, focus. show_menu (a context menu) or press on a pop-up opens the menu and leaves it open with its items in the result; set_value with an item title picks and closes in one call.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "action": {
+      "type": "string"
+     },
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "element_id": {
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "element_id",
+     "action"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "wait",
+   "description": "Wait for slow work (a page load, a build, an animation), then return the window's state (or a display screenshot without window_id). ms defaults to 2000, at most 100000; duration in seconds also works.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "duration": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "ms": {
+      "maximum": 100000,
+      "minimum": 0,
+      "type": "number"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  },
+  {
+   "name": "batch",
+   "description": "Run several actions on one window in order (at most 20), stopping at the first failure, and get one state at the end. Each action is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\" | \"wait\", ...that tool's arguments without window_id}. Use it for steps you are sure of, such as click a field, type, press Return.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "actions": {
+      "items": {
+       "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+     },
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "observe": {
+      "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it.",
+      "type": "boolean"
+     },
+     "settle": {
+      "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once.",
+      "enum": [
+       "adaptive",
+       "anthropic",
+       "openai"
+      ],
+      "type": "string"
+     },
+     "window_id": {
+      "description": "The window, from list_windows or a screenshot.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "window_id",
+     "actions"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "launch_app",
+   "description": "Start an app by id (bundle id, executable or desktop id; on macOS also its name, such as Notes) without bringing it to the front where the platform allows. Returns its pid. When the task needs the app in front (shown to the person, frontmost) and the person allowed foreground input, act on one of its windows with delivery foreground, which raises it.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "app_id": {
+      "type": "string"
+     },
+     "cursor_tag": {
+      "description": "Optional: a short tag the person sees on your blue cursor (at most 60 characters), such as your task. It stays until you set another; by default the tag is your cmux workspace's name.",
+      "type": "string"
+     },
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "app_id"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+   }
+  },
+  {
+   "name": "request_permission",
+   "description": "Ask the person for a missing OS permission (accessibility, screen_capture): shows the OS prompt or opens the right settings pane.",
+   "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+     "machine": {
+      "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine.",
+      "type": "string"
+     },
+     "permission": {
+      "enum": [
+       "accessibility",
+       "screen_capture"
+      ],
+      "type": "string"
+     }
+    },
+    "required": [
+     "permission"
+    ],
+    "type": "object"
+   },
+   "annotations": {
+    "destructiveHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true
+   }
+  }
+ ]
+}
