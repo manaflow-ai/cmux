@@ -103,9 +103,16 @@ export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
 }
 
+/// `_acpmux/presets` reads presets, and with `set`, `clear` or `approveMode` changes one (a preset
+/// approval card's Approve or Not now): that form is a write, so it goes at once and never again.
+const writesPreset = (method: string, params?: Record<string, unknown>) =>
+  method === "_acpmux/presets" &&
+  params !== undefined &&
+  (params.set !== undefined || params.clear !== undefined || params.approveMode !== undefined);
+
 /// Whether `method` waits for a slot and goes again after a busy refusal: reads only (`READS`).
-export function waitsForSlot(method: string): boolean {
-  return READS.has(method);
+export function waitsForSlot(method: string, params?: Record<string, unknown>): boolean {
+  return READS.has(method) && !writesPreset(method, params);
 }
 
 /// The wait before try `attempt` (1-based) of a refused request: exponential, with full jitter so
@@ -156,9 +163,9 @@ export class RequestBudget {
 
   /// Sends request `id` now, or once a slot frees when `limit` are unanswered. Only a read waits;
   /// any other request goes now whatever the count (the daemon's 64 leaves it room) and counts.
-  admit(id: number | string, method: string, send: () => void): void {
+  admit(id: number | string, method: string, send: () => void, params?: Record<string, unknown>): void {
     if (!countsAgainstBudget(method)) return send();
-    if (!waitsForSlot(method)) return this.start(id, send);
+    if (!waitsForSlot(method, params)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }

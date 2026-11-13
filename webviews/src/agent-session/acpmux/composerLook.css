@@ -14,12 +14,21 @@
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
   --acpmux-tray-inset: 22px;
   --acpmux-tray-tuck: 10px;
+  --text-content--line-height: calc(var(--text-content, 14px) * 20 / 14);
+}
+/* The trust stack is the composer's sibling, so it shares the active look's radius here. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"],
+.acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
+  --grid-composer-radius: calc(22px * var(--acpmux-density));
 }
 :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
   position: relative;
   z-index: var(--layer-base, 0);
-  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  /* Its inset from the column, which the gap under the tucked hat's pill reads (subagents.css). */
+  --acpmux-part-inset-left: var(--acpmux-tray-inset);
+  --acpmux-part-inset-right: var(--acpmux-tray-inset);
+  margin: 0 var(--acpmux-part-inset-right) calc(-1 * var(--acpmux-tray-tuck)) var(--acpmux-part-inset-left);
   padding: 4px 8px calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-surface, transparent));
@@ -55,6 +64,9 @@
   position: relative;
   z-index: var(--layer-raised, 1);
 }
+.nt-composer[data-composer-look="codex"] > .nt-box {
+  border-radius: var(--grid-composer-radius);
+}
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword the lens reads, not a color; the box joins nothing */
@@ -71,16 +83,14 @@
    same quiet row fits between + and the actions, using its existing measured fit steps. The prompt
    stays mounted through a look switch, so its draft, attachments and caret stay too. Claude's look
    and New Tab keep their own compact grid.
-   Shorter, with more room under the row (Leo 2026-11-08: "we need to not have our thing be so tall
-   maybe but also ... have more padding on the bottom aka the composer simply doesn't have so little
-   space at the bottom"): the prompt starts 12 px under the top (was 16), the row stands 16 px under
-   it (was 24) and 12 px over the box's bottom (was 8), the side insets unchanged. The empty box is
-   90.75 px at 14 px (was 98.75). Gallery agent-pane.composer-look `codex-height-*` shows the arms. */
+   The installed Codex composer uses a 20px text line, a 40px editor, 18px input side insets,
+   28px controls and 8px footer spacing. Keep the existing density and reading-size controls. */
 .acpmux-composer[data-composer-look="codex"] {
-  --acpmux-codex-prompt-top: calc(12px * var(--cmux-interface-scale, 1));
-  --acpmux-codex-prompt-gap: calc(16px * var(--cmux-interface-scale, 1));
-  --acpmux-codex-row-bottom: calc(12px * var(--cmux-interface-scale, 1));
-  --acpmux-codex-prompt-side: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-lead-gap));
+  --acpmux-codex-prompt-top: calc(12px * var(--acpmux-density));
+  --acpmux-codex-prompt-gap: var(--acpmux-composer-inset);
+  --acpmux-codex-row-bottom: var(--acpmux-composer-inset);
+  --acpmux-codex-prompt-side: calc(18px * var(--acpmux-density));
+  --acpmux-codex-editor-min: max(calc(40px * var(--acpmux-density)), var(--text-content--line-height));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid] {
   --acpmux-shell-inset-top: var(--acpmux-codex-prompt-top);
@@ -99,6 +109,14 @@
     var(--acpmux-codex-prompt-gap);
   padding-right: max(0px, calc(var(--acpmux-codex-prompt-side) - var(--cmux-scroller-size, 8px)));
   --cmux-minimal-scroller-inset-end: var(--acpmux-composer-inset);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
+  > .acpmux-composer-field-menu > .acpmux-md-field > .acpmux-md-root {
+  min-height: var(--acpmux-codex-editor-min);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
+  > .acpmux-composer-field-menu > .acpmux-shell-prompt {
+  min-height: calc(var(--acpmux-codex-editor-min) + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
   > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
@@ -163,7 +181,9 @@
   border-radius: 50%;
   background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 16%, transparent));
 }
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+/* Resume uses the filled primary send surface in either composer look. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled),
+.acpmux-composer .acpmux-send.acpmux-resume {
   background: var(--agent-accent);
   color: var(--agent-accent-text, Canvas);
 }
@@ -175,7 +195,8 @@
   :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
     background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
   }
-  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover {
+  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover,
+  .acpmux-composer .acpmux-send.acpmux-resume:not(:disabled):hover {
     background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
   }
 }

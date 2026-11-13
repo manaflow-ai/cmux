@@ -65,6 +65,8 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     // `GOOGLE_*` stays: Claude Code on Vertex reads it on purpose (`login_env.rs`).
     LoginEnv { key: "GEMINI_API_KEY", family: "gemini", shared_with_others: true },
     LoginEnv { key: "GEMINI_CLI_HOME", family: "gemini", shared_with_others: false },
+    // xAI's grok CLI home (`~/.grok`, its `grok login` session): its own.
+    LoginEnv { key: "GROK_HOME", family: "grok", shared_with_others: false },
     // Muse Code's API key: no other harness signs in with it.
     LoginEnv { key: "META_API_KEY", family: "muse", shared_with_others: false },
 ];
@@ -81,7 +83,17 @@ pub(crate) struct LoginEnv {
 
 /// The login keys a harness of `family` must not inherit: another family's own login, and the
 /// provider keys only multi-provider harnesses read ([`provider_key_foreign`]).
+#[cfg(test)]
 pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static str> + '_ {
+    foreign_login_keys_for(family, None)
+}
+
+/// [`foreign_login_keys`] for an agent on a profile whose env is `profile`: its Bedrock and Vertex
+/// switches decide, as they do for the login shell (`login_env::allowed_with`).
+pub(crate) fn foreign_login_keys_for<'a>(
+    family: &'a str,
+    profile: Option<&'a std::collections::BTreeMap<String, String>>,
+) -> impl Iterator<Item = &'static str> + 'a {
     LOGIN_ENV_OWNERS
         .iter()
         .filter(move |login| {
@@ -93,28 +105,40 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
             crate::login_env::PROVIDER_KEYS
                 .iter()
                 .copied()
-                .filter(move |key| provider_key_foreign(key, family)),
+                .filter(move |key| provider_key_foreign(key, family, profile)),
         )
 }
 
 /// Whether a provider key of `login_env::PROVIDER_KEYS` (the ones [`LOGIN_ENV_OWNERS`] does not
-/// already name) must not reach `family`: one list for the login shell's allow-list and this scrub,
-/// so a key in the daemon's own env reaches no more agents than one from the login shell. Kept by
-/// the multi-provider harnesses (`login_env::PROVIDER_FAMILIES`), the one family that signs in with
-/// the key, and an unknown command (`""`), as it keeps the shared keys above.
-fn provider_key_foreign(key: &str, family: &str) -> bool {
-    let own = match key {
+/// already name) must not reach `family`. One rule for both sides: a family keeps from the daemon's
+/// env exactly what the login shell's allow-list gives it (`login_env::allowed_with`, with the
+/// profile's env). So the multi-provider harnesses keep every key, the key's own family
+/// ([`provider_key_owner`]) keeps it, and a family that uses it under a condition keeps it under
+/// that condition: Claude with the person's Vertex switch keeps `GOOGLE_API_KEY`. An unknown
+/// command (`""`) keeps them, as it keeps the shared keys above.
+fn provider_key_foreign(
+    key: &str,
+    family: &str,
+    profile: Option<&std::collections::BTreeMap<String, String>>,
+) -> bool {
+    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
+        && !family.is_empty()
+        && !crate::login_env::allowed_with(key, "", Some(family), profile)
+}
+
+/// The one family that owns a `login_env::PROVIDER_KEYS` key besides the multi-provider
+/// harnesses: the login shell's allow-list gives it that family (`login_env::allowed_with`), and
+/// the scrub keeps it there ([`provider_key_foreign`] reads the allow-list). Another family that
+/// uses the key under a condition (Claude on Vertex: `GOOGLE_*`) says so in its own allow-list arm.
+pub(crate) fn provider_key_owner(key: &str) -> Option<&'static str> {
+    Some(match key {
         "ANTHROPIC_BASE_URL" => "claude",
         "OPENAI_BASE_URL" | "AZURE_OPENAI_API_KEY" => "codex",
         "GOOGLE_API_KEY" | "GOOGLE_GENERATIVE_AI_API_KEY" => "gemini",
         "XAI_API_KEY" => "grok",
         "DEEPSEEK_API_KEY" => "deepseek",
-        _ => "",
-    };
-    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
-        && !family.is_empty()
-        && family != own
-        && !crate::login_env::PROVIDER_FAMILIES.contains(&family)
+        _ => return None,
+    })
 }
 
 /// What a harness's command line runs, for the scrub.
@@ -314,10 +338,14 @@ const EXECUTABLES: [(&str, &str); 20] = [
 
 /// Every login `runs` must not inherit, removed through `remove`, for an
 /// agent started outside [`scrub`]'s profile path (a sign-in check, a model
-/// list).
-pub(crate) fn remove_foreign(runs: &Runs, mut remove: impl FnMut(&str)) {
+/// list), whose env is `profile`.
+pub(crate) fn remove_foreign(
+    runs: &Runs,
+    profile: Option<&std::collections::BTreeMap<String, String>>,
+    mut remove: impl FnMut(&str),
+) {
     if let Some(kept) = runs.kept() {
-        foreign_login_keys(kept).for_each(&mut remove);
+        foreign_login_keys_for(kept, profile).for_each(&mut remove);
     }
 }
 
@@ -325,7 +353,7 @@ pub(crate) fn remove_foreign(runs: &Runs, mut remove: impl FnMut(&str)) {
 /// whatever set it so far (the daemon's own env, the login shell, machine
 /// env). Call before the profile's own env is applied.
 pub(crate) fn scrub(cmd: &mut Command, name: &str, profile: &HarnessProfile) {
-    remove_foreign(&classify(name, profile), |key| {
+    remove_foreign(&classify(name, profile), Some(&profile.env), |key| {
         cmd.env_remove(key);
     });
 }
@@ -401,7 +429,7 @@ mod tests {
     fn an_agent_loses_the_other_logins_an_unknown_command_every_sign_in_and_a_host_none() {
         let removed = |runs: Runs| {
             let mut keys = Vec::new();
-            remove_foreign(&runs, |key| keys.push(key.to_owned()));
+            remove_foreign(&runs, None, |key| keys.push(key.to_owned()));
             keys
         };
         let codex = removed(Runs::Agent("codex".into()));

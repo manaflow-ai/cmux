@@ -19,6 +19,10 @@ use crate::workspace_registry::{
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
 use published_screens::PublishedScreens;
+pub(crate) use scoped_projection::WorkspaceRows;
+#[cfg(all(test, unix))]
+pub(crate) use scoped_projection::without_crosscheck;
+pub(crate) use split_ids::collect_screen_split_ids;
 pub(crate) use split_ids::ensure_screen_split_public_ids;
 use split_ids::ensure_split_public_ids;
 
@@ -806,7 +810,7 @@ fn ordered_terminal_tab_ids(
 fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLayoutNode> {
     Ok(match node {
         Node::Leaf(pane) => RegistryLayoutNode::Leaf { pane: pane_public_id(state, *pane)? },
-        Node::Split { id, dir, ratio, a, b } => RegistryLayoutNode::Split {
+        Node::Split { id, dir, ratio, a, b, divider_hidden } => RegistryLayoutNode::Split {
             split: split_public_id(state, *id)?,
             direction: match dir {
                 crate::SplitDir::Right => "right",
@@ -816,6 +820,7 @@ fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLa
             ratio: *ratio,
             first: Box::new(registry_layout_node(state, a)?),
             second: Box::new(registry_layout_node(state, b)?),
+            divider_hidden: *divider_hidden,
         },
         Node::Stack { panes, expanded } => RegistryLayoutNode::Stack {
             panes: pane_public_ids(state, panes.as_slice())?,

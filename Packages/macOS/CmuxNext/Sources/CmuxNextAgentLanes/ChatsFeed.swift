@@ -6,9 +6,9 @@ public import Foundation
 /// The app's connection to acpmux's device-wide chat index. acpmux owns the list (P-RUST,
 /// layer-ownership.md rules 1-3): native lists show windows over it (``AcpmuxChatWindows``: acpmux
 /// sorts, filters and pages; the main thread holds only visible rows and applies row diffs), and
-/// every other reader asks acpmux for what it needs (`_acpmux/chats`, `_acpmux/chat_open`,
-/// `_acpmux/chat_projects`). This feed holds no chat of the index: an index change reaches the main
-/// actor as a signal for its observers (the projects relay), never as the chat.
+/// every other reader asks acpmux for what it needs (`_acpmux/chats`, `_acpmux/chat_open`). The
+/// daemon reads the grouped project folders (`_acpmux/chat_projects`) itself. This feed holds no
+/// chat of the index: an index change only retries the windows acpmux refused.
 @MainActor
 public final class ChatsFeed {
     /// The windows over the index that native lists show (the sidebar's chat history, the New Tab
@@ -19,7 +19,6 @@ public final class ChatsFeed {
     private let drained: @MainActor (Int, Duration) -> Void
     /// The acpmux socket this feed reads (readers that ask acpmux themselves use it).
     public var socketPath: String { socket }
-    private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
@@ -46,17 +45,9 @@ public final class ChatsFeed {
         directoryWatch?.cancel()
     }
 
-    /// Calls `changed` after each index change (a chat added, changed or removed; not a chat's
-    /// activity) while `owner` lives, and starts the one long-lived connection for the first.
-    public func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
-        observers.append(({ [weak owner] in owner }, changed))
-        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
-    }
-
-    /// Keeps the connection up for the windows while nothing else observes: one idle push
-    /// connection, no timers.
+    /// Starts the one long-lived connection for the windows: one idle push connection, no timers.
     public func keepCurrent() {
-        observe(self) {}
+        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
     private func connect() {
@@ -90,7 +81,7 @@ public final class ChatsFeed {
         /// The answer to request `id` (a window's open or close): whether it is an error, and whether acpmux
         /// answered `ready: false` (its index has not started; the window fills when it does).
         case answered(id: Int, failed: Bool, notReady: Bool)
-        /// The daemon dropped a notification or the watch lagged: every window and observer again.
+        /// The daemon dropped a notification or the watch lagged: every window again.
         case lagged
 
         public init?(line: Data) {
@@ -169,14 +160,13 @@ public final class ChatsFeed {
                 changed = true
             }
         }
-        // Dropped lines (a full batch): every window and observer again.
+        // Dropped lines (a full batch): every window again.
         if drain.overflowed, !drain.closed {
             windows.resync()
             changed = true
         }
         // The daemon answers again: a window it refused (busy) is asked again.
         if changed { windows.retryFailed() }
-        if changed { publish() }
         if drain.closed { lost(connection) }
     }
 
@@ -198,11 +188,6 @@ public final class ChatsFeed {
             line.append(0x0A)
             return line
         }
-    }
-
-    private func publish() {
-        observers.removeAll { $0.owner() == nil }
-        for observer in observers { observer.changed() }
     }
 
     private func lost(_ connection: AgentActivityLineConnection) {

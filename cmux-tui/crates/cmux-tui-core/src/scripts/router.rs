@@ -99,14 +99,17 @@ impl ScriptRouter for DaemonRouter {
         // Without a thread the session gets no events: `cmux.wait` then ends
         // at its own timeout.
         let _ = std::thread::Builder::new().name("cmux-script-events".into()).spawn(move || {
-            let mut epoch = mux.journal_event_epoch();
+            // A terminal's live facts (its progress, its last output) move
+            // no journal epoch: a script that waits on one wakes on the
+            // live sequence (`mux/terminal_live.rs`).
+            let mut seen = (mux.journal_event_epoch(), mux.terminal_live_sequence());
             loop {
-                let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
+                let next = mux.wait_for_session_event_until_interrupted(seen.0, seen.1, &interrupt);
                 if interrupt.is_fired() {
                     return;
                 }
-                if next != epoch {
-                    epoch = next;
+                if next != seen {
+                    seen = next;
                     for stream in STREAMS {
                         publish(stream);
                     }

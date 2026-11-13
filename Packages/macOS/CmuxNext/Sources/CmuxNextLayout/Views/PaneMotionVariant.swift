@@ -10,14 +10,11 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
     case standard
     /// Short, critically damped movement with no overshoot.
     case crisp
-    /// A small easing bump as the pane reaches its destination.
-    case softLanding
 
     public var tunableTitle: String {
         switch self {
         case .standard: "Current"
         case .crisp: "Crisp"
-        case .softLanding: "Soft landing"
         }
     }
 
@@ -27,7 +24,6 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
         switch self {
         case .standard: .split
         case .crisp: .disappear
-        case .softLanding: .settle
         }
     }
 
@@ -36,7 +32,6 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
         switch self {
         case .standard: .split
         case .crisp: .move
-        case .softLanding: .settle
         }
     }
 
@@ -44,7 +39,6 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
         switch self {
         case .standard: .zoom
         case .crisp: .move
-        case .softLanding: .settle
         }
     }
 }

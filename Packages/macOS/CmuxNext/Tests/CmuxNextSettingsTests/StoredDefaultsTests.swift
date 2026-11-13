@@ -43,6 +43,28 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("card"))
     }
 
+    /// #41072 review: turning a login consent off in Settings stores the no (false is the schema's default), so a
+    /// DEV or NIGHTLY build, which reads no answer as yes, stops carrying the Codex login; the stored-defaults pass
+    /// keeps it too.
+    @Test func aLoginConsentsNoIsStoredAndStopsTheCarry() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        let consent = CloudCodexSignInConsentSetting()
+        let answer = { consent.consent(file: settings.fileRoot, effective: settings.snapshot.root, managed: false, copiesWithoutConsent: true) }
+        #expect(answer() == true, "never asked: a dogfood build carries it")
+        for path in [CloudCodexSignInConsentSetting.configPath, CloudLoginCopyConsentSetting.configPath] {
+            let descriptor = try #require(SettingsSchema.descriptor(for: path))
+            try await settings.setSetting(descriptor, to: .bool(true), by: .user)
+            try await settings.setSetting(descriptor, to: .bool(false), by: .user)
+            #expect(try await settings.file.value(at: path) == .bool(false))
+        }
+        #expect(answer() == false, "turned off in Settings: no carry")
+        let report = try await settings.forgetStoredDefaults(marker: try marker(), formerDefaults: [:])
+        #expect(report?.dropped[CloudCodexSignInConsentSetting.key] == nil)
+        #expect(try await settings.file.value(at: CloudCodexSignInConsentSetting.configPath) == .bool(false))
+        #expect(answer() == false)
+    }
+
     /// MDM recommends another style, which fills the key when the file leaves it out, so only a
     /// stored default keeps the person's pick.
     @Test func aRecommendedValueKeepsAnExplicitDefault() async throws {
@@ -210,6 +232,64 @@ import Testing
         try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
         #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
         #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+    }
+
+    /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
+    /// is the person's pick, never a stale copy: the pass keeps it on a file it has not seen yet
+    /// (a new install's first launch, an older cmux-next.json copied in). Lawrence 2026-11-08: "i keep
+    /// enabling auto updates but it keeps getting toggled off": each fresh build's pass dropped it
+    /// as a copy of the former default `true`, and the running NIGHTLY turned automatic downloads off.
+    @Test func thePassKeepsAutomaticUpdatesTurnedOn() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+    }
+
+    /// Writes the record an earlier build's pass left beside the file, with `dropped`.
+    func forgottenRecord(dropped: [String: JSONValue]) throws {
+        let record: JSONValue = .object(["dropped": .object(dropped), "kept": .object([:]), "before": .string("")])
+        try Data(record.prettyText().utf8).write(to: home.appending(path: "cmux-next.json.defaults-forgotten.json"))
+    }
+
+    /// A Mac whose earlier build's pass dropped Automatic Updates (`true`, then wrongly a former
+    /// default) gets it back at the next launch: Leo 2026-11-09, "that update, it wasn't just the
+    /// one-click automatic thing". A former default it dropped stays dropped.
+    @Test func aLaunchPutsBackAutomaticUpdatesThePassDropped() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
+
+        await settings.runLaunchMigrations(marker: try marker())
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+    }
+
+    /// The put-back runs once per file, and a key set since the drop keeps its value.
+    @Test func thePutBackRunsOnceAndKeepsALaterPick() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
+
+        #expect(try await settings.restoreWronglyForgottenDefaults() == [])
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
+
+        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
+    /// With no record beside the file (the pass never dropped anything), nothing is put back.
+    @Test func noRecordNoPutBack() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

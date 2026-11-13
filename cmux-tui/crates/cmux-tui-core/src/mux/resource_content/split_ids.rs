@@ -35,7 +35,7 @@ pub(crate) fn ensure_screen_split_public_ids(
 }
 
 /// Every split of one screen: its layout splits, viewport columns and rows.
-pub(super) fn collect_screen_split_ids(
+pub(crate) fn collect_screen_split_ids(
     screen: &crate::model::Screen,
     splits: &mut HashSet<crate::SplitId>,
 ) {

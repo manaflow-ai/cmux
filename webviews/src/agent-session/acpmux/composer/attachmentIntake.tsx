@@ -20,7 +20,8 @@ import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
 import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { isVideoAttachment, useVideoReading } from "./videoAttachments";
+import { isVideoAttachment } from "./videoAttachments";
+import { chipVideoRatio, videoShapeStyle } from "./videoShape";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
@@ -31,6 +32,7 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
@@ -128,6 +130,9 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
+          // Where its chip is when the prompt goes: sent from the latest row, it moves from there
+          // to its slot in the message (conversation/sendMorph.ts).
+          ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
           <AttachmentChip
@@ -188,19 +193,20 @@ function PendingChip({
   // video. ... Just do the square.").
   const square = chip.image || chip.video;
   const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
-  const shape = chip.image ? imageShape(chip.size) : undefined;
+  const shape = chip.image ? imageShape(chip.size) : chip.video ? videoShapeStyle(chip.videoShape) : undefined;
   const style =
     shape || (chip.preview && square)
       ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
       : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
-  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
+  // one small retry button where a retry can work (`retryable`), and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
   if (chip.failed)
     return (
       <div
         className={`acpmux-attachment ${kind} acpmux-attachment-failed`}
         aria-label={name}
+        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
@@ -226,6 +232,7 @@ function PendingChip({
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
       // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
       {...(chip.image && shape ? { "data-sized": "" } : {})}
+      {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
       {...(chip.preview && square ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
@@ -346,7 +353,6 @@ export function AttachmentChip({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoReading = useVideoReading(attachment.id);
   const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
@@ -527,12 +533,12 @@ export function AttachmentChip({
     return (
       <>
         {menu(
-          videoReading ? undefined : play,
+          play,
           <VideoAttachmentTile
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}
-            reading={!attachment.video && videoReading}
+            shape={chipVideoRatio(attachment)}
             remove={remove}
             onPlay={play}
             unplayable={videoPlayer.unplayable}

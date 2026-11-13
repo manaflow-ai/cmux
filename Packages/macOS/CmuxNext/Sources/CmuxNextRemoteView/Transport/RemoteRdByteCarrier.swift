@@ -9,6 +9,9 @@ public nonisolated enum RemoteRdCarrierEvent: Sendable {
     /// The byte path ended or failed (it may come more than once). `reason` says why in a short
     /// line (the open's error, the host's end, a failed write); the session reports the first one.
     case closed(reason: String)
+    /// What the open is waiting on, in one line for a person (a Cloud desktop dial's step and how long
+    /// is left); the connecting card shows the latest until the path is ready.
+    case progress(String)
 }
 
 /// The ordered byte path under `RemoteRdStreamTransport` (cx-2cob slice 2):
