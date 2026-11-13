@@ -52,7 +52,7 @@
   height: var(--ds-icon-14);
   align-self: center;
   flex: 0 0 auto;
-  margin: 0 var(--ds-space-1);
+  margin: 0 var(--ds-space-1) 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
   /* The same ink as the field's placeholder (standup 2026-11-12: "make the colors consistent"). */
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
 }
