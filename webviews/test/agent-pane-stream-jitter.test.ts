@@ -456,8 +456,9 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${RICH}`);
       await page.getByText("Rich ending marker.").waitFor();
-      // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
-      await page.waitForTimeout(3_000);
+      // Observe a fixed number of painted frames. A wall-clock window changes its sample count with
+      // runner load and can stop between the layout and the paint that settles it.
+      await painted(page, 180);
       const frames = await page.evaluate(
         () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
       );

@@ -179,12 +179,12 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// under it and the last row's foot, how far the view is from its end, and how far below the row
   /// under it the opened row is drawn (its foot less its clip).
   type Frame = { line: number; control: number; under: number; last: number; fromEnd: number; over: number };
-  const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
+  const watchOpen = async (page: Page, query: string, frameCount = 45, click = true) => {
     const watching = page.evaluate(
-      ({ selector, duration }) =>
+      ({ selector, frameCount }) =>
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
-          const start = performance.now();
+          let seen = 0;
           window.cmuxAfterPaint(() => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const line = document.querySelector<HTMLElement>(selector)!;
@@ -203,12 +203,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
             });
-            if (performance.now() - start < duration) return;
+            seen += 1;
+            if (seen < frameCount) return;
             resolve(frames);
             return false;
           });
         }),
-      { selector: query, duration: ms },
+      { selector: query, frameCount },
     );
     if (click) await clickLine(page, query);
     return watching;
