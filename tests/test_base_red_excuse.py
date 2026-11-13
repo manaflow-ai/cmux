@@ -13626,7 +13626,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
             "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml",
             # The bundle-size budget (scripts/cmux-next/bundle-size-pr.py): reads the pull request's own diff and body.
-            "cmux-next-size-budget.yml"),
+            "cmux-next-size-budget.yml",
+            # New crate versions in a changed Cargo.lock (scripts/ci/cargo-lock-new-versions): the diff and the body.
+            "cargo-lock-new-versions.yml"),
     }
 
     @classmethod
