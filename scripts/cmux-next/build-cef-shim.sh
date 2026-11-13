@@ -104,10 +104,26 @@ done
   "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+# The helper is copied into five helper apps. -dead_strip (as CEF's own CMake
+# links every target) keeps only the wrapper code it reaches; the sandbox is
+# not in this binary: CefScopedSandboxContext (cef_sandbox_mac.h) loads
+# Libraries/libcef_sandbox.dylib first thing in main, before the framework.
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -Wl,-dead_strip \
   -o "$OUT_DIR/cmux-cef-helper" \
   "$OUT_DIR/obj/shim/helper_main.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+# SIZE-EXPERIMENT (removed before review): the same link without -dead_strip.
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+  -o "$OUT_DIR/cmux-cef-helper.before" \
+  "$OUT_DIR/obj/shim/helper_main.mm.o" \
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+for f in cmux-cef-helper.before cmux-cef-helper; do
+  cp "$OUT_DIR/$f" "$OUT_DIR/$f.stripped" && strip -S -x "$OUT_DIR/$f.stripped"
+  echo "SIZE-EXPERIMENT $ARCH $f linked=$(stat -f %z "$OUT_DIR/$f") stripped=$(stat -f %z "$OUT_DIR/$f.stripped")" >&2
+  size -m "$OUT_DIR/$f" | grep -E 'Section __text|Section __cstring|Section __const' | sed "s/^/SIZE-EXPERIMENT $f /" >&2 || true
+  rm -f "$OUT_DIR/$f.stripped"
+done
+rm -f "$OUT_DIR/cmux-cef-helper.before"
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-chromium-host" \
