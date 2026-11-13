@@ -68,6 +68,18 @@ jobs:
             --edge-check --skip-attach --zero-token --sweep-older-than-minutes 30 \
             --result-file "$RUNNER_TEMP/canary-result.json" 2>&1 | tee "$RUNNER_TEMP/canary.log"
 
+      # Earlier probe runs deleted their throwaway accounts but not the
+      # personal team each sign-up makes, leaving many empty
+      # "cmux prod smoke's Team" rows that buried real teams in the admin
+      # search. This lists them (each one is printed) and deletes up to 100
+      # per run: only teams with a probe account's exact name and no members
+      # (cleanup-probe-teams.mjs). It never fails the canary.
+      - name: Delete empty teams earlier probe runs left
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 4
+        run: bun scripts/cloud-vm/cleanup-probe-teams.mjs production --delete --max-delete 100 --max-pages 2
+
       # One cmux.synthetic.check event per run, the contract the cmux admin
       # /synthetics page graphs. The token can only ingest.
       - name: Send the run to Axiom

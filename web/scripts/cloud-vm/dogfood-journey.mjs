@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { runAgentProbes } from "./dogfood-probes.mjs";
+import { deleteProbeUser } from "./probeTeams.mjs";
 import { parseRunFanout, runFanout } from "./run-fanout.mjs";
 import {
   loadTargetEnv,
@@ -56,6 +57,8 @@ const notes = [];
 const children = new Set();
 let stage = "setup";
 let user;
+// The run's server client, kept for cleanup()'s account delete.
+let stackApp;
 let vmId;
 let authHeaders;
 let deviceId;
@@ -402,7 +405,7 @@ async function sweepDogfoodLeftovers(app, emailPrefix) {
     if (leftover.signedUpAt.getTime() > cutoff) continue;
     const headers = await sessionHeaders(leftover, 5 * 60 * 1000).catch(() => null);
     if (headers && await emptyAccount(headers)) {
-      await leftover.delete();
+      await deleteProbeUser(app, leftover);
       swept.users += 1;
     } else {
       swept.kept += 1;
@@ -418,7 +421,7 @@ async function cleanup() {
   for (const child of children) child.kill("SIGKILL");
   // Covers a create that failed or timed out after the provider started a VM.
   const clean = authHeaders ? await emptyAccount(authHeaders) : true;
-  if (user && clean) await user.delete().catch((error) => console.error(`cleanup_delete_user_failed ${error.message}`));
+  if (user && clean && stackApp) await deleteProbeUser(stackApp, user).catch((error) => console.error(`cleanup_delete_user_failed ${error.message}`));
   else if (user) console.error(`cleanup_kept_user_for_sweep=${user.id}`);
   rmSync(scratch, { recursive: true, force: true });
 }
@@ -468,6 +471,7 @@ try {
     publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
     secretServerKey: env.STACK_SECRET_SERVER_KEY,
   });
+  stackApp = app;
   const version = await runTui(["--version"]);
   result.clientVersion = version.stdout.trim();
 
