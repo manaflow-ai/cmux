@@ -49,6 +49,36 @@ import Testing
         var endsSessionOnClose: Bool { true }
     }
 
+    /// Models resource preparation that completes even after its caller was cancelled.
+    /// The receipt establishes the ordering without polling or sleeps.
+    nonisolated final class Preparation: Sendable {
+        let entered: AsyncStream<Bool>
+        private let entry: AsyncStream<Bool>.Continuation
+        private let continuation = Mutex<CheckedContinuation<Void, Never>?>(nil)
+
+        init() { (entered, entry) = AsyncStream.makeStream(of: Bool.self) }
+        func wait() async {
+            await withCheckedContinuation { next in
+                continuation.store(next)
+                entry.yield(true)
+            }
+        }
+        func finish() {
+            let next = continuation.withLock { value in
+                defer { value = nil }
+                return value
+            }
+            next?.resume()
+            entry.finish()
+        }
+    }
+
+    nonisolated final class Counter: Sendable {
+        private let value = Mutex(0)
+        func increment() { value.withLock { $0 += 1 } }
+        var count: Int { value.load() }
+    }
+
     private let session = MacScreenRdHost.Session(id: "approved-session", name: "Host", viewerID: "viewer",
                                                  viewOnly: false, servers: MacScreenRdServers([]))
     private let webOffer = ScreenSignal.offer("v=0\r\na=fingerprint:sha-256 AB:CD\r\n")
@@ -100,5 +130,69 @@ import Testing
         var count = 0
         for await _ in starts { count += 1 }
         #expect(count == 0)
+    }
+
+    @Test func eventHandlerCanRevokeHostSynchronously() async throws {
+        let worker = Worker(), signaling = Signaling()
+        let (events, event) = AsyncStream.makeStream(of: MacScreenRdHost.Event.self)
+        let host = MacScreenRdHost(session: session, process: worker)
+        host.onEvent = { received in
+            host.disconnectViewer()
+            event.yield(received)
+            event.finish()
+        }
+        let serve = Task { try await host.serve(signaling) }
+        defer { serve.cancel(); host.disconnectViewer(); signaling.close(); event.finish() }
+        signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64)).text))
+        var commands = worker.commands.makeAsyncIterator()
+        _ = try #require(await commands.next())
+        try worker.emit(#"{"connected":true}"#)
+        var received = events.makeAsyncIterator()
+        #expect(await received.next() == .viewerConnected)
+        try await serve.value
+        #expect(worker.stops == 1)
+    }
+
+    @Test func stopBeforeFallbackOfferCannotStartAnotherHost() async throws {
+        let worker = Worker(), signaling = Signaling()
+        let starts = Counter()
+        let host = MacScreenRdHost(session: session, process: worker) { _ in starts.increment() }
+        let serve = Task { try await host.serve(signaling) }
+        defer { serve.cancel(); host.disconnectViewer(); signaling.close() }
+        signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64), peerCarrier: "rd_wg/1").text))
+        var commands = worker.commands.makeAsyncIterator()
+        _ = try #require(await commands.next())
+        try worker.emit(#"{"fallback":{"carrier":"rd_wg","reason":"timeout","retry":"web_rtc"}}"#)
+        host.disconnectViewer()
+        signaling.input.yield(webOffer)
+        signaling.input.finish()
+        try await serve.value
+        #expect(starts.count == 0)
+        // A new call on the same retired owner cannot redeem or read another ticket either.
+        let later = Signaling()
+        later.input.yield(webOffer)
+        later.input.finish()
+        try await host.serve(later)
+        #expect(starts.count == 0)
+    }
+
+    @Test func stopDuringFallbackPreparationPreventsLateInstallation() async throws {
+        let worker = Worker(), signaling = Signaling(), preparation = Preparation()
+        let starts = Counter()
+        let host = MacScreenRdHost(session: session, process: worker,
+                                  prepareWebRTC: { await preparation.wait() }) { _ in starts.increment() }
+        let serve = Task { try await host.serve(signaling) }
+        defer { preparation.finish(); serve.cancel(); host.disconnectViewer(); signaling.close() }
+        signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64), peerCarrier: "rd_wg/1").text))
+        var commands = worker.commands.makeAsyncIterator()
+        _ = try #require(await commands.next())
+        try worker.emit(#"{"fallback":{"carrier":"rd_wg","reason":"timeout","retry":"web_rtc"}}"#)
+        signaling.input.yield(webOffer)
+        var entered = preparation.entered.makeAsyncIterator()
+        #expect(await entered.next() == true)
+        host.disconnectViewer()
+        preparation.finish()
+        try await serve.value
+        #expect(starts.count == 0)
     }
 }

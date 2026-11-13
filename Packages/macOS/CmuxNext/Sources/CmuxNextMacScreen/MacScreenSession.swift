@@ -79,6 +79,8 @@ public final class MacScreenSession {
     /// WebRTC uses the pane's existing presenter after Rust permits a carrier fallback.
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     private var fallback: MacScreenFallback?
+    /// Native start boundary; tests observe it without starting the WebRTC engine.
+    @ObservationIgnored var startFallback: (MacScreenFallback) -> Void = { $0.start() }
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// A quality or display change needs a new hub session (the ticket admits once).
@@ -87,7 +89,7 @@ public final class MacScreenSession {
     public let title: String
     @ObservationIgnored private let signaling: @MainActor () -> (any ScreenSignaling)?
     @ObservationIgnored private var transport: RemoteRdStreamTransport?
-    @ObservationIgnored private var process: MacScreenRdProcess?
+    @ObservationIgnored private var process: (any MacScreenRdWorker)?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private var socketDirectory: URL?
     @ObservationIgnored private var frameWindow = (start: ContinuousClock.now, frames: 0)
@@ -104,30 +106,35 @@ public final class MacScreenSession {
     /// Starts a session on the hub's approved ticket (its signaling, once).
     public func reconnect() { connect() }
 
-    public func connect() {
+    public func connect() { _ = connect(worker: MacScreenRdProcess()) }
+
+    /// The worker owns the terminal decision; injectable without launching a child in lifecycle tests.
+    @discardableResult
+    func connect(worker process: any MacScreenRdWorker) -> Task<Void, Never>? {
         disconnect()
         guard let signaling = signaling() else {
             phase = .failed(message: L.t("macScreen.rd.noTicket", "The other Mac did not approve a session yet."), needsSignIn: false)
-            return
+            return nil
         }
         phase = .connecting
         isStalled = false
         frameSize = .zero
         stats = LiveStats()
-        let process = MacScreenRdProcess()
         do { try process.start(.connect) } catch {
             phase = .failed(message: L.t("macScreen.rd.noBinary", "cmux could not start its screen viewer."), needsSignIn: false)
-            return
+            return nil
         }
         self.process = process
         signalingOpen = false
         pendingOffer = nil
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
-        tasks.append(Task { [weak self] in
+        let output = Task<Void, Never> { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
             await self?.followProcess(process, signaling: signaling, sessionID: sessionID, servers: servers)
-        })
+        }
+        tasks.append(output)
         tasks.append(Task { [weak self] in await self?.followSignaling(signaling, process: process) })
+        return output
     }
 
     /// Ends the session here (the hub hears it from the tab's viewer).
@@ -155,11 +162,11 @@ public final class MacScreenSession {
 
     /// Whether `process` is still this session's (a restart replaced it, or Stop ended it): an
     /// old session's tasks resume after `connect()` started the next one and must not touch it.
-    private func isCurrent(_ process: MacScreenRdProcess) -> Bool {
+    private func isCurrent(_ process: any MacScreenRdWorker) -> Bool {
         self.process === process && !Task.isCancelled
     }
 
-    private func followSignaling(_ signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
+    private func followSignaling(_ signaling: any ScreenSignaling, process: any MacScreenRdWorker) async {
         do {
             for try await signal in signaling.messages() {
                 guard isCurrent(process) else { return }
@@ -209,7 +216,7 @@ public final class MacScreenSession {
     /// This side's offer, made before the socket opened.
     @ObservationIgnored private var pendingOffer: String?
 
-    private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
+    private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: any MacScreenRdWorker) async {
         logger.info("cmux rd: offer sent")
         do { try await signaling.send(.offer(text)) } catch {
             guard isCurrent(process) else { return }
@@ -225,7 +232,7 @@ public final class MacScreenSession {
         pendingAnswer = nil
     }
 
-    private func followProcess(_ process: MacScreenRdProcess, signaling: any ScreenSignaling, sessionID: String,
+    private func followProcess(_ process: any MacScreenRdWorker, signaling: any ScreenSignaling, sessionID: String,
                                servers: MacScreenRdServers) async {
         var offered = false
         for await line in process.lines {
@@ -248,7 +255,7 @@ public final class MacScreenSession {
                     fallback.receivedDisplays(sizes, current: current)
                     onStreamDisplays?(sizes, current)
                 }
-                fallback.start()
+                startFallback(fallback)
                 return
             }
             if let key = line.key, !offered {
@@ -285,12 +292,12 @@ public final class MacScreenSession {
                 return
             }
         }
-        if isCurrent(process), phase == .connecting {
+        if isCurrent(process), phase == .connecting || phase == .connected {
             fail(process.stderrTail.isEmpty ? L.t("macScreen.rd.viewerStopped", "The screen viewer stopped.") : process.stderrTail)
         }
     }
 
-    private func sendAnswer(_ answer: MacScreenRdDocument, sessionID: String, servers: MacScreenRdServers, to process: MacScreenRdProcess) {
+    private func sendAnswer(_ answer: MacScreenRdDocument, sessionID: String, servers: MacScreenRdServers, to process: any MacScreenRdWorker) {
         // The link bridge's socket lives in a 0700 directory of this user's, made off the main thread.
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-rd-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let relayOnly = relayOnly
@@ -343,11 +350,7 @@ public final class MacScreenSession {
                     if phase != .connected { phase = .connected }
                     if let rtt = status.rttMs { stats.latencyMs = Double(rtt) }
                 case let .ended(why):
-                    if case .connectionLost = why {
-                        fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
-                    } else {
-                        end(String(describing: why))
-                    }
+                    transportEnded(why)
                     return
                 case .connecting, .waitingForConsent:
                     continue
@@ -355,6 +358,22 @@ public final class MacScreenSession {
             }
         })
         transport.connect()
+    }
+
+    /// During negotiation the worker's typed terminal output is authoritative. Its
+    /// Unix socket can close before stdout delivers the fallback decision. Closing
+    /// stdin also ends a worker whose local socket could not open, while leaving
+    /// its output reader alive to receive fallback, ended, or final EOF.
+    func transportEnded(_ why: RemoteSessionEnd) {
+        if case .connectionLost = why {
+            if phase == .connecting, let process {
+                process.stop()
+                return
+            }
+            fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+        } else {
+            end(String(describing: why))
+        }
     }
 
     private func end(_ reason: String) {

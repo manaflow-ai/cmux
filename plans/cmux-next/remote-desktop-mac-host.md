@@ -162,6 +162,22 @@ stdout line and the signed offer can arrive in either order. It switches only
 when the decision permits it, retaining the original session and view-only scope.
 There is no new approval, ticket redemption or automatic reconnect after streaming.
 
+The worker's typed terminal output is authoritative during negotiation. The
+Unix pane socket can reach EOF before stdout delivers a permitted fallback;
+close the worker's input to bound local socket failures, but keep its output
+reader alive until fallback, ended, or stdout EOF. A process-exit notification
+must not finish that reader before the final stdout bytes have drained.
+`MacScreenViewerFallbackTests` exercises EOF before fallback, terminal output,
+worker EOF, stop/restart, and a short-lived child's final line. These tests
+are lifecycle evidence, not performance measurements.
+
+Stop is an irreversible fence on the native host owner, including work already
+queued for fallback. Shared WebRTC setup also binds asynchronous ICE discovery
+and resource installation to the current session generation; a stopped hub
+ticket cannot create another source. `MacScreenHostFallbackTests` and
+`ScreenHostRevocationTests` cover actual Stop during suspended setup, synchronous
+callback revocation, queued capture and preserved pairing-room reconnects.
+
 Both carriers feed the same `RemoteFramePresenter` and remote input surface.
 WebRTC's decoded hardware pixel buffers are passed through without copying;
 software I420 frames use the existing pooled NV12 conversion. Disconnect fences

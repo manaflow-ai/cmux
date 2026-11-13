@@ -34,6 +34,7 @@ nonisolated final class MacScreenRdProcess: MacScreenRdWorker {
     let lines: AsyncStream<MacScreenRdMessage>
     private let continuation: AsyncStream<MacScreenRdMessage>.Continuation
     private let state = Mutex(State())
+    private let binaryOverride: URL?
     // Candidates and stop: a session start waits for them, no frame does.
     private let writes = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-stdin", qos: .userInitiated)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd")
@@ -44,7 +45,8 @@ nonisolated final class MacScreenRdProcess: MacScreenRdWorker {
         var stderrTail = Data()
     }
 
-    init() {
+    init(binary: URL? = nil) {
+        binaryOverride = binary
         (lines, continuation) = AsyncStream.makeStream(of: MacScreenRdMessage.self, bufferingPolicy: .bufferingNewest(512))
     }
 
@@ -59,7 +61,7 @@ nonisolated final class MacScreenRdProcess: MacScreenRdWorker {
     /// Starts `cmux rd <role>`. Throws when the binary is missing or will not launch.
     func start(_ role: Role) throws {
         // A missing or unlaunchable binary throws from run() below (no disk check on the caller's thread).
-        guard let binary = Self.binary else { throw CocoaError(.fileNoSuchFile) }
+        guard let binary = binaryOverride ?? Self.binary else { throw CocoaError(.fileNoSuchFile) }
         let process = Process()
         process.executableURL = binary
         process.arguments = ["rd", role.rawValue]
@@ -100,7 +102,9 @@ nonisolated final class MacScreenRdProcess: MacScreenRdWorker {
                 if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
             }
         }
-        process.terminationHandler = { _ in continuation.finish() }
+        // Stdout EOF finishes the stream after its final typed terminal line.
+        // Process termination can arrive first on another queue and must not
+        // discard the fallback decision still buffered in the pipe.
         try process.run()
         state.withLock { state in
             state.process = process
