@@ -84,7 +84,10 @@ export const ARRIVAL_FRAME_LINES = 0.6;
 /// The arrival step's curve: a sine ease-out, whose first frame moves π/2 times the step's mean (a
 /// quadratic ease-out moves twice it, so a long move would need a longer step for the same frame).
 export const ARRIVAL_EASE = "cubic-bezier(0.39, 0.575, 0.565, 1)";
-const arrivalEase = (progress: number) => Math.sin((progress * Math.PI) / 2);
+/// VEHICLE (C): the chase steps by the glides' own curve (ARRIVAL_EASE's four numbers), not by the
+/// sine that curve stands in for: the two differ by up to 3% of a move, which the live line drew.
+const ARRIVAL_CURVE = [0.39, 0.575, 0.565, 1] as const;
+const arrivalEase = (progress: number) => bezierAt(ARRIVAL_CURVE, progress);
 /// The arrival step for a move of `px` (ms): the motion scale's quick step (80 ms), longer only as a
 /// move past about 70 px needs to keep each frame under ARRIVAL_FRAME_LINES (115 px: 110 ms), at the
 /// host's speed `scale` (the speed factor of `--agent-motion-move`; 0 with motion off). `floor`: the
