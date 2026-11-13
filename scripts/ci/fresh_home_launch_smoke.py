@@ -114,10 +114,22 @@ NOT_RUN = "not-run"
 # Where --out keeps the crash reports that an arm found and did not count (the log says why).
 NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
-# how long Home may take to render in it, and how long after launch the sync may take to read the store.
+# how long Home may take to render in it, and how long after launch the sync may take to read the store. (A
+# clone cleanup helper that hangs adds up to CLONE_HELPER_WAIT + 5 s to each arm; these bounds do not count it.)
 SEEDED_STARTUP_LIMIT = 45.0
 DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
+# Chromium's code-sign clone. At each launch CEF clones the app to
+# <the account's X folder>/<bundle id>.code_sign_clone/code_sign_clone.<SUFFIX>/ (about 1 GB), and a helper of the
+# app (the program of its Helper app, with `--type=code-sign-clone-cleanup --unique-temp-dir-suffix=<SUFFIX>`)
+# removes it about 1 s after the app ends. The X folder is beside the account's temp folder, not under the launch's TMPDIR,
+# so the removal of the run's root never takes it. A helper that is stopped with the app leaves the clone until
+# reboot (29 GB on cmux18, 2026-11-02; scripts/perf-bench/procs.py has the same wait). CLONE_HELPER_WAIT: how
+# long the helper gets after the app's end; it is a bound, the wait ends when the helper does. The helper shows
+# only when the app is stopped: an app that crashed or was killed starts none, and its clone stays.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_SUFFIX = re.compile(r"(?:^|\s)--unique-temp-dir-suffix=([A-Za-z0-9]{1,32})(?=\s|$)")
+CLONE_HELPER_WAIT = 15.0
 # The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
 # app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
 # browser of that table, so it has none to ask for here, whatever a build does with the seeded cookies.
@@ -728,10 +740,12 @@ def user_processes() -> list[tuple[int, str]]:
     return [(int(pid), args.strip()) for pid, _, args in pairs if pid.isdigit() and int(pid) != os.getpid()]
 
 
-def pids_under(root: Path) -> list[int]:
-    """This user's processes whose command line names the run's private root, never by name."""
+def pids_under(root: Path, processes: list[tuple[int, str]] | None = None) -> list[int]:
+    """This user's processes whose command line names the run's private root, never by name. PROCESSES: a
+    user_processes read that the caller made already."""
     real = os.path.realpath(root)
-    return [pid for pid, args in user_processes() if f"{root}/" in args or f"{real}/" in args]
+    listed = user_processes() if processes is None else processes
+    return [pid for pid, args in listed if f"{root}/" in args or f"{real}/" in args]
 
 
 # Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
@@ -766,10 +780,11 @@ def terminal_host_pids(root: Path) -> list[int]:
     return pids
 
 
-def own_pids(root: Path) -> list[int]:
+def own_pids(root: Path, processes: list[tuple[int, str]] | None = None) -> list[int]:
     """Everything this run started that may still run: processes naming its root, and its terminal hosts (those
-    of the seeded arm too, whose home is under ROOT/SEEDED)."""
-    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
+    of the seeded arm too, whose home is under ROOT/SEEDED). PROCESSES as pids_under."""
+    return sorted(set(pids_under(root, processes)) | set(terminal_host_pids(root))
+                  | set(terminal_host_pids(root / SEEDED)))
 
 
 def alive(pid: int) -> bool:
@@ -807,6 +822,133 @@ def stop(pids: list[int], grace: float = 5.0) -> None:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
+
+
+def clone_helpers(root: Path, processes: list[tuple[int, str]] | None = None) -> dict[int, str | None]:
+    """This run's code-sign clone cleanup helpers that run now: pid -> the clone suffix that its command line
+    names (None when it names none). A helper is found as every process of the run is: its command line names
+    the run's private root (the app copy's path). PROCESSES as pids_under."""
+    real = os.path.realpath(root)
+    found: dict[int, str | None] = {}
+    for pid, args in (user_processes() if processes is None else processes):
+        if (f"{root}/" in args or f"{real}/" in args) and CLONE_CLEANUP in args.split():
+            named = CLONE_SUFFIX.search(args)
+            found[pid] = named.group(1) if named else None
+    return found
+
+
+def clone_folder() -> Path | None:
+    """The account's X folder, where Chromium keeps each bundle id's code-sign clones: beside the account's temp
+    folder (/var/folders/../../T -> ../X), whatever TMPDIR says. None when it cannot be read."""
+    given = os.environ.get("CMUX_FRESH_SMOKE_CLONE_DIR")
+    if given:
+        return Path(given)
+    try:
+        temp = os.confstr(65537).rstrip("/")  # _CS_DARWIN_USER_TEMP_DIR, what `getconf DARWIN_USER_TEMP_DIR` says
+    except (AttributeError, OSError, ValueError):
+        return None
+    if not temp.startswith("/") or not temp.endswith("/T"):
+        return None
+    return Path(temp[:-1] + "X")
+
+
+def remove_own_clone(bundle_id: str, suffix: str) -> str:
+    """Removes the clone of ONE launch, <X>/<bundle id>.code_sign_clone/code_sign_clone.<suffix>, and never its
+    parent. SUFFIX is what the launch's own helper named: never a guess and never the newest folder, because the
+    parent also holds the clone of each other live launch of this bundle id (two runs of one build on one
+    host). Returns what was done, for the report."""
+    folder = clone_folder()
+    if folder is None:
+        return "not removed: the account's clone folder is not known"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", bundle_id or "") or not re.fullmatch(r"[A-Za-z0-9]{1,32}", suffix):
+        return "not removed: the bundle id or the suffix is not a plain name"
+    parent = folder / f"{bundle_id}.code_sign_clone"
+    clone = parent / f"code_sign_clone.{suffix}"
+    if not os.path.lexists(clone):
+        return "gone"
+    # One absolute path, of this launch alone: a real folder (no link) right under this bundle id's clone parent.
+    if (not clone.is_absolute() or clone.is_symlink() or parent.is_symlink() or not clone.is_dir()
+            or os.path.realpath(clone) != os.path.join(os.path.realpath(folder), parent.name, clone.name)):
+        return "not removed: the clone's path is not a plain folder under the clone parent"
+    shutil.rmtree(clone, ignore_errors=True)
+    if os.path.lexists(clone):
+        return "not removed: the removal failed"
+    # The parent stays, as Chromium's helper leaves it: another launch of this bundle id can make its clone there
+    # in this moment, and this removal holds no lock that such a launch waits for.
+    return "removed by this tool"
+
+
+def stop_but_helpers(root: Path) -> dict:
+    """The first part of a launch's end, after the app's: stops every process of the run that still runs but
+    its code-sign clone cleanup helpers (CLONE_CLEANUP), from one read of the process list. Returns what
+    end_clones needs: the helpers (pid -> the suffix that it names), when this ended, and a fault if one came."""
+    state: dict = {"helpers": {}}
+    try:
+        processes = user_processes()
+        state["helpers"] = clone_helpers(root, processes)
+        stop([pid for pid in own_pids(root, processes) if pid not in state["helpers"]])
+    except Exception as error:  # noqa: BLE001 - end_clones then stops all, and the verdict is not of this
+        state["error"] = f"{type(error).__name__}: {error}"[:300]
+    state["asked"] = time.monotonic()
+    return state
+
+
+def end_clones(root: Path, bundle_id: str | None, state: dict, wait: float | None = None) -> dict:
+    """The second part, the last thing of a launch: after the look for its crash reports (that look is no later
+    than it was without a helper) and after its verdict is in the report and the log (a run that is cut in here
+    keeps it). The helpers of STATE get until WAIT seconds (CLONE_HELPER_WAIT) after the first part to remove
+    the launch's clone and end by themselves, then what is left of the run is stopped from a new read. A clone
+    that its helper named and did not remove is removed here. Returns what was seen, for the report; a fault in
+    here is told there and never raised."""
+    helpers = state["helpers"]
+    facts: dict = {"helpers": len(helpers), **({"error": state["error"]} if "error" in state else {})}
+
+    def fault(error: Exception) -> None:
+        facts["error"] = f"{type(error).__name__}: {error}"[:300]
+
+    try:
+        if "error" in state:
+            # The first part did not end: other processes of the run may still run, and the helpers may not be
+            # known. No wait, and the helpers from a new read.
+            wait, helpers = 0.0, helpers or clone_helpers(root)
+            facts["helpers"] = len(helpers)
+        if helpers:
+            if wait is None:
+                wait = float(os.environ.get("CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS", CLONE_HELPER_WAIT))
+            wait = min(wait, 600.0) if wait > 0 else 0.0  # "nan" also: no wait, and a number that JSON has
+            while time.monotonic() - state["asked"] < wait and any(alive(pid) for pid in helpers):
+                time.sleep(0.1)
+            facts.update(helper_ended=not any(alive(pid) for pid in helpers),
+                         helper_seconds=round(time.monotonic() - state["asked"], 1), wait=wait)
+    except Exception as error:  # noqa: BLE001 - the stop below must run
+        fault(error)
+    try:
+        if helpers or "error" in facts:
+            stop(own_pids(root))
+    except Exception as error:  # noqa: BLE001 - the removal below must run
+        fault(error)
+    try:
+        if helpers:
+            suffixes = sorted({suffix for suffix in helpers.values() if suffix})
+            facts["clones"] = {suffix: remove_own_clone(bundle_id or "", suffix) for suffix in suffixes}
+            if not suffixes:
+                facts["clones_not_known"] = "the helper's command line named no suffix; no clone is removed here"
+            if not (facts.get("helper_ended") and suffixes and set(facts["clones"].values()) == {"gone"}):
+                log(f"note: code-sign clone cleanup: {json.dumps(facts, sort_keys=True)}")
+    except Exception as error:  # noqa: BLE001 - told, never raised
+        fault(error)
+    return facts
+
+
+def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> dict:
+    """Both parts at once: the end of a run, where no look for crash reports follows."""
+    return end_clones(root, bundle_id, stop_but_helpers(root), wait)
+
+
+def end_launch(process: subprocess.Popen, root: Path) -> dict:
+    """The end of one launch, first part: the app, then the run's other processes (stop_but_helpers)."""
+    stop_child(process)
+    return stop_but_helpers(root)
 
 
 def system_log_errors(pid: int, since: float, limit: int = 40) -> list[str]:
@@ -1032,8 +1174,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
                                   seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
             finally:
-                stop_child(process)
-                stop(own_pids(root))
+                ended = end_launch(process, root)
         finally:
             os.close(marks_read)
     seen["marks"] = read_marks(marks_path)
@@ -1102,6 +1243,8 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         log(f"warning: the seeded launch's evidence is not complete: {type(error).__name__}: {error}")
         for failure in seen.get("failures", []):
             log(f"FAIL: {failure}")
+    # Last, with the verdict told: a run that is cut while the clone helper has its time keeps the verdict.
+    seen["clone_cleanup"] = arm["clone_cleanup"] = end_clones(root, bundle_id, ended)
 
 
 def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict, status: int) -> int:
@@ -1109,7 +1252,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
     the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
     arm: dict = {"verdict": NOT_RUN}
-    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures") if key in report}
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "clone_cleanup")
+             if key in report}
     report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
     if status != PASS:
         arm["reason"] = "the first arm did not pass"
@@ -1124,7 +1268,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
                     "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
-                    "daemon", "daemon_down"):
+                    "daemon", "daemon_down", "clone_cleanup"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
@@ -1197,8 +1341,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         journey_failures = []
         if AFTER_RENDER is not None and seen["exit"] is None and seen["rendered_at"] is not None:
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
-        stop_child(process)
-        stop(own_pids(root))
+        ended = end_launch(process, root)
     # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
@@ -1238,6 +1381,8 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
+        # Last, with the verdict told: a run that is cut while the clone helper has its time keeps the verdict.
+        report["clone_cleanup"] = end_clones(root, bundle_id, ended)
         return PASS
     # The verdict stands before the evidence is kept: a run that is cut in the log read or the wait below keeps it.
     report.update(verdict="fail", failures=failures, crash_reports_late=[])
@@ -1250,6 +1395,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         log(f"warning: this launch's evidence is not complete: {type(error).__name__}: {error}")
         for failure in failures:
             log(f"FAIL: {failure}")
+    report["clone_cleanup"] = end_clones(root, bundle_id, ended)
     return FAIL
 
 
@@ -1305,7 +1451,11 @@ def main(argv: list[str] | None = None) -> int:
         for pid in (report.get("pid"), seeded_pid):
             if pid:
                 stop([pid])
-        stop(own_pids(root))
+        # Nothing runs here after a launch that ended (end_clones). After a cut or a fault between a launch's two
+        # parts: no wait, and the launch's clone goes by its helper's suffix.
+        at_end = stop_own(root, report.get("bundle_id"), wait=0.0)
+        if at_end != {"helpers": 0}:
+            report["clone_cleanup_at_end"] = at_end
         if args.out:
             # app.log is the launch the report describes; the other arm's is beside it under its arm's name.
             logs = {EMPTY: root / "app.log", SEEDED: root / SEEDED / "app.log"}
