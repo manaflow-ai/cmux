@@ -38,7 +38,7 @@ impl DiskSnapshot {
         // bounded piece when a row is larger than this estimate.
         let physical_bytes = position
             .record_len
-            .map(|length| length.saturating_mul(limit as u64).min(max_bytes as u64) as usize)
+            .map(|length| length.saturating_mul(limit).min(max_bytes))
             .filter(|bytes| *bytes > 0)
             .unwrap_or(max_bytes);
         let (start, end) = match side {
