@@ -11,6 +11,16 @@ The second arm (--arms empty,seeded) launches the stub again from the home seed_
 that reads the seeded cookie store as the app's cookie sync does (and saves its baseline) passes it, one that
 aborts only in that home fails the run as a crash of that arm, and one that never reads the store leaves the
 arm "not-run" and the first arm's verdict standing.
+
+Time: a run here asks for no up-time (--seconds 0, --seeded-seconds 0), so its watch ends at Home; only a test that
+reads the up-time, or that cuts a run that is up, asks for some. A stub that is up does all the work of a launch
+(its helpers, its reports, the cookie sync, its marks) before it opens its socket, so Home is its last event; a
+report that a stub writes while it quits, or after it, is part of the stop and not of the up-time. What a run needs
+after Home is waited for as an event (a file that is there), not as seconds of up-time. The waits that stay: of the
+tool itself (a launch with no Home ends only at --startup-timeout, a seeded launch with no cookie sync at the scan
+wait, a report that names no process at NO_PROCESS_REREAD_SECONDS, a daemon that is not connected is read again);
+the stub's stand-ins for what macOS does late (a report's body after its head, a process that dies a moment after
+its start); and a few fixed sleeps of single tests that give another process its start, as they were.
 """
 from __future__ import annotations
 
@@ -196,8 +206,8 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
                   "deadline = time.time() + 20\n"
                   "while time.time() < deadline and not os.path.exists(os.environ['STUB_WAIT_FOR']):\n"
                   "    time.sleep(0.05)\n"
-                  "time.sleep(0.3)\n"
-                  "open(os.environ['STUB_REPORT'], 'w').write(os.environ['STUB_REPORT_TEXT'])\n")
+                  "open(os.environ['STUB_REPORT'] + '.part', 'w').write(os.environ['STUB_REPORT_TEXT'])\n"
+                  "os.replace(os.environ['STUB_REPORT'] + '.part', os.environ['STUB_REPORT'])\n")
         def quit_then_report(*_):
             # quit-report: this process, and the report says no time. helper-report: this launch's helper (an
             # orphan once this process is gone), with the time it died, which is now.
@@ -207,6 +217,12 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
                 "STUB_REPORT": name, "STUB_REPORT_TEXT": text})
             os._exit(0)
         signal.signal(signal.SIGTERM, quit_then_report)
+    if mode in ("quit-report", "helper-report") and seeded:
+        # The first launch's report lands while this launch is up: Home (below) comes only after the report. The wait
+        # is shorter than the tool's wait for Home, so a report that never comes shows in the test as that report.
+        deadline = time.time() + 8
+        while time.time() < deadline and not os.path.exists(name):
+            time.sleep(0.05)
     mode = "healthy"
 marks = int(os.environ["CMUX_NEXT_LAUNCH_MARKS_FD"])
 os.write(marks, b"main_start 10.0\n")
@@ -394,14 +410,14 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         domain.write_bytes(b"what the killed run's app wrote")
         aside = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist"
         aside.write_bytes(plistlib.dumps({"stored": b"account defaults"}))
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(domain.read_bytes(), b"account defaults")
         self.assertFalse(aside.exists())
 
     def test_a_domain_that_did_not_exist_is_removed_again(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertFalse(domain.exists())
         self.assertFalse((self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist").exists())
@@ -409,7 +425,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_an_export_that_fails_is_cannot_run_and_touches_nothing(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
         domain.write_bytes(b"account defaults")
-        status, output, report = self.run_smoke("healthy", "--seconds", "1",
+        status, output, report = self.run_smoke("healthy", "--seconds", "0",
                                                 env={**self.env, "FAKE_DEFAULTS_FAIL": "export"})
         self.assertEqual(status, smoke.CANNOT_RUN, output)
         self.assertNotIn("pid", report)
@@ -418,7 +434,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_delete_that_fails_keeps_the_copy_and_does_not_launch(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
         domain.write_bytes(b"account defaults")
-        status, output, report = self.run_smoke("healthy", "--seconds", "1",
+        status, output, report = self.run_smoke("healthy", "--seconds", "0",
                                                 env={**self.env, "FAKE_DEFAULTS_FAIL": "delete"})
         self.assertEqual(status, smoke.CANNOT_RUN, output)
         self.assertNotIn("pid", report)
@@ -428,7 +444,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_defaults_that_cannot_be_put_back_fail_closed_and_stay_aside(self):
         domain = self.defaults_dir / f"{BUNDLE}.plist"
         domain.write_bytes(b"account defaults")
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10",
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10",
                                                 env={**self.env, "FAKE_DEFAULTS_FAIL": "import"})
         self.assertEqual(status, smoke.CANNOT_RUN, output)
         aside = self.dir / f"cmux-fresh-smoke-{BUNDLE}.aside.plist"
@@ -453,8 +469,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertTrue(app.exists())
 
     def seeded(self, mode: str, *extra: str) -> tuple[int, str, dict, Path]:
-        status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", *extra)
+        status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", *extra)
         return status, output, report, self.dir / f"out-{mode}-{self.runs}"
 
     def test_the_seed_tool_makes_a_home_with_cookie_sync_on_and_a_store_with_rows(self):
@@ -529,7 +545,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_seeded_arm_passes_when_the_app_reads_the_seeded_store(self):
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
         self.host_pid_path = self.dir / "host.pid"
-        status, output, report, out = self.seeded("healthy")
+        status, output, report, out = self.seeded("healthy", "--seeded-seconds", "2")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"))
         self.assertEqual(report["arms"]["empty"]["verdict"], "pass")
@@ -775,7 +791,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertIn("does not say when its process was started", why(app, born - 1, found=timeless))
 
     def test_a_crash_of_the_app_that_was_started_again_fails_the_launch_by_its_hidden_path(self):
-        status, output, report = self.run_smoke("again-report", "--seconds", "2", "--startup-timeout", "20")
+        status, output, report = self.run_smoke("again-report", "--seconds", "0", "--startup-timeout", "20")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
         self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
@@ -785,7 +801,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assert_cleaned_up(report)
 
     def test_a_hidden_path_of_another_builds_app_copy_never_fails_a_healthy_launch(self):
-        status, output, report = self.run_smoke("other-hidden-report", "--seconds", "2", "--startup-timeout", "20")
+        status, output, report = self.run_smoke("other-hidden-report", "--seconds", "0", "--startup-timeout", "20")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual((report["verdict"], report["crash_reports"]), ("pass", []))
         self.assertEqual([Path(found).name for found in report["crash_reports_not_counted"]], ["stub-2026-11-11-000000.ips"])
@@ -803,9 +819,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                   f"    open({str(self.dir)!r} + '/verdict-looked-%d' % args[4], 'w').close()\n"
                   "    return found\n"
                   "smoke.launch_crash_reports = look_and_say")
-        for mode, arms in (("late-report", ()), ("late-seeded-report", ("--arms", "empty,seeded", "--seeded-seconds", "2"))):
+        for mode, arms in (("late-report", ()), ("late-seeded-report", ("--arms", "empty,seeded", "--seeded-seconds", "0"))):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms,
+                status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10", *arms,
                                                         env=late, setup=looked)
                 self.assertEqual(status, smoke.FAIL, output)
                 self.assertEqual((report["verdict"], report["exit"], report["crash_reports"]), ("fail", -6, []))
@@ -836,12 +852,12 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                   f"smoke.late_crash_reports = lambda *a, **k: smoke.log({begins!r}) or real_look(*a, **k)\n"
                   "sys.exit(smoke.main(sys.argv[1:]))\n")
         for mode, arms, arm, told in (("crash", (), None, "FAIL: the app exited"),
-                                      ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "2"), "seeded",
+                                      ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "0"), "seeded",
                                        "FAIL: seeded home: the app exited")):
             with self.subTest(mode=mode):
                 app, out = make_app(self.dir / f"cut-{mode}", mode), self.dir / f"out-cut-{mode}"
                 harness = subprocess.Popen([sys.executable, "-c", caller, "--app", str(app), "--out", str(out),
-                                            "--seconds", "2", "--startup-timeout", "10", *arms],
+                                            "--seconds", "0", "--startup-timeout", "10", *arms],
                                            env=late, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 lines, before_the_look = [], None
                 try:
@@ -880,9 +896,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                   "    return []\n"
                   "smoke.crash_reports = refuse")
         for mode, arms, arm, looks in (("crash", (), None, 0),
-                                       ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "2"), "seeded", 1)):
+                                       ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "0"), "seeded", 1)):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms,
+                status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10", *arms,
                                                         setup=refuse.replace("LOOKS", str(looks)))
                 self.assertEqual(status, smoke.FAIL, output)
                 self.assertEqual((report["verdict"], report["exit"], report.get("arm"), report["crash_reports"]),
@@ -910,15 +926,27 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                    "              'while time.time() < deadline and not os.path.exists(sys.argv[1]):\\n'\n"
                    "              '    time.sleep(0.05)\\n'\n"
                    "              'os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True)\\n'\n"
-                   "              'open(sys.argv[2], \"w\").write(sys.argv[3])\\n')\n"
+                   "              'open(sys.argv[2] + \".part\", \"w\").write(sys.argv[3])\\n'\n"
+                   "              'os.replace(sys.argv[2] + \".part\", sys.argv[2])\\n')\n"
                    "    subprocess.Popen([sys.executable, '-c', writer, str(home / 'stub-report.json'),\n"
                    f"                      {str(report_path)!r}, json.dumps({{'app_name': 'stub'}}) + '\\n' + json.dumps(body)],\n"
                    "                     cwd='/', start_new_session=True)\n"
                    "    time.sleep(2.2)\n"
                    "    return seed(home, bundle_id)\n"
-                   "smoke.seed_cookie_sync_home = seed_after_another_run")
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=between)
+                   "smoke.seed_cookie_sync_home = seed_after_another_run\n"
+                   # The seeded launch stays up until that report is there (the watch's end is else its Home).
+                   "watch = smoke.watch\n"
+                   "def watch_until_the_report(*args, **kwargs):\n"
+                   "    import os, time\n"
+                   "    seen = watch(*args, **kwargs)\n"
+                   "    deadline = time.time() + 60\n"
+                   "    while kwargs.get('seed') is not None and time.time() < deadline \\\n"
+                   f"            and not os.path.exists({str(report_path)!r}):\n"
+                   "        time.sleep(0.05)\n"
+                   "    return seen\n"
+                   "smoke.watch = watch_until_the_report")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", setup=between)
         self.assertEqual(status, smoke.PASS, output)
         arm = report["arms"]["seeded"]
         self.assertEqual((arm["verdict"], arm["crash_reports"]), ("pass", []), output)
@@ -935,7 +963,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         long_wait = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "600"}
         for mode, verdict, looked in (("healthy", "pass", False), ("no-home", "fail", False), ("crash", "fail", True)):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3",
+                status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "3",
                                                         env=long_wait, setup=told)
                 self.assertEqual(report["verdict"], verdict, output)
                 self.assertEqual("the late look ran" in output, looked, output)
@@ -944,7 +972,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_crash_report_of_another_builds_launch_never_fails_a_healthy_first_arm(self):
         # Fleet builds all have one executable name, so the name and the file's time also match a crash of another
         # tagged build on the same host. The report says whose it is: another pid, another copy of the app.
-        status, output, report = self.run_smoke("other-report", "--seconds", "2", "--startup-timeout", "20")
+        status, output, report = self.run_smoke("other-report", "--seconds", "0", "--startup-timeout", "20")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual((report["verdict"], report["crash_reports"]), ("pass", []))
         self.assertEqual([Path(found).name for found in report["crash_reports_not_counted"]], ["stub-2026-11-11-000000.ips"])
@@ -989,7 +1017,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_report_that_is_read_while_it_is_written_is_read_again(self):
         # Its head alone names no process. A second later its body does: this launch's. It still fails the launch.
-        status, output, report = self.run_smoke("torn-report", "--seconds", "2", "--startup-timeout", "20")
+        status, output, report = self.run_smoke("torn-report", "--seconds", "0", "--startup-timeout", "20")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
         self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
@@ -1001,7 +1029,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # run (nothing else writes under the run's private root), so it counts, as it did before the filter.
         for mode in ("first-report", "home-report"):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "20")
+                status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "20")
                 self.assertEqual(status, smoke.FAIL, output)
                 self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
                 self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
@@ -1101,8 +1129,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_seed_that_cannot_be_made_leaves_the_arm_cannot_run(self):
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
         refuse = "def refuse(*_a, **_k):\n    raise RuntimeError('no seed today')\nsmoke.seed_cookie_sync_home = refuse"
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=refuse)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", setup=refuse)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"))
         arm = report["arms"]["seeded"]
@@ -1156,8 +1184,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             with self.subTest(fault=name):
                 attempts = []
                 for _attempt in (1, 2):
-                    status, output, report = self.run_smoke("healthy", "--seconds", "1", "--startup-timeout", "10",
-                                                            "--arms", "empty,seeded", "--seeded-seconds", "1",
+                    status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10",
+                                                            "--arms", "empty,seeded", "--seeded-seconds", "0",
                                                             setup=setup)
                     self.assertEqual(status, smoke.PASS, output)
                     self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"), output)
@@ -1178,8 +1206,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_seeded_crash_stays_a_crash_when_its_evidence_cannot_be_kept(self):
         refuse = "def refuse(*_a, **_k):\n    raise RuntimeError('no evidence today')\nsmoke.explain = refuse"
-        status, output, report = self.run_smoke("sync-crash", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=refuse)
+        status, output, report = self.run_smoke("sync-crash", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", setup=refuse)
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
         self.assertIn("the seeded launch's evidence is not complete: RuntimeError: no evidence today", output)
@@ -1197,8 +1225,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                   "        raise BrokenPipeError('the log went away')\n"
                   "    say(message)\n"
                   "smoke.log = log")
-        status, output, report = self.run_smoke("sync-crash", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=refuse)
+        status, output, report = self.run_smoke("sync-crash", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", setup=refuse)
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
         self.assertEqual(report["arms"]["seeded"]["verdict"], "fail")
@@ -1208,7 +1236,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_first_arm_crash_stays_a_crash_when_its_evidence_cannot_be_kept(self):
         refuse = "def refuse(*_a, **_k):\n    raise OSError('no evidence today')\nsmoke.explain = refuse"
-        status, output, report = self.run_smoke("crash", "--seconds", "2", "--startup-timeout", "10", setup=refuse)
+        status, output, report = self.run_smoke("crash", "--seconds", "0", "--startup-timeout", "10", setup=refuse)
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual((report["verdict"], report["exit"]), ("fail", -6))
         self.assertIn("this launch's evidence is not complete: OSError: no evidence today", output)
@@ -1232,7 +1260,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # What the gate's watchdog does to an attempt that takes too long: SIGTERM to the harness.
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
         app, out = make_app(self.dir / "run-1", "healthy"), self.dir / "out-stopped"
-        harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out), "--seconds", "2",
+        harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out), "--seconds", "0",
                                     "--startup-timeout", "10", "--arms", "empty,seeded", "--seeded-seconds", "60"],
                                    env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         lines = []
@@ -1266,8 +1294,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         verdicts = gate_verdicts()
         cuts = (("==> fresh-home launch of", ("--seconds", "60")),
                 ("ok: Home rendered in a visible window", ("--seconds", "60")),
-                ("==> seeded-home launch of", ("--seconds", "2", "--seeded-seconds", "60")),
-                ("ok: the cookie sync read the seeded store", ("--seconds", "2", "--seeded-seconds", "60")))
+                ("==> seeded-home launch of", ("--seconds", "0", "--seeded-seconds", "60")),
+                ("ok: the cookie sync read the seeded store", ("--seconds", "0", "--seeded-seconds", "60")))
         for name, (cut_at, extra) in enumerate(cuts):
             with self.subTest(cut_at=cut_at):
                 app, out = make_app(self.dir / f"cut-healthy-{name}", "healthy"), self.dir / f"out-cut-healthy-{name}"
@@ -1305,7 +1333,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_daemon_that_is_not_connected_when_the_watch_ends_fails_the_launch(self):
         verdicts = gate_verdicts()
-        status, output, report = self.run_smoke("healthy@down", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@down", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["verdict"], "fail")
         self.assertIsNone(report["exit"])  # the app is up: only its word on the daemon fails the launch
@@ -1344,7 +1372,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # same channel live, the launched app gets THAT daemon, and "connected" says nothing of this build's.
         verdicts = gate_verdicts()
         self.daemon_of_another_launch(f"cmux-app-stub-{self.dir.name}")
-        status, output, report = self.run_smoke("healthy@other", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@other", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.PASS, output)  # the launch itself passed; what a caller makes of the mark is its
         self.assertEqual(report["daemon"], [{**self.CONNECTED, "of_launch": False}])
         self.assertIsNone(report["daemon_down"])
@@ -1354,8 +1382,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(verdicts.attempt_result(0, report, True), verdicts.CANNOT_RUN)
         self.assertEqual(verdicts.attempt_result(0, report), verdicts.PASS)  # the post-publish smoke: as before
         # The seeded home's launch has the same rule, and the report says which home.
-        status, output, report = self.run_smoke("healthy@other", "--seconds", "2", "--startup-timeout", "10", "--arms",
-                                                "empty,seeded", "--seeded-seconds", "2", "--daemon")
+        status, output, report = self.run_smoke("healthy@other", "--seconds", "0", "--startup-timeout", "10", "--arms",
+                                                "empty,seeded", "--seeded-seconds", "0", "--daemon")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["arms"]["seeded"]["daemon"], [{**self.CONNECTED, "of_launch": False}])
         self.assertEqual(output.count("daemon: not judged (not of this launch)\n"), 2, output)
@@ -1364,13 +1392,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_daemon_failure_names_the_daemons_of_its_session_that_are_not_of_this_launch_or_none(self):
         # A reader of a held build must know at once whether another launch's daemon can be the cause.
         session = f"cmux-app-stub-{self.dir.name}"
-        status, output, report = self.run_smoke("healthy@down", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@down", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertTrue(report["daemon_down"].endswith(
             f"at the next read (disconnected); daemons of {session} that are not of this launch: none"), output)
         other = self.daemon_of_another_launch(session)
         stranger = self.daemon_of_another_launch(session + "-2")  # another session: not the launch's socket
-        status, output, report = self.run_smoke("healthy@failed", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@failed", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertTrue(report["daemon_down"].endswith(
             f"did not start; daemons of {session} that are not of this launch: {other.said}"), output)
@@ -1378,7 +1406,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertIn(f"FAIL: {report['daemon_down']}", output)
         # A launch with no daemon of its own (a dead daemon has no process) does not know its session: each app
         # session's daemons are named, with their session.
-        status, output, report = self.run_smoke("healthy@down-other", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@down-other", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         said = report["daemon_down"].partition("; daemons of an app session that are not of this launch: ")[2]
         self.assertTrue(said, report["daemon_down"])
@@ -1388,7 +1416,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_daemon_that_is_connected_again_at_the_second_read_is_no_failure(self):
         # A reconnect in work when the watch ends: the app says "not connected" one time and "connected" the next.
-        status, output, report = self.run_smoke("healthy@reconnects", "--seconds", "2", "--startup-timeout", "10",
+        status, output, report = self.run_smoke("healthy@reconnects", "--seconds", "0", "--startup-timeout", "10",
                                                 "--daemon")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [self.DISCONNECTED, self.CONNECTED], output)
@@ -1398,8 +1426,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_connected_daemon_is_read_one_time_and_adds_no_wait(self):
         env = {**self.env, "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "600"}  # a second read would end the run's bound
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", "--arms",
-                                                "empty,seeded", "--seeded-seconds", "2", "--daemon", env=env)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", "--arms",
+                                                "empty,seeded", "--seeded-seconds", "0", "--daemon", env=env)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [self.CONNECTED], output)
         self.assertEqual(report["arms"]["seeded"]["daemon"], [self.CONNECTED])
@@ -1408,7 +1436,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assert_cleaned_up(report)
 
     def test_a_daemon_failure_that_the_app_tells_fails_the_launch(self):
-        status, output, report = self.run_smoke("healthy@failed", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@failed", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["daemon"][-1], {"state": "failed", "failure": "cmux-tui did not start"})
         self.assertIn("cmux-tui did not start", report["daemon_down"])
@@ -1417,8 +1445,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_daemon_that_is_down_in_the_seeded_home_fails_the_run_as_that_arms_failure(self):
         verdicts = gate_verdicts()
-        status, output, report = self.run_smoke("healthy@seeded-down", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2", "--daemon")
+        status, output, report = self.run_smoke("healthy@seeded-down", "--seconds", "0", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["arm"], smoke.SEEDED)
         self.assertEqual(report["arms"]["empty"]["verdict"], "pass")
@@ -1437,13 +1465,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_what_the_daemon_check_does_not_judge(self):
         verdicts = gate_verdicts()
         # A build whose snapshot has no word on the daemon (one from before the field): not judged.
-        status, output, report = self.run_smoke("healthy@none", "--seconds", "2", "--startup-timeout", "10", "--daemon")
+        status, output, report = self.run_smoke("healthy@none", "--seconds", "0", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [{"state": None, "failure": None}], output)
         self.assertIn("\ndaemon: not judged (no field)\n", output)  # said: a silence is not read as a pass
         # A launch that never showed Home fails as before and is no crash for the gate: the daemon is not read
         # (Home's render is the proof that it was connected one time).
-        status, output, report = self.run_smoke("no-home@down", "--seconds", "2", "--startup-timeout", "3", "--daemon")
+        status, output, report = self.run_smoke("no-home@down", "--seconds", "0", "--startup-timeout", "3", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
         self.assertEqual(len(report["failures"]), 1)
@@ -1451,7 +1479,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(verdicts.attempt_result(1, report, True), verdicts.CANNOT_RUN)
         # A caller with its own ready state (scripts/cmux-next/idle_cpu.py: any visible window) has no such proof.
         visible = "lambda snap: smoke.visible_windows(snap) > 0"
-        status, output, report = self.run_smoke("new-tab@down", "--seconds", "2", "--startup-timeout", "10", "--daemon",
+        status, output, report = self.run_smoke("new-tab@down", "--seconds", "0", "--startup-timeout", "10", "--daemon",
                                                 ready=visible)
         self.assertEqual(status, smoke.PASS, output)
         self.assertFalse(report.get("daemon") or report.get("daemon_down"), report)
@@ -1465,8 +1493,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         env = {**self.env, "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "600"}  # a second read would end the run's bound
         for mode in ("healthy@down", "healthy@failed"):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", "--arms",
-                                                        "empty,seeded", "--seeded-seconds", "2", env=env)
+                status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10", "--arms",
+                                                        "empty,seeded", "--seeded-seconds", "0", env=env)
                 self.assertEqual(status, smoke.PASS, output)
                 self.assertEqual(report["verdict"], "pass")
                 self.assertFalse(report.get("daemon") or report.get("daemon_down"), report)
@@ -1484,8 +1512,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             with self.subTest(mode=mode):
                 app, out = make_app(self.dir / f"cut-daemon-{name}", mode), self.dir / f"out-cut-daemon-{name}"
                 harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
-                                            "--startup-timeout", "10", "--arms", "empty,seeded", "--seconds", "2",
-                                            "--seeded-seconds", "2", "--daemon"],
+                                            "--startup-timeout", "10", "--arms", "empty,seeded", "--seconds", "0",
+                                            "--seeded-seconds", "0", "--daemon"],
                                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 lines = []
                 try:
@@ -1545,7 +1573,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                 smoke.arms_asked(value)
 
     def test_a_stub_that_stays_up_without_home_fails(self):
-        status, output, report = self.run_smoke("no-home", "--seconds", "2", "--startup-timeout", "3")
+        status, output, report = self.run_smoke("no-home", "--seconds", "0", "--startup-timeout", "3")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
         self.assert_cleaned_up(report)
@@ -1553,34 +1581,34 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_caller_ready_check_replaces_only_the_home_check(self):
         # scripts/cmux-next/idle_cpu.py: a fresh launch of feat opens a New Tab tab, not Home (cmux-ad m9, job
         # 857451d6: "Home did not render"). A caller's READY decides the window part; the nightly smoke keeps Home.
-        status, output, report = self.run_smoke("new-tab", "--seconds", "2", "--startup-timeout", "3")
+        status, output, report = self.run_smoke("new-tab", "--seconds", "0", "--startup-timeout", "3")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
         visible = "lambda snap: smoke.visible_windows(snap) > 0"
-        status, output, report = self.run_smoke("new-tab", "--seconds", "2", "--startup-timeout", "10", ready=visible)
+        status, output, report = self.run_smoke("new-tab", "--seconds", "0", "--startup-timeout", "10", ready=visible)
         self.assertEqual(status, smoke.PASS, output)
         self.assert_cleaned_up(report)
         # The frame mark still counts: a visible window with no first frame is not ready.
-        status, output, report = self.run_smoke("no-home", "--seconds", "2", "--startup-timeout", "3", ready=visible)
+        status, output, report = self.run_smoke("no-home", "--seconds", "0", "--startup-timeout", "3", ready=visible)
         self.assertEqual(status, smoke.FAIL, output)
         self.assert_cleaned_up(report)
 
     def test_a_fresh_launch_with_the_first_run_page_over_home_passes(self):
         # Every NEXT Nightly since #33215 failed here as "Home did not render ... Home tab not selected" (cannot-run in
         # nightly_next_launch_smoke.py, so the job stayed green): the page covers Home and Home's pane has no selection.
-        status, output, report = self.run_smoke("first-run", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("first-run", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["verdict"], "pass")
         self.assert_cleaned_up(report)
         # Without the app's mark the same parked pane is not a healthy launch.
-        status, output, report = self.run_smoke("first-run-unmarked", "--seconds", "2", "--startup-timeout", "3")
+        status, output, report = self.run_smoke("first-run-unmarked", "--seconds", "0", "--startup-timeout", "3")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
         self.assertIn("first_run.history_import_shown missing", report["failures"][0])
         self.assert_cleaned_up(report)
 
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         time.sleep(0.2)
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
@@ -1588,7 +1616,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_apps_terminal_host_is_stopped_by_its_record(self):
         # cmux#36625: a host's command line never names the run's root, so only its record ties it to the run
         self.host_pid_path = self.dir / "host.pid"
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         host = int(self.host_pid_path.read_text())
         time.sleep(0.2)
@@ -1626,7 +1654,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         state = self.dir / "keychain-state"
         state.mkdir()
         (state / "cmux-signing.password").write_text("x")
-        status, output, report = self.run_smoke("healthy", "--seconds", "1",
+        status, output, report = self.run_smoke("healthy", "--seconds", "0",
                                                 env={**self.env, "CMUX_SIGNING_KEYCHAIN_STATE_DIR": str(state)})
         self.assertEqual(status, smoke.CANNOT_RUN, output)
         self.assertEqual(report["verdict"], "cannot-run")

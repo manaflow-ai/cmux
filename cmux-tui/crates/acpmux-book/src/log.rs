@@ -6,7 +6,7 @@
 //!   rows.idx              16-byte entries by rowId: segment, offset, length, rev; mapped
 //!   seq.idx               every 256th settle seq to its segment and offset
 //!   blobs/<rowId>         bodies over 16 KB
-//!   checkpoint            under 64 KB, written atomically
+//!   checkpoint            under 64 KB plus 32 bytes per waiting prompt, written atomically
 //!   raw.map               the chat's raw files by number, append-only
 //!   lock                  held by the book's one owner
 //! ```
@@ -27,9 +27,10 @@
 //!
 //! **Durability.** A record is in the kernel when `append_settled` returns, so a kill of every
 //! process keeps it. [`Log::sync`] (for an `act` acknowledgement) and [`Log::write_checkpoint`]
-//! put it on the disk. A kill mid-write leaves a torn record at the end of the last segment;
-//! [`Log::open`] finds it by its crc and cuts it off (`set_len`). Only the last segment can be
-//! torn, because a segment is synced before the next one is made.
+//! put it on the disk. A kill mid-write leaves an incomplete record at the end of the last
+//! segment; [`Log::open`] cuts it off (`set_len`). After the checkpoint, an incomplete record,
+//! a bad check or a range beyond its raw source cuts that record and every later segment.
+//! Replay from raw reconstructs the suffix; none of these cuts requires a rebuild.
 //!
 //! **The indexes are derived.** With a checkpoint, `open` re-applies the records after it (the
 //! index writes before it were synced first). With none, it rebuilds both indexes from the
@@ -37,13 +38,18 @@
 //! entry left by power loss is repaired before replay. Every patch is synced before its
 //! entry is published; a later mismatch names the damaged row and never serves another row.
 
+#[cfg(test)]
+mod actor_recovery_tests;
 mod checkpoint;
 mod index;
 mod read;
 mod record;
 mod recover;
 
-pub use checkpoint::{MAX_CHECKPOINT, Sections, StateWriter, section, sections};
+pub use checkpoint::{
+    CheckpointHead, MAX_CHECKPOINT, MAX_CHECKPOINT_STATE, MAX_PROMPTS,
+    OVERHEAD as CHECKPOINT_OVERHEAD, PROMPT_BYTES, Sections, StateWriter, section, sections,
+};
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
     Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, RowRef, Side, Since, Window,
@@ -55,7 +61,7 @@ use crate::row::MAX_ROW_TEXT;
 use checkpoint::Mark;
 use index::{Entry, RowIndex, SeqIndex};
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// A segment closes when the next record would take it past this.
@@ -74,15 +80,17 @@ const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 1024 * 1024;
 
-/// The raw bytes that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
+/// The source places that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
 /// row itself (for example a queued prompt or a notice).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RawRange {
     /// The one-based line number in `raw.map`, or 0 when there are no raw bytes.
     pub file: u32,
-    /// The byte offset in the raw file as the harness wrote it.
+    /// The exact first source place (a byte offset for files, a seq for v1).
     pub off: u64,
-    /// The number of raw bytes. Zero for a daemon-created row.
+    /// The span in source places. `u32::MAX` means the end is not recorded: the span
+    /// exceeds `u32::MAX - 1`. Recovery cannot check that end against the source.
+    /// Zero for a daemon-created row.
     pub len: u32,
 }
 
@@ -126,7 +134,7 @@ pub enum Error {
         have: u32,
         got: u32,
     },
-    /// The checkpoint would be `bytes` long; it must be under 64 KB.
+    /// The checkpoint exceeds its non-queue or total budget.
     CheckpointTooLarge {
         bytes: usize,
     },
@@ -206,16 +214,21 @@ impl Default for Options {
 /// What [`Log::open`] found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Recovered {
+    /// Zero with no checkpoint; otherwise the independently checked head's edition.
+    pub edition: u32,
     /// The state bytes of the checkpoint (the actor's); empty when there was none.
     pub state: Vec<u8>,
     /// Whether a checkpoint was read. Without one the indexes were rebuilt from the segments.
     pub checkpoint: bool,
     /// The records read after the checkpoint (all of them when there was none).
     pub replayed: u64,
-    /// The bytes of a torn record cut from the end of the last segment; 0 after a clean stop.
+    /// Bytes cut from the failed record and all later segments; 0 after a clean stop.
     pub truncated: u64,
     /// Segment record bytes read at open, excluding the fixed segment preambles.
     pub scanned_bytes: u64,
+    /// Raw map boundary recorded by the checkpoint. The actor replays complete lines after it.
+    pub raw_files: u32,
+    pub raw_map_len: u64,
 }
 
 /// Counters of what the log did since it was opened. Gauges for the `status` stream.
@@ -271,6 +284,7 @@ impl Write for FailAfter<'_> {
 /// One book's log. The chat actor owns it and is its only writer; a second `open` of the same
 /// directory fails with [`Error::Busy`] until this value is dropped.
 pub struct Log {
+    edition: u32,
     dir: PathBuf,
     rows_dir: PathBuf,
     raw_map: File,
@@ -384,10 +398,31 @@ impl Log {
     /// Opens the book in `dir` (made if missing) and repairs its tail.
     ///
     /// Reads the checkpoint, then the records written after it: each is checked by its crc and
-    /// its index entries are set again. A torn record at the end of the last segment is cut off.
+    /// its index entries are set again. The first failed record and all later segments are cut.
     /// The cost is one checkpoint interval, the same for a book of 40 rows and one of 2 million.
-    /// With no readable checkpoint the indexes are rebuilt from every segment.
+    /// With no checkpoint the indexes are rebuilt from every segment. An unreadable
+    /// checkpoint requests a rebuild from raw; it never makes open scan all history.
     pub fn open(dir: &Path, options: Options) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_holds(dir, options, |_, _| Ok(true))
+    }
+
+    /// Checks each known raw range's end through a bounded question to its source.
+    /// A false answer cuts the replayable suffix, just like a bad crc. Source I/O errors
+    /// propagate without turning a failed read into a cut. The actor separately checks
+    /// checkpoint cursors; no source needs to discover its whole-line end at open.
+    pub fn open_with_raw_holds(
+        dir: &Path,
+        options: Options,
+        holds: impl FnMut(u32, u64) -> io::Result<bool>,
+    ) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_holds_mode(dir, options, holds)
+    }
+
+    fn open_with_raw_holds_mode(
+        dir: &Path,
+        options: Options,
+        mut holds: impl FnMut(u32, u64) -> io::Result<bool>,
+    ) -> Result<(Log, Recovered), Error> {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
         fs::create_dir_all(dir.join("blobs"))?;
@@ -420,11 +455,24 @@ impl Log {
         }
 
         let mut stats = Stats::default();
-        let saved = fs::read(dir.join("checkpoint")).ok();
-        let saved = saved.as_deref().and_then(checkpoint::decode);
+        let saved_bytes = match File::open(dir.join("checkpoint")) {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                file.take(MAX_CHECKPOINT as u64 + 1).read_to_end(&mut bytes)?;
+                Some(bytes)
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(Error::Io(error)),
+        };
+        let saved = match saved_bytes.as_deref() {
+            Some(bytes) => {
+                Some(checkpoint::decode(bytes).ok_or(Error::Rebuild("unreadable checkpoint"))?)
+            }
+            None => None,
+        };
         // With a checkpoint the last segment is found by stepping up from the checkpoint's (a
         // name or two), not by listing every segment: an open costs the same at any length.
-        let last = match saved {
+        let mut last = match saved {
             Some((mark, _, _)) if mark.seg >= 1 && segment_path(&rows_dir, mark.seg).exists() => {
                 let mut seg = mark.seg;
                 while let Some(next) = seg.checked_add(1) {
@@ -461,9 +509,13 @@ impl Log {
         let mark = match saved {
             Some((mark, state, _)) => {
                 recovered.state = state.to_vec();
+                recovered.edition = mark.edition;
+                recovered.raw_files = mark.raw_files;
+                recovered.raw_map_len = mark.raw_map_len;
                 mark
             }
             None => Mark {
+                edition: 1,
                 last_seq: 0,
                 min_row: 0,
                 max_row: 0,
@@ -487,7 +539,7 @@ impl Log {
         let mut found_slots = std::collections::BTreeSet::new();
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
-            let mut file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
+            let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
             let segment_len = file.metadata()?.len();
             if seg == last && segment_len < SEGMENT_HEADER_LEN {
                 if segment_len >= 4 {
@@ -508,6 +560,14 @@ impl Log {
             let scan = recover::scan(&file, from, |offset, header| {
                 if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > raw_files) {
                     return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
+                }
+                if header.raw_len != 0 && header.raw_len != u32::MAX {
+                    let Some(end) = header.raw_off.checked_add(u64::from(header.raw_len)) else {
+                        return Ok(false);
+                    };
+                    if !holds(header.raw_file, end)? {
+                        return Ok(false);
+                    }
                 }
                 if last_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);
@@ -549,14 +609,23 @@ impl Log {
             })?;
             recovered.scanned_bytes = recovered.scanned_bytes.saturating_add(scan.bytes_read);
             if scan.torn {
-                if seg != last {
-                    return Err(Error::Corrupt("a torn record before the last segment"));
+                // Remove from the end, so a kill during this repair leaves contiguous
+                // segments and the same failed record to discover on the next open.
+                for later in ((seg + 1)..=last).rev() {
+                    let path = segment_path(&rows_dir, later);
+                    recovered.truncated =
+                        recovered.truncated.saturating_add(fs::metadata(&path)?.len());
+                    fs::remove_file(path)?;
+                    fsio::sync_dir(&rows_dir)?;
                 }
                 let len = file.metadata()?.len();
                 file.set_len(scan.end)?;
                 fsio::sync(&file)?;
                 stats.syncs = stats.syncs.saturating_add(1);
-                recovered.truncated = len.saturating_sub(scan.end);
+                recovered.truncated =
+                    recovered.truncated.saturating_add(len.saturating_sub(scan.end));
+                last = seg;
+                break;
             }
         }
 
@@ -604,6 +673,7 @@ impl Log {
         stats.bytes_written = rewritten;
         stats.writes = rewrites;
         let log = Log {
+            edition: mark.edition,
             dir: dir.to_path_buf(),
             rows_dir,
             raw_map,
@@ -982,12 +1052,25 @@ impl Log {
     }
 
     /// Writes the checkpoint: the log's place and `state`, the actor's bytes ([`StateWriter`]),
-    /// together under 64 KB. The segment and both indexes are synced first, so the next open
+    /// together under 64 KB plus 32 bytes per queued prompt. Queue entries use the
+    /// `PROMPT_QUEUE` section; its allowance cannot be used by other state.
+    /// The segment and both indexes are synced first, so the next open
     /// reads only what is appended after this call. The file is replaced atomically: a kill at
     /// any moment leaves the old checkpoint or the new one.
     /// Checkpoint the actor state and the ids it has allocated but has not settled. The log
     /// needs these ids explicitly: it never parses the actor's opaque state or row text.
     pub fn write_checkpoint(&mut self, state: &[u8], open_rows: &[u64]) -> Result<(), Error> {
+        self.write_checkpoint_in_edition(state, open_rows, self.edition)
+    }
+
+    /// Publishes a new edition atomically with its actor state. The actor must finish
+    /// this write before making a rebuilt or stamp-changed book ready to callers.
+    pub fn write_checkpoint_in_edition(
+        &mut self,
+        state: &[u8],
+        open_rows: &[u64],
+        edition: u32,
+    ) -> Result<(), Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
@@ -995,6 +1078,7 @@ impl Log {
             return Err(Error::InvalidInput("checkpoint open rows contain a settled or zero id"));
         }
         let mark = Mark {
+            edition,
             last_seq: self.last_seq,
             min_row: self.min_row,
             max_row: self.max_row,
@@ -1021,6 +1105,7 @@ impl Log {
         };
         let synced = u64::from(rows_synced).saturating_add(u64::from(seqs_synced));
         fsio::write_atomic(&self.dir.join("checkpoint"), &bytes)?;
+        self.edition = edition;
         self.stats.syncs = self.stats.syncs.saturating_add(synced).saturating_add(1);
         self.stats.bytes_written = self.stats.bytes_written.saturating_add(bytes.len() as u64);
         self.stats.writes = self.stats.writes.saturating_add(1);

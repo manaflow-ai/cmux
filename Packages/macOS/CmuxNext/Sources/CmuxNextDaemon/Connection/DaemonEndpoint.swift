@@ -574,6 +574,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
     /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
     case browserImport = "browser-import-v1"
+    /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
+    /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
+    case diffCommentsSend = "diff-comments-send-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -623,7 +626,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare, .browserImport:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
+             .browserImport, .diffCommentsSend:
             return .optional
         }
     }

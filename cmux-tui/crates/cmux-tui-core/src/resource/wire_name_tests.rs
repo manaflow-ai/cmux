@@ -17,6 +17,7 @@ fn wire_name_round_trips_through_serde() {
         "diff.comments.list",
         "diff.comments.save",
         "diff.comments.delete",
+        "diff.comments.send",
         "stream.cancel",
         "origin.confirmation.issue",
         "chief.continue",

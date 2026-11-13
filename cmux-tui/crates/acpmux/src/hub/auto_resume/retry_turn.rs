@@ -23,6 +23,8 @@
 //!   promptId, attempt, turnId, manual: true}`, and once its turn completes the prompts the
 //!   failed turn held go on (`held_by`).
 //! - A Stop the failed turn got does not hold a retry the caller asks for after it.
+//! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
+//!   chat: `hub/subsession_resume.rs`.
 
 use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
 use crate::hub::digest::DIGEST_KIND;
@@ -123,7 +125,13 @@ impl Hub {
                 Some((id, brief)) => self.resume_subagent(session, id, brief, by).await,
                 None => self.retry_subagent(session, subagent, by).await,
             },
-            None => self.retry_turn(session, by).await,
+            // A stopped sub-session continues in the same chat (`subsession_resume.rs`).
+            None => match crate::hub::subsession_resume::stopped_subsession_turn(session) {
+                Some((turn, prompt)) => {
+                    self.resume_stopped_subsession(session, turn, prompt, by).await
+                }
+                None => self.retry_turn(session, by).await,
+            },
         }
     }
 
