@@ -15,12 +15,14 @@ const FIRST: StartingSend = {
   text: "Find every retry loop and give them one capped backoff",
   attachments: [],
   at: AT,
+  sentIn: { visit: 1 },
 };
 const SECOND: StartingSend = {
   id: "gallery-second",
   text: "Also cover the upload queue",
   attachments: [],
   at: AT + 2_000,
+  sentIn: { visit: 1 },
 };
 const WITH_IMAGE: StartingSend = {
   ...FIRST,
