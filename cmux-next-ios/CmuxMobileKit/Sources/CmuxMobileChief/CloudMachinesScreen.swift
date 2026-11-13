@@ -503,7 +503,6 @@ public struct CloudMachineWorkspaces {
     public var state: @MainActor (_ machineID: String) -> State
     public var canCreate: @MainActor (_ machineID: String) -> Bool
     public var create: @MainActor (_ machineID: String) -> Workspace?
-    public var page: @MainActor (Workspace) -> AnyView
     /// The page is on screen: its machine's link opens (and stays while recent).
     public var shown: @MainActor (_ machineID: String) -> Void
     /// Opens a workspace of the machine: the shell pushes it as a route on its navigation path, so
@@ -511,13 +510,12 @@ public struct CloudMachineWorkspaces {
     public var open: @MainActor (Workspace) -> Void
 
     public init(state: @escaping @MainActor (String) -> State, canCreate: @escaping @MainActor (String) -> Bool,
-                create: @escaping @MainActor (String) -> Workspace?, page: @escaping @MainActor (Workspace) -> AnyView,
+                create: @escaping @MainActor (String) -> Workspace?,
                 shown: @escaping @MainActor (String) -> Void = { _ in },
                 open: @escaping @MainActor (Workspace) -> Void) {
         self.state = state
         self.canCreate = canCreate
         self.create = create
-        self.page = page
         self.shown = shown
         self.open = open
     }

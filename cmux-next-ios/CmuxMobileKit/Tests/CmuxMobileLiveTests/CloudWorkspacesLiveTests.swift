@@ -285,6 +285,33 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(store.cloudMachines.first?.cloud?.status == .paused)
     }
 
+    /// A session replaced for the same machine (Retry; a team switch does the same): a terminal
+    /// page still cached from the old one opens its channels through the new session, and is
+    /// adopted by it, so it reattaches instead of saying "Not connected" for ever.
+    @Test(.timeLimit(.minutes(1))) func aTerminalOfAReplacedSessionReattachesOnTheNewOne() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        let old = try #require(live.sessions[vm])
+        let terminal = try #require(live.terminalSession(tabID: "s1", programName: "zsh", macID: vm))
+        // Retry replaces the machine's session.
+        live.retryCloud(vm)
+        await settle { live.sessions[vm] !== old && live.sessions[vm]?.servedLink != nil && store.macDataPhase(vm) == .live }
+        let new = try #require(live.sessions[vm])
+        #expect(new !== old)
+        #expect(new.terminals.contains { $0.session === terminal }, "the new session adopted the open terminal")
+        // Its channels open on the new session's link.
+        let before = cloud.services(vm).count
+        terminal.reconnect()
+        await settle { cloud.services(vm).count > before }
+        #expect(cloud.dials(vm) == 2)
+    }
+
     /// The carrier drops (the relay or the daemon ended the session): the link reports it at
     /// once, the controller dials a fresh carrier, and the list and terminals bind to it again.
     @Test func aDroppedCarrierIsDialedAgainAndEverythingRebinds() async throws {

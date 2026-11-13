@@ -49,6 +49,9 @@ public final class LiveCoordinator {
     /// A Mac left the account (removed here or on another device), after
     /// the store forgot it: screens showing one of its workspaces close.
     @ObservationIgnored public var onMacRemoved: ((String) -> Void)?
+    /// The active team changed after another was running (any path): the shell closes the
+    /// screens that showed its links (``ShellModel/closeTeamScreens()``).
+    @ObservationIgnored public var onTeamSwitch: (() -> Void)?
 
     /// One session per Mac this phone links (`MacLinkPolicy`): each has its
     /// own link, workspace list, chats and Feed items, so two Macs work at
@@ -462,6 +465,9 @@ public final class LiveCoordinator {
         let teamID = store.activeTeamID
         if byUser { pinnedTeamID = teamID }
         guard !teamID.isEmpty, teamID != registeredTeamID, teamID != startedTeamID else { return }
+        // Every switch, from any path (a tap, a follow, a pairing code, the active team leaving the
+        // account): the screens that showed the old links close, as every link closes below.
+        if registeredTeamID != nil || startedTeamID != nil { onTeamSwitch?() }
         startedTeamID = teamID
         if let feedTeamID, feedTeamID != teamID { feedStore.replaceAll([]) }
         feedTeamID = teamID
@@ -744,14 +750,26 @@ public final class LiveCoordinator {
         let session = MacSession(macID: mac.id, name: mac.name, kind: cloud ? .cloud : .mac, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         session.acpmux.transcriptCache = transcriptCache
+        // Terminals still open from a session this coordinator forgot for the same machine (a team
+        // switch, Retry, a machine that stopped and came back) carry on with this one: they open
+        // their channels through whichever session holds the machine now, and reattach on its link.
+        if let orphans = orphanedTerminals.removeValue(forKey: mac.id) {
+            session.terminals = orphans.filter { $0.session != nil }
+        }
         wire(session)
         sessions[mac.id] = session
         return session
     }
 
+    /// Open terminals of sessions that were closed, by machine, until a session for that machine
+    /// takes them (weak: a terminal no screen keeps goes on its own).
+    @ObservationIgnored var orphanedTerminals: [String: [MacSession.WeakTerminal]] = [:]
+
     /// Closes a Mac's link and forgets its session.
     func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        let live = session.terminals.filter { $0.session != nil }
+        if !live.isEmpty, !stopped { orphanedTerminals[id, default: []] += live }
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
@@ -948,6 +966,7 @@ public final class LiveCoordinator {
         registeredTeamID = nil
         startedTeamID = nil
         closeAllSessions()
+        orphanedTerminals = [:]
         let link = idleSession.link
         Task { await link.resetWarmState() }
     }

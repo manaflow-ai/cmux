@@ -505,6 +505,7 @@ impl CarrierSession {
                         // The key is there: no earlier failure speaks for the attempts after this.
                         awaiting_key = false;
                         last_error = None;
+                        last_transport = None;
                     }
                     Ok(Ok(_)) => last_transport = None,
                     Ok(Err(error)) if !error.retryable() => return Err(error),

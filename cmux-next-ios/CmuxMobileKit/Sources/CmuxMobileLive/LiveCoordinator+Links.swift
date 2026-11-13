@@ -566,14 +566,22 @@ extension LiveCoordinator {
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
         let info = ["name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": identity.link]
         let terminalID = owner.tree?.terminals[tabID].map { $0.resourceID ?? $0.id }
-        let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak owner] in
-            guard let link = await owner?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+        // The channels open through whichever session holds this machine when they open, never the
+        // one that made the terminal: a session the coordinator replaced for the same machine (a
+        // team switch, Retry) is gone, and a cached terminal page must reattach on the new one.
+        let machineID = owner.macID
+        let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
+            guard let link = await self?.sessions[machineID]?.servedLink else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
-        }, openInput: { [weak self, weak owner] in
+        }, openInput: { [weak self] in
             // Keystrokes ride the link's input lane (PROTOCOL.md "Lanes"), another stream that
             // can overtake `auth`: it opens only once pairing passed (review m6).
-            guard let self, let owner else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            guard let self, let owner = self.sessions[machineID] else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
             let link = try await self.pairedLink(owner)
             let channel = try await link.openInputChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)

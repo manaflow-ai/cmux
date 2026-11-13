@@ -77,7 +77,6 @@ final class CloudWorkspacesGallery {
             },
             canCreate: { id in creator.availableMacs.contains { $0.id == id } },
             create: { creator.create(start: .terminal, macID: $0) },
-            page: { workspace in AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, creator: creator)) },
             open: { path.wrappedValue.append(.workspace($0)) })
     }
 

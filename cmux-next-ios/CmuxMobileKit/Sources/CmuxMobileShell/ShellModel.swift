@@ -282,6 +282,7 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        live?.onTeamSwitch = { [weak self] in self?.closeTeamScreens() }
         #if DEBUG
         // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
         attachScreenSharing(signedIn: live != nil || mockMode)
@@ -370,7 +371,7 @@ final class ShellModel {
     /// has them, each pushing its workspace page; New Workspace through the same instant create.
     func cloudMachineWorkspaces() -> CloudMachineWorkspaces? {
         guard let live else { return nil }
-        let store = store, creator = creator, terminalTabs = terminalTabs
+        let store = store, creator = creator
         return CloudMachineWorkspaces(
             state: { [weak live] machineID in
                 let rows = store.workspaces.filter { $0.macID == machineID }
@@ -383,10 +384,6 @@ final class ShellModel {
             },
             canCreate: { machineID in creator.availableMacs.contains { $0.id == machineID } },
             create: { creator.create(start: .terminal, macID: $0) },
-            page: { [weak self] workspace in
-                AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, terminal: terminalTabs, creator: creator,
-                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing))
-            },
             shown: { [weak live] machineID in live?.touch(machineID) },
             // A route on the Settings path: the path says what is on screen (``showsTabBar(on:)``,
             // ``updateShownMacs()``), as Workspaces' path does.

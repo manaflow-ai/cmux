@@ -273,16 +273,7 @@ public final class CloudMachinesModel {
         do {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
-            var rows: [CloudMachine] = []
-            var cursor: String?
-            repeat {
-                var params: [String: any Sendable] = ["limit": 100]
-                if let cursor { params["cursor"] = cursor }
-                let page = try await account.read("cloud.machine.list", params: params)
-                rows += CloudMachine.list(page)
-                cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
-            } while cursor != nil && rows.count < 1000
-            machines = rows
+            machines = try await Self.readMachines(account)
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
@@ -319,13 +310,21 @@ public final class CloudMachinesModel {
     static func readMachines(_ account: AccountCloud) async throws -> [CloudMachine] {
         var rows: [CloudMachine] = []
         var cursor: String?
+        var seen = Set<String>()
+        var pages = 0
         repeat {
             var params: [String: any Sendable] = ["limit": 100]
             if let cursor { params["cursor"] = cursor }
             let page = try await account.read("cloud.machine.list", params: params)
-            rows += CloudMachine.list(page)
+            let read = CloudMachine.list(page)
+            rows += read
+            pages += 1
             cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
-        } while cursor != nil && rows.count < 1000
+            // A page with nothing on it, or a cursor seen before, ends the read: a service that
+            // keeps answering a cursor never makes this ask for ever.
+            if read.isEmpty { cursor = nil }
+            if let next = cursor, !seen.insert(next).inserted { cursor = nil }
+        } while cursor != nil && rows.count < 1000 && pages < 20
         return rows
     }
 

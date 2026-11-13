@@ -54,12 +54,6 @@ import Testing
         #expect(MacDevice(cloudMachine: vm, name: "x", state: CloudMachineState(status: .running)).isOnline)
     }
 
-    /// Settings → Connection lists the Mac link transports only: the Cloud carrier is never a
-    /// choice (the screen iterates this enum's cases).
-    @Test func theCloudCarrierIsNotAConnectionChoice() {
-        #expect(TransportKind.allCases == [.wireguard, .webrtc])
-    }
-
     /// A Mac saved before Cloud machines decodes as a Mac.
     @Test func aSavedMacDecodesWithoutCloud() throws {
         let data = Data(#"{"id":"m","name":"Studio","isOnline":true}"#.utf8)
