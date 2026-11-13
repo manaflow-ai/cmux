@@ -75,6 +75,7 @@ impl SortedSnapshot {
         let mut count = 0;
         let mut directory_bytes = 0;
         let mut last_checkpoint: Option<(u64, u64)> = None;
+        let mut last_len = 0;
         let mut previous = None;
         let mut first_lengths = Vec::new();
         for row in rows {
@@ -92,6 +93,7 @@ impl SortedSnapshot {
             };
             let bytes = codec::encode(&record)?;
             let len = bytes.len() + TRAILER_BYTES;
+            last_len = len;
             if last_checkpoint.is_none_or(|(start, ordinal)| {
                 count - ordinal == 256 || offset + len as u64 - start > SEEK_BYTES as u64
             }) {
@@ -109,6 +111,20 @@ impl SortedSnapshot {
             offset += len as u64;
             count += 1;
             previous = Some(key);
+        }
+        // One terminal entry makes a seek at/beyond the final key constant
+        // work even when the last regular sparse block is nearly full.
+        if let Some(key) = previous
+            && last_checkpoint.is_some_and(|(_, ordinal)| ordinal + 1 < count)
+        {
+            let terminal = Checkpoint {
+                key,
+                offset: offset - last_len as u64,
+                ordinal: count - 1,
+                first_len: last_len,
+            };
+            directory.write_all(&terminal.encode()?)?;
+            directory_bytes += CHECKPOINT_BYTES;
         }
         directory.flush()?;
         drop(directory);

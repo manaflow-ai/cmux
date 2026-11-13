@@ -38,6 +38,11 @@ impl DiskSnapshot {
         if right == 0 {
             return Ok(None);
         }
+        let last = self.checkpoint(right - 1, bytes_read)?;
+        if right == 1 || at_or_before(&last) {
+            return Ok(Some((right - 1, last)));
+        }
+        right -= 1;
         let mut answer = None;
         while left < right {
             let middle = left + (right - left) / 2;
