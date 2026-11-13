@@ -97,7 +97,11 @@ impl HubWriter {
             }
             return;
         }
-        if self.compaction.is_some() || self.maintenance.is_some() || !self.retry_log.is_empty() {
+        if self.compaction.is_some()
+            || self.maintenance.is_some()
+            || !self.retry_log.is_empty()
+            || !self.origins.retry.is_empty()
+        {
             return;
         }
         if let Some(retry) = self.next_compaction {
@@ -199,6 +203,7 @@ impl HubWriter {
                 {
                     self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();
                 }
+                self.retire_origin_sources(&current, &next);
                 self.published.store(Arc::new(next));
                 self.hydration = None;
                 // Only the obsolete shadow root is retired, never rebuilt maps.

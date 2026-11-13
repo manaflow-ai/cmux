@@ -75,17 +75,18 @@ impl SummaryIndex {
                 let key = SortKey::of(&row);
                 let visible = !self.is_shadowed(&row.key())
                     && !self.is_origin_removed(row.origin.as_str())
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str())
                     && self.get_row(&row.key()).is_none();
                 candidates.push((key, visible.then_some(row)));
             }
         }
-        let mut hot = match (anchor, side) {
-            (None, _) => self.after(None, limit + 1),
-            (Some(key), ReadSide::After) => self.after(Some(key), limit + 1),
-            (Some(key), ReadSide::Before) => self.before(key, limit + 1),
+        let mut hot: Vec<(SortKey, Option<Arc<Summary>>)> = match (anchor, side) {
+            (None, _) => self.after_candidates(None, limit + 1),
+            (Some(key), ReadSide::After) => self.after_candidates(Some(key), limit + 1),
+            (Some(key), ReadSide::Before) => self.before_candidates(key, limit + 1),
             (Some(key), ReadSide::Around) => {
-                let mut rows = self.before(key, limit + 1);
-                rows.extend(self.after(Some(key), limit + 1));
+                let mut rows = self.before_candidates(key, limit + 1);
+                rows.extend(self.after_candidates(Some(key), limit + 1));
                 rows
             }
         };
@@ -94,7 +95,7 @@ impl SummaryIndex {
             && let Some(row) = self.get_row(&anchor.row)
             && SortKey::of(&row) == *anchor
         {
-            hot.push(row);
+            hot.push((SortKey::of(&row), Some(row)));
         }
         let disk_first = candidates.first().map(|(key, _)| {
             if side == ReadSide::Around {
@@ -110,8 +111,7 @@ impl SummaryIndex {
                 key.clone()
             }
         });
-        for row in hot {
-            let key = SortKey::of(&row);
+        for (key, row) in hot {
             if side != ReadSide::Before
                 && disk_after
                 && disk_last.as_ref().is_some_and(|last| &key > last)
@@ -124,7 +124,7 @@ impl SummaryIndex {
             {
                 continue;
             }
-            candidates.push((key, Some(row)));
+            candidates.push((key, row));
         }
         candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.is_some().cmp(&a.1.is_some())));
         candidates.dedup_by(|a, b| a.0 == b.0);
@@ -198,7 +198,7 @@ impl SummaryIndex {
             || left > 0
             || (side == ReadSide::After
                 && anchor.is_some_and(|key| {
-                    !self.before(key, 1).is_empty()
+                    !self.before_candidates(key, 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));
@@ -206,7 +206,7 @@ impl SummaryIndex {
             || right < candidates.len()
             || (side == ReadSide::Before
                 && anchor.is_some_and(|key| {
-                    !self.after(Some(key), 1).is_empty()
+                    !self.after_candidates(Some(key), 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));

@@ -18,7 +18,7 @@ pub type ChangedRows = OrdSet<RowKey>;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::cmp::Ordering;
-use std::ops::Bound::{Excluded, Unbounded};
+use std::ops::Bound::{Excluded, Included, Unbounded};
 
 mod codec;
 mod compaction;
@@ -330,7 +330,6 @@ pub enum OriginState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OriginRecord {
-    #[serde(skip)]
     pub seq: u64,
     pub id: String,
     pub state: OriginState,
@@ -391,7 +390,7 @@ pub struct SummaryIndex {
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
-    removed_origins: OrdSet<Arc<str>>,
+    leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
 }
 
@@ -411,7 +410,7 @@ impl SummaryIndex {
             disk: None,
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
-            removed_origins: OrdSet::new(),
+            leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
         }
     }
@@ -420,26 +419,15 @@ impl SummaryIndex {
         let origins: OrdMap<Arc<str>, OriginRecord> =
             disk.as_ref().map_or_else(OrdMap::new, |disk| {
                 disk.origins()
+                    .filter(|origin| origin.state != OriginState::Removed)
                     .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.clone()))
                     .collect()
             });
-        let removed_origins = origins
-            .values()
-            .filter(|origin| origin.state == OriginState::Removed)
-            .map(|origin| Arc::<str>::from(origin.id.clone()))
-            .collect();
-        let removed_snapshot_seq = origins
-            .values()
-            .filter(|origin| origin.state == OriginState::Removed)
-            .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.seq))
-            .collect();
         Self {
             seq: disk.as_ref().map_or(0, |disk| disk.seq()),
             edition,
             disk,
             origins,
-            removed_origins,
-            removed_snapshot_seq,
             ..Self::new()
         }
     }
@@ -458,9 +446,7 @@ impl SummaryIndex {
                         Some(Ok(row)) => {
                             if self.is_shadowed(&row.key())
                                 || self.is_origin_removed(row.origin.as_str())
-                                || self.removed_snapshot_seq.get(row.origin.as_str()).is_some_and(
-                                    |seq| self.disk.as_ref().is_some_and(|disk| disk.seq() < *seq),
-                                )
+                                || self.is_snapshot_origin_hidden(row.origin.as_str())
                                 || self.get_row(&row.key()).is_some()
                             {
                                 continue;
@@ -496,12 +482,18 @@ impl SummaryIndex {
         let mut next = self.clone();
         let snapshot_seq = snapshot.seq();
         next.disk = Some(snapshot);
-        next.removed_snapshot_seq = next
+        let completed: Vec<_> = next
             .removed_snapshot_seq
             .iter()
-            .filter(|(_, seq)| snapshot_seq < **seq)
-            .map(|(id, seq)| (id.clone(), *seq))
+            .filter(|(_, seq)| **seq <= snapshot_seq)
+            .map(|(id, _)| id.clone())
             .collect();
+        for id in completed {
+            next.removed_snapshot_seq.remove(&id);
+            if next.origin(id.as_ref()).is_some_and(|origin| origin.state == OriginState::Removed) {
+                next.origins.remove(&id);
+            }
+        }
         let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
         (next, retired_shadow)
     }
@@ -522,7 +514,11 @@ impl SummaryIndex {
     /// stream, sharing the row and never overwriting a later update or removal.
     pub fn hydrate_compacted(&mut self, row: Arc<Summary>) {
         let key = row.key();
-        if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
+        if !self.shadowed.contains(&key)
+            && !self.by_id.contains_key(&key)
+            && !self.is_origin_removed(row.origin.as_str())
+            && !self.is_snapshot_origin_hidden(row.origin.as_str())
+        {
             self.by_id.insert(key, row.clone());
             self.ordered.insert(SortKey::of(&row), row);
         }
@@ -539,7 +535,35 @@ impl SummaryIndex {
     }
 
     pub fn is_origin_removed(&self, origin: &str) -> bool {
-        self.removed_origins.contains(origin)
+        self.leaving.contains(origin)
+    }
+
+    pub fn is_origin_leaving(&self, origin: &str) -> bool {
+        self.leaving.contains(origin)
+    }
+
+    pub fn is_snapshot_origin_hidden(&self, origin: &str) -> bool {
+        self.removed_snapshot_seq
+            .get(origin)
+            .is_some_and(|seq| self.disk.as_ref().is_some_and(|disk| disk.seq() < *seq))
+    }
+
+    pub fn last_removed_seq(&self, origin: &str) -> Option<u64> {
+        self.removed_snapshot_seq.get(origin).copied()
+    }
+
+    pub fn has_origin_rows(&self, origin: &str) -> bool {
+        let start = RowKey::new(origin, "");
+        self.by_id
+            .range::<_, RowKey>((Included(&start), Unbounded))
+            .next()
+            .is_some_and(|(key, _)| key.origin.as_ref() == origin)
+    }
+
+    pub fn finish_origin_removal(&self, origin: &str) -> Self {
+        let mut next = self.clone();
+        next.leaving.remove(origin);
+        next
     }
 
     pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
@@ -555,45 +579,55 @@ impl SummaryIndex {
             return self.clone();
         }
         let id: Arc<str> = record.id.clone().into();
-        if self.origin(&record.id).is_some_and(|old| old == &record) {
+        if self.origin(&record.id).is_some_and(|old| old.state == record.state) {
             return self.clone();
         }
         let mut next = self.clone();
         next.seq = next.seq.max(seq);
-        next.origins.insert(id.clone(), record);
-        if next.origin(id.as_ref()).is_some_and(|record| record.state == OriginState::Removed) {
-            next.removed_origins.insert(id.clone());
+        next.origins.insert(id.clone(), record.clone());
+        if record.state == OriginState::Removed {
+            next.leaving.insert(id.clone());
             next.removed_snapshot_seq.insert(id.clone(), seq);
-            let keys: Vec<_> = next
-                .by_id
-                .keys()
-                .filter(|key| key.origin.as_ref() == id.as_ref())
-                .cloned()
-                .collect();
-            for key in keys {
-                if let Some(row) = next.by_id.remove(&key) {
-                    next.ordered.remove(&SortKey::of(&row));
-                }
-            }
-        } else {
-            next.removed_origins.remove(id.as_ref());
         }
         next
+    }
+
+    pub fn replay_origin(&self, seq: u64, record: OriginRecord) -> Self {
+        let mut next = self.apply_origin(seq, record.clone());
+        if record.state == OriginState::Removed {
+            loop {
+                let (updated, removed) = next.remove_origin_batch(seq, record.id.as_str(), 256);
+                next = updated;
+                if removed == 0 {
+                    break;
+                }
+            }
+            next.finish_origin_removal(record.id.as_str())
+        } else {
+            next
+        }
     }
 
     /// Remove up to `limit` hot rows for an origin. The origin is already
     /// hidden by `apply_origin`, so readers never observe the intermediate
     /// physical batches.
     pub fn remove_origin_batch(&self, seq: u64, origin: &str, limit: usize) -> (Self, usize) {
+        let start = RowKey::new(origin, "");
+        let mut visited = 0;
         let keys: Vec<_> = self
             .by_id
-            .keys()
-            .filter(|key| key.origin.as_ref() == origin)
-            .take(limit)
-            .cloned()
+            .range::<_, RowKey>((Included(&start), Unbounded))
+            .take_while(|(key, _)| {
+                if key.origin.as_ref() != origin || visited >= limit {
+                    return false;
+                }
+                visited += 1;
+                true
+            })
+            .map(|(key, _)| key.clone())
             .collect();
         if keys.is_empty() {
-            return (self.clone(), 0);
+            return (self.finish_origin_removal(origin), 0);
         }
         let mut next = self.clone();
         for key in &keys {
@@ -603,6 +637,9 @@ impl SummaryIndex {
             next.shadowed.insert(key.clone());
         }
         next.seq = next.seq.max(seq);
+        if !next.has_origin_rows(origin) {
+            next.leaving.remove(origin);
+        }
         (next, keys.len())
     }
 
@@ -623,10 +660,7 @@ impl SummaryIndex {
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
         if self.shadowed.contains(&row.key())
             || self.is_origin_removed(row.origin.as_str())
-            || self
-                .removed_snapshot_seq
-                .get(row.origin.as_str())
-                .is_some_and(|seq| self.disk.as_ref().is_some_and(|disk| disk.seq() < *seq))
+            || self.is_snapshot_origin_hidden(row.origin.as_str())
             || !row.is_hot_at(now)
         {
             return self.clone();
@@ -658,6 +692,29 @@ impl SummaryIndex {
             return None;
         }
         self.by_id.get(key).cloned()
+    }
+
+    /// Membership lookup covering both the hot overlay and the cold snapshot.
+    /// The snapshot is streamed in bounded pieces so callers never materialize
+    /// the generation while checking a key whose sort position has changed.
+    pub fn contains_row(&self, key: &RowKey) -> io::Result<bool> {
+        if self.is_origin_removed(key.origin.as_ref())
+            || self.is_snapshot_origin_hidden(key.origin.as_ref())
+        {
+            return Ok(false);
+        }
+        if self.get_row(key).is_some() || self.is_shadowed(key) {
+            return Ok(self.get_row(key).is_some());
+        }
+        let Some(disk) = self.disk.as_ref() else { return Ok(false) };
+        for row in disk.rows() {
+            let row = row?;
+            if row.key() == key.clone() {
+                return Ok(!self.is_origin_removed(row.origin.as_str())
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str()));
+            }
+        }
+        Ok(false)
     }
 
     /// Applies one summary without walking the rest of the index.
@@ -709,23 +766,45 @@ impl SummaryIndex {
 
     /// Exclusive keyset seek: tree search plus only the requested rows.
     pub fn after(&self, key: Option<&SortKey>, limit: usize) -> Vec<Arc<Summary>> {
+        self.after_candidates(key, limit).into_iter().filter_map(|(_, row)| row).collect()
+    }
+
+    pub(crate) fn after_candidates(
+        &self,
+        key: Option<&SortKey>,
+        limit: usize,
+    ) -> Vec<(SortKey, Option<Arc<Summary>>)> {
         let lower = key.map_or(Unbounded, Excluded);
         self.ordered
             .range::<_, SortKey>((lower, Unbounded))
             .take(limit)
-            .filter(|(_, row)| !self.is_origin_removed(&row.origin))
-            .map(|(_, row)| row.clone())
+            .map(|(key, row)| {
+                let visible = !self.is_origin_removed(&row.origin)
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str());
+                (key.clone(), visible.then(|| row.clone()))
+            })
             .collect()
     }
 
     pub fn before(&self, key: &SortKey, limit: usize) -> Vec<Arc<Summary>> {
+        self.before_candidates(key, limit).into_iter().filter_map(|(_, row)| row).collect()
+    }
+
+    pub(crate) fn before_candidates(
+        &self,
+        key: &SortKey,
+        limit: usize,
+    ) -> Vec<(SortKey, Option<Arc<Summary>>)> {
         let mut rows: Vec<_> = self
             .ordered
             .range::<_, SortKey>((Unbounded, Excluded(key)))
             .rev()
             .take(limit)
-            .filter(|(_, row)| !self.is_origin_removed(&row.origin))
-            .map(|(_, row)| row.clone())
+            .map(|(key, row)| {
+                let visible = !self.is_origin_removed(&row.origin)
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str());
+                (key.clone(), visible.then(|| row.clone()))
+            })
             .collect();
         rows.reverse();
         rows
@@ -852,6 +931,106 @@ mod tests {
         assert!(stored.title.len() <= MAX_TITLE_BYTES);
         assert!(stored.encoded_len() <= MAX_SUMMARY_BYTES);
         assert!(stored.title.is_char_boundary(stored.title.len()));
+    }
+
+    fn origin_record(id: String, seq: u64, state: OriginState) -> OriginRecord {
+        OriginRecord { seq, id, state, since: seq + 10, extra: None }
+    }
+
+    #[test]
+    fn snapshot_origin_section_round_trips_and_rejects_bad_records() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.snap");
+        let mut index = SummaryIndex::new();
+        index = index.apply_origin(1, origin_record("peer".into(), 1, OriginState::Connected));
+        SortedSnapshot::write(&path, &index).unwrap();
+        let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+        assert_eq!(disk.origins().next().unwrap().since, 11);
+        let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
+        let too_many =
+            (0..257).map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected)).collect();
+        assert!(
+            SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, too_many, rows).is_err()
+        );
+        let duplicate = vec![
+            origin_record("p".into(), 1, OriginState::Connected),
+            origin_record("p".into(), 1, OriginState::Down),
+        ];
+        let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
+        assert!(
+            SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, duplicate, rows).is_err()
+        );
+    }
+
+    #[test]
+    fn removed_origin_hidden_candidates_progress_forward_and_backward() {
+        let mut index = SummaryIndex::new();
+        for n in 0..600 {
+            let mut row = summary(&format!("gone-{n}"), 2_000 - n, "{}");
+            row.origin = "peer".into();
+            row.state = "running".into();
+            index = index.apply(n + 1, row);
+        }
+        for n in 0..50 {
+            let mut row = summary(&format!("keep-{n}"), 1_000 - n, "{}");
+            row.origin = "other".into();
+            row.state = "running".into();
+            index = index.apply(700 + n, row);
+        }
+        index = index.apply_origin(800, origin_record("peer".into(), 800, OriginState::Removed));
+        let mut anchor = None;
+        let mut seen = Vec::new();
+        let mut last = None;
+        for turn in 0..20 {
+            let page = index
+                .read_page(
+                    anchor.as_ref(),
+                    ReadSide::After,
+                    false,
+                    50,
+                    super::snapshot::PAGE_BYTES,
+                    None,
+                )
+                .unwrap();
+            assert!(page.rows.iter().all(|row| row.origin == "other"));
+            seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
+            if turn < 12 {
+                assert!(page.rows.is_empty());
+                assert!(page.has_after);
+            }
+            last = page.after_key.clone();
+            if !page.has_after {
+                break;
+            }
+            assert_ne!(anchor, page.after_key);
+            anchor = page.after_key;
+        }
+        assert_eq!(seen.len(), 50);
+        assert_eq!(index.len(), 650, "pagination does not wait for cleanup");
+        anchor = last;
+        let mut backwards = Vec::new();
+        for turn in 0..20 {
+            let page = index
+                .read_page(
+                    anchor.as_ref(),
+                    ReadSide::Before,
+                    turn == 0,
+                    50,
+                    super::snapshot::PAGE_BYTES,
+                    None,
+                )
+                .unwrap();
+            assert!(page.rows.iter().all(|row| row.origin == "other"));
+            backwards.extend(page.rows.iter().map(|row| row.chat_id.clone()));
+            if !page.has_before {
+                break;
+            }
+            assert_ne!(anchor, page.before_key);
+            anchor = page.before_key;
+        }
+        seen.sort();
+        backwards.sort();
+        assert_eq!(seen, backwards);
     }
 
     #[test]

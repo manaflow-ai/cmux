@@ -309,7 +309,7 @@ pub fn replay_log_from(
             continue;
         }
         match record {
-            codec::LogRecord::Origin(origin) => index = index.apply_origin(seq, origin),
+            codec::LogRecord::Origin(origin) => index = index.replay_origin(seq, origin),
             codec::LogRecord::Row(record) if record.gone => {
                 index = index
                     .remove_row(seq, &RowKey::new(record.origin, record.chat_id))

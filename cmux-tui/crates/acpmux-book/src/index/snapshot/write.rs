@@ -67,6 +67,20 @@ impl SortedSnapshot {
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
+        let mut origin_ids = std::collections::HashSet::new();
+        for origin in &origins {
+            if origin.id == "local" || origin.seq > seq || !origin_ids.insert(origin.id.clone()) {
+                return Err(codec::invalid("snapshot origin record"));
+            }
+        }
+        let mut origin_bytes = Vec::new();
+        for origin in &origins {
+            let encoded = codec::encode_origin(origin.seq, origin)?;
+            if encoded.len() > 1024 || origin_bytes.len() + encoded.len() > 256 * 1024 {
+                return Err(codec::invalid("snapshot origins too large"));
+            }
+            origin_bytes.extend_from_slice(&encoded);
+        }
         let mut temp_name = path.as_os_str().to_os_string();
         temp_name.push(".new");
         let temp = std::path::PathBuf::from(temp_name);
@@ -131,6 +145,10 @@ impl SortedSnapshot {
             directory.write_all(&terminal.encode()?)?;
             directory_bytes += CHECKPOINT_BYTES;
         }
+        let origins_offset = offset;
+        if !origin_bytes.is_empty() {
+            writer.write_all(&origin_bytes)?;
+        }
         directory.flush()?;
         drop(directory);
         let mut directory_file = File::open(&directory_path)?;
@@ -145,11 +163,12 @@ impl SortedSnapshot {
             log_offset,
             log_name: log_name.map(str::to_owned),
             covered_generation,
-            data_end: offset,
+            data_end: origins_offset,
             directory_bytes,
             count,
             first_lengths,
-            origins,
+            origins_offset,
+            origins_bytes: origin_bytes.len() as u64,
         };
         let json = serde_json::to_vec(&head).map_err(io::Error::other)?;
         if json.len() > HEADER_BYTES - 16 {
@@ -180,6 +199,9 @@ impl SortedSnapshot {
         };
         let mut index = SummaryIndex::new();
         index.seq = snapshot.seq();
+        for origin in snapshot.origins() {
+            index = index.apply_origin(origin.seq, origin.clone());
+        }
         let mut offset = HEADER_BYTES as u64;
         let mut ordinal = 0;
         while offset < snapshot.head.data_end {
