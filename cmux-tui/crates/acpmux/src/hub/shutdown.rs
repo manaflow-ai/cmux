@@ -526,4 +526,7 @@ pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2
 /// is far shorter; an end it cut would leave the agent running (Codex review of #42296).
 pub(crate) const AGENT_END_BUDGET: std::time::Duration = RETRY_STOP_BUDGET
     .saturating_add(SHUTDOWN_GRACE.saturating_mul(2))
+    // No wait on an event: the margin of the daemon's cutoff for a shutdown that ends its agents.
+    // The ends wait for each agent's exit (`SHUTDOWN_GRACE`, then a kill of its group).
+    // timeout: covers the child-lock waits around those ends, which have their own bounds
     .saturating_add(std::time::Duration::from_secs(2));
