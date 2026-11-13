@@ -492,6 +492,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextSettings",
+                "CmuxNextSettingsWindow",
                 "CmuxNextSidebar",
             ],
             resources: [.process("Resources")],
