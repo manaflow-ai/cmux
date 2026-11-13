@@ -471,7 +471,7 @@ pub(super) fn run_reporting(
         answer.set("copy", copy(&machine));
         let machine = Some(machine.clone());
         file.copies.push(Copying {
-            generation: generation.clone(),
+            generation,
             scope: scope.clone(),
             account: request.account.clone(),
             team: team.clone(),
@@ -486,7 +486,7 @@ pub(super) fn run_reporting(
     });
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
     file.warms.push(Record {
-        scope: scope.clone(),
+        scope,
         account: request.account,
         team: Some(team),
         machine,
@@ -568,8 +568,8 @@ fn claim(
     file.installed.retain(|receipt| receipt.machine != machine);
     file.copies.retain(|copy| copy.machine.as_deref() != Some(machine));
     file.copies.push(Copying {
-        generation: generation.clone(),
-        scope: scope.clone(),
+        generation,
+        scope,
         account: account.to_string(),
         team: team.to_string(),
         machine: Some(machine.to_string()),
