@@ -485,9 +485,9 @@ impl JournalStore {
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
         inner.apply(replay)?;
-        // The checkpoint after the replay runs on the checkpointer's thread at once, not here: the
-        // daemon binds its socket after this open returns, and the checkpoint's syncs are the
-        // open's cost per replayed chat (6.1 s for 300 chats on a loaded Mac, fleet 59175d6b).
+        // The checkpoint after replay runs on the checkpointer's thread at once, not here: its
+        // syncs must not hold up store open and request handling (6.1 s for 300 chats on a loaded
+        // Mac, fleet 59175d6b). The daemon already bound its socket before opening this store.
         if inner.order.lock_or_recover().has_work() {
             inner.timer.lock_or_recover().wanted = true;
         }
@@ -584,7 +584,7 @@ fn open_journal(
 /// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
 /// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
-    if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
+    if crate::home_fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
     }
     let store = JournalStore::open(

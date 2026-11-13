@@ -1043,7 +1043,7 @@ async fn a_capture_after_peer_remove_cannot_recreate_a_snapshot() {
     hub.apply_peer_notice(
         PEER,
         peer.generation,
-        PeerNotice::Sessions(vec![json!({
+        PeerNotice::sessions_from_values(vec![json!({
             "sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
             "updatedAt": 5
         })]),
@@ -1080,7 +1080,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
                      "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99}});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![row]));
     let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
     let on = |link: u64| (PEER, peer.generation, link, hub.listed_generation(PEER, "m1"));
     let notice = |seq: u64, link: u64| {
@@ -1133,7 +1133,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     assert!(!path("m1").exists());
     // A recreated session (a changed row) replaces its copy; removing the peer drops them all.
     let m2 = |created: u64| json!({"sessionId": "m2", "name": "two", "status": "idle", "createdAt": created, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![m2(42)]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![m2(42)]));
     let link = peer.link_epoch();
     let events: Vec<Value> = recs(1..=2).into_iter().map(|r| of("m2", r)).collect();
     let page =
@@ -1163,7 +1163,7 @@ fn an_events_page_of_a_session_recreated_meanwhile_is_not_kept() {
     let home = snapshot_home(&hub);
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![row]));
     let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
     let page = |created: u64, to: u64| {
         json!({"events": recs(3..=to), "hasMore": false, "lastSeq": to, "pageThrough": to,
@@ -1192,7 +1192,11 @@ fn a_purge_through_this_daemon_drops_only_its_peers_generation() {
     for name in [PEER, "clone"] {
         let peer = add_idle_peer(&hub, name);
         instances.insert(name, peer.generation);
-        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice(
+            name,
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![row.clone()]),
+        );
         let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
         let on = (name, peer.generation, peer.link_epoch(), Some(42));
         hub.capture_peer_page(on, ("m1", false), &json!({}), &page);
@@ -1219,7 +1223,11 @@ fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
     let home = snapshot_home(&hub);
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(
+        PEER,
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(vec![row]),
+    );
     let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
     let first = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
     hub.capture_peer_page(on, ("m1", false), &json!({}), &first);

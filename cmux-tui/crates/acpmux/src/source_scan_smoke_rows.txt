@@ -1,0 +1,113 @@
+The smoke rows of cmux-source-scan's two checks (source_scan_smoke.rs), run by `cargo test -p
+acpmux --lib`, which PR CI runs, through the crate's public API. The full row tables are
+crates/cmux-source-scan/src/test_hooks_rows.txt and timing_ratio_rows.txt, run by `cargo test -p
+cmux-source-scan`, which PR CI does not run: these rows are a few of each, so a broken rule is red
+here too.
+
+Kept out of the .rs sources so no checker reads a row's source as this crate's own statics or
+tests. A row starts with `=== CHECK VERDICT :: WHAT :: WORDS :: TITLE`; its source runs to the
+next `===` line.
+  test_hooks refused   a finding names the static WHAT, its reason holding WORDS
+  test_hooks passes    no finding (WHAT and WORDS are `-`)
+  timing flagged       a finding's comparison is WHAT, its kind WORDS
+  timing clean         no finding
+test_hooks rows are judged as src/smoke.rs (not a test file); timing rows as a test file nextest
+runs beside others, with `use std::time::{Duration, Instant};` and `fn helper() -> Duration`
+(reads the clock) in front.
+
+=== test_hooks refused :: S :: closure :: an alias whose defaulted parameter carries the closure (type A<T, U = T> = OnceLock<U>)
+type A<T, U = T> = OnceLock<U>;
+static S: A<Box<dyn Fn()>> = OnceLock::new();
+=== test_hooks refused :: H :: closure :: a transitive alias to a closure (cmux#41355 F1)
+type A = Mutex<Option<B>>;
+type B = Box<dyn Fn()>;
+static H: A = Mutex::new(None);
+=== test_hooks refused :: SETTLE_HOLD :: test slot :: a #[cfg(test)] Mutex<Option<_>>
+#[cfg(test)]
+pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+=== test_hooks passes :: - :: - :: production caches, a thread_local! hook and a serializer
+struct Cached { at: u64 }
+static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+thread_local! {
+    static AFTER_ADD: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+static HOOK_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+=== test_hooks passes :: - :: - :: a generic alias that does not use its fn() argument (#41383 F1)
+struct Cached { at: u64 }
+type Cache<T> = Mutex<Option<Cached>>;
+static CACHE: Cache<fn()> = Mutex::new(None);
+=== test_hooks passes :: - :: - :: a hook under a serializer its marker names
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+}
+=== timing flagged :: busy < idle * 4 :: ratio of two timings :: cmux#41346's shape: a closure returning a percentile field, called for each side
+struct Round { p99: Duration }
+
+fn notices_round(busy: bool, round: usize) -> Round {
+    let started = Instant::now();
+    let _ = (busy, round);
+    Round { p99: started.elapsed() }
+}
+
+#[test]
+fn a_reader_walking_every_row_never_holds_up_a_peer_notice() {
+    let p99 = |busy: bool, round: usize| {
+        notices_round(busy, round).p99.min(notices_round(busy, round + 1).p99)
+    };
+    let busy = p99(true, 1);
+    let idle = p99(false, 3);
+    assert!(busy < idle * 4, "a busy reader held notices up: p99 {busy:?} against {idle:?} idle");
+}
+=== timing flagged :: busy / idle < 4 :: ratio of two timings :: a quotient of two timings against a constant
+#[test]
+fn quotient() {
+    let busy = helper().as_nanos();
+    let idle = helper().as_nanos();
+    assert!(busy / idle < 4);
+}
+=== timing flagged :: p95 < BUDGET_MS :: percentile bound :: a percentile against a budget
+#[test]
+fn percentile_in_default_run() {
+    let p95 = helper();
+    assert!(p95 < BUDGET_MS, "p95");
+}
+=== timing clean :: - :: - :: p99 at most the max of the same sample set
+#[test]
+fn order_in_one_sample() {
+    let mut samples = Vec::new();
+    for _ in 0..100 {
+        let t = Instant::now();
+        samples.push(t.elapsed());
+    }
+    samples.sort();
+    let p99 = samples[98];
+    let max = samples[99];
+    assert!(p99 <= max);
+}
+=== timing clean :: - :: - :: two calls of one closure compare in one sample set's order (agent_digest.rs)
+#[test]
+fn order_of_echoes() {
+    let started = Instant::now();
+    let echoes = vec![String::from("first then second")];
+    let digest = &echoes[0];
+    let at = |s: &str| digest.find(s).unwrap_or_else(|| panic!("{s:?} missing from {digest}"));
+    assert!(at("first") < at("second"));
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+=== timing clean :: - :: - :: an #[ignore]d ratio has its own run
+#[test]
+#[ignore = "own run"]
+fn ratio_in_own_run() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}

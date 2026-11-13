@@ -51,6 +51,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
@@ -888,7 +890,7 @@ def main(argv=None) -> int:
                     cell = {"workspace": job[0], "agent": job[1], "result": f"fail: {clean(repr(error), 300)}"}
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
-                print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+                safe_print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
         finally:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)
