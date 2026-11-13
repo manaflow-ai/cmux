@@ -114,6 +114,22 @@ struct ChatTailDiskTests {
         #expect(!FileManager.default.fileExists(atPath: disk.url(for: "bad").path))
     }
 
+    /// A quiet small chat is not pushed out by twenty chats written after it (Leo, 2026-11-13:
+    /// "why cant small ones be faster too?"). A big chat that streams writes its file every few
+    /// seconds and stayed among the newest twenty; a small one left alone fell out and opened
+    /// cold after a restart, waiting on acpmux.
+    @Test func aQuietSmallChatOutlivesTwentyNewerOnes() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let disk = AgentPaneTailDisk(directory: directory)
+        for index in 0..<30 {
+            disk.write(Self.json(ChatTailCacheTests.tail(2)), for: "s-\(index)")
+            await disk.settled()
+        }
+        #expect(await disk.read("s-0") != nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 30)
+    }
+
     /// #36492 review F1: after a relaunch memory is empty, and a sidebar hover's read ahead
     /// (`ifNewer`) that ends on an older record than the tail an earlier launch saved must not
     /// replace it, or the next open draws stale rows. A newer one still wins.
