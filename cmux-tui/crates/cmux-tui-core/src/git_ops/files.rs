@@ -13,7 +13,6 @@
 //! paths are relative to `search_root`, the folder searched, so an agent
 //! working in that folder can use them as they are.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -198,9 +197,9 @@ impl Folders {
 /// The files under `directory`, relative to it and sorted, and whether the
 /// listing was cut. `below` is the result of [`folder`] for `directory`.
 ///
-/// git gives the names: the paths of its index that it does not call
-/// deleted, and the untracked names. git looks at a tracked path by its
-/// name and so through a link, so the daemon looks itself
+/// git gives the names: the paths of its index and the untracked names. It
+/// is not asked if a tracked path is still there, because git looks at a
+/// path by its name and so through a link. The daemon looks itself
 /// ([`Folders::kind`]): a candidate is a listed path that it reaches through
 /// real folders and that has a name on the disk.
 pub(super) fn candidates(
@@ -212,28 +211,21 @@ pub(super) fn candidates(
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
-    let run = |arguments: &[&str]| {
-        run_git(directory, &repository.overrides, arguments, MAX_LISTING_BYTES)
-            .map_err(|failure| git_failed(operation, &failure))
-    };
-    let listed = run(&listing)?;
+    let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
+        .map_err(|failure| git_failed(operation, &failure))?;
     let mut bytes = listed.stdout;
     if listed.truncated {
         // The last path may be cut mid-name.
         let end = bytes.iter().rposition(|byte| *byte == 0).map_or(0, |end| end + 1);
         bytes.truncate(end);
     }
-    let deleted = run(&["ls-files", "-z", "--deleted", "--", "."])?;
-    let deleted: HashSet<String> = parse::file_list(&deleted.stdout).into_iter().collect();
     let mut files = parse::file_list(&bytes);
     // Sorted, the paths of one folder follow each other: the look opens each
     // folder one time.
     files.sort_unstable();
     files.dedup();
     let mut folders = Folders::of(repository, below);
-    files.retain(|path| {
-        !deleted.contains(path) && !path.contains('\u{FFFD}') && folders.kind(path).is_some()
-    });
+    files.retain(|path| !path.contains('\u{FFFD}') && folders.kind(path).is_some());
     Ok((files, listed.truncated))
 }
 

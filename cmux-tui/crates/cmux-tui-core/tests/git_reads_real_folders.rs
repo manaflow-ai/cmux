@@ -24,10 +24,10 @@
 //!
 //! The git on `PATH` is a stand-in that is the real git. After a child that lists the
 //! untracked files (`ls-files --others`) it runs `.git/after-untracked-listing` of the work
-//! tree that holds its working directory, and after a child that lists the deleted files
-//! (`ls-files --deleted`, the last listing of the two file operations) it runs
-//! `.git/after-deleted-listing`, when a test put a program there: a change of the work tree
-//! between git's listing and the daemon's reads.
+//! tree that holds its working directory, and after the child that lists the paths of the two
+//! file operations (`ls-files -z --cached --others`) it runs `.git/after-files-listing`, when
+//! a test put a program there: a change of the work tree between git's listing and the
+//! daemon's reads.
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
@@ -74,7 +74,7 @@ fn fixture() -> &'static Fixture {
              hook=\n\
              case \" $* \" in\n\
              *\" ls-files --others \"*) hook=after-untracked-listing ;;\n\
-             *\" --deleted \"*) hook=after-deleted-listing ;;\n\
+             *\" ls-files -z --cached --others \"*) hook=after-files-listing ;;\n\
              esac\n\
              if [ -n \"$hook\" ]; then\n\
              top=$PWD\n\
@@ -625,7 +625,7 @@ fn git_files_list_gives_no_name_of_a_folder_that_became_a_link_after_the_listing
     let folder = repo.join("dir");
     assert_eq!(client.listed_kind(&folder, "name"), "file", "the file of the work tree");
 
-    let hook = swap_after(&repo, "after-deleted-listing", &outside);
+    let hook = swap_after(&repo, "after-files-listing", &outside);
     let during = client.listed_names(&folder);
     swapped(&repo, &hook);
     assert!(during.is_empty(), "a name that is not in the work tree: {during:?}");
@@ -642,7 +642,7 @@ fn git_files_search_counts_no_match_in_a_folder_that_became_a_link_after_the_lis
     let before = client.search(&folder, "name");
     assert_eq!(before["total_matches"], 1, "the file of the work tree: {before}");
 
-    let hook = swap_after(&repo, "after-deleted-listing", &outside);
+    let hook = swap_after(&repo, "after-files-listing", &outside);
     let during = client.search(&folder, "name");
     swapped(&repo, &hook);
     assert_eq!(during["total_matches"], 0, "a path that is not in the work tree: {during}");
@@ -658,7 +658,7 @@ fn git_files_search_gives_no_path_below_a_folder_that_became_a_link_after_the_li
     let mut client = Client::of_a_new_daemon();
     assert_eq!(client.found(&repo, "name"), ["dir/name.txt"], "the file of the work tree");
 
-    let hook = swap_after(&repo, "after-deleted-listing", &outside);
+    let hook = swap_after(&repo, "after-files-listing", &outside);
     let during = client.found(&repo, "name");
     swapped(&repo, &hook);
     assert_eq!(during, NO_PATH, "a path that is not in the work tree");
@@ -923,7 +923,7 @@ fn git_files_search_counts_a_file_of_a_folder_that_was_a_link_at_the_listing_by_
     let mut client = Client::of_a_new_daemon();
     for outside_file in BEHIND_THE_LINK {
         let repo = repository_with_a_link_to_a_folder_with(outside_file);
-        let hook = swap_back_after(&repo, "after-deleted-listing");
+        let hook = swap_back_after(&repo, "after-files-listing");
         let result = client.search(&repo, "below");
         std::fs::remove_file(&hook).unwrap();
         let dir = std::fs::symlink_metadata(repo.join("dir")).unwrap();
@@ -942,7 +942,7 @@ fn git_files_search_gives_no_path_of_an_empty_folder_that_was_a_link_at_the_list
     let mut client = Client::of_a_new_daemon();
     for outside_file in BEHIND_THE_LINK {
         let repo = repository_with_a_link_to_a_folder_with(outside_file);
-        let hook = repo.join(".git").join("after-deleted-listing");
+        let hook = repo.join(".git").join("after-files-listing");
         let script =
             format!("#!/bin/sh\nrm '{dir}' && mkdir '{dir}'\n", dir = repo.join("dir").display());
         std::fs::write(&hook, script).unwrap();
