@@ -28,10 +28,7 @@ type Policy = {
   known_params: Record<string, { params: string[] }>;
 };
 const policy = JSON.parse(
-  readFileSync(
-    path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"),
-    "utf8",
-  ),
+  readFileSync(path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
 ) as Policy;
 
 type Frame = { id?: number | string; method?: string; params?: Record<string, unknown> };
