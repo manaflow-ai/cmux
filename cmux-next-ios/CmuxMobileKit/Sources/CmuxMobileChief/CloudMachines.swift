@@ -185,7 +185,8 @@ public struct CloudMachinePlan: Hashable, Sendable {
         let limits = root["limits"] as? [String: Any] ?? [:]
         let usage = root["usage"] as? [String: Any] ?? [:]
         let ints: (Any?) -> [Int] = { ($0 as? [NSNumber] ?? []).map(\.intValue) }
-        return CloudMachinePlan(planID: plan, maxActive: CloudMachine.int(limits["max_active"]) ?? 0, maxSaved: CloudMachine.int(limits["max_saved"]) ?? 0,
+        return CloudMachinePlan(planID: plan, maxActive: CloudMachine.int(limits["max_active"]) ?? Self.unlimited,
+                                maxSaved: CloudMachine.int(limits["max_saved"]) ?? Self.unlimited,
                                 memoryOptionsMB: ints(limits["memory_options_mb"]), lockedMemoryOptionsMB: ints(limits["locked_memory_options_mb"]),
                                 hoursIncluded: (limits["vm_hours_included"] as? NSNumber)?.doubleValue,
                                 active: CloudMachine.int(usage["active"]) ?? 0, saved: CloudMachine.int(usage["saved"]) ?? 0,
@@ -198,7 +199,8 @@ public struct CloudMachinePlan: Hashable, Sendable {
         limit >= unlimited ? "\(used)" : String(localized: "\(used) of \(limit)")
     }
 
-    /// At or above this, a limit is no limit (JavaScript's largest safe integer is far above it).
+    /// At or above this, a limit is no limit (JavaScript's largest safe integer is far above it);
+    /// a plan answer that names no limit reads as this too.
     static let unlimited = 1_000_000
 
     /// The memory sizes a new machine may take on this plan (the Mac's default, 4 GB, when the

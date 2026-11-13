@@ -51,10 +51,19 @@ import Testing
                                        context: .init(phases: ["m": .live, "vm_r": phase]))
             #expect(inbox.folds.first { $0.mac.id == "vm_r" }?.reason == .cloudWaking, "\(phase)")
         }
-        // Not dialed (the link cap left it out): never "Waking up…" for ever; its line offers Connect.
-        let capped = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
-                                    context: .init(phases: ["m": .live, "vm_r": .idle]))
-        #expect(capped.folds.first { $0.mac.id == "vm_r" }?.reason == .notConnected)
+        // Not dialed (the link cap left it out, or its link closed after an empty answer): never
+        // "Waking up…" for ever, and never no line at all; its line offers Connect.
+        for phase in [MacDataMachine.Phase.idle, .cached(.idle)] {
+            let inbox = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
+                                       context: .init(phases: ["m": .live, "vm_r": phase]))
+            #expect(inbox.folds.first { $0.mac.id == "vm_r" }?.reason == .notConnected, "\(phase)")
+        }
+        // Its last dial failed (a first answer is cached, or none): the line says why, with Retry.
+        for phase in [MacDataMachine.Phase.cached(.failed("no route")), .failed("no route")] {
+            let inbox = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
+                                       context: .init(phases: ["m": .live, "vm_r": phase]))
+            #expect(inbox.folds.first { $0.mac.id == "vm_r" }?.reason == .failed("no route"), "\(phase)")
+        }
         // Once its daemon answers with nothing, it is the empty machine (New Workspace).
         let empty = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [],
                                    context: .init(phases: ["m": .live, "vm_r": .empty]))

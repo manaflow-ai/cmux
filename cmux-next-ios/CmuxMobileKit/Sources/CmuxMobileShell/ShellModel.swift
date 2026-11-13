@@ -65,7 +65,13 @@ final class ShellModel {
         }
     }
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
-    var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
+    var settingsPath: [SettingsRoute] = [] {
+        didSet {
+            // Back at the root (a tab tap, a reset): no workspace is on the Settings stack.
+            if settingsPath.isEmpty, !workspacesInSettings.isEmpty { workspacesInSettings = [] }
+            updateInteractiveOpen()
+        }
+    }
 
     var toast: CmuxMobileToast?
     var editingTeam: Team?
@@ -379,12 +385,14 @@ final class ShellModel {
             create: { creator.create(start: .terminal, macID: $0) },
             page: { [weak self] workspace in
                 AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, terminal: terminalTabs, creator: creator,
-                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing)
-                    // On the Settings stack: the tab bar hides while it is on screen, as on Workspaces.
-                    .onAppear { self?.workspacesInSettings.insert(workspace.id) }
-                    .onDisappear { self?.workspacesInSettings.remove(workspace.id) })
+                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing))
             },
-            shown: { [weak live] machineID in live?.touch(machineID) }
+            shown: { [weak live] machineID in live?.touch(machineID) },
+            // On the Settings stack (from its push to its pop, pages over it included): the tab bar
+            // hides, as for a workspace on any other tab.
+            onStack: { [weak self] id, onStack in
+                if onStack { self?.workspacesInSettings.insert(id) } else { self?.workspacesInSettings.remove(id) }
+            }
         )
     }
 
@@ -581,10 +589,10 @@ final class ShellModel {
         return depth(of: tab) == 0
     }
 
-    /// Workspaces on screen on the Settings stack (a Cloud machine's page opens its workspaces
-    /// there, so swipe-back returns to it): like a workspace on any other tab they own the bottom
-    /// edge. A set by workspace, so an appear that repeats (a cancelled swipe-back, a sheet) never
-    /// counts twice and its disappear always clears it.
+    /// Workspaces on the Settings stack (a Cloud machine's page opens its workspaces there, so
+    /// swipe-back returns to it): like a workspace and its pages on any other tab they own the
+    /// bottom edge. Membership follows the push and the pop (``CloudMachineWorkspaces/onStack``),
+    /// never visibility, so a page pushed over the workspace keeps the bar hidden too.
     var workspacesInSettings: Set<String> = []
 
     /// The drawer pan only opens from a tab root (stack depth 1).

@@ -357,7 +357,8 @@ async fn a_key_stored_during_the_wait_ends_it_with_one_more_grant() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let grants = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let tickets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (granted, ticketed) = (grants.clone(), tickets.clone());
+    let before = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+    let (granted, ticketed, before_key) = (grants.clone(), tickets.clone(), before.clone());
     let server = tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else { return };
@@ -386,6 +387,15 @@ async fn a_key_stored_during_the_wait_ends_it_with_one_more_grant() {
             }
             // Bound after the second ticket-only ask: from then on every answer has the key.
             let bound = ticketed.load(std::sync::atomic::Ordering::SeqCst) >= 2;
+            // The grants asked before the key was stored, frozen at the first answer that has it.
+            if bound {
+                let _ = before_key.compare_exchange(
+                    usize::MAX,
+                    granted.load(std::sync::atomic::Ordering::SeqCst),
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                );
+            }
             let mut value = answer();
             value["relay"] = json!("relay+ws://127.0.0.1:9");
             if !bound {
@@ -411,6 +421,8 @@ async fn a_key_stored_during_the_wait_ends_it_with_one_more_grant() {
         "the wait ended once the key was stored: {error:?}"
     );
     assert!(tickets.load(std::sync::atomic::Ordering::SeqCst) >= 2, "it waited with ticket-only asks");
+    // Exactly one grant while the key was missing (the first ask): none was minted per wait.
+    assert_eq!(before.load(std::sync::atomic::Ordering::SeqCst), 1, "one grant before the key was stored");
     assert!(grants.load(std::sync::atomic::Ordering::SeqCst) >= 2, "a grant again once the key was there");
     server.abort();
 }

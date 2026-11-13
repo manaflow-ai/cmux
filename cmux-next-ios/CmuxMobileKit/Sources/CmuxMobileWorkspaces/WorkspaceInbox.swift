@@ -168,6 +168,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
             guard let phases else { return .live }
             return ListState(phases[macID] ?? .idle)
         }
+
+        /// The link state of a Mac whose list is last-known data (nil: not cached).
+        func link(_ macID: String) -> MacDataMachine.Link? {
+            if case .cached(let link)? = phases?[macID] { return link }
+            return nil
+        }
     }
 
     public var scope: MacScope
@@ -296,15 +302,22 @@ public struct WorkspaceInbox: Hashable, Sendable {
                     if !searching, scope.macID == nil, rows.isEmpty, context.listState(mac.id) == .live {
                         return Fold(mac: mac, reason: .cloudEmpty, workspaces: [], isForcedOpen: false)
                     }
-                    // Running, its carrier dialing, and nothing listed yet (just after a Start, or a
-                    // redial after its link closed): it is still waking to the person, never a line
-                    // that vanishes. One not dialed (the link cap left it out) falls through to the
-                    // not-connected line, whose Connect links it.
+                    // Running with nothing to show: always one line, never none. Dialing (just after a
+                    // Start, or a redial): still waking. Not dialed (its link closed, or the cap left
+                    // it out), with or without an earlier answer: the not-connected line, whose Connect
+                    // links it. Its last dial failed: that line, with why and Retry.
                     if !searching, scope.macID == nil, rows.isEmpty {
                         switch context.listState(mac.id) {
                         case .loading, .cached(updating: true):
                             return Fold(mac: mac, reason: .cloudWaking, workspaces: [], isForcedOpen: false)
-                        default:
+                        case .cached(updating: false), .notConnected:
+                            if case .failed(let reason)? = context.link(mac.id) {
+                                return Fold(mac: mac, reason: .failed(reason), workspaces: [], isForcedOpen: false)
+                            }
+                            return Fold(mac: mac, reason: .notConnected, workspaces: [], isForcedOpen: false)
+                        case .failed(let reason):
+                            return Fold(mac: mac, reason: .failed(reason), workspaces: [], isForcedOpen: false)
+                        case .live:
                             break
                         }
                     }

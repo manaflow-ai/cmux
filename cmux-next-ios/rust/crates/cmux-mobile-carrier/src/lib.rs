@@ -497,11 +497,13 @@ impl CarrierSession {
                 // The platform puts `daemon_key` in every answer to a person, a ticket-only one too
                 // (cmux-platform CarrierRoute.ts; the Mac's carrier relies on it, client.rs
                 // `pin_while_parked`), so the wait mints no grant.
-                match platform.fetch(None).await {
-                    Ok(answer) if answer.daemon_key.is_some() => awaiting_key = false,
-                    Ok(_) => last_transport = None,
-                    Err(error) if !error.retryable() => return Err(error),
-                    Err(error) => last_transport = Some(error),
+                // Bounded by the dial's deadline, not only the ask's own timeout.
+                match tokio::time::timeout_at(deadline, platform.fetch(None)).await {
+                    Ok(Ok(answer)) if answer.daemon_key.is_some() => awaiting_key = false,
+                    Ok(Ok(_)) => last_transport = None,
+                    Ok(Err(error)) if !error.retryable() => return Err(error),
+                    Ok(Err(error)) => last_transport = Some(error),
+                    Err(_) => return Err(last_transport.unwrap_or_else(no_daemon_key)),
                 }
                 if awaiting_key {
                     if Instant::now() + wait >= deadline {
@@ -513,7 +515,12 @@ impl CarrierSession {
                     continue;
                 }
             }
-            match attempt(&platform, &identity, &device_name, deadline).await {
+            let attempted =
+                tokio::time::timeout_at(deadline, attempt(&platform, &identity, &device_name, deadline))
+                    .await;
+            let attempted = attempted
+                .unwrap_or_else(|_| Err(CarrierError::transport("dial", "the dial's deadline passed")));
+            match attempted {
                 Ok(session) => return Ok(session),
                 Err(error) if error.retryable() && Instant::now() + wait < deadline => {
                     if matches!(&error, CarrierError::Refused { code, .. } if code == NO_DAEMON_KEY) {

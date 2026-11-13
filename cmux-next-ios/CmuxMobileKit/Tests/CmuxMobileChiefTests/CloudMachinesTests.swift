@@ -129,6 +129,11 @@ extension AccountCloudTests {
         #expect(CloudMachinePlan.count(2, of: 9_007_199_254_740_991) == "2")
         // A real limit of 0 (no saved machines on this plan) is shown, never hidden.
         #expect(CloudMachinePlan.count(0, of: 0) == "0 of 0")
+        // A plan answer with no limits at all: counts alone, never "2 of 0".
+        let bare = Data(#"{"plan_id":"team","limits":{},"usage":{"active":2,"saved":1}}"#.utf8)
+        let plan = CloudMachinePlan.parse(bare)
+        #expect(plan.map { CloudMachinePlan.count($0.active, of: $0.maxActive) } == "2")
+        #expect(plan.map { CloudMachinePlan.count($0.saved, of: $0.maxSaved) } == "1")
     }
 
     @Test func cloudMachineGrowOnlyGoesUp() async throws {
