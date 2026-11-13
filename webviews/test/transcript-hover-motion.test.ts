@@ -55,12 +55,14 @@ test("keyboard focus and action visibility remain independent of pointer capabil
       expect(focus!.media).toEqual(["(prefers-reduced-motion: no-preference)"]);
       expect(focus!.rule.style.getPropertyValue("transition")).not.toContain("--cv-actions-in-delay");
     } else {
-      const transitions = rules.filter(
-        ({ rule }) =>
-          rule.selectorText.includes(action) &&
-          rule.style.getPropertyValue("transition") &&
-          rule.style.getPropertyValue("transition") !== "none",
-      );
+      const transitions = rules
+        .filter(
+          ({ rule }) =>
+            rule.selectorText.includes(action) &&
+            rule.style.getPropertyValue("transition") &&
+            rule.style.getPropertyValue("transition") !== "none",
+        )
+        .map(({ rule }) => rule.selectorText);
       expect(transitions).toEqual([]);
     }
     const visibility = rules.filter(({ rule }) => rule.selectorText.includes(action) && rule.style.opacity === "1");
