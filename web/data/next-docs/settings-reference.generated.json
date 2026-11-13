@@ -2099,8 +2099,8 @@
           "default": 1,
           "group": "Density and Motion",
           "range": {
-            "min": 0.85,
-            "max": 1.5,
+            "min": 0.25,
+            "max": 5,
             "unit": "fraction"
           }
         },

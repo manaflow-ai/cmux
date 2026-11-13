@@ -55,10 +55,13 @@
 //! - **The limits stay.** A git past its limit is ended by its runner, the
 //!   request gets that error, and the end of a run frees its place.
 //! - **A connection's end.** After a clean end of its input the requests it
-//!   sent still run and answer ([`GitLane::drain`]). After a broken one
-//!   nobody reads a reply: its reads that wait are dropped, and its
-//!   mutations that wait still run, as when the reader ran each line it
-//!   read ([`GitLane::abandon`]).
+//!   sent still run and answer, while the client can read them
+//!   ([`GitLane::drain`]): a client that ended only its writes waits for its
+//!   replies. When nobody reads a reply (a broken end, a client that closed
+//!   its whole end, a writer that closed while the daemon waited), its reads
+//!   that wait are dropped and its mutations that wait still run, as when
+//!   the reader ran each line it read ([`GitLane::abandon`]). The connection
+//!   does not wait for them, so the client stops being a client at once.
 //! - **Nothing starts after the shutdown began.** A daemon that shuts down
 //!   or hands its session over refuses each line it reads as "not executed"
 //!   (`connection_frame.rs`), so the client sends it again to the next
@@ -83,6 +86,7 @@ use crate::diagnostics::request_log;
 use crate::panic_free::RecoverPoison;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
+use crate::stream_interrupt::StreamInterrupt;
 
 /// Git reads that run at one time, in the whole daemon. Small and fixed:
 /// each is a git process that reads a repository, and the machine also runs
@@ -424,7 +428,8 @@ impl Job {
 #[derive(Default)]
 pub(super) struct GitLane {
     schedule: Mutex<Schedule<Job>>,
-    /// A run ended or requests that waited were dropped: [`GitLane::drain`] looks again.
+    /// A run ended, requests that waited were dropped, or the writer of a
+    /// connection in [`GitLane::drain`] closed: the drain looks again.
     changed: Condvar,
 }
 
@@ -539,19 +544,36 @@ impl GitLane {
     }
 
     /// Waits until no git request of `client` waits or runs: a connection
-    /// that ended its input in order gets each reply before it closes. Each
-    /// run ends at its limit, and a read whose connection closed does not
-    /// run, so the wait has an end.
-    pub(super) fn drain(&self, client: u64) {
-        let mut schedule = self.schedule.lock().recover_poison();
-        while schedule.busy(client) {
-            schedule = self.changed.wait(schedule).unwrap_or_else(PoisonError::into_inner);
+    /// that ended its input in order gets each reply before it closes. The
+    /// wait also ends when `writer` closes (a reply could not be written):
+    /// from then nobody reads a reply, and a request that still waits could
+    /// keep the wait until it got a place. Each run ends at its limit, so
+    /// the wait has an end.
+    pub(super) fn drain(mux: &Arc<Mux>, client: u64, writer: &MessageWriter) {
+        let lane = &mux.control_clients.git_lane;
+        // The close is an event, not a poll. Its waker takes the lock the
+        // wait is under, so a wait that just looked cannot miss it.
+        let closed = StreamInterrupt::new();
+        let waker = Arc::downgrade(mux);
+        closed.on_fire(move || {
+            if let Some(mux) = waker.upgrade() {
+                let lane = &mux.control_clients.git_lane;
+                let _schedule = lane.schedule.lock().recover_poison();
+                lane.changed.notify_all();
+            }
+        });
+        // Not under the lock: a writer that is closed fires here.
+        writer.register_interrupt(&closed);
+        let mut schedule = lane.schedule.lock().recover_poison();
+        while schedule.busy(client) && !closed.is_fired() {
+            schedule = lane.changed.wait(schedule).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
-    /// Drops the git reads of `client` that wait: its connection broke, so
-    /// nobody reads their replies. Its mutations that wait still run, and
-    /// the requests that run end by themselves.
+    /// Drops the git reads of `client` that wait: nobody reads their
+    /// replies (its connection broke, the client is gone, or its writer
+    /// closed). Its mutations that wait still run, and the requests that run
+    /// end by themselves.
     pub(super) fn abandon(&self, client: u64) {
         let dropped = self.schedule.lock().recover_poison().take_waiting_reads(client);
         self.changed.notify_all();
