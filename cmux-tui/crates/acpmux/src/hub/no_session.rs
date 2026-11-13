@@ -73,7 +73,7 @@ impl Hub {
             && !rest.is_empty()
             && self.peer(host).is_some()
         {
-            let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let map = self.remote_sessions.read();
             let names = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
@@ -176,7 +176,11 @@ mod tests {
             serde_json::json!({"sessionId": "s1", "name": "review/child", "status": "ready"}),
             serde_json::json!({"sessionId": "s2", "name": "gone-lane", "status": "closed"}),
         ];
-        hub.apply_peer_notice("b", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(
+            "b",
+            peer.generation,
+            crate::peer::PeerNotice::sessions_from_values(rows),
+        );
         let (text, data) = hub.no_session_text("b/review/chil");
         assert_eq!(text, "no session review/chil on b; did you mean: review/child", "{data}");
         assert_eq!(data["candidates"], serde_json::json!(["review/child"]));

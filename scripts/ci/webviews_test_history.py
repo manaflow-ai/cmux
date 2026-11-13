@@ -12,6 +12,17 @@
         pushes with the same inputs key gave them different verdicts), or that went red, green and red
         again on any inputs, or failed there once while their file's reds came back. With NAMES (a
         {name: passed} map, a head's results), only names among its reds.
+    webviews_test_history.py known HISTORY --inputs KEY --names NAMES.json --out BASE.json
+        write to BASE the base verdicts the history already holds for NAMES' reds (a head's results):
+        a red name whose file ran on a push with the same inputs KEY takes the newest such push's
+        verdict. Print, one a line, the files the history cannot answer for,
+        which the base must still run
+    webviews_test_history.py known-reds HISTORY --before EPOCH --out BASE_REDS.json
+        write {"sha", "inputs", "red": [...]} for the newest push no newer than EPOCH (a merge parent's commit
+        time): the names whose newest verdict on a push with its inputs is red. No such push writes no file
+    webviews_test_history.py base-red-files BASE_REDS.json --names NAMES.json
+        print, one a line, NAMES' red files (a shard's first run) whose every red name BASE_REDS holds; an
+        unreadable BASE_REDS prints none, so every red file is retried
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
@@ -76,14 +87,34 @@ def load(path: str | Path) -> list[dict]:
             and isinstance(r.get("red"), list) and isinstance(r.get("inputs"), str) and r["inputs"]]
 
 
+# Read by the webview tests but routed by neither list: the browser tests' font pin.
+EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
+
+
 def inputs(root: str | Path = ".") -> str:
-    """HEAD's webview test inputs key: the git ids of every path web_subareas.py routes the suite on."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
+
+    That is web_subareas.py's lists and the web bundle's routed inputs (web-bundle-key.py --routed: the
+    settings schema, the string catalogs, the model catalog, the design scales ...), which webview tests
+    import too. react-apps-base-check takes a push's verdicts at this key for the merge parent's
+    (known), so a path left out would let a base break through it read as green there."""
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here))
+    # Every path below is from the repository's top: run from webviews/ (the push shards), a relative listing
+    # matched nothing and every push got the empty listing's key.
+    root = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                          check=True, capture_output=True, text=True).stdout.strip()
     import web_subareas  # noqa: PLC0415
     paths = sorted({p.rstrip("/") for p in (*web_subareas.REACT_PREFIXES, *web_subareas.REACT_EXACT,
-                                            *web_subareas.ALL_SUBAREA_INPUTS)})
+                                            *web_subareas.ALL_SUBAREA_INPUTS, *EXTRA_INPUTS)})
     listed = subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *paths],
                             check=True, capture_output=True, text=True).stdout
+    routed = subprocess.run([sys.executable, str(here.parent / "cmux-next/web-bundle-key.py"), str(root), "--routed"],
+                            check=True, capture_output=True, text=True).stdout.split()
+    listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
+                             check=True, capture_output=True, text=True).stdout
+    if "webviews" not in listed:
+        raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
 
 
@@ -181,6 +212,56 @@ def flaky_name(runs: list[dict], name: str) -> bool:
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
 
 
+def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+    """(the base verdicts the history holds for HEAD's reds on inputs KEY, the files it holds none for).
+
+    react-apps-base-check replays each head red file once on the merge parent. A push with the same
+    inputs key ran the same webview tree, so its verdict answers the same question without the replay's
+    install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
+    verdict, as the replay would take its one run's (flaky() still names a name those pushes flip on). A file with any
+    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
+    at = [run for run in runs if run["inputs"] == key]
+    base: dict[str, bool] = {}
+    replay: set[str] = set()
+    for name in sorted(name for name, ok in head.items() if not ok):
+        found = [ok for _, ok in verdicts(at, name)]
+        if found:
+            base[name] = found[-1]  # the newest such push: one old flake does not excuse a change for the whole window
+        else:
+            replay.add(name.split(" > ", 1)[0])
+    return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
+
+
+def base_run(runs: list[dict], before: float) -> dict | None:
+    """The newest push run whose commit is no newer than BEFORE (the merge parent's commit time): the base's nearest
+    recorded tree. The merge parent's own push is usually still running when a pull request's shards start (most
+    feat-cmux-next pushes change a webview input, so its key is new), so its exact key is rarely recorded yet."""
+    found = [run for run in runs if run["time"] <= before]
+    return max(found, key=lambda r: (r["time"], r.get("attempt", 1)), default=None)
+
+
+def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[str]:
+    """The names whose newest verdict on a push with inputs KEY (no newer than BEFORE) is red.
+
+    A head shard reads these before its alone retries (run-webviews-tests.sh, CMUX_WEB_TEST_BASE_REDS): a file whose every
+    first-run red is among them is red on the base too, so its retry only cost the shard its minutes (a 600 s timeout run
+    twice, run 43374261361's shard 2) and react-apps-base-check judges it from the first run. A guess that turns out
+    wrong there changes no verdict: the base check replays a red it has no answer for, and re-runs alone on the head
+    every red it would charge to the change (the retry skipped here), counting a pass as a flake."""
+    at = [run for run in runs if run["inputs"] == key and (before is None or run["time"] <= before)]
+    names = sorted({name for run in at for name in run["red"]})
+    return [name for name in names if (found := verdicts(at, name)) and not found[-1][1]]
+
+
+def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    by_file: dict[str, list[str]] = {}
+    for name, ok in head.items():
+        if not ok:
+            by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
+    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+
+
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     if names is None:
         names = sorted({name for run in runs for name in run["red"]})
@@ -274,6 +355,18 @@ def main(argv: list[str]) -> int:
     fl = sub.add_parser("flaky")
     fl.add_argument("history")
     fl.add_argument("--names")
+    kn = sub.add_parser("known")
+    kn.add_argument("history")
+    kn.add_argument("--inputs", required=True)
+    kn.add_argument("--names", required=True)
+    kn.add_argument("--out", required=True)
+    kr = sub.add_parser("known-reds")
+    kr.add_argument("history")
+    kr.add_argument("--before", type=float, required=True)
+    kr.add_argument("--out", required=True)
+    br = sub.add_parser("base-red-files")
+    br.add_argument("base_reds")
+    br.add_argument("--names", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
@@ -290,7 +383,39 @@ def main(argv: list[str]) -> int:
     if args.command == "inputs":
         print(inputs(args.root))
         return 0
+    if args.command == "known-reds":
+        runs = load(args.history)
+        run = base_run(runs, args.before)
+        if run is None:
+            print("webview test history: no push at or before the base; every red file is retried")
+            return 0
+        reds = known_reds(runs, run["inputs"], args.before)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps({"sha": run["sha"], "inputs": run["inputs"], "red": reds}, indent=1) + "\n",
+                                  encoding="utf-8")
+        print(f"webview test history: {len(reds)} names red on the base's push {run['sha'][:12]} (inputs {run['inputs']})")
+        return 0
+    if args.command == "base-red-files":
+        try:
+            data = json.loads(Path(args.base_reds).read_text(encoding="utf-8"))
+            reds = data["red"] if isinstance(data, dict) and isinstance(data.get("inputs"), str) and data["inputs"] else None
+        except (OSError, ValueError, KeyError):
+            reds = None
+        if not isinstance(reds, list):
+            return 0
+        for file in base_red_files({str(name) for name in reds}, results([args.names])):
+            print(file)
+        return 0
+    if args.command == "known":
+        base, replay = known(load(args.history), args.inputs, results([args.names]))
+        Path(args.out).write_text(json.dumps(base, sort_keys=True) + "\n", encoding="utf-8")
+        for file in replay:
+            print(file)
+        return 0
     if args.command == "record":
+        if not args.inputs.strip():
+            print("webview test history: no inputs key; nothing recorded", file=sys.stderr)
+            return 1
         runs = record(load(args.history), args.sha, args.time, results(args.results), args.inputs, args.attempt)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({"runs": runs}, separators=(",", ":")) + "\n", encoding="utf-8")

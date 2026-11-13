@@ -13,7 +13,10 @@
 //!
 //! `machine.io` is a machine's exec or file operation (its `args` are [`machine_io::Request`]'s
 //! fields: `op`, `machine`, `path`, …): a Worker machine's runs [`machine_io`]'s logic; a `stack`
-//! one is refused before any request. `vm.scp_endpoint` is cmux-platform's
+//! one is refused before any request. `machine.chat_access` and `machine.share_chat` are
+//! cmux-platform's `/v1/machines/{id}/chat-access` and `/v1/machines/{id}/chat-grants/{user}`
+//! (who may start app chats on a team machine, and Share with Me; [`chat`]); a `stack` call is
+//! refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
@@ -22,6 +25,9 @@
 //!
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
+//!
+//! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
+//! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
@@ -40,6 +46,7 @@
 
 #![cfg(unix)]
 
+mod chat;
 mod http;
 mod machine;
 pub mod machine_io;
@@ -48,6 +55,7 @@ mod owner;
 mod previews;
 mod runs;
 pub mod session;
+mod turns;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -105,6 +113,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
+        call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
+            Err(not_on_this_cloud(call))
+        }
+        call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
@@ -117,6 +129,9 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "runs.cancel" => runs::cancel(&http, args).await,
         "runs.sandbox" => runs::sandbox(&http, args).await,
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
+            turns::run(&http, request.call.as_str(), args).await
+        }
         call if call.starts_with("owner.") => owner::run(&http, call, args).await,
         call if call.starts_with("previews.") => previews::run(request, call, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
@@ -155,7 +170,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 34] = [
+pub const CALLS: [&str; 39] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -186,10 +201,15 @@ pub const CALLS: [&str; 34] = [
     "owner.handoff_begin_turn",
     "owner.harness_login_copy",
     "owner.github_app",
+    "owner.turn_checkpoint",
+    "owner.turn_rewind",
+    "owner.turns",
     "previews.refresh",
     "previews.create_link",
     "previews.revoke_link",
     "machine.io",
+    "machine.chat_access",
+    "machine.share_chat",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

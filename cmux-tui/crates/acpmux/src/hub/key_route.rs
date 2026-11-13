@@ -108,13 +108,7 @@ impl Hub {
             .keys()
             .cloned()
             .collect();
-        hosts.extend(
-            self.remote_sessions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .values()
-                .map(|r| r.peer.clone()),
-        );
+        hosts.extend(self.remote_sessions.read().values().map(|r| r.peer.clone()));
         hosts.sort();
         hosts.dedup();
         let here = own.to_owned();
@@ -212,12 +206,8 @@ impl Hub {
                 }
             }
             Machine::Peer(peer) => {
-                for (route, r) in self
-                    .remote_sessions
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .iter()
-                    .filter(|(_, r)| &r.peer == peer)
+                for (route, r) in
+                    self.remote_sessions.read().iter().filter(|(_, r)| &r.peer == peer)
                 {
                     let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
@@ -284,9 +274,7 @@ impl Hub {
                 closed: meta.status == SessionStatus::Closed,
             });
         }
-        for (route, r) in
-            self.remote_sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter()
-        {
+        for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
             let Some(tier) =
@@ -392,7 +380,7 @@ mod tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
+        hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
     }
 
     pub(super) async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {

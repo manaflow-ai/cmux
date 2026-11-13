@@ -61,7 +61,9 @@
     "closed.delete",
     "closed.list",
     "closed.reopen",
+    "cloud.machine.chat_access",
     "cloud.machine.io",
+    "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
@@ -71,6 +73,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.turn_checkpoint",
+    "cloud.owner.turn_rewind",
+    "cloud.owner.turns",
     "cloud.previews.create_link",
     "cloud.previews.refresh",
     "cloud.previews.revoke_link",
@@ -373,6 +378,7 @@
       "add-tabs-to-tab-group",
       "apply-layout",
       "bind-conversation-tab-session",
+      "cancel-creating-input",
       "clear-history",
       "clear-window-title",
       "client-focus",
@@ -505,6 +511,7 @@
       "set-client-sizing",
       "set-column-dock",
       "set-default-colors",
+      "set-divider-visible",
       "set-frontend-browser-history",
       "set-host-size-policy",
       "set-layout-sizes",
@@ -1183,6 +1190,18 @@
     },
     {
       "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-view-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "feed-reports-changed",
       "streams": [
         "subscribe"
       ]

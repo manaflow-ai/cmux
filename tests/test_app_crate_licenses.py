@@ -112,6 +112,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
                     "cmux-daemon-launch-core",
+                    # The app health model (cmux-health-core).
+                    "cmux-health-core",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

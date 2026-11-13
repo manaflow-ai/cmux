@@ -439,9 +439,14 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudMachineChatAccess
+        | Op::CloudMachineShareChat
         => Access::Denied(Denied::NotAllowed),
     }
 }

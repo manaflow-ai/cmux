@@ -162,6 +162,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -308,6 +309,37 @@ impl Surface {
         )
     }
 
+    /// A hosted terminal surface on `attachment` (a fake host connection) whose program already
+    /// runs, as an adoption at daemon start makes one after its connect
+    /// (`adopt_hosted_with_resource_identity`), with the tab and terminal identity `identity`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_hosted_adopted_for_test(
+        id: SurfaceId,
+        mux: Weak<Mux>,
+        attachment: crate::terminal_host_runtime::HostAttachment,
+        identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &identity,
+            "a hosted terminal cannot use a browser resource identity",
+        )?;
+        Self::spawn_hosted(
+            id,
+            SurfaceOptions::default(),
+            mux,
+            HostedSurfaceLaunch {
+                adopted: true,
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(identity),
+            },
+        )
+    }
+
     /// Finish `command` with `exit_code` on this terminal's tracker, as the
     /// shell's OSC 133 marks do.
     #[cfg(test)]
@@ -345,5 +377,49 @@ impl Surface {
         let pty = self.as_pty().expect("a PTY surface");
         let start = crate::shell_history::ShellMark::CommandStart;
         pty.command_tracker.lock().unwrap().apply(start, 5_000, &mut Line(command));
+    }
+
+    /// Notes output at `at_ms`, as the output reader does with the real
+    /// clock, so a test runs minutes of printing in no time.
+    #[cfg(test)]
+    pub(crate) fn note_output_at_for_test(&self, at_ms: u64) {
+        let pty = self.as_pty().expect("a PTY surface");
+        pty.terminal_metadata.lock().unwrap().activity.note_output(at_ms);
+    }
+
+    /// Applies one OSC 7501 report of `state` (the root record of app
+    /// `make`) at `at_ms`, as the terminal parser's callback does: the test
+    /// terminal has no such callback.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        at_ms: u64,
+    ) {
+        self.report_program_status_progress_for_test(state, None, at_ms);
+    }
+
+    /// `report_program_status_for_test` with the report's `progress` value.
+    #[cfg(test)]
+    pub(crate) fn report_program_status_progress_for_test(
+        &self,
+        state: ghostty_vt::ProgramStatusState,
+        progress: Option<u8>,
+        at_ms: u64,
+    ) {
+        let pty = self.as_pty().expect("a PTY surface");
+        let report = ghostty_vt::ProgramStatusReport {
+            state,
+            kind: None,
+            progress,
+            id: String::new(),
+            app: "make".into(),
+            title: String::new(),
+            message: String::new(),
+        };
+        pty.program_status_records()
+            .lock()
+            .unwrap()
+            .apply(ghostty_vt::ProgramStatusEvent::Report(report), at_ms);
     }
 }

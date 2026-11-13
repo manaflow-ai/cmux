@@ -258,12 +258,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.togglePointerInspector",
         group: GROUP,
-        title: Text::raw("Inspect UI Element"),
-        keywords: &["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+        title: Text::raw("Point at Element"),
+        keywords: &["agent", "ui", "pointer", "point", "point at element", "inspect", "inspect element", "inspect ui element", "pick", "element", "debug"],
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Inspect Element"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -604,6 +604,17 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         requires: &["terminalFocused"],
         cli_name: "agent open-terminal-as-chat",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "palette.toggleTerminalChat",
+        group: GROUP,
+        title: t("ActionCatalog", "action.palette.toggleTerminalChat", "Toggle Terminal and Chat"),
+        keywords: &["agent", "chat", "terminal", "gui", "swap", "switch"],
+        category: "agents",
+        symbol: "arrow.left.arrow.right",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "agent toggle-terminal-chat",
         ..Action::DEFAULT
     },
     Action {

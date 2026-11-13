@@ -16,6 +16,7 @@
 use crate::cli::host_steps::{Step, StepResult, StepState};
 use crate::cli::hosts::{self, DAEMON_BIN, REMOTE_HOME, Remote};
 use anyhow::{Result, anyhow, bail};
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 use std::process::{Command, Stdio};
 
@@ -125,11 +126,6 @@ pub(crate) fn agent_json(machine: &str, os: &str, a: &Agent) -> Value {
     Value::Object(v)
 }
 
-/// One string field of an agent's JSON.
-fn field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(Value::as_str)
-}
-
 /// Enroll's and doctor's `agents` step: ok when one agent is ready there, else a warning whose
 /// fix names the first offer. `data.agents` lists every agent with its offers.
 pub(crate) fn step(r: &dyn Remote, machine: &str) -> StepResult {
@@ -155,7 +151,7 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
         .iter()
         .zip(&agents)
         .map(|(a, v)| {
-            let name = field(v, "name").unwrap_or(&a.id);
+            let name = v.get_str("name").unwrap_or(&a.id);
             match (a.path.is_some(), a.signed_in) {
                 (false, _) => format!("{name} not installed"),
                 (true, Some(true)) => format!("{name} signed in"),
@@ -172,11 +168,11 @@ fn step_of(machine: &str, found: &Found) -> StepResult {
     );
     if !ready {
         let offer = agents.iter().find_map(|v| {
-            let name = field(v, "name")?;
-            if let Some(cmd) = field(v, "login") {
+            let name = v.get_str("name")?;
+            if let Some(cmd) = v.get_str("login") {
                 return Some(format!("Sign in to {name} there: `{cmd}`."));
             }
-            field(v, "install").map(|cmd| format!("Install {name} there: `{cmd}`."))
+            v.get_str("install").map(|cmd| format!("Install {name} there: `{cmd}`."))
         });
         result = result.with_fix(
             offer.unwrap_or_else(|| "Install Claude Code or Codex on the machine.".into()),

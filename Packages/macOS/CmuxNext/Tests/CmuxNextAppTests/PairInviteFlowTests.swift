@@ -236,7 +236,7 @@ import Testing
         _ = try? await provider.call(PairInviteCardProvider.setNameOp, params: ["name": "build box"], context: PageCallContext(page: "cmux.server-cards"))
         provider.personPressed()
         #expect(approvals(source).count == 1, "the person's click on the native Confirm approves")
-        let descriptor = ServerActionCatalog.descriptors().first { $0.id == "server.pairAnotherMachine" }
+        let descriptor = ActionCatalog.all.first { $0.id == "server.pairAnotherMachine" }
         #expect(descriptor?.isPersonOnly == true, "only a person may open the card and mint an invite")
         #expect(descriptor?.arguments.isEmpty == true, "the action takes no code, words or confirm: nothing to script")
     }

@@ -101,26 +101,52 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
     assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
 }
 
-/// A fresh machine's daemon registers after the dial's Connect: the relay
-/// parks the Connect until then. A Register 20 s later, past the relay
-/// client's 15 s control timeout, is still inside the dial's one deadline
-/// (30 s here), so the first attempt connects: one route line, ok, and no
-/// retry.
+/// A fresh machine's daemon registers late: the relay parks the dial's
+/// Connect until then. A link parked for 10 s is given up for a new one
+/// (`PARK_REDIAL`, #41525), so a Register 15 s after the first Connect, in
+/// the middle of the second link's park, connects the dial on its second
+/// attempt, inside its one deadline (30 s here). The caller gets one reply,
+/// ok, then the two attempts' route lines in order: the park that timed out,
+/// then the connect. The dial closed each parked link it gave up before the
+/// second attempt's link connected, and its look at the parked machine is no
+/// carrier request.
 #[test]
-fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_attempt() {
-    let world = world_parked(Duration::from_secs(20));
+fn a_dial_parked_past_the_redial_connects_on_a_new_link_when_the_daemon_registers() {
+    let world = world_parked(Duration::from_secs(15));
     let mut child = dial(&world);
     let mut stderr = BufReader::new(child.stderr.take().unwrap());
     let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
     assert_eq!(reply, json!({"ok": true, "path_state": "relay", "route": "carrier"}));
-    let route = line(&mut stderr);
-    let prefix =
-        format!("cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms=");
-    let ms: u64 = route
-        .strip_prefix(&prefix)
-        .and_then(|ms| ms.trim_end().parse().ok())
-        .unwrap_or_else(|| panic!("not the first attempt's ok line: {route}"));
-    assert!(ms >= 20_000, "connected after {ms} ms, before the daemon registered");
+    // The second attempt's link is connected now. Of the links the relay parked,
+    // one was still open when the daemon registered (the one that connected):
+    // the dial closed each link it gave up, and holds none beside it.
+    let held = world.parked.held.load(Ordering::SeqCst);
+    let closed = world.parked.closed.load(Ordering::SeqCst);
+    eprintln!("parked links: {held} held, {closed} closed by the dial");
+    assert!(closed >= 1, "the dial closed no parked link ({held} held)");
+    assert_eq!(
+        held,
+        closed.saturating_add(1),
+        "the parked links still open when the daemon registered are not one \
+         ({held} held, {closed} closed)"
+    );
+    let parked = line(&mut stderr);
+    let connected = line(&mut stderr);
+    // The times are printed, not judged: only the dial's deadline bounds them.
+    eprintln!("first attempt: {parked}second attempt: {connected}");
+    let ms_after = |route: &str, prefix: &str| -> u64 {
+        route
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|ms| ms.parse().ok())
+            .unwrap_or_else(|| panic!("not `{prefix}<n>`: {route}"))
+    };
+    let attempt = |phase: &str, outcome: &str| {
+        format!("cloud.connect route=carrier machine={MACHINE} phase={phase} outcome={outcome} ms=")
+    };
+    let parked_ms = ms_after(&parked, &attempt("connect", "parked_timeout"));
+    let connected_ms = ms_after(&connected, &attempt("reconnect", "ok"));
+    assert!(parked_ms < 30_000 && connected_ms < 30_000, "past the deadline: {parked}{connected}");
 
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
@@ -129,9 +155,20 @@ fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_att
     assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
     drop(stdin);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    // No failure reply went to the caller between or after the attempts.
+    let mut rest = String::new();
+    std::io::Read::read_to_string(&mut stderr, &mut rest).unwrap();
+    assert!(!rest.lines().any(|l| l.starts_with('{')), "a second reply line: {rest}");
     // The connect log has every attempt's route line (each followed by its
-    // phases line): this one alone.
-    assert_eq!(route_lines(&world), [route.trim_end()], "the dial retried");
+    // phases line): these two alone.
+    assert_eq!(route_lines(&world), [parked.trim_end(), connected.trim_end()], "not two attempts");
+    // Every request the platform's carrier route counted is a carrier request
+    // (it names the dial's key): the look is not one.
+    let keys = world.keys.lock().unwrap().clone();
+    assert!(
+        !keys.is_empty() && keys.iter().all(Option::is_some),
+        "a request that is no carrier request was counted as one: {keys:?}"
+    );
 }
 
 /// The route lines of the dial's connect log, without its phases lines.

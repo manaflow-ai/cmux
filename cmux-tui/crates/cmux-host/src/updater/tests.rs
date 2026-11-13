@@ -98,6 +98,81 @@ fn a_binary_must_come_from_its_commit_publication() {
     assert!(payload.binaries_for(TARGET).is_err());
 }
 
+fn with_url(name: &str, url: String) -> Payload {
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET][name]["url"] = json!(url);
+    serde_json::from_value(p).unwrap()
+}
+
+#[test]
+fn a_binary_may_come_from_its_commit_machine_copy() {
+    // The Cloud machine channel's own (thin LTO) build of the commit: cmux-tui/<commit>/machine/.
+    let machine =
+        |name: &str| format!("https://files.cmux.com/cmux-tui/{COMMIT}/machine/{name}-{TARGET}");
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET]["cmux-tui"]["url"] = json!(machine("cmux-tui"));
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] = json!(machine("cmux-tui-hook"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    let (tui, hook) = payload.binaries_for(TARGET).unwrap();
+    assert_eq!(tui.url, machine("cmux-tui"));
+    assert_eq!(hook.url, machine("cmux-tui-hook"));
+    // One of each kind is fine too: each binary is checked on its own.
+    assert!(with_url("cmux-tui", machine("cmux-tui")).binaries_for(TARGET).is_ok());
+    assert!(with_url("cmux-tui-hook", machine("cmux-tui-hook")).binaries_for(TARGET).is_ok());
+}
+
+#[test]
+fn a_binary_url_must_equal_one_of_the_two_exactly() {
+    let other = "f".repeat(40);
+    let base = "https://files.cmux.com/cmux-tui";
+    let near_misses = [
+        // Another commit, in either place.
+        format!("{base}/{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{other}/machine/cmux-tui-{TARGET}"),
+        // Another commit's machine copy reached through this commit's directory.
+        format!("{base}/{COMMIT}/../{other}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../../{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/%2e%2e/cmux-tui-{TARGET}"),
+        // Another name: the hook, another target, a suffix or a prefix.
+        format!("{base}/{COMMIT}/machine/cmux-tui-hook-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-aarch64-unknown-linux-musl"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}.old"),
+        format!("{base}/{COMMIT}/machine/x-cmux-tui-{TARGET}"),
+        // Another directory, a nested one, a doubled slash or a missing one.
+        format!("{base}/{COMMIT}/machines/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/tree/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}machine/cmux-tui-{TARGET}"),
+        // A query, a fragment, another scheme or host, a case change.
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}?v=1"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}#x"),
+        format!("http://files.cmux.com/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("https://files.cmux.com.evil/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/MACHINE/cmux-tui-{TARGET}"),
+        format!(" {base}/{COMMIT}/machine/cmux-tui-{TARGET}"),
+    ];
+    for url in near_misses {
+        let payload = with_url("cmux-tui", url.clone());
+        assert!(payload.binaries_for(TARGET).is_err(), "{url} passed");
+    }
+    // And the two allowed ones pass, built from the payload's own commit.
+    for url in channel::allowed_urls(COMMIT, &format!("cmux-tui-{TARGET}")) {
+        assert!(with_url("cmux-tui", url.clone()).binaries_for(TARGET).is_ok(), "{url} refused");
+    }
+    // A signed payload of another commit cannot name this commit's machine copy.
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["commit"] = json!(other);
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] =
+        json!(format!("{base}/{other}/cmux-tui-hook-{TARGET}"));
+    p["targets"][TARGET]["cmux-tui"]["url"] =
+        json!(format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    assert!(payload.binaries_for(TARGET).is_err());
+}
+
 #[test]
 fn keys_match_the_web_update_keys() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -1665,23 +1740,33 @@ fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let paths = image(dir.path());
     // Already the store link: nothing changes.
-    assert!(!relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Unchanged);
     let link = paths.at(WORK_CMUX_TUI_LINK);
     // The Mac app's in-place update left a file of its own (cmuxterm-hq#7086).
     fs::remove_file(&link).unwrap();
     fs::write(&link, b"the app's build").unwrap();
     assert!(off_reason(&paths).is_some());
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
     assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
     assert_eq!(fs::read(paths.at(WORK_CMUX_TUI_KEPT)).unwrap(), b"the app's build");
     assert!(off_reason(&paths).is_none());
     // A link elsewhere is pointed back too.
     fs::remove_file(&link).unwrap();
     std::os::unix::fs::symlink("/tmp/elsewhere", &link).unwrap();
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
     assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
     // No link at all: made.
     fs::remove_file(&link).unwrap();
-    assert!(relink_work_link(&paths).unwrap());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
     assert!(off_reason(&paths).is_none());
+    // Restoring after a run that kept no file leaves an earlier `.pre-adopt` alone.
+    restore_work_link(&paths, Relinked::Linked);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
+    assert!(paths.at(WORK_CMUX_TUI_KEPT).exists());
+    // After a run that kept one, it goes back.
+    fs::remove_file(&link).unwrap();
+    fs::write(&link, b"a newer app build").unwrap();
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
+    restore_work_link(&paths, Relinked::KeptFile);
+    assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
 }

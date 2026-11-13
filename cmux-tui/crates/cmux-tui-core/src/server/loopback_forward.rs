@@ -37,6 +37,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{MessageWriter, OutboundStream, Response, send_response};
+use crate::stream_interrupt::StreamInterrupt;
 use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -481,6 +482,9 @@ struct StreamInner {
     closed: bool,
     bytes_to_target: u64,
     bytes_from_target: u64,
+    /// Fired when the stream's connection writer closes; kept here because
+    /// the writer holds it weakly.
+    connection_closed: Option<Arc<StreamInterrupt>>,
 }
 
 impl ForwardStream {
@@ -951,6 +955,25 @@ fn connect_and_start(
         state.streams.insert((client, stream_id), stream.clone());
         state.opened += 1;
     }
+    // The stream ends when its connection's writer closes. A disconnect ends
+    // the client's streams before it closes the writer, so a stream inserted
+    // in between (the check above saw the writer open) is ended here, at
+    // once if the writer closed already.
+    let connection_closed = StreamInterrupt::new();
+    {
+        let stream = Arc::downgrade(&stream);
+        let mux = Arc::downgrade(&mux);
+        connection_closed.on_fire(move || {
+            if let (Some(stream), Some(mux)) = (stream.upgrade(), mux.upgrade()) {
+                stream.fail(&mux.control_clients.loopback, "disconnected", false);
+            }
+        });
+    }
+    stream.inner.lock().recover_poison().connection_closed = Some(connection_closed.clone());
+    writer.register_interrupt(&connection_closed);
+    if stream.inner.lock().recover_poison().closed {
+        return;
+    }
     // The reply is queued before the reader starts, and control messages
     // leave before stream messages, so no data can overtake it.
     let replied = ok(
@@ -1093,4 +1116,32 @@ impl LoopbackForwarder {
     pub(super) fn release_for_test(&self, client: u64) {
         self.release(client);
     }
+
+    pub(super) fn open_streams_for_test(&self) -> usize {
+        self.state.lock().recover_poison().streams.len()
+    }
+}
+
+/// Tests: what an accepted `loopback-open` of `127.0.0.1:port` runs on its
+/// open thread, run on the caller's thread (the caller reserved the stream).
+#[cfg(test)]
+pub(super) fn open_for_test(
+    mux: &Arc<Mux>,
+    client: u64,
+    stream: u64,
+    port: u16,
+    target: LoopbackTarget,
+    writer: &MessageWriter,
+) {
+    connect_and_start(
+        mux.clone(),
+        client,
+        Some(json!(1)),
+        stream,
+        "127.0.0.1".into(),
+        port,
+        target,
+        DEFAULT_CLIENT_WINDOW,
+        writer.clone(),
+    );
 }

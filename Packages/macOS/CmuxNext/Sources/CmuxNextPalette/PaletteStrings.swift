@@ -3,6 +3,8 @@ import Foundation
 
 /// Localized strings for the palette. Keys live in Localizable.xcstrings (en, ja).
 nonisolated enum PaletteStrings {
+    static var target: String { String(localized: "palette.target", defaultValue: "Choose a target", bundle: .module) }
+    static var chooseTarget: String { String(localized: "palette.target.search", defaultValue: "Search…", bundle: .module) }
     static var sectionPinned: String { String(localized: "palette.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var sectionSuggested: String { String(localized: "palette.section.suggested", defaultValue: "Suggested", bundle: .module) }
     static var sectionRecent: String { String(localized: "palette.section.recent", defaultValue: "Recent", bundle: .module) }
@@ -68,6 +70,9 @@ nonisolated enum PaletteStrings {
     }
     static var submit: String { String(localized: "palette.command.submit", defaultValue: "Submit", bundle: .module) }
     static var current: String { String(localized: "palette.accessory.current", defaultValue: "Current", bundle: .module) }
+    /// The mark on a choice list's value in effect (a team, a theme, a setting's option): a
+    /// checkmark, as a menu marks its chosen row. A glyph, not a word, so it needs no translation.
+    static let chosenMark = "\u{2713}"
     static var on: String { String(localized: "palette.accessory.on", defaultValue: "On", bundle: .module) }
     static var off: String { String(localized: "palette.accessory.off", defaultValue: "Off", bundle: .module) }
     static var changeFont: String { String(localized: "palette.setting.changeFont", defaultValue: "Change Font…", bundle: .module) }

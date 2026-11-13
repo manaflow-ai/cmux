@@ -98,8 +98,11 @@ SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
-# one changes what a key does there.
+# one changes what a key does there. The lists are catalog data in Rust since step B of the action
+# catalog's move (`pub static YIELDS_TO_CODE_EDITOR: &[&str] = &[...]`, read as `yieldsToCodeEditor`);
+# a tree from before it has them in Swift (`static let yieldsToCodeEditor: Set<ActionID> = [...]`).
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
+RUST_KEY_BINDING_DEFAULTS = "cmux-tui/crates/cmux-action-catalog/src/bindings.rs"
 MARKER = "<!-- cmux:defaults-guard -->"
 REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 # The guard's own files: changing how defaults are read or who approves is a call too.
@@ -119,6 +122,7 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
+RUST_YIELDS_RE = re.compile(r"pub\s+static\s+(YIELDS_TO_\w+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
 # A Debug Tunable with a constant default. The call parser below handles commas and
 # parentheses in nested arguments and string literals; interpolated keys are skipped.
@@ -333,6 +337,10 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    for name, block in RUST_YIELDS_RE.findall(tree.read(RUST_KEY_BINDING_DEFAULTS) or ""):
+        # YIELDS_TO_CODE_EDITOR -> yieldsToCodeEditor, the name the Swift list had.
+        first, *rest = name.lower().split("_")
+        found[f"steps-aside.{first}{''.join(word.title() for word in rest)}"] = sorted(re.findall(r'"([^"]+)"', block))
     sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
     swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
     found.update(tunable_source_defaults(swift))

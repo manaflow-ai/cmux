@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// top and leading edges, with pills of the ``ConcentricCorners`` inner radius, and a content area
 /// whose selection fill sits `padding` inside the card's bottom corners with the same inner radius.
 /// The hover, click, close and + of the strip are live.
-final class ConcentricCornerPlaygroundRow: NSView {
+final class ConcentricCornerPlaygroundRow: NSView, TabBarPlaygroundRow {
     /// The row's height: the card and the shade around it.
     static let preferredHeight: CGFloat = 132
 

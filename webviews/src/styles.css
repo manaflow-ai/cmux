@@ -344,10 +344,10 @@ body {
 #base-select {
   flex: 0 1 120px;
 }
-#source-select:focus,
-#repo-select:focus,
-#base-select:focus,
-#jump-select:focus,
+#source-select:focus-visible,
+#repo-select:focus-visible,
+#base-select:focus-visible,
+#jump-select:focus-visible,
 #jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .toolbar-icon:focus-visible,
@@ -927,7 +927,7 @@ body[data-status-only="true"] #files-motion-curtain {
   background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
   color: var(--cmux-diff-text-dim);
 }
-#files-filter:focus-within {
+#files-filter:is(:focus-visible, :has(:focus-visible)) {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
 }
 #files-filter > svg {
@@ -1430,7 +1430,7 @@ body[data-loading="true"] #status::before {
   font-size: 13px;
   line-height: 1.45;
 }
-.comment-composer:focus-within {
+.comment-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, var(--cmux-diff-border));
   box-shadow: 0 0 0 3px color-mix(in lab, var(--cmux-diff-accent) 18%, transparent);
 }

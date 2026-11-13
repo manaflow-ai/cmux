@@ -151,7 +151,7 @@ final class AgentPageChats {
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
+            if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
             return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
                                      configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
                                      reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
