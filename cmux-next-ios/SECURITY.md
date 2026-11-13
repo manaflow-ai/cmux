@@ -201,11 +201,13 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   for the person's Mac on the same machine: it is the person's machine, reached
   with the person's credentials.
 - **Keys and secrets.** The Noise private key is generated on the phone, kept in
-  its Keychain and removed at sign-out. The carrier holds tickets and grants
+  its Keychain and removed at sign-out. The carrier keeps tickets and grants
   in zeroized memory, and asks the app's sign-in for the access token at each
-  platform ask rather than keeping one (the token also passes through Swift
-  strings and the HTTP request, which are not zeroized). None of them is ever
-  in a log, `Debug`, error text or the snapshot.
+  platform ask rather than keeping one. Copies on their way are not zeroized:
+  the token passes through Swift strings and the HTTP request, and a ticket
+  reaches the relay client (cmux-remote's credential callback) as a plain
+  string for each resume. None of them is ever in a log, `Debug`, error text
+  or the snapshot.
 - **What it does not change.** `cloud-acpmux` (chat through a Mac, at the asking
   floor) keeps its rules; this path does not relay through a Mac and does not
   touch the Mac's carrier sockets. A teammate's machine is the platform's call

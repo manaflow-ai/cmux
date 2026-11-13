@@ -492,6 +492,8 @@ impl CarrierSession {
         // Why the key wait last failed to ask, when it was the network (reported at the deadline
         // instead of `no_daemon_key`, so the app retries the network rather than holding a refusal).
         let mut last_transport: Option<CarrierError> = None;
+        // The last retryable failure of an attempt, reported if the deadline cuts the next one.
+        let mut last_error: Option<CarrierError> = None;
         loop {
             if awaiting_key {
                 // The platform puts `daemon_key` in every answer to a person, a ticket-only one too
@@ -518,8 +520,12 @@ impl CarrierSession {
             let attempted =
                 tokio::time::timeout_at(deadline, attempt(&platform, &identity, &device_name, deadline))
                     .await;
-            let attempted = attempted
-                .unwrap_or_else(|_| Err(CarrierError::transport("dial", "the dial's deadline passed")));
+            // Cut by the deadline: say what last went wrong, when something did, not only "time's up".
+            let attempted = attempted.unwrap_or_else(|_| {
+                Err(last_error
+                    .take()
+                    .unwrap_or_else(|| CarrierError::transport("dial", "the dial's deadline passed")))
+            });
             match attempted {
                 Ok(session) => return Ok(session),
                 Err(error) if error.retryable() && Instant::now() + wait < deadline => {
@@ -528,6 +534,7 @@ impl CarrierSession {
                     } else {
                         tracing::debug!(%error, "carrier attempt failed; retrying");
                     }
+                    last_error = Some(error);
                     // An intentional, bounded retry delay inside the dial's deadline: the next grant
                     // ask (after the key wait, too) is never made at once.
                     tokio::time::sleep(wait).await;
