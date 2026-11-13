@@ -197,3 +197,11 @@ test("the mock refuses what acpmux refuses and names new routes as acpmux does",
     servesCloud: true,
   });
 });
+
+test("the Models state is read again only while this Mac's connections can't be listed", async () => {
+  const { modelsRetryMs } = await import("./store");
+  const state = (available: boolean) => ({ personal: { available } }) as never;
+  expect(modelsRetryMs(undefined)).toBe(false);
+  expect(modelsRetryMs(state(true))).toBe(false);
+  expect(modelsRetryMs(state(false))).toBe(2000);
+});

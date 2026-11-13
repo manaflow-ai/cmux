@@ -236,6 +236,8 @@ export class SettingsStore {
     });
     this.queryClient.setQueryDefaults(settingsKeys.models, {
       queryFn: () => this.native("cmux.settings.models.state"),
+      // A page that opened before this Mac's agent service was up reads again until it answers.
+      refetchInterval: (query) => modelsRetryMs(query.state.data as ModelsState | undefined),
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -1183,4 +1185,9 @@ export function managedOf(state: SettingsState, key: string): ManagedInfo | null
 export function valueOf(state: SettingsState, key: string): unknown {
   const row = state.rows.get(key);
   return row ? row.value : rowsByKey.get(key)?.default;
+}
+
+/** How soon the Models state is read again: only while this Mac's connections could not be listed. */
+export function modelsRetryMs(state: ModelsState | undefined): number | false {
+  return state && !state.personal.available ? 2000 : false;
 }
