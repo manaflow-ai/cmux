@@ -617,19 +617,60 @@ import SwiftUI
         #expect(source.tabs.count == 3)
     }
 
-    @Test func opensOnTheLastTabUsedOnThisDevice() {
-        let (_, source) = make(["ws-cmux": "t-docs"])
-        #expect(source.activeTabID == "t-docs")
-        let (_, fresh) = make()
-        #expect(fresh.activeTabID == "t-claude")
+    /// User 2026-11-11: a workspace opens on its layout's leftmost, topmost pane's active
+    /// tab, not on the last tab used on this device nor on the Mac's focused pane.
+    @Test func opensOnTheTopLeftPanesActiveTab() {
+        let (store, _) = make(["ws-cmux": "t-docs"])
+        var ws = store.workspace(id: "ws-cmux")!
+        ws.activeTabID = "t-docs"
+        // t-claude | (t-zsh, t-docs active) stacked over nothing: the right pane is focused on the Mac.
+        ws.layout = WorkspaceLayout(screens: [.init(id: 1, isActive: true, panes: [
+            .init(id: 2, tabIDs: ["t-zsh", "t-docs"], activeTabID: "t-docs", isFocused: true),
+            .init(id: 1, tabIDs: ["t-claude"], activeTabID: "t-claude"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        // The top-left pane's active tab, not its first.
+        ws.layout?.screens[0].panes[1] = .init(id: 1, tabIDs: ["t-claude", "t-zsh"], activeTabID: "t-zsh")
+        ws.layout?.screens[0].panes[0] = .init(id: 2, tabIDs: ["t-docs"], activeTabID: "t-docs", isFocused: true)
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
-    @Test func everyActivationIsRemembered() {
+    @Test func everyActivationIsRememberedButReopeningStartsAtTheTopLeft() {
         let (store, source) = make()
         source.activate("t-zsh")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-zsh")
-        // Reopening the workspace starts there.
-        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
+        // Reopening the workspace starts at its opening tab again (no layout: the first).
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+    }
+
+    /// A notification or Feed item for a tab of the workspace already on screen rebuilds its
+    /// page: the old page must leave the request to the new one, which opens on that tab.
+    @Test func aRequestWhileTheWorkspaceIsUpIsLeftForTheRebuiltPage() async {
+        let (store, old) = make()
+        old.opened()
+        #expect(old.activeTabID == "t-claude")
+        store.requestOpen(tabID: "t-docs", in: "ws-cmux")
+        _ = old.tabs
+        await Task.yield()
+        await Task.yield()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == "t-docs")
+        let rebuilt = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(rebuilt.activeTabID == "t-docs")
+        rebuilt.opened()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
+    }
+
+    @Test func aRequestedTabOpensOnceThenTheTopLeftAgain() {
+        let (store, _) = make()
+        store.requestOpen(tabID: "t-docs", in: "ws-cmux")
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(source.activeTabID == "t-docs")
+        source.opened()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
+        #expect(source.activeTabID == "t-docs")
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
     }
 
     @Test func closingTheActiveTabActivatesItsNeighbor() async {
@@ -792,7 +833,8 @@ import SwiftUI
 
     @Test func gridOpeningPreparesTheActiveTerminalCard() {
         let content = RecordingTerminalContent()
-        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-zsh"]))
+        let store = AppStore.mock(tabMemory: .inMemory())
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
         source.overviewWillAppear()
         source.activate("t-claude")

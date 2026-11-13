@@ -83,7 +83,7 @@ import CmuxNextDesignTokens
     @Test func everyCategoryHasItsOwnConfigKey() {
         let keys = MotionCategory.allCases.map(\.configKey)
         #expect(Set(keys).count == keys.count)
-        // The kind and bounce switches share `ui.animations`; no category may take their keys.
+        // The kind switches share `ui.animations`, and `bounce` is a retired key there; no category may take their keys.
         let taken = Set(MotionKind.allCases.map(\.rawValue) + ["bounce", "enabled"])
         #expect(taken.isDisjoint(with: keys))
     }

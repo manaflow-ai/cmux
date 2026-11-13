@@ -116,9 +116,32 @@ public final class AgentPaneCloudMachines {
         /// Whether the list is the server's answer for this read: a machine absent from a complete
         /// list is gone. A failed, superseded or merely cached read is not complete.
         public var complete: Bool
-        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false) {
-            (self.account, self.complete) = (account, complete)
+        /// The team Cloud works in (the active team): its name, and whether it is the person's own.
+        /// The page names it on the Cloud row and face (webviews TeamTag.tsx).
+        public var team: Team?
+        /// The account's teams as the team menu lists them (`teams` of the reply): the page names a
+        /// team only when it is one of these (webviews TeamTag.tsx `activeTeamFromReply`).
+        public var teams: [Team]
+        public init(signedIn: Bool, loaded: Bool, machines: [Machine], account: [String?]? = nil, complete: Bool = false,
+                    team: Team? = nil, teams: [Team] = []) {
+            (self.account, self.complete, self.team, self.teams) = (account, complete, team, teams)
             (self.signedIn, self.loaded, self.machines) = (signedIn, loaded, machines)
+        }
+    }
+
+    /// A team as the page reads it (`team` and each of `teams` of a `cloudMachine.list` reply).
+    public struct Team: Equatable, Sendable {
+        public var id: String?
+        public var name: String
+        public var personal: Bool
+        public init(id: String? = nil, name: String, personal: Bool) {
+            (self.id, self.name, self.personal) = (id, name, personal)
+        }
+
+        var reply: [String: Any] {
+            var value: [String: Any] = ["name": name, "personal": personal]
+            if let id { value["id"] = id }
+            return value
         }
     }
 
@@ -191,8 +214,48 @@ public final class AgentPaneCloudMachines {
     /// Sends a passive predictive wake hint to a paused machine of the loaded list; false otherwise.
     /// Unlike user actions, this never consumes a page gesture.
     public var prewarm: (@MainActor (String) async -> Bool)?
+    /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
+    public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+
+    /// How old the account's team list may be when a picker reads the machines. The App read it only
+    /// at sign-in and restore, so a team the account was removed from elsewhere stayed on the Cloud
+    /// face and in the start until relaunch (a saved selection falls back to the account's own team
+    /// only once the list is read again, `AuthCoordinator.resolvedTeamID`).
+    public static let teamsAge: Duration = .seconds(60)
+    private var teamsReadAt: ContinuousClock.Instant?
+
+    /// Runs `read` (the App's team-list read) when the last one started more than ``teamsAge`` ago;
+    /// the list reply does not wait for it, and a change reaches every page through ``teamWatch``.
+    /// True when it started one.
+    @discardableResult
+    public func readTeamsIfOld(now: ContinuousClock.Instant = .now, read: @escaping @MainActor () async -> Void) -> Bool {
+        if let at = teamsReadAt, now >= at, at.duration(to: now) < Self.teamsAge { return false }
+        teamsReadAt = now
+        // task-owner: one bounded team-list read (AuthCoordinator's network timeout), at most one per teamsAge
+        Task { await read() }
+        return true
+    }
 
     public init() {}
+
+    /// What each page of these machines runs on a team change: its composer reads `cloudMachine.list`
+    /// again, so the Cloud row names the new team at once.
+    public static let teamChangeScript = "window.dispatchEvent(new Event('cmux-cloud-team-change'))"
+
+    private struct Page { weak var model: AgentPaneModel? }
+    /// The panes handed these machines (``AgentPaneModel/cloudMachines``), held weakly.
+    private var pages: [Page] = []
+
+    /// Adds `model` to the panes a team change reaches; a closed pane's entry goes at the next add.
+    func follow(_ model: AgentPaneModel) {
+        pages.removeAll { $0.model == nil || $0.model === model }
+        pages.append(Page(model: model))
+    }
+
+    /// Tells every pane of these machines that the account's active team changed.
+    public func publishTeamChange() {
+        for page in pages { page.model?.onCloudTeamChange?() }
+    }
 }
 
 extension AgentPaneCloudMachineRequest {
@@ -211,6 +274,8 @@ extension AgentPaneCloudMachineRequest {
             }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
+            if inventory.signedIn, let team = inventory.team { value["team"] = team.reply }
+            if inventory.signedIn, !inventory.teams.isEmpty { value["teams"] = inventory.teams.map(\.reply) }
             return AgentPaneReply.success(value)
         case .open(let id): return run(machines?.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)

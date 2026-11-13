@@ -5,18 +5,19 @@ import Observation
 struct HomeRetryAction {
     let feed: MacHomeFeed
     let reconnect: ((String) async -> Void)?
-    let refresh: () -> Void
+    let refresh: @MainActor () async -> Void
 
-    init(feed: MacHomeFeed, reconnect: ((String) async -> Void)? = nil, refresh: (() -> Void)? = nil) {
+    /// `refresh` defaults to the feed's ``MacHomeFeed/reload()``: the retry ends when the read answers.
+    init(feed: MacHomeFeed, reconnect: ((String) async -> Void)? = nil, refresh: (@MainActor () async -> Void)? = nil) {
         self.feed = feed
         self.reconnect = reconnect
-        self.refresh = refresh ?? { feed.refresh() }
+        self.refresh = refresh ?? { await feed.reload() }
     }
 
     func retry(macID: String?, reconnectNeeded: Bool) async {
         if reconnectNeeded, let macID { await reconnect?(macID) }
         guard !Task.isCancelled else { return }
-        refresh()
+        await refresh()
     }
 }
 

@@ -67,7 +67,7 @@ impl Hub {
             };
             if !kept {
                 m.preset_mode_approval = None;
-                let family = crate::web_modes::family_of(&m);
+                let family = self.trusted_mode_family(&m);
                 let mode = crate::web_modes::mode_of(&m);
                 if !self.web_modes().config_value_asks(&family, None, mode.as_deref()) {
                     forget_mode(&mut m);

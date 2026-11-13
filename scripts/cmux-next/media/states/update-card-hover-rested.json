@@ -1,0 +1,51 @@
+{
+ "title": "The Update Ready card 1 s after the pointer came onto it and rested there (Lawrence 2026-11-12, msg 30807). Before and after: the What's New popup is open beside the card. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/update-card-hover-rested.json --mac (any commit: the state is read from this file).",
+ "launch_args": [
+  "--skip-onboarding"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the card the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1280,
+      820
+     ]
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "A staged nightly: the Update Ready card",
+   "rpc": {
+    "method": "debug.updater",
+    "params": {
+     "action": "stage",
+     "version": "1.0.0-nightly.3932981759301",
+     "changes": 3
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "The pointer comes onto the card and rests 1 s",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.sidebar.update.install"
+    }
+   },
+   "wait": 1.0
+  }
+ ]
+}

@@ -203,7 +203,7 @@ public final class SidebarContainerView: NSView {
         sidePins = Self.pins(panel: panel, clip: clip)
         NSLayoutConstraint.activate(sidePins[side] ?? [])
         mountHandle()
-        panel.isHidden = isPanelCollapsed
+        SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
@@ -264,13 +264,13 @@ public final class SidebarContainerView: NSView {
 
     /// The handle shows while the sidebar is shown and this view is not hidden.
     func syncHandleVisibility() {
-        handle.isHidden = isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor
+        SidebarHiddenState.apply(isPanelCollapsed || isFloatOverlay || isHiddenOrHasHiddenAncestor, to: handle)
     }
 
-    /// Clear over the window's backdrop, or the user's sidebar background
-    /// (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`).
+    /// The user's sidebar background (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`), the rail's
+    /// overlay surface, or the sidebar's dim over the window's backdrop (`SidebarStyle.surfaceDim`).
     func applySurfaceFill() {
-        let fill = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill)?.cgColor }
+        let fill = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill ?? SidebarStyle.surfaceDim)?.cgColor }
         // Floating, the card is the panel (inset from the window edges); the clip stays clear.
         clip.layer?.backgroundColor = isFloatOverlay ? nil : fill
     }
@@ -334,7 +334,10 @@ public final class SidebarContainerView: NSView {
                 // resizes live. The collapse prototype is tracked here too,
                 // so Debug Settings retargets an in-flight transition.
                 ((model.presentation, model.style, model.isRailOpen, model.isFloating), model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
-                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
+                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter,
+                                                        // The sidebar's dim follows its tunables and the chrome shade live.
+                                                        CGFloat(SidebarTunables.surfaceDimDark.value), CGFloat(SidebarTunables.surfaceDimLight.value),
+                                                        Metrics.mainPaneChromeShade(isDark: true), Metrics.mainPaneChromeShade(isDark: false)])
             }) {
                 self?.handle.restingLineWidth = border
                 if let self, self.resizeBand != self.mountedBand || self.paneReach != self.mountedPaneReach {
@@ -343,6 +346,7 @@ public final class SidebarContainerView: NSView {
                 self?.followDefaultWidth(defaultWidth)
                 self?.syncRail()
                 self?.apply()
+                self?.applySurfaceFill()
             }
         }
     }
@@ -365,6 +369,8 @@ public final class SidebarContainerView: NSView {
     override public func layout() {
         super.layout()
         layoutFloatShadow()
+        // Every frame of the width slide moves the panel: its titlebar row keeps clear of the band's edge.
+        sidebarView.keepTitlebarControlsClearOfBand(originInWindow: panelOriginInWindow)
         guard isWidthAnimating else {
             refreshHover()
             return
@@ -383,7 +389,7 @@ public final class SidebarContainerView: NSView {
         panelWidth.constant = model.width + paneReach
         lastPaneReach = paneReach
         setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
-        panel.isHidden = isPanelCollapsed
+        SidebarHiddenState.apply(isPanelCollapsed, to: panel)
         panel.alphaValue = 1
         syncHandleVisibility()
         syncRail()
@@ -427,7 +433,7 @@ public final class SidebarContainerView: NSView {
         guard targetWidth != target || targetCollapseMotion != collapseMotion else { return }
         targetWidth = target
         targetCollapseMotion = collapseMotion
-        if !hidden { panel.isHidden = false }
+        if !hidden { SidebarHiddenState.apply(false, to: panel) }
         // The slide-and-fade prototype starts an expansion transparent and
         // lets the same timed transition reveal it. Slide keeps the current
         // opaque panel behavior, including when a user switches variants
@@ -480,7 +486,7 @@ public final class SidebarContainerView: NSView {
               widthCompletedGeneration == generation,
               !fadesPanel || fadeCompletedGeneration == generation else { return }
         panel.alphaValue = fadesPanel ? 0 : 1
-        panel.isHidden = true
+        SidebarHiddenState.apply(true, to: panel)
         isFloatOverlay = false
         PointerHover.refresh(in: window)
     }

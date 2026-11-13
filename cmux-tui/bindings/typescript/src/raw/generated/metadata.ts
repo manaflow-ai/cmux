@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d. */
+/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d" as const;
+export const SDK_IR_SHA256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -337,6 +337,18 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; values are CSS pixels.",
       "The frame sequence must be the exact presented token for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "cancel-creating-input": {
+    "authority": "control",
+    "since": 12,
+    "capability": "creating-input-cancel-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "terminal_id is the host terminal id (32 hex digits) the caller named in a split, new-pane, new-pane-right or new-tab that is still being created.",
+      "Only the connection that sent the creation cancels its input: cancelled is true when the caller owns a creation of the id whose queue was not written or given back yet (also when it cancelled it before), else false and nothing changes.",
+      "The creation is not stopped. The caller's queued bytes are dropped with no terminal-input-unclaimed event; bytes other connections queued go back to them with reason cancelled. Input by terminal_id then fails with error code input.cancelled until the creation ends, and for 10 s after a creation that committed."
     ]
   },
   "chief-inspect": {
@@ -1154,6 +1166,10 @@ export const COMMAND_METADATA = {
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "create_workspace": {
+        "since": 12,
+        "capability": "create-terminal-workspace-v1"
+      },
       "detached": {
         "since": 12,
         "capability": "detached-terminals-v1"
@@ -1173,6 +1189,10 @@ export const COMMAND_METADATA = {
       "terminal_id": {
         "since": 9,
         "capability": null
+      },
+      "workspace_name": {
+        "since": 12,
+        "capability": "create-terminal-workspace-v1"
       }
     },
     "stream": null,
@@ -1185,7 +1205,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
-    "fields": {},
+    "fields": {
+      "first_tab": {
+        "since": null,
+        "capability": "workspace-first-tab-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2021,6 +2046,10 @@ export const COMMAND_METADATA = {
       "split": {
         "since": null,
         "capability": "frontend-browser-tab-split-v1"
+      },
+      "workspace": {
+        "since": null,
+        "capability": "frontend-browser-tab-workspace-v1"
       }
     },
     "stream": null,
@@ -2765,7 +2794,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+      "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event. After the creator's cancel-creating-input (creating-input-cancel-v1), terminal_id fails with error code input.cancelled."
     ]
   },
   "send-key": {
@@ -2786,7 +2815,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
     ]
   },
   "set-attach-visibility": {
@@ -2923,6 +2952,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Color strings are exactly #rrggbb.",
       "With complete:true, absent optional values reset to built-in defaults."
+    ]
+  },
+  "set-divider-visible": {
+    "authority": "control",
+    "since": 12,
+    "capability": "split-divider-visibility-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The split must not be a viewport column or row boundary; the same value again changes nothing and sends no event."
     ]
   },
   "set-frontend-browser-history": {
@@ -3265,6 +3304,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "around": {
+        "since": 12,
+        "capability": "split-around-v1"
+      },
       "before": {
         "since": 12,
         "capability": "split-before-v1"
@@ -4092,6 +4135,22 @@ export const EVENT_METADATA = {
   "empty": {
     "since": 5,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-reports-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-view-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
     "streams": [
       "subscribe"
     ],
@@ -6466,6 +6525,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ConversationTabSplit": {
     "additional_properties": false,
     "fields": {
+      "around": {
+        "capability": "split-around-v1",
+        "default": null,
+        "description": "The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
       "direction": {
         "description": "The side of pane the new pane takes: right, down, left or up.",
         "nullable": false,
@@ -10805,6 +10875,165 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsCommandConnections": {
+    "additional_properties": false,
+    "constraints": [
+      "accepted counts the connections that registered, under the kind each has now.",
+      "refused counts the connections dropped at the connection limit, under the kind known at that moment (terminal, local, websocket or remote)."
+    ],
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "refused": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsCommandRow": {
+    "additional_properties": false,
+    "constraints": [
+      "name is a legacy command name, a protocol 2 method name or other (a line that is neither, a command word the daemon does not know, an app-private frame); never a word of a request.",
+      "kind is one of the daemon's own words: unknown, local, terminal, hook, plugin, app, tui, cli, mcp, remote-probe, remote-link, remote, websocket, other. A kind that set-client-info declared outside that list counts as other.",
+      "total_ns and max_ns are the handler's time from the decoded line to its reply queued for the connection's writer; the wait in the connection's queue is not counted.",
+      "hist has 16 counts: the requests below hist_bounds_ns[0], then one bucket for each bound, then the requests at or above the last bound."
+    ],
+    "fields": {
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hist": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "kind": "array"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "max_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsCommands": {
+    "additional_properties": false,
+    "constraints": [
+      "Counts every request the daemon handled since it started, by command name and by client kind; always on.",
+      "names counts the command names that have rows of their own; past name_limit the requests of a further name count in the row named other.",
+      "hist_bounds_ns holds the upper bounds, in nanoseconds, of the first 15 buckets of each hist: 250000 (0.25 ms), then each twice the one before, up to 4096000000; the last bucket has no upper bound.",
+      "rows has one entry for each name and kind with a request, the largest total_ns first.",
+      "connections has one entry for each client kind with a connection."
+    ],
+    "fields": {
+      "connections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsCommandConnections"
+          },
+          "kind": "array"
+        }
+      },
+      "hist_bounds_ns": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "kind": "array"
+        }
+      },
+      "name_limit": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "names": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsCommandRow"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsConnections": {
     "additional_properties": false,
     "constraints": [
@@ -11358,6 +11587,157 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsJournalFollower": {
+    "additional_properties": false,
+    "constraints": [
+      "kinds is the stream's kind filter as sent (a trailing .* is a prefix); empty means every kind.",
+      "max_sensitivity is public, metadata or sensitive; null means no limit. A remote client's limit is metadata.",
+      "left_ms is null while the stream is live; otherwise the stream ended that long ago and still keeps rows until grace_ms is over.",
+      "keeps_hook_rows: the stream is sent agent.state.changed rows at sensitive, so every agent hook report is a journal row.",
+      "keeps_report_rows: the stream is sent agent.report rows at sensitive, so every agent plugin report is a journal row."
+    ],
+    "fields": {
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "connected_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "keeps_hook_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keeps_report_rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kinds": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "left_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max_sensitivity": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "remote": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "stream_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsJournalFollowers": {
+    "additional_properties": false,
+    "constraints": [
+      "followers lists the live session.journal.subscribe streams with follow not false, and those that ended less than grace_ms ago.",
+      "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
+      "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
+      "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
+    ],
+    "fields": {
+      "followers": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsJournalFollower"
+          },
+          "kind": "array"
+        }
+      },
+      "grace_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hook_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "journal_hook_keeps_rows": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "keep_all_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "report_rows_kept": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -11988,9 +12368,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "write_path is present only when the request names it in include.",
       "locks is present only when the request names it in include.",
       "hook_queue is present only when the request names it in include and the session serves a socket.",
-      "disk is present only when the request names it in include and the session keeps its registry on disk."
+      "disk is present only when the request names it in include and the session keeps its registry on disk.",
+      "commands is present only when the request names it in include.",
+      "journal_followers is present only when the request names it in include."
     ],
     "fields": {
+      "commands": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsCommands"
+        }
+      },
       "connections": {
         "nullable": false,
         "presence": "required",
@@ -12013,6 +12403,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHookQueue"
+        }
+      },
+      "journal_followers": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsJournalFollowers"
         }
       },
       "journal_writer": {
@@ -13237,6 +13635,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "title": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title_text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -15262,6 +15678,114 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "WorkspaceFirstTab": {
+    "kind": "tagged_union",
+    "tag": "kind",
+    "variants": {
+      "browser": {
+        "additional_properties": false,
+        "fields": {
+          "activate": {
+            "default": true,
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          },
+          "cols": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "engine": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "favicon_url": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "idempotency_key": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "browser"
+            }
+          },
+          "owner": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "profile_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "rows": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "title": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "url": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
   "WorkspaceMutationResult": {
     "additional_properties": false,
     "fields": {
@@ -15283,6 +15807,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "string"
           },
           "kind": "array"
+        }
+      },
+      "first_tab": {
+        "description": "create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
         }
       },
       "generation": {
@@ -16311,6 +16844,36 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "cancel-creating-input": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "cancelled": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "chief-inspect": {
@@ -20446,6 +21009,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "At least one of workspace and key must be supplied unless detached is true; when both are supplied they must identify the same workspace. detached forbids workspace and key.",
+        "create_workspace requires key, origin and mutation_id, and forbids workspace and detached.",
         "argv and command are mutually exclusive and must be nonempty when supplied.",
         "cols and rows must be supplied together.",
         "origin and mutation_id are either both present or both absent.",
@@ -20481,6 +21045,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "create_workspace": {
+          "capability": "create-terminal-workspace-v1",
+          "default": false,
+          "description": "Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "cwd": {
@@ -20632,6 +21208,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "ref",
             "name": "Id"
           }
+        },
+        "workspace_name": {
+          "capability": "create-terminal-workspace-v1",
+          "default": null,
+          "description": "The name of the workspace create_workspace makes.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
         }
       },
       "kind": "object"
@@ -20668,6 +21256,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "first_tab": {
+          "capability": "workspace-first-tab-v1",
+          "default": null,
+          "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceFirstTab"
           }
         },
         "key": {
@@ -23657,6 +24256,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "workspace": {
+          "capability": "frontend-browser-tab-workspace-v1",
+          "default": null,
+          "description": "Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -27113,6 +27723,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-divider-visible": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "split": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "visible": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "set-frontend-browser-history": {
     "request": {
       "additional_properties": false,
@@ -28347,6 +28994,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "around": {
+          "capability": "split-around-v1",
+          "default": null,
+          "description": "The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
         "before": {
           "capability": "split-before-v1",
           "default": false,
@@ -31556,6 +32215,61 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "feed-reports-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-reports-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "feed-view-changed": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-view-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "frame": {
     "additional_properties": false,
     "fields": {
@@ -33617,6 +34331,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "title-changed": {
     "additional_properties": false,
     "fields": {
+      "activity": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33631,6 +34354,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "title": {

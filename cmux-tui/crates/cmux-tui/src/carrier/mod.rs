@@ -32,6 +32,12 @@
 //!   file (never to stderr): how long the attempt spent on the ticket, the
 //!   relay, the park, the handshake and the mux open
 //!   ([`contract::phases_line`]).
+//! - A relay attempt whose first link stays parked for 8 s looks at the
+//!   machine over the Cloud exec route and, when its software predates the
+//!   self-update (it never registers on the relay), has it adopt the signed
+//!   channel's build once, inside the same deadline ([`adopt`],
+//!   cmuxterm-hq#7086). That writes one `carrier.adopt machine=<vm_id>
+//!   outcome=<code> ms=<n>` line to the connect log, never to stderr.
 //! - With `CMUX_CARRIER_PROGRESS=1`, progress lines
 //!   (`{"progress":{"stage","text","eta_ms","deadline_ms"}}`) come before the
 //!   reply line, about once a second: the step the dial waits on and how
@@ -114,6 +120,7 @@
 //! after its phases line, naming the ssh route's state and the carrier that
 //! carried it ([`contract::routes_line`]).
 
+mod adopt;
 mod answer;
 mod client;
 mod contract;

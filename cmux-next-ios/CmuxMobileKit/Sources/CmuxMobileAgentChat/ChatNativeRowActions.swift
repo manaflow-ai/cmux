@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiff
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -173,24 +174,7 @@ enum ChatPolishMenus {
 @MainActor
 enum ChatSelectText {
     static func present(_ text: String) {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        var top = window?.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
-        guard let top else { return }
-        let textView = UITextView()
-        textView.text = text
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.isEditable = false
-        textView.textContainerInset = UIEdgeInsets(top: 20, left: 16, bottom: 20, right: 16)
-        let controller = UIViewController()
-        controller.view = textView
-        controller.title = "Select text"
-        let navigation = UINavigationController(rootViewController: controller)
-        controller.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
-            navigation?.dismiss(animated: true)
-        })
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
-        top.present(navigation, animated: true)
+        SelectableTextView(text).present()
     }
 }
 #endif

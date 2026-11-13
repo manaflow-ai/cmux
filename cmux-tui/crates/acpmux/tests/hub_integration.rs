@@ -70,6 +70,8 @@ mod prompt_approval;
 mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
+#[path = "hub_integration/prompt_coach.rs"]
+mod prompt_coach;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[cfg(unix)]
@@ -79,6 +81,8 @@ mod prompt_delivery;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_provenance_app_pane.rs"]
+mod prompt_provenance_app_pane;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]

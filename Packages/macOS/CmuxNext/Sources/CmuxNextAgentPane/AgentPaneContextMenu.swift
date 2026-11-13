@@ -23,6 +23,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var sideChat: Bool
     /// A prompt that was not sent: its row, for Retry.
     var retryRowId: String?
+    var sendPromptAgain: AgentPanePromptAgainMenu?
     /// The message's web links and images, for Open Link.
     var links: [URL]
     /// The pointer is on an image the page opens on click.
@@ -34,7 +35,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var part: AgentPaneMenuPart?
 
     init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
+         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil) {
         self.rowId = rowId
         self.sessionId = sessionId
         self.text = text
@@ -43,6 +44,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
+        self.sendPromptAgain = sendPromptAgain
         self.links = links
         self.opensImage = opensImage
         self.hasImage = hasImage ?? opensImage
@@ -62,7 +64,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
-        guard !text.isEmpty || hasImage || part != nil else { return nil }
+        let resend = AgentPanePromptAgainMenu(report: object["sendPromptAgain"])
+        sendPromptAgain = resend?.sessionId == sessionId ? resend : nil
+        guard !text.isEmpty || hasImage || part != nil || sendPromptAgain != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         replyTime = (object["replyTime"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -187,6 +191,21 @@ enum AgentPaneContextMenu {
         var top = opensUp ? button.maxY + gap + size.height : button.minY - gap
         if let visible { top = min(max(top, visible.minY + size.height), visible.maxY) }
         return CGPoint(x: button.minX, y: top)
+    }
+
+    /// The size `menu` draws at: `NSMenu.size` counts an Option alternate (Point at Element…'s Inspect
+    /// Element, ``inspectRows(picker:devTools:)``) as a row of its own, though it shares its primary's
+    /// row, so a menu opened above its More button stood a row and more above it (Lucas, 2026-11-11:
+    /// "the ... menu opens up too far away from the point anchor"). The alternates leave the menu for
+    /// the measure and come back at their places; the width keeps the widest row, an alternate's too.
+    static func drawnSize(of menu: NSMenu) -> CGSize {
+        let full = menu.size
+        let alternates = menu.items.enumerated().filter { $0.element.isAlternate }
+        guard !alternates.isEmpty else { return full }
+        for (index, _) in alternates.reversed() { menu.removeItem(at: index) }
+        let height = menu.size.height
+        for (index, item) in alternates { menu.insertItem(item, at: index) }
+        return CGSize(width: full.width, height: height)
     }
 
     /// `text` as a Markdown quote, with a blank line after it for the reply.
@@ -327,7 +346,7 @@ enum AgentPaneContextMenu {
                 })
             }
             if let seq = target.forkSeq {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.branch") { actions.fork(seq) })
                 // The chat menu's New side chat, through this turn (the page's `chat.side`).
                 if target.sideChat {
                     message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat, symbol: "sidebar.right") {
@@ -342,6 +361,9 @@ enum AgentPaneContextMenu {
             }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
+        }
+        if selection == nil, let resend = target?.sendPromptAgain {
+            message += resend.items(page: actions.page)
         }
         // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]

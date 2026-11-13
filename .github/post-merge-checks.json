@@ -1,0 +1,150 @@
+{
+  "about": "Workflows a push to feat-cmux-next starts that no pull request into it can reach (tests/test_ci_post_merge_checks.py). kind check: a verdict about the code, to move onto pull requests. kind publish: a deploy, a publish, a bot or a probe of a live system. The list and check_budget only shrink; the target for checks is 0.",
+  "check_budget": 12,
+  "workflows": {
+    "acpmux-sim-sweep.yml": {
+      "kind": "check",
+      "why": "the large seed sweep; pull requests run only a fixed small window in cmux-tui-spec"
+    },
+    "app-ffi-release.yml": {
+      "kind": "publish",
+      "why": "publishes the app FFI release from the base"
+    },
+    "app-ffi-repin.yml": {
+      "kind": "publish",
+      "why": "a bot that re-pins the app FFI after a release"
+    },
+    "chief-evals.yml": {
+      "kind": "check",
+      "why": "scores Chief code after it lands; a regression shows only on the base"
+    },
+    "cloud-devbox-image-rebake.yml": {
+      "kind": "publish",
+      "why": "rebakes the Cloud devbox image after its inputs land"
+    },
+    "cloud-machine-count-probe.yml": {
+      "kind": "publish",
+      "why": "a probe of live staging machines, not of the change"
+    },
+    "cloud-vm-image-roll.yml": {
+      "kind": "publish",
+      "why": "rolls the Cloud VM image after its inputs land"
+    },
+    "cmux-art-publish.yml": {
+      "kind": "publish",
+      "why": "publishes art assets from the base"
+    },
+    "cmux-browser-host-chromium.yml": {
+      "kind": "publish",
+      "why": "builds and publishes the Chromium host from the base"
+    },
+    "cmux-browser-host-release.yml": {
+      "kind": "publish",
+      "why": "publishes the browser host release from the base"
+    },
+    "cmux-mobile-ffi.yml": {
+      "kind": "check",
+      "why": "fmt, clippy, tests and the xcframework for the mobile FFI run on push paths only"
+    },
+    "cmux-next-base-autofix.yml": {
+      "kind": "publish",
+      "why": "a bot that repairs mechanical reds by committing on the base"
+    },
+    "cmux-next-base-tier-kick.yml": {
+      "kind": "check",
+      "why": "starts the base Mac tier, whose Swift tests pull requests run only under full-ci"
+    },
+    "cmux-next-chromium-staleness.yml": {
+      "kind": "publish",
+      "why": "reports how stale the Chromium pin is; no verdict on a change"
+    },
+    "cmux-next-daemon-macos-shadow.yml": {
+      "kind": "check",
+      "why": "the macOS-only daemon tests (Keychain, Seatbelt, idle wakeups) run on the base only"
+    },
+    "cmux-next-dev-kick.yml": {
+      "kind": "publish",
+      "why": "starts the DEV build for a landing"
+    },
+    "cmux-next-fast-tier-seed.yml": {
+      "kind": "publish",
+      "why": "seeds the fast tier's cache from the base"
+    },
+    "cmux-next-generated-catch-up.yml": {
+      "kind": "publish",
+      "why": "a bot that regenerates files on the base"
+    },
+    "cmux-next-package-deps-heal.yml": {
+      "kind": "publish",
+      "why": "a bot that heals package dependency pins on the base"
+    },
+    "cmux-next-terminal.yml": {
+      "kind": "check",
+      "why": "the Rust and Swift terminal suites run on every push and on no pull request"
+    },
+    "cmux-next-tip-test-compile.yml": {
+      "kind": "check",
+      "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
+    },
+    "cmux-next-web-bundle-publish.yml": {
+      "kind": "publish",
+      "why": "publishes the web bundle from the base"
+    },
+    "cmux-next-web-lint.yml": {
+      "kind": "check",
+      "why": "web lint fails here on push; cmux-next-fast-gates.yml re-creates it for pull requests"
+    },
+    "cmux-next-web.yml": {
+      "kind": "check",
+      "why": "the base's web verdict, coalesced; pull requests get theirs from ci.yml's copy of the jobs"
+    },
+    "cmux-tui-artifacts.yml": {
+      "kind": "check",
+      "why": "its daemon tests gate the nightly and run only after the branch push, on no pull request trigger"
+    },
+    "cmux-tui-headless-debug.yml": {
+      "kind": "publish",
+      "why": "publishes the headless debug daemon from the base"
+    },
+    "cmux-tui-tree-request.yml": {
+      "kind": "publish",
+      "why": "requests a cmux-tui tree publish for a landing"
+    },
+    "fresh-chief-eval.yml": {
+      "kind": "publish",
+      "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
+    },
+    "gateway-e2e.yml": {
+      "kind": "check",
+      "why": "the inference gateway end-to-end run starts on push paths only"
+    },
+    "git-mirror-bundle.yml": {
+      "kind": "publish",
+      "why": "publishes the git mirror bundle the fleet clones from"
+    },
+    "internal-token-prod.yml": {
+      "kind": "publish",
+      "why": "deploys the production internal token setting"
+    },
+    "internal-token-staging.yml": {
+      "kind": "publish",
+      "why": "deploys the staging internal token setting"
+    },
+    "ios-internal-nightly-trigger.yml": {
+      "kind": "publish",
+      "why": "starts the iPhone internal build for a landing"
+    },
+    "mobile-worker-dev-deploy.yml": {
+      "kind": "publish",
+      "why": "deploys the mobile Worker to development"
+    },
+    "pair-machine-join-check.yml": {
+      "kind": "check",
+      "why": "the pairing join check starts on push paths only"
+    },
+    "whats-new-gallery.yml": {
+      "kind": "publish",
+      "why": "publishes the What's New gallery pictures"
+    }
+  }
+}
