@@ -9,8 +9,8 @@ the author reran twice and stopped. `scripts/cmux-next/cargo-locks.py explain LO
 cargo's words; each wrapper asks it on its failure path.
 
 What this holds:
-- explain itself: each spelling, a path with a space, stdin, the GitHub annotation, silence on anything else, and a
-  5 MB log in well under 2 s.
+- explain itself: each spelling, a path with a space, stdin, the GitHub annotation, silence on anything else, a
+  5 MB log answered, and a scan whose cost grows with a line's length and no faster.
 - The Python and shell wrappers, run against a fake cargo: a refusal prints the stale-lock block and not the old
   cause, with the old exit code; any other failure prints the old cause.
 - The four workflow steps ask explain before their own ::error.
@@ -29,11 +29,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 import yaml
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/cargo-locks.py"
@@ -72,11 +79,57 @@ GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUT
 
 
 def clean_env(**extra: str) -> dict[str, str]:
-    """os.environ without GitHub's variables (a run on CI must not change what explain prints) and git's."""
+    """os.environ without GitHub's variables (a run on CI must not change what explain prints) and git's, then
+    through the git fixture helper: dropping GIT_* drops the helper's opt-out too, and fixture_env puts it back, so
+    git starts no detached auto maintenance in a repository under a folder the test removes."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "GIT_", "FAKE_"))}
     env.update(GIT_ENV)
     env.update(extra)
-    return env
+    return git_fixture_env.fixture_env(env)
+
+
+# The scaling check (tests/test_base_red_excuse.py's scaling_ratio protocol, cmux#41236): refused_locks on one line
+# of CHARS characters and on one of 4 CHARS, in a child process (this test file loads no script module itself), in
+# the child's CPU seconds, the two sizes in turn, the garbage collector off, best of 3, each sample repeated until
+# it takes 5 ms. Linear is about 4, quadratic about 16. The child exits 0 when one of 3 measurements is under LIMIT
+# (super-linear code is over it every time, a burst of load only once), else 1 with each ratio it measured.
+SCALING_CHILD = r"""
+import gc, importlib, math, pathlib, sys, time
+sys.path.insert(0, sys.argv[1])
+scan = importlib.import_module(sys.argv[2]).refused_locks
+repo, unit, chars, limit = pathlib.Path(sys.argv[3]), sys.argv[4], int(sys.argv[5]), float(sys.argv[6])
+def line(size):
+    return [unit * (size // len(unit)) + "--locked was passed\n"]
+small, large = line(chars), line(4 * chars)
+def sample(lines, loops):
+    began = time.process_time()
+    for _ in range(loops):
+        scan(lines, repo)
+    return (time.process_time() - began) / loops
+gc.disable()
+tries = []
+for _ in range(3):
+    loops = max(1, math.ceil(0.005 / max(sample(small, 1), 1e-9)))
+    best_small = best_large = math.inf
+    for _ in range(3):
+        best_small = min(best_small, sample(small, loops))
+        best_large = min(best_large, sample(large, loops))
+    ratio = best_large / max(best_small, 1e-9)
+    if ratio < limit:
+        sys.exit(0)
+    tries.append(f"{ratio:.1f}x ({best_small:.6f} CPU s at {chars:,} characters, {best_large:.6f} at {4 * chars:,})")
+print(f"4x the line took {', then '.join(tries)}; linear is about 4x and quadratic 16x, the bound is {limit:g}x")
+sys.exit(1)
+"""
+# What one hostile line repeats (cmux#42375 review F2): a lock named again and again before cargo's last words, and
+# cargo's last words again and again, each after a lock that is named.
+SCALING_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ")
+# A line's length at the small size: 4 times it is still under cargo-locks.py's REFUSAL_WINDOW, and far above it.
+SCALING_CHARS = (900, 300_000)
+# The most a 4x longer line may cost relative to the shorter one.
+SCALING_LIMIT = 8
+# A hang guard for one measurement, never a timing bound.
+SCALING_CEILING = 120
 
 
 class Scratch(unittest.TestCase):
@@ -169,7 +222,7 @@ class ExplainTests(Scratch):
                 result = self.explain(str(path), GITHUB_ACTIONS="true")
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (1, "", ""))
 
-    def test_a_5_mb_log_answers_in_under_2_s(self) -> None:
+    def test_a_5_mb_log_is_answered(self) -> None:
         noise = ("   Compiling serde v1.0.0 (registry+https://github.com/rust-lang/crates.io-index)\n"
                  "warning: the lock file is fine, but --locked was passed and this is not cargo's sentence\n")
         long_line = ("the lock file " * 80000) + "--locked was passed\n"
@@ -181,11 +234,22 @@ class ExplainTests(Scratch):
             with self.subTest(refusal=bool(refusal)):
                 log = self.log(body + refusal, "big.log")
                 self.assertGreater(log.stat().st_size, 5_000_000)
-                started = time.monotonic()
+                # explain's own 60 s timeout is the hang guard here. How the cost grows is the next test's.
                 result = self.explain(str(log))
-                elapsed = time.monotonic() - started
                 self.assertEqual(result.returncode, 0 if refusal else 1)
-                self.assertLess(elapsed, 2.0)
+
+    def test_the_scan_costs_a_lines_length_and_no_more(self) -> None:
+        """cmux#42375 review F2, with no wall-clock bound (a bound of 2 s was here: on a loaded runner it measures
+        the runner). Each hostile line is scanned at a length and at 4 times that length: under the window, where
+        a scan that looks back over the window for each match costs the square of the length, and far above it."""
+        for unit in SCALING_UNITS:
+            for chars in SCALING_CHARS:
+                with self.subTest(unit=unit, chars=chars):
+                    result = subprocess.run(
+                        [sys.executable, "-I", "-c", SCALING_CHILD, str(SCRIPT.parent), SCRIPT.stem, str(ROOT),
+                         unit, str(chars), str(SCALING_LIMIT)],
+                        capture_output=True, text=True, env=clean_env(), timeout=SCALING_CEILING)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class PythonAndShellSiteTests(Scratch):
@@ -238,7 +302,7 @@ class PythonAndShellSiteTests(Scratch):
         repo = self.tmp / "repo"
         (repo / "cmux-tui/crates/a/src").mkdir(parents=True)
         (repo / "cmux-tui/crates/a/src/lib.rs").write_text("")
-        self.git(self.tmp, "init", "-q", str(repo))
+        git_fixture_env.init_repo(repo, env=clean_env())
         self.git(repo, "add", "-A")
         self.git(repo, "commit", "-qm", "base")
         metadata = self.tmp / "metadata.json"
@@ -269,7 +333,7 @@ class PythonAndShellSiteTests(Scratch):
         """A repository that is its own origin, with a base commit and a head commit above it."""
         repo = self.tmp / "repo"
         repo.mkdir()
-        self.git(self.tmp, "init", "-q", "-b", "main", str(repo))
+        git_fixture_env.init_repo(repo, "-b", "main", env=clean_env())
         for commit in (files, head_files):
             for relative, text in commit.items():
                 path = repo / relative
