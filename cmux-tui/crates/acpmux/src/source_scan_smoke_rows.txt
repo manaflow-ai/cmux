@@ -11,8 +11,11 @@ next `===` line.
   test_hooks passes    no finding (WHAT and WORDS are `-`)
   timing flagged       a finding's comparison is WHAT, its kind WORDS
   timing clean         no finding
-test_hooks rows are judged as src/smoke.rs (not a test file); timing rows as a test file nextest
-runs beside others, with `use std::time::{Duration, Instant};` and `fn helper() -> Duration`
+  spread flagged       spread_bounds (the shape of the timing check's KNOWN_MISSES) finds WHAT,
+                       of kind WORDS
+  spread clean         spread_bounds finds nothing
+test_hooks rows are judged as src/smoke.rs (not a test file); timing and spread rows as a test
+file nextest runs beside others, with `use std::time::{Duration, Instant};` and `fn helper() -> Duration`
 (reads the clock) in front.
 
 === test_hooks refused :: S :: closure :: an alias whose defaulted parameter carries the closure (type A<T, U = T> = OnceLock<U>)
@@ -110,4 +113,70 @@ fn order_of_echoes() {
 fn ratio_in_own_run() {
     let (busy, idle) = (helper(), helper());
     assert!(busy < idle * 4);
+}
+=== timing flagged :: dbg!(busy) < idle * 4 :: ratio of two timings :: review of cmux#41567 F1: dbg!(x) is x
+#[test]
+fn dbg_operand() {
+    let (busy, idle) = (helper(), helper());
+    assert!(dbg!(busy) < idle * 4);
+}
+=== test_hooks refused :: INNER :: closure :: review of cmux#41567 F1: a static in dbg!({ .. })
+fn f() {
+    dbg!({ static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); });
+}
+=== spread flagged :: g50 < 500.0 :: spread bound :: the start_mode known miss as it is
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+#[test]
+fn measured() {
+    let mut gate: Vec<f64> = read_log();
+    let (g50, g95, gmax) = spread(&mut gate);
+    assert!(g50 < 500.0, "p50 {g50} ms");
+}
+=== spread flagged :: g50 < 500.0 :: spread bound :: review of cmux#41567 F1: the start_mode known miss in dbg!({ .. })
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+#[test]
+fn measured() {
+    let mut gate: Vec<f64> = read_log();
+    dbg!({
+        let (g50, g95, gmax) = spread(&mut gate);
+        assert!(g50 < 500.0, "p50 {g50} ms");
+    });
+}
+=== spread flagged :: dbg!(g50) < 500.0 :: spread bound :: review of cmux#41567 F1: the start_mode known miss with dbg!(g50) bounded
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+#[test]
+fn measured() {
+    let mut gate: Vec<f64> = read_log();
+    let (g50, g95, gmax) = spread(&mut gate);
+    assert!(dbg!(g50) < 500.0, "p50 {g50} ms");
+}
+=== spread clean :: - :: - :: a lower bound on the spread is not the shape
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+#[test]
+fn measured() {
+    let mut gate: Vec<f64> = read_log();
+    dbg!({
+        let (g50, g95, gmax) = spread(&mut gate);
+        assert!(g50 > 0.0, "p50 {g50} ms");
+    });
 }

@@ -2,14 +2,17 @@
 //! --lib` (which PR CI runs) is red when a rule breaks: `cargo test -p cmux-source-scan`, which
 //! holds every row, is not in PR CI. The rows are in source_scan_smoke_rows.txt. Also holds the
 //! timing check's KNOWN_MISSES: each row stays a miss, and the tree holds exactly the instances
-//! of the shape marked `in_tree`.
+//! of the shape marked `in_tree`; the `spread` rows hold that shape's reader (spread_bounds) to
+//! its rows.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use cmux_source_scan::nextest::FileTests;
+use cmux_source_scan::rows::unmatched;
 use cmux_source_scan::test_hooks::judge_source;
-use cmux_source_scan::timing_ratio::{KNOWN_MISSES, scan_text, scan_with, spread_bounds};
+use cmux_source_scan::timing_ratio::{
+    Judge, KNOWN_MISSES, Scan, scan_text, scan_with, spread_bounds,
+};
 
 const ROWS: &str = include_str!("source_scan_smoke_rows.txt");
 const HOOKS_REL: &str = "cmux-tui/crates/acpmux/src/smoke.rs";
@@ -48,39 +51,50 @@ fn rows() -> Vec<Row> {
     out
 }
 
-/// What the row's check says, or None when it says what the row does.
+/// What the row's check says, or None when it says what the row does: a refused or flagged row
+/// holds exactly the one finding it names, so a missing finding, another one, or a second copy
+/// of the named one (#42341 F1) fails it.
 fn judge(row: &Row) -> Option<String> {
-    let found: Vec<String> = match row.check.as_str() {
+    // Each finding, and whether it is the one the row names.
+    let found: Vec<(bool, String)> = match row.check.as_str() {
         "test_hooks" => judge_source(HOOKS_REL, &row.source)
             .iter()
-            .filter(|f| {
-                row.verdict != "refused" || (f.name == row.what && f.why.contains(&row.words))
-            })
-            .map(ToString::to_string)
+            .map(|f| (f.name == row.what && f.why.contains(&row.words), f.to_string()))
             .collect(),
-        "timing" => match scan_text(
-            TIMING_REL,
-            &format!("{PRELUDE}{}", row.source),
-            &|_| true,
-            &FileTests::Loose,
-        ) {
-            Ok(found) => found,
-            Err(error) => return Some(format!("does not parse: {error}")),
+        "timing" | "spread" => {
+            match (if row.check == "timing" { scan_text as Judge } else { spread_bounds })(
+                TIMING_REL,
+                &format!("{PRELUDE}{}", row.source),
+                &|_| true,
+                &FileTests::Loose,
+            ) {
+                Ok(found) => found,
+                Err(error) => return Some(format!("does not parse: {error}")),
+            }
+            .iter()
+            .map(|f| (f.text == row.what && f.kind == row.words, f.to_string()))
+            .collect()
         }
-        .iter()
-        .filter(|f| row.verdict != "flagged" || (f.text == row.what && f.kind == row.words))
-        .map(ToString::to_string)
-        .collect(),
         other => return Some(format!("no check `{other}`")),
     };
-    match row.verdict.as_str() {
-        "refused" | "flagged" if found.is_empty() => {
-            Some(format!("no finding `{} {}`", row.what, row.words))
-        }
-        "passes" | "clean" if !found.is_empty() => Some(format!("found {found:?}")),
-        "refused" | "flagged" | "passes" | "clean" => None,
-        other => Some(format!("no verdict `{other}`")),
+    let named: &[()] = match row.verdict.as_str() {
+        "refused" | "flagged" => &[()],
+        "passes" | "clean" => &[],
+        other => return Some(format!("no verdict `{other}`")),
+    };
+    let left = unmatched(named, &found, |(), (hit, _)| *hit);
+    let all: Vec<&String> = found.iter().map(|(_, f)| f).collect();
+    if !left.missing.is_empty() {
+        return Some(format!("no finding `{} {}`; found {all:?}", row.what, row.words));
     }
+    (!left.extra.is_empty()).then(|| {
+        let extra: Vec<&String> = left.extra.iter().map(|(_, f)| f).collect();
+        if named.is_empty() {
+            format!("found {extra:?}")
+        } else {
+            format!("found more than `{} {}`: {extra:?}", row.what, row.words)
+        }
+    })
 }
 
 #[test]
@@ -130,25 +144,127 @@ fn each_known_miss_of_the_timing_check_stays_a_miss() {
     }
 }
 
+/// What is wrong with the tree's scan against the KNOWN_MISSES sites marked `in_tree`: one line
+/// each, none when the scan parsed every file and holds exactly them, each as many times as it
+/// is listed (a second instance of a site is new, #42341 F1).
+fn tree_drift(scan: &Scan, known: &[String]) -> Vec<String> {
+    let sites: Vec<String> =
+        scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
+    let left = unmatched(known, &sites, |k, s| k == s);
+    let new: Vec<&String> = left.extra;
+    let gone: Vec<&String> = left.missing;
+    let mut out = Vec::new();
+    if !scan.unparsed.is_empty() {
+        out.push(format!(
+            "files the scan could not parse, so it judged them no further: {:?}",
+            scan.unparsed
+        ));
+    }
+    if !new.is_empty() {
+        out.push(format!(
+            "a new instance of a shape the timing check misses (KNOWN_MISSES in \
+             cmux-source-scan/src/timing_ratio.rs): bound a timing the check reads, or move the \
+             bound to an #[ignore]d test: {new:?}"
+        ));
+    }
+    if !gone.is_empty() {
+        out.push(format!(
+            "these KNOWN_MISSES sites are gone from the tree; set their in_tree to false: {gone:?}"
+        ));
+    }
+    out
+}
+
 #[test]
 fn the_tree_holds_no_new_instance_of_a_known_miss() {
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let roots: Vec<PathBuf> = vec![checkout.join("cmux-tui/crates")];
     let scan = scan_with(&checkout, &roots, spread_bounds).expect("cmux-tui/crates scans");
-    let sites: BTreeSet<String> =
-        scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
-    let known: BTreeSet<String> =
+    let known: Vec<String> =
         KNOWN_MISSES.iter().filter(|m| m.in_tree).map(|m| m.site.to_string()).collect();
-    let new: Vec<&String> = sites.difference(&known).collect();
-    let gone: Vec<&String> = known.difference(&sites).collect();
-    assert!(
-        new.is_empty(),
-        "a new instance of a shape the timing check misses (KNOWN_MISSES in \
-         cmux-source-scan/src/timing_ratio.rs): bound a timing the check reads, or move the bound \
-         to an #[ignore]d test: {new:?}"
+    let drift = tree_drift(&scan, &known);
+    assert!(drift.is_empty(), "{}", drift.join("\n"));
+}
+
+fn row(check: &str, verdict: &str, what: &str, words: &str, source: &str) -> Row {
+    Row {
+        check: check.to_string(),
+        verdict: verdict.to_string(),
+        what: what.to_string(),
+        words: words.to_string(),
+        title: "a fixture".to_string(),
+        source: source.to_string(),
+    }
+}
+
+/// #41567 review F1: a row names the one finding its source holds, so a finding it does not
+/// name fails it, as a missing one does.
+#[test]
+fn a_row_fails_on_a_finding_it_does_not_name() {
+    let hooks = row(
+        "test_hooks",
+        "refused",
+        "H",
+        "closure",
+        "type A = Mutex<Option<B>>;\ntype B = Box<dyn Fn()>;\nstatic H: A = Mutex::new(None);\nstatic G: A = Mutex::new(None);\n",
     );
-    assert!(
-        gone.is_empty(),
-        "these KNOWN_MISSES sites are gone from the tree; set their in_tree to false: {gone:?}"
+    let why = judge(&hooks);
+    assert!(why.as_deref().is_some_and(|w| w.contains(": G: ")), "G went unnamed: {why:?}");
+    let timing = row(
+        "timing",
+        "flagged",
+        "p95 < BUDGET_MS",
+        "percentile bound",
+        "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS);\n    let (busy, idle) = (helper(), helper());\n    assert!(busy < idle * 4);\n}\n",
     );
+    let why = judge(&timing);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
+        "busy < idle * 4 went unnamed: {why:?}"
+    );
+}
+
+/// #42341 review F1: a row names its finding once, so a second static of the same name on the
+/// same line (another module's) fails it.
+#[test]
+fn a_row_fails_on_a_second_copy_of_its_finding() {
+    let hooks = row(
+        "test_hooks",
+        "refused",
+        "H",
+        "closure",
+        "type A = std::sync::OnceLock<fn(bool)>;\nstatic H: A = A::new(); mod m { static H: super::A = super::A::new(); }\n",
+    );
+    let why = judge(&hooks);
+    assert!(why.as_deref().is_some_and(|w| w.contains("found more")), "the second H: {why:?}");
+}
+
+/// #42341 review F1: the tree holds exactly the instances of each known miss, so a second
+/// instance of a known site (the same test and comparison again) fails the ratchet.
+#[test]
+fn the_tree_check_fails_on_a_second_instance_of_a_known_site() {
+    let instance = |line| cmux_source_scan::timing_ratio::Finding {
+        rel: "cmux-tui/crates/demo/tests/timing.rs".to_string(),
+        line,
+        kind: "spread bound",
+        test: "t".to_string(),
+        text: "g50 < 500.0".to_string(),
+    };
+    let scan = Scan { found: vec![instance(3), instance(4)], files: 1, ..Scan::default() };
+    let known = ["cmux-tui/crates/demo/tests/timing.rs t g50 < 500.0".to_string()];
+    let drift = tree_drift(&scan, &known);
+    assert!(!drift.is_empty(), "a second instance of a known site passed");
+}
+
+/// #41567 review F2: a file the scan could not parse was judged no further, so the tree check
+/// fails naming it rather than reading it as clean.
+#[test]
+fn the_tree_check_fails_on_a_file_it_could_not_parse() {
+    let scan = Scan {
+        unparsed: vec!["cmux-tui/crates/demo/src/broken.rs: expected `;`".to_string()],
+        files: 1,
+        ..Scan::default()
+    };
+    let drift = tree_drift(&scan, &[]);
+    assert!(drift.iter().any(|d| d.contains("demo/src/broken.rs")), "drift: {drift:?}");
 }

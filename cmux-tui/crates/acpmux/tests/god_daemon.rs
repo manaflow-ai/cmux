@@ -23,8 +23,13 @@
 //! - `rss` and `peak_rss`: the daemon's resident bytes after all that, and at its peak;
 //! - the daemon's own gauges (`daemon status` `gauges`), its startup phases flat
 //!   (`startupPhasesMs`) and its marks (`marksMs`: socket ready, first list reply, agents may spawn);
-//! - `homeBytes`: the home's bytes on disk after the daemon stops, and `daemonDiskBytes`: those
-//!   it added to what the fixture wrote.
+//! - `homeBytes`: the home's bytes on disk after the daemon stops; file by file against what the
+//!   fixture wrote, `daemonAddedBytes` (files new or grown) and `daemonRemovedBytes` (files gone
+//!   or shrunk, such as the journal segment the fixture's store left live, which the daemon's
+//!   checkpoint retires), and the largest removals (`daemonRemoved`).
+//!
+//! A settled attach, scroll or prompt that fails is counted, not timed, and fails the test once
+//! every home has printed its numbers.
 //!
 //! With `ACPMUX_GOD_DHAT=1` and a binary built with `--features dhat-heap`, the daemon records
 //! its heap (dhat) and the test prints its allocation sites: the bytes each held at the heap's
@@ -33,6 +38,9 @@
 //! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
 //! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
+
+// The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
+#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -110,17 +118,49 @@ fn median(samples: &[u64]) -> Value {
     json!(sorted[sorted.len() / 2])
 }
 
-/// The bytes of every file under `dir`, links not followed; 0 when it can't be read.
-fn dir_bytes(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
-    entries
-        .flatten()
-        .map(|e| match e.path().symlink_metadata() {
-            Ok(m) if m.is_dir() => dir_bytes(&e.path()),
-            Ok(m) if m.is_file() => m.len(),
-            _ => 0,
-        })
-        .sum()
+/// The bytes of each file under `dir`, links not followed, into `files`; a folder that can't be
+/// read adds none.
+fn file_bytes(dir: &Path, files: &mut BTreeMap<PathBuf, u64>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        match e.path().symlink_metadata() {
+            Ok(m) if m.is_dir() => file_bytes(&e.path(), files),
+            Ok(m) if m.is_file() => {
+                files.insert(e.path(), m.len());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Every file under `dir` and its bytes.
+fn home_files(dir: &Path) -> BTreeMap<PathBuf, u64> {
+    let mut files = BTreeMap::new();
+    file_bytes(dir, &mut files);
+    files
+}
+
+/// What the daemon did to the home, file by file: the bytes of files new or grown, of files gone
+/// or shrunk, and the largest of those removals, by path under `home`.
+fn disk_change(
+    home: &Path,
+    before: &BTreeMap<PathBuf, u64>,
+    after: &BTreeMap<PathBuf, u64>,
+) -> (u64, u64, Value) {
+    let added = after.iter().map(|(p, b)| b.saturating_sub(*before.get(p).unwrap_or(&0))).sum();
+    let mut removed: Vec<(&PathBuf, u64)> = before
+        .iter()
+        .map(|(p, b)| (p, b.saturating_sub(*after.get(p).unwrap_or(&0))))
+        .filter(|(_, b)| *b > 0)
+        .collect();
+    let removed_bytes = removed.iter().map(|(_, b)| b).sum();
+    removed.sort_by_key(|(_, b)| std::cmp::Reverse(*b));
+    let top = removed
+        .into_iter()
+        .take(5)
+        .map(|(p, b)| json!([p.strip_prefix(home).unwrap_or(p).display().to_string(), b]))
+        .collect::<Vec<_>>();
+    (added, removed_bytes, json!(top))
 }
 
 /// The oldest seq of a page's records, if it has any.
@@ -155,11 +195,12 @@ fn all_logs_end(gauges: &Value) -> Option<u64> {
 }
 
 /// Asks `_acpmux/status` until every chat log is read: when it ended, or why it is not known.
+/// No call waits past [`ALL_LOGS`], so the wait ends at most a poll after it.
 fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
-    let started = Instant::now();
+    let deadline = Instant::now() + ALL_LOGS;
     let mut last = Value::Null;
-    while started.elapsed() < ALL_LOGS {
-        match rpc.call("_acpmux/status", json!({})) {
+    while Instant::now() < deadline {
+        match rpc.call_until("_acpmux/status", json!({}), Some(deadline)) {
             Ok(status) => {
                 if let Some(end) = all_logs_end(&status["gauges"]) {
                     return Ok(end);
@@ -192,18 +233,49 @@ struct Rpc {
     writer: UnixStream,
     next: u64,
     notes: Vec<Value>,
+    /// The part of a line a read's timeout cut short, which the next read finishes.
+    line: String,
+    /// Bytes read so far, and the longest line: what a prompt's notices weigh.
+    read_bytes: u64,
+    longest_line: u64,
 }
 
 impl Rpc {
     fn connect(path: &Path) -> Self {
         let s = UnixStream::connect(path).expect("connect to the daemon's socket");
         s.set_read_timeout(Some(STEP)).unwrap();
-        Self { reader: BufReader::new(s.try_clone().unwrap()), writer: s, next: 0, notes: vec![] }
+        let reader = BufReader::new(s.try_clone().unwrap());
+        Self {
+            reader,
+            writer: s,
+            next: 0,
+            notes: vec![],
+            line: String::new(),
+            read_bytes: 0,
+            longest_line: 0,
+        }
     }
 
     fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         let id = self.request(method, params);
         self.response(id)
+    }
+
+    /// [`Rpc::call`] that waits for its response until `deadline` at most: past it, an error.
+    fn call_until(
+        &mut self,
+        method: &str,
+        params: Value,
+        deadline: Option<Instant>,
+    ) -> Result<Value, Value> {
+        let id = self.request(method, params);
+        let got = self.wait_note_until(|v| is_response(v, id), deadline);
+        self.writer.set_read_timeout(Some(STEP)).unwrap();
+        let v = got.map_err(|e| json!({"method": method, "io": e.to_string()}))?;
+        match v.get("error") {
+            Some(e) => Err(e.clone()),
+            None => Ok(v["result"].clone()),
+        }
     }
 
     /// Writes a request without waiting for its response: its id.
@@ -223,21 +295,41 @@ impl Rpc {
         }
     }
 
-    fn read(&mut self) -> Value {
-        let mut text = String::new();
-        assert!(self.reader.read_line(&mut text).unwrap() > 0, "the daemon closed the socket");
-        serde_json::from_str(&text).unwrap()
+    /// The next line; a timeout keeps what it read of the line for the next read.
+    fn read(&mut self) -> std::io::Result<Value> {
+        let n = self.reader.read_line(&mut self.line)?;
+        assert!(n > 0, "the daemon closed the socket");
+        self.read_bytes += n as u64;
+        self.longest_line = self.longest_line.max(self.line.len() as u64);
+        Ok(serde_json::from_str(&std::mem::take(&mut self.line)).unwrap())
     }
 
     /// The first line, kept or read now, that `pred` takes; the others read meanwhile are kept.
     fn wait_note(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
+        self.wait_note_until(pred, None).unwrap()
+    }
+
+    /// [`Rpc::wait_note`] until `deadline` at most (each read's timeout is the time left), or
+    /// [`STEP`] for each read. The caller restores the timeout.
+    fn wait_note_until(
+        &mut self,
+        pred: impl Fn(&Value) -> bool,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<Value> {
         if let Some(at) = self.notes.iter().position(&pred) {
-            return self.notes.remove(at);
+            return Ok(self.notes.remove(at));
         }
         loop {
-            let v = self.read();
+            if let Some(deadline) = deadline {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(std::io::ErrorKind::TimedOut.into());
+                }
+                self.writer.set_read_timeout(Some(left))?;
+            }
+            let v = self.read()?;
             if pred(&v) {
-                return v;
+                return Ok(v);
             }
             self.notes.push(v);
         }
@@ -441,7 +533,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let proxies = Arc::new(proxies);
     write_config(&home, peer_config);
     // What the fixture (and the config) put in the home, before the daemon starts.
-    let fixture_bytes = dir_bytes(&home);
+    let fixture_files = home_files(&home);
+    let fixture_bytes: u64 = fixture_files.values().sum();
     let rows = shape.peers * shape.peer_rows;
     let profile = dhat.then(|| scratch.join("dhat-heap.json"));
 
@@ -461,8 +554,10 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
         let peers_ms = wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(daemon.spawned));
 
-        // The pane's open of the god chat, again and again: a page of its newest records.
+        // The pane's open of the god chat, again and again: a page of its newest records. One
+        // that fails is counted, not timed.
         let (mut attaches, mut attach) = (vec![], Ok(Value::Null));
+        let (mut attach_errors, mut attach_error) = (0u64, Value::Null);
         for _ in 0..ROUNDS {
             let attached = Instant::now();
             attach = rpc.call(
@@ -470,7 +565,16 @@ async fn run(shape: Shape, dhat: bool) -> Value {
                 json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
                        "maxBytes": PAGE_BYTES}),
             );
-            attaches.push(micros(attached));
+            let us = micros(attached);
+            match &attach {
+                Ok(_) => attaches.push(us),
+                Err(e) => {
+                    attach_errors += 1;
+                    if attach_error.is_null() {
+                        attach_error = e.clone();
+                    }
+                }
+            }
             rpc.notes.clear();
         }
 
@@ -557,31 +661,66 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let all_logs = wait_all_logs(&mut rpc);
 
         // The same attaches, scroll and prompts once every log is read: what a long chat costs
-        // on its own, apart from the startup load it shares the machine with above.
-        let mut settled_attaches = vec![];
+        // on its own, apart from the startup load it shares the machine with above. A step that
+        // fails is counted, its first error kept, and not timed.
+        let (mut settled_attaches, mut settled_attach) = (vec![], None);
+        let (mut settled_attach_errors, mut settled_attach_error) = (0u64, Value::Null);
         for _ in 0..ROUNDS {
             let attached = Instant::now();
-            let _ = rpc.call(
+            let reply = rpc.call(
                 "_acpmux/attach",
                 json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
                        "maxBytes": PAGE_BYTES}),
             );
-            settled_attaches.push(micros(attached));
+            let us = micros(attached);
+            match reply {
+                Ok(reply) => {
+                    settled_attaches.push(us);
+                    settled_attach = Some(reply);
+                }
+                Err(e) => {
+                    settled_attach_errors += 1;
+                    if settled_attach_error.is_null() {
+                        settled_attach_error = e;
+                    }
+                }
+            }
             rpc.notes.clear();
         }
+        // From the last settled attach's page, as the pane would scroll from it.
         let mut settled_scrolls = vec![];
-        if let Some(start) = newest_oldest {
-            let mut before = start;
-            for _ in 0..ROUNDS {
-                let (us, page) = older_page(&mut rpc, &god, before);
-                let Ok(page) = page else { break };
-                settled_scrolls.push(us);
-                before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+        let (mut settled_scroll_errors, mut settled_scroll_error) = (0u64, Value::Null);
+        match settled_attach.as_ref().and_then(oldest_seq) {
+            None => {
+                settled_scroll_errors += 1;
+                settled_scroll_error = json!("the settled attach gave no page to scroll up from");
+            }
+            Some(start) => {
+                let mut before = start;
+                for _ in 0..ROUNDS {
+                    let (us, page) = older_page(&mut rpc, &god, before);
+                    let page = match page {
+                        Ok(page) => page,
+                        Err(e) => {
+                            settled_scroll_errors += 1;
+                            if settled_scroll_error.is_null() {
+                                settled_scroll_error = e;
+                            }
+                            continue;
+                        }
+                    };
+                    settled_scrolls.push(us);
+                    before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+                }
             }
         }
-        let mut settled_sends = vec![];
+        let (mut settled_sends, mut settled_send_error) = (vec![], Value::Null);
+        // The bytes each prompt's turn sends this client, from the request to its response.
+        let (mut settled_send_bytes, mut settled_send_longest) = (vec![], 0);
         for round in 0..ROUNDS {
             let sent = Instant::now();
+            let (bytes_before, longest_before) = (rpc.read_bytes, rpc.longest_line);
+            rpc.longest_line = 0;
             let text = format!("settled {round}");
             let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
             let id = rpc.request("session/prompt", prompt);
@@ -595,12 +734,17 @@ async fn run(shape: Shape, dhat: bool) -> Value {
                             .is_some_and(|t| t.contains(&text)))
             });
             if is_response(&first, id) {
+                settled_send_error = first["error"].clone();
                 break;
             }
             settled_sends.push(micros(sent));
-            if rpc.response(id).is_err() {
+            if let Err(e) = rpc.response(id) {
+                settled_send_error = e;
                 break;
             }
+            settled_send_bytes.push(rpc.read_bytes - bytes_before);
+            settled_send_longest = settled_send_longest.max(rpc.longest_line);
+            rpc.longest_line = rpc.longest_line.max(longest_before);
             rpc.notes.clear();
         }
 
@@ -622,8 +766,10 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let (rss, peak_rss) = daemon.rss();
         drop(rpc);
         daemon.stop();
-        let home_bytes = dir_bytes(&home);
-        let daemon_disk_bytes = home_bytes as i64 - fixture_bytes as i64;
+        let home_files = home_files(&home);
+        let home_bytes: u64 = home_files.values().sum();
+        let (daemon_added, daemon_removed, daemon_removed_top) =
+            disk_change(&home, &fixture_files, &home_files);
         let heap = profile.as_deref().map(attribute);
         json!({
             "shape": shape_name, "chats": shape.chats, "godMessages": shape.god_messages,
@@ -632,6 +778,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
             "socketConnectUs": socket_connect_us,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
+            "attachErrors": attach_errors, "attachError": attach_error,
             "scrollPageUs": spread(&scrolls), "scrollWraps": scroll_wraps,
             "scrollError": scroll_error,
             "deepScrollUs": spread(&deeps), "deepScrollError": deep_error,
@@ -639,12 +786,20 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "sendError": send.err(),
             "allLogsMs": all_logs.as_ref().ok(), "allLogsError": all_logs.as_ref().err(),
             "settledAttachUs": spread(&settled_attaches),
+            "settledAttachErrors": settled_attach_errors,
+            "settledAttachError": settled_attach_error,
             "settledScrollPageUs": spread(&settled_scrolls),
+            "settledScrollErrors": settled_scroll_errors,
+            "settledScrollError": settled_scroll_error,
             "settledSendFirstTokenUs": spread(&settled_sends),
+            "settledSendError": settled_send_error,
+            "settledSendBytes": spread(&settled_send_bytes),
+            "settledSendLongestLine": settled_send_longest,
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
-            "daemonDiskBytes": daemon_disk_bytes,
+            "daemonAddedBytes": daemon_added, "daemonRemovedBytes": daemon_removed,
+            "daemonRemoved": daemon_removed_top,
             "startupPhasesMs": startup_phases_ms, "marksMs": marks_ms,
             "gauges": status["gauges"], "heap": heap,
         })
@@ -815,6 +970,8 @@ async fn god_and_small_homes_in_one_harness() {
             "/settledAttachUs/max",
             "/settledScrollPageUs/p95",
             "/settledSendFirstTokenUs/p95",
+            "/settledSendBytes/p50",
+            "/settledSendLongestLine",
             "/firstSendFirstTokenMs",
             "/sendFirstTokenUs/p95",
             "/reconnectMedianMs",
@@ -822,7 +979,7 @@ async fn god_and_small_homes_in_one_harness() {
             "/marksMs/agents may spawn",
             "/rss",
             "/peakRss",
-            "/daemonDiskBytes",
+            "/daemonAddedBytes",
             "/heap/peakBytes",
         ];
         // A number missing in either home (no heap profile, a step that failed) is left out.
@@ -832,5 +989,20 @@ async fn god_and_small_homes_in_one_harness() {
             .filter(|(_, r)| !r.is_null())
             .collect();
         println!("GOD-RATIO {}", Value::Object(ratios));
+    }
+    // A settled step that failed reads as no time at all: the run fails, every home printed.
+    for r in &results {
+        assert!(
+            r["settledAttachErrors"] == 0
+                && r["settledScrollErrors"] == 0
+                && r["settledSendError"].is_null(),
+            "{}: a settled step failed: attach {} {}, scroll {} {}, send {}",
+            r["shape"],
+            r["settledAttachErrors"],
+            r["settledAttachError"],
+            r["settledScrollErrors"],
+            r["settledScrollError"],
+            r["settledSendError"],
+        );
     }
 }

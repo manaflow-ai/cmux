@@ -554,6 +554,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var loaded = false
     /// Applies (tests and the rig's log).
     private(set) var applies = 0
+    /// The main actor's time in `reload`, in all (the scroll-up bench, `chat_scroll_fill_ui`: a
+    /// page that lands between two frames costs the frame after it).
+    private(set) var reloadTime: Duration = .zero
+    /// Older history is read ahead as the reader scrolls (`readAheadIfNear`). Off, only the oldest
+    /// row coming into view asks (`willDisplay`): the trigger before the read-ahead, which the
+    /// scroll-up bench measures as its before.
+    var readsAhead = true
     private(set) var lastReconfigured = 0
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
@@ -640,7 +647,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// more page ahead, so a fling up meets rows, never an empty top. Not on the tab grid's
     /// card, which holds its transcript.
     private func readAheadIfNear() {
-        guard loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
+        guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
         let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
@@ -807,6 +814,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var shownDisclosures = -1
 
     func reload() {
+        let reloadStart = ContinuousClock.now
+        defer { reloadTime += reloadStart.duration(to: .now) }
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
@@ -974,9 +983,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
             snapshot.appendItems(ids)
-            let shown = Set(shownIDs)
-            snapshot.reconfigureItems(reconfigure.filter { shown.contains($0) })
-            snapshot.reloadItems(reloadIDs.filter { shown.contains($0) })
+            // Only rows in both the old and the new snapshot: a reconfigure or reload of one the new
+            // snapshot leaves out traps. `session-start` is the first turn's row, so when an older
+            // page lands it moves into that page's first turn, which may be held until its rows are
+            // laid out (`holdable`): it was shown and changed, and is not in `ids` this time.
+            let both = Set(shownIDs).intersection(ids)
+            snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
+            snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty {

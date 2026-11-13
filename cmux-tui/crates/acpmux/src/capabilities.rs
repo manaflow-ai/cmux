@@ -84,6 +84,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // One seen cursor per chat per person (`hub/seen.rs` `read_through`): `_acpmux/seen` moves it,
+    // `_acpmux/attach` answers it as `readThrough`. The pane's Jump up goes only to rows after it.
+    Capability { id: "read-through-v1", wire: &[method::MUX_SEEN] },
     // The MCP connect card (plans/cmux-next/mcp-connect-DESIGN.md): an agent asks, only the
     // person answers. Older daemons answer neither method.
     Capability {

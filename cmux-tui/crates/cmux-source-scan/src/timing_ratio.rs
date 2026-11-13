@@ -11,7 +11,11 @@
 //!
 //! How it reads a test: the file is parsed with `syn`; test functions, their attributes (in any
 //! order), inline modules, assert macros and their conditions come from the syntax tree, so a
-//! brace in a string or an `#[ignore]` above `#[test]` reads as what it is. It follows the test
+//! brace in a string or an `#[ignore]` above `#[test]` reads as what it is. Another macro's body
+//! is read as the items, statements or expressions it holds (`dbg!({ .. })`, a user macro over
+//! `let`s; [`crate::source::visit_macro_body`]), and `dbg!(x)` as `x`. A fn or const a block
+//! defines (in a test's body, a wrapper macro's `{ .. }`) is that block's: its body reads it before
+//! the file's, and nothing outside it does. It follows the test
 //! body's `let`, `for`, assignment and `push` statements, so a name holds what it was built from:
 //! `t.elapsed()`, `Instant::now() - t`, `x.duration_since(t)`, a local fn that reads the clock and
 //! returns a `Duration`, a Vec of those, a percentile of them (`percentile(&v, 0.95)`,
@@ -40,14 +44,14 @@ use std::path::{Path, PathBuf};
 
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::ToTokens;
-use syn::parse::ParseStream;
-use syn::parse::discouraged::Speculative;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Attribute, BinOp, Block, Expr, ExprBinary, Member, Pat, ReturnType, Type, UnOp};
 
 use crate::nextest::{FileTests, Layout, TestId};
-use crate::source::{has_ident, read_source, rel_path, rust_files, snippet};
+use crate::source::{
+    has_ident, lenient_exprs, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 
 const NOT_WALL_CLOCK: &str = "not wall-clock:";
 const ASSERT_MACROS: [&str; 9] = [
@@ -218,7 +222,12 @@ pub fn scan_text(
             continue;
         }
         let mut body = BodyScan {
-            sc: Scope { env: HashMap::new(), consts: &items.consts, clock_fns: &items.clock_fns },
+            sc: Scope {
+                env: HashMap::new(),
+                consts: &items.consts,
+                clock_fns: &items.clock_fns,
+                blocks: Vec::new(),
+            },
             lines: &lines,
             found: Vec::new(),
         };
@@ -266,9 +275,10 @@ const SPREAD_KIND: &str = "spread bound";
 const SORTS: [&str; 5] = ["sort", "sort_by", "sort_by_key", "sort_unstable", "sort_unstable_by"];
 
 /// The shape of [`KNOWN_MISSES`]: in a default-run test, an upper bound on a name taken from
-/// `let (a, b, ..) = f(..)`, where `f` is a local fn that sorts and returns a tuple of floats (a
-/// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`). Not a rule of
-/// the check: the count its ratchet holds.
+/// `let (a, b, ..) = f(..)` (the call under [`spread_init`]'s wrappers: `dbg!(f(..))`), where `f` is a local fn that sorts and returns a tuple of floats (a
+/// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`), in the test
+/// body or a wrapper macro's (`dbg!({ .. })`, read as [`scan_text`] reads one). Not a rule of the
+/// check: the count its ratchet holds.
 pub fn spread_bounds(
     rel: &str,
     text: &str,
@@ -281,7 +291,7 @@ pub fn spread_bounds(
     let file = syn::parse_file(text)?;
     let mut items = Items::default();
     items.visit_file(&file);
-    if items.spread_fns.is_empty() {
+    if !items.spread_anywhere {
         return Ok(Vec::new());
     }
     let lines: Vec<&str> = text.lines().collect();
@@ -290,8 +300,12 @@ pub fn spread_bounds(
         if !beside(&tests.id(&test.mods, &test.name)) {
             continue;
         }
-        let mut body =
-            SpreadScan { spread_fns: &items.spread_fns, names: HashSet::new(), found: Vec::new() };
+        let mut body = SpreadScan {
+            spread_fns: &items.spread_fns,
+            blocks: Vec::new(),
+            names: HashSet::new(),
+            found: Vec::new(),
+        };
         body.visit_block(&test.block);
         for span in body.found {
             found.push(Finding {
@@ -308,25 +322,67 @@ pub fn spread_bounds(
 
 struct SpreadScan<'a> {
     spread_fns: &'a HashSet<String>,
+    /// The fns each block being read defines, innermost last ([`block_items`]).
+    blocks: Vec<Items>,
     names: HashSet<String>,
     found: Vec<Span>,
 }
 
 impl SpreadScan<'_> {
+    /// Whether `name` is a spread fn where it is called: the innermost block's that defines it,
+    /// else the file's.
+    fn is_spread_fn(&self, name: &str) -> bool {
+        match self.blocks.iter().rev().find(|b| b.defined.contains(name)) {
+            Some(block) => block.spread_fns.contains(name),
+            None => self.spread_fns.contains(name),
+        }
+    }
+
     fn spread_name(&self, e: &Expr) -> bool {
+        if let Some(arg) = dbg_arg(e) {
+            return self.spread_name(&arg);
+        }
         matches!(e, Expr::Path(p) if p.path.get_ident().is_some_and(|i| self.names.contains(&i.to_string())))
+    }
+}
+
+/// A `let`'s initializer with the wrappers that leave its value as it is taken off:
+/// `dbg!(..)`, parentheses, `&`/`&mut`/`*`, a `?`, and a `.clone()` or `.to_owned()` with no
+/// arguments, any number deep (`dbg!((spread(&mut gate)).clone())` is `spread(&mut gate)`).
+fn spread_init(e: &Expr) -> Expr {
+    let mut e = e.clone();
+    loop {
+        e = match e {
+            Expr::Paren(p) => *p.expr,
+            Expr::Group(g) => *g.expr,
+            Expr::Reference(r) => *r.expr,
+            Expr::Unary(u) if matches!(u.op, UnOp::Deref(_)) => *u.expr,
+            Expr::Try(t) => *t.expr,
+            Expr::MethodCall(m)
+                if m.args.is_empty()
+                    && m.turbofish.is_none()
+                    && (m.method == "clone" || m.method == "to_owned") =>
+            {
+                *m.receiver
+            }
+            other => match dbg_arg(&other) {
+                Some(arg) => arg,
+                None => return other,
+            },
+        };
     }
 }
 
 impl<'ast> Visit<'ast> for SpreadScan<'_> {
     fn visit_local(&mut self, l: &'ast syn::Local) {
-        if let (Pat::Tuple(t), Some(init)) = (&l.pat, &l.init)
-            && let Expr::Call(call) = &*init.expr
+        let pat = match &l.pat {
+            Pat::Type(typed) => &*typed.pat,
+            pat => pat,
+        };
+        if let (Pat::Tuple(t), Some(init)) = (pat, &l.init)
+            && let Expr::Call(call) = &spread_init(&init.expr)
             && let Expr::Path(f) = &*call.func
-            && f.path
-                .segments
-                .last()
-                .is_some_and(|s| self.spread_fns.contains(&s.ident.to_string()))
+            && f.path.segments.last().is_some_and(|s| self.is_spread_fn(&s.ident.to_string()))
         {
             for elem in &t.elems {
                 if let Pat::Ident(i) = elem {
@@ -336,20 +392,18 @@ impl<'ast> Visit<'ast> for SpreadScan<'_> {
         }
         visit::visit_local(self, l);
     }
+    fn visit_block(&mut self, b: &'ast Block) {
+        self.blocks.push(block_items(b));
+        visit::visit_block(self, b);
+        self.blocks.pop();
+    }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if !ASSERT_MACROS.contains(&macro_name(mac).as_str()) {
-            return;
-        }
-        let Ok(args) = mac.parse_body_with(lenient_exprs) else {
+        let Some(conds) = assert_conds(mac) else {
+            // A wrapper's body (`dbg!({ .. })`, a user macro over statements), as BodyScan reads it.
+            visit_macro_body(self, mac);
             return;
         };
-        let conds = if ["assert", "debug_assert", "prop_assert"].contains(&macro_name(mac).as_str())
-        {
-            1
-        } else {
-            2
-        };
-        for cond in args.iter().take(conds) {
+        for cond in &conds {
             for cmp in comparisons(cond) {
                 let bounded = match cmp.op {
                     BinOp::Lt(_) | BinOp::Le(_) => &cmp.left,
@@ -583,9 +637,26 @@ struct Scope<'a> {
     env: HashMap<String, Kind>,
     consts: &'a HashSet<String>,
     clock_fns: &'a HashMap<String, Option<Vec<bool>>>,
+    /// The fns and consts each block being read defines, innermost last ([`block_items`]).
+    blocks: Vec<Items>,
 }
 
 impl Scope<'_> {
+    /// The innermost block being read that defines `name`, if one does.
+    fn block_of(&self, name: &str) -> Option<&Items> {
+        self.blocks.iter().rev().find(|b| b.defined.contains(name))
+    }
+
+    /// Whether `name` is a const (or static) where it is read.
+    fn is_const(&self, name: &str) -> bool {
+        self.block_of(name).map_or(self.consts, |b| &b.consts).contains(name)
+    }
+
+    /// The clock fn `name` is where it is called, if it is one.
+    fn clock_fn(&self, name: &str) -> Option<&Option<Vec<bool>>> {
+        self.block_of(name).map_or(self.clock_fns, |b| &b.clock_fns).get(name)
+    }
+
     fn kind_of(&self, e: &Expr) -> Kind {
         match e {
             Expr::Lit(_) => Kind::of(Base::Const),
@@ -595,6 +666,9 @@ impl Scope<'_> {
             Expr::Try(x) => self.kind_of(&x.expr),
             Expr::Await(x) => self.kind_of(&x.base),
             Expr::Reference(x) => self.kind_of(&x.expr),
+            Expr::Macro(_) => {
+                dbg_arg(e).map_or_else(|| Kind::of(Base::Other), |x| self.kind_of(&x))
+            }
             Expr::Unary(x) => match x.op {
                 UnOp::Not(_) => Kind::of(Base::Other),
                 _ => self.kind_of(&x.expr),
@@ -649,12 +723,12 @@ impl Scope<'_> {
             if let Some(k) = self.env.get(last) {
                 return k.clone();
             }
-            if self.consts.contains(last) {
+            if self.is_const(last) {
                 return Kind::of(Base::Const);
             }
             return named(last, format!("name:{last}"));
         }
-        if is_screaming(last) || self.consts.contains(last) {
+        if is_screaming(last) || self.is_const(last) {
             return Kind::of(Base::Const);
         }
         if last.starts_with(|c: char| c.is_lowercase()) {
@@ -761,7 +835,7 @@ impl Scope<'_> {
             let src = union(measured.iter().copied());
             return Kind::from(Base::Pct, if src.is_empty() { here(c) } else { src });
         }
-        if let Some(flags) = self.clock_fns.get(last) {
+        if let Some(flags) = self.clock_fn(last) {
             return if flags.as_ref().is_none_or(|f| f.iter().all(|x| *x)) {
                 Kind::from(Base::Timing, here(c))
             } else {
@@ -800,7 +874,7 @@ impl Scope<'_> {
         let Expr::Path(p) = &*c.func else {
             return None;
         };
-        self.clock_fns.get(path_segs(p).last()?)?.as_ref()
+        self.clock_fn(path_segs(p).last()?)?.as_ref()
     }
 
     /// What the name at `pos` in a pattern bound to `value` (of kind `vkind`) holds.
@@ -1010,6 +1084,9 @@ struct TestFn {
     block: Block,
 }
 
+/// A file's (or one block's: [`block_items`]) tests, consts and local fns. A fn or const a block
+/// defines (in a test's body, a wrapper macro's `{ .. }`) is that block's alone (review of
+/// cmux#41581 F1): it is not the file's, and the block's body reads it before the file's.
 #[derive(Default)]
 struct Items {
     mods: Vec<String>,
@@ -1019,6 +1096,24 @@ struct Items {
     clock_fns: HashMap<String, Option<Vec<bool>>>,
     /// Local fns that sort and return a tuple of floats ([`spread_bounds`]).
     spread_fns: HashSet<String>,
+    /// Every fn, const and static defined here, which hides the same name outside.
+    defined: HashSet<String>,
+    /// Whether any block of the file defines a spread fn too.
+    spread_anywhere: bool,
+    /// How many blocks deep the visit is: a block's fns and consts are none of these maps'.
+    depth: usize,
+    /// One block's items ([`block_items`]): the blocks in it are not read.
+    shallow: bool,
+}
+
+/// The fns and consts `block` itself defines, in its statements or a wrapper macro's there, and
+/// not those of a block in it.
+fn block_items(block: &Block) -> Items {
+    let mut items = Items { shallow: true, ..Items::default() };
+    for stmt in &block.stmts {
+        items.visit_stmt(stmt);
+    }
+    items
 }
 
 /// Whether an attribute's tokens set `start_paused = true` (tokio's paused clock), at any depth.
@@ -1040,7 +1135,40 @@ fn macro_name(mac: &syn::Macro) -> String {
     mac.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
 }
 
+/// The conditions an assert macro asserts (one for `assert!`, two operands for `assert_eq!`), or
+/// None for another macro or a body that does not parse.
+fn assert_conds(mac: &syn::Macro) -> Option<Vec<Expr>> {
+    let name = macro_name(mac);
+    if !ASSERT_MACROS.contains(&name.as_str()) {
+        return None;
+    }
+    let mut args = mac.parse_body_with(lenient_exprs).ok()?;
+    let conds =
+        if ["assert", "debug_assert", "prop_assert"].contains(&name.as_str()) { 1 } else { 2 };
+    args.truncate(conds);
+    Some(args)
+}
+
+/// What `dbg!(x)` is: `x`, the value it returns.
+fn dbg_arg(e: &Expr) -> Option<Expr> {
+    let Expr::Macro(m) = e else {
+        return None;
+    };
+    if macro_name(&m.mac) != "dbg" {
+        return None;
+    }
+    let mut args = m.mac.parse_body_with(lenient_exprs).ok()?;
+    (args.len() == 1).then(|| args.remove(0))
+}
+
 impl Items {
+    fn define_const(&mut self, ident: &syn::Ident) {
+        if self.depth == 0 {
+            self.consts.insert(ident.to_string());
+            self.defined.insert(ident.to_string());
+        }
+    }
+
     fn consider(&mut self, attrs: &[Attribute], sig: &syn::Signature, block: &Block) {
         let paths: Vec<Vec<String>> = attrs
             .iter()
@@ -1051,7 +1179,7 @@ impl Items {
         if is_test {
             let ignored = paths.iter().any(|p| matches!(p.as_slice(), [only] if only == "ignore"));
             let paused = attrs.iter().any(|a| starts_paused(a.meta.to_token_stream()));
-            if !ignored && !paused {
+            if !ignored && !paused && !self.shallow {
                 self.tests.push(TestFn {
                     name: sig.ident.to_string(),
                     mods: self.mods.clone(),
@@ -1059,6 +1187,10 @@ impl Items {
                 });
             }
             return;
+        }
+        let here = self.depth == 0;
+        if here {
+            self.defined.insert(sig.ident.to_string());
         }
         // A fn that reads the clock and returns a Duration (`-> Duration`, `-> Vec<Duration>`,
         // `-> (u64, Duration)`). One that builds a Duration from constants is not, and a number
@@ -1072,9 +1204,15 @@ impl Items {
                 .any(|e| ["f64", "f32"].iter().any(|f| has_ident(e.to_token_stream(), f)))
             && SORTS.iter().any(|m| has_ident(block.to_token_stream(), m))
         {
-            self.spread_fns.insert(sig.ident.to_string());
+            self.spread_anywhere = true;
+            if here {
+                self.spread_fns.insert(sig.ident.to_string());
+            }
         }
-        if !has_ident(ty.to_token_stream(), "Duration") || !reads_clock(block.to_token_stream()) {
+        if !here
+            || !has_ident(ty.to_token_stream(), "Duration")
+            || !reads_clock(block.to_token_stream())
+        {
             return;
         }
         let flags = match &**ty {
@@ -1089,6 +1227,14 @@ impl Items {
 }
 
 impl<'ast> Visit<'ast> for Items {
+    fn visit_block(&mut self, b: &'ast Block) {
+        if self.shallow {
+            return;
+        }
+        self.depth += 1;
+        visit::visit_block(self, b);
+        self.depth -= 1;
+    }
     fn visit_item_fn(&mut self, i: &'ast syn::ItemFn) {
         self.consider(&i.attrs, &i.sig, &i.block);
         visit::visit_item_fn(self, i);
@@ -1108,51 +1254,31 @@ impl<'ast> Visit<'ast> for Items {
         }
     }
     fn visit_item_const(&mut self, i: &'ast syn::ItemConst) {
-        self.consts.insert(i.ident.to_string());
+        self.define_const(&i.ident);
         visit::visit_item_const(self, i);
     }
     fn visit_item_static(&mut self, i: &'ast syn::ItemStatic) {
-        self.consts.insert(i.ident.to_string());
+        self.define_const(&i.ident);
         visit::visit_item_static(self, i);
     }
     fn visit_impl_item_const(&mut self, i: &'ast syn::ImplItemConst) {
-        self.consts.insert(i.ident.to_string());
+        self.define_const(&i.ident);
         visit::visit_impl_item_const(self, i);
     }
     fn visit_trait_item_const(&mut self, i: &'ast syn::TraitItemConst) {
-        self.consts.insert(i.ident.to_string());
+        self.define_const(&i.ident);
         visit::visit_trait_item_const(self, i);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        // Items a macro wraps (`mod_tests! { #[test] fn .. }`); expression macros don't parse.
-        if !ASSERT_MACROS.contains(&macro_name(mac).as_str())
-            && let Ok(file) = syn::parse2::<syn::File>(mac.tokens.clone())
-        {
-            self.visit_file(&file);
+        // Items a macro wraps (`mod_tests! { #[test] fn .. }`), or a local fn in its statements.
+        if !ASSERT_MACROS.contains(&macro_name(mac).as_str()) {
+            visit_macro_body(self, mac);
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // A test body: follow its bindings, judge its asserts
-
-/// Comma-separated expressions, as many as parse; the rest of the input is skipped.
-fn lenient_exprs(input: ParseStream) -> syn::Result<Vec<Expr>> {
-    let mut out = Vec::new();
-    while !input.is_empty() {
-        let fork = input.fork();
-        let Ok(e) = fork.parse::<Expr>() else {
-            break;
-        };
-        input.advance_to(&fork);
-        out.push(e);
-        if input.parse::<syn::Token![,]>().is_err() {
-            break;
-        }
-    }
-    let _rest: TokenStream = input.parse()?;
-    Ok(out)
-}
 
 struct BodyScan<'a> {
     sc: Scope<'a>,
@@ -1222,39 +1348,24 @@ impl<'ast> Visit<'ast> for BodyScan<'_> {
         }
         visit::visit_expr_method_call(self, m);
     }
+    fn visit_block(&mut self, b: &'ast Block) {
+        self.sc.blocks.push(block_items(b));
+        visit::visit_block(self, b);
+        self.sc.blocks.pop();
+    }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let name = macro_name(mac);
-        if ASSERT_MACROS.contains(&name.as_str()) {
-            let line = mac.path.span().start().line;
-            if self.not_wall_clock(line) {
-                return;
-            }
-            let Ok(args) = mac.parse_body_with(lenient_exprs) else {
-                return;
-            };
-            let conds = if ["assert", "debug_assert", "prop_assert"].contains(&name.as_str()) {
-                1
-            } else {
-                2
-            };
-            for cond in args.iter().take(conds) {
-                for cmp in comparisons(cond) {
-                    if let Some(kind) = self.sc.judge(cmp) {
-                        self.found.push((cmp.span(), kind));
-                    }
-                }
-            }
+        let Some(conds) = assert_conds(mac) else {
+            visit_macro_body(self, mac);
+            return;
+        };
+        if self.not_wall_clock(mac.path.span().start().line) {
             return;
         }
-        // Another macro's body: statements (`tokio::spawn`-style blocks) or arguments
-        // (`vec![..]`, `format!(.., x = ..)`).
-        if let Ok(stmts) = mac.parse_body_with(Block::parse_within) {
-            for stmt in &stmts {
-                self.visit_stmt(stmt);
-            }
-        } else if let Ok(exprs) = mac.parse_body_with(lenient_exprs) {
-            for e in &exprs {
-                self.visit_expr(e);
+        for cond in &conds {
+            for cmp in comparisons(cond) {
+                if let Some(kind) = self.sc.judge(cmp) {
+                    self.found.push((cmp.span(), kind));
+                }
             }
         }
     }
