@@ -104,7 +104,8 @@ extension SidebarListViewComponents {
     /// Draws the stuck header over the rows on its veil, or the veil gone when none is stuck. Frames are the caller's
     /// (a scroll sets them, an apply moves them on its spring).
     func showStuckHeader(previous: SidebarStuckHeader?) {
-        if let previous, previous.key != stuckHeader?.key { rowViews[previous.key]?.layer?.zPosition = 0 }
+        if let previous, previous.key != stuckHeader?.key { rowViews[previous.key]?.layer?.zPosition = 0; (rowViews[previous.key] as? GroupHeaderRowView)?.isStuck = false }
+        if let stuck = stuckHeader { (rowViews[stuck.key] as? GroupHeaderRowView)?.isStuck = true }
         let wasShown = !stuckVeil.isHidden
         guard let stuck = stuckHeader, let view = rowViews[stuck.key] else {
             if wasShown {

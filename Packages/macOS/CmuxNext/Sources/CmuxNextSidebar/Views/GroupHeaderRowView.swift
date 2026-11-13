@@ -96,6 +96,8 @@ final class GroupHeaderRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// Stuck at the top of the scrolled list (`SidebarListView+StickyHeader`): a plain heading on the sidebar, no band or rim.
+    var isStuck = false { didSet { if isStuck != oldValue { needsDisplay = true } } }
     /// The group editor is open for this group. Its trigger, the more button, stays shown and lit while it is open,
     /// though the pointer leaves for the editor (Leo 2026-10-26: "you keep it on when you click ... the popover"); the
     /// bar keeps its own fill, so only that button lights (Leo 2026-10-27: "Don't ever do that.").
@@ -160,7 +162,7 @@ final class GroupHeaderRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isDropTarget = false
-        isKeyboardFocused = false
+        isKeyboardFocused = false; isStuck = false
         isEditing = false
         collapsed = false
         configuredOnce = false
@@ -330,7 +332,8 @@ final class GroupHeaderRowView: SidebarRowView {
             // Every group draws a visible bar (Lawrence 2026-11-05), a group nobody colored too. Glass (Leo 2026-11-05,
             // `sidebar.groupGlass`) where `sidebar.groupHeader.background` asks for it, else the solid band. Sections, the
             // one opt-out (Leo 2026-11-05), draws a plain heading.
-            if !backgroundStyle.drawsBackground {
+            // Stuck (Leo 2026-11-11: "it doesn't look congruent with the regular look"): the plain heading on the veil.
+            if !backgroundStyle.drawsBackground || isStuck {
                 rim.isHidden = true
                 return paintSection(tokens)
             }
