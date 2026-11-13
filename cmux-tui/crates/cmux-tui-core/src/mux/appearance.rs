@@ -150,6 +150,24 @@ struct Inner {
 struct ThemeSnapshot {
     json: Value,
     watch: Vec<PathBuf>,
+    /// The settings it was resolved from: a cached theme answers only a
+    /// read with the same ones, so a settings change racing a resolve can
+    /// never leave an older theme cached.
+    key: ThemeKey,
+}
+
+/// The settings a theme depends on.
+#[derive(Clone, Debug, PartialEq)]
+struct ThemeKey {
+    theme: Option<String>,
+    edits: Option<Value>,
+    highlight: Option<String>,
+}
+
+impl SettingsInputs {
+    fn theme_key(&self) -> ThemeKey {
+        ThemeKey { theme: self.theme.clone(), edits: self.edits.clone(), highlight: self.highlight.clone() }
+    }
 }
 
 /// What the snapshot reads from the settings file.
@@ -203,7 +221,9 @@ impl Shared {
     fn theme(self: &Arc<Self>, inputs: &SettingsInputs) -> Arc<ThemeSnapshot> {
         let (generation, env, watched) = {
             let inner = lock(self);
-            if let Some(theme) = &inner.theme {
+            if let Some(theme) = &inner.theme
+                && theme.key == inputs.theme_key()
+            {
                 return Arc::clone(theme);
             }
             let watched = inner.watcher.as_ref().map(|(paths, _)| paths.clone());
@@ -383,7 +403,7 @@ fn resolve_theme(base: Env, inputs: &SettingsInputs) -> ThemeSnapshot {
             watch.push(path.clone());
         }
     }
-    ThemeSnapshot { json, watch }
+    ThemeSnapshot { json, watch, key: inputs.theme_key() }
 }
 
 /// The snapshot's pass-through fields: (JSON path, settings key).

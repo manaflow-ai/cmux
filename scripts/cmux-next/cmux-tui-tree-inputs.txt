@@ -95,3 +95,5 @@ blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
+blob schemas/theme/theme-ink-vectors.json
