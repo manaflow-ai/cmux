@@ -476,6 +476,9 @@
   width: calc(var(--acpmux-chip-glyph) * 13 / 16);
   height: calc(var(--acpmux-chip-glyph) * 13 / 16);
   border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
+  /* 1 pt under the box's centre: a solid square reads high beside lowercase names, whose ink sits low in the
+     line (Lucas 2026-11-14: "the folder/project image ... needs to drop by 1pt"). */
+  translate: 0 1px;
 }
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
