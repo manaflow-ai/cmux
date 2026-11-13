@@ -32,6 +32,11 @@ pub const PURPOSE: &str = "cmux-cloud-machine-update";
 pub const SCHEMA: u64 = 1;
 /// Every binary comes from the immutable commit-addressed publication.
 pub const FILES_PREFIX: &str = "https://files.cmux.com/cmux-tui/";
+/// The directory of a commit's Cloud machine copy, `cmux-tui/<commit>/machine/`:
+/// the same commit built for the machine channel alone (thin LTO), uploaded
+/// by `point-machine-channel-early` (scripts/ci/cmux-machine-linux-bytes.sh
+/// early) so it never takes the shipped `cmux-tui/<commit>/<name>` names.
+pub const MACHINE_DIR: &str = "machine/";
 /// A channel file is a few kilobytes.
 pub const CHANNEL_MAX_BYTES: usize = 64 * 1024;
 /// A cmux-tui build is about 160 MB.
@@ -104,10 +109,22 @@ pub fn lower_hex(text: &str, len: usize) -> bool {
     text.len() == len && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// The two URLs a binary of `commit` may have: its publication
+/// `cmux-tui/<commit>/<name>`, or its Cloud machine copy
+/// `cmux-tui/<commit>/machine/<name>`. A binary's url must equal one of them
+/// exactly; nothing else under the prefix (another commit, another name,
+/// another directory) passes.
+pub fn allowed_urls(commit: &str, published_name: &str) -> [String; 2] {
+    [
+        format!("{FILES_PREFIX}{commit}/{published_name}"),
+        format!("{FILES_PREFIX}{commit}/{MACHINE_DIR}{published_name}"),
+    ]
+}
+
 fn check_binary(binary: &Binary, commit: &str, published_name: &str) -> Result<(), String> {
-    let url = format!("{FILES_PREFIX}{commit}/{published_name}");
-    if binary.url != url {
-        return Err(format!("{published_name}: the url is not {url}"));
+    let urls = allowed_urls(commit, published_name);
+    if !urls.iter().any(|url| binary.url == *url) {
+        return Err(format!("{published_name}: the url is neither {} nor {}", urls[0], urls[1]));
     }
     if !lower_hex(&binary.sha256, 64) {
         return Err(format!("{published_name}: the sha256 is not a sha256"));
