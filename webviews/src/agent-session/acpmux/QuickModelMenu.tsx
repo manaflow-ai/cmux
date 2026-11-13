@@ -14,6 +14,7 @@ import { useT } from "./i18n";
 import { useChatDisplay } from "./chatDisplay";
 import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -1058,6 +1059,27 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          scroll={families === undefined}
+          footer={
+            menu.updates ? (
+              <HarnessUpdatesSection updates={menu.updates} onOwnUpdate={() => onOpenChange(false)} />
+            ) : (
+              menu.update && (
+                <div className="acpmux-quick-update">
+                  <span>{menu.update.text}</span>
+                  <MenuItem
+                    className="acpmux-quick-update-action"
+                    onSelect={() => {
+                      menu.update?.run();
+                      onOpenChange(false);
+                    }}
+                  >
+                    {t("harness.update")}
+                  </MenuItem>
+                </div>
+              )
+            )
+          }
           side={side}
           flip={false}
           align="start"
@@ -1173,20 +1195,6 @@ export function QuickModelMenu({
             </div>
           ) : (
             list
-          )}
-          {menu.update && (
-            <div className="acpmux-quick-update">
-              <span>{menu.update.text}</span>
-              <MenuItem
-                className="acpmux-quick-update-action"
-                onSelect={() => {
-                  menu.update?.run();
-                  onOpenChange(false);
-                }}
-              >
-                {t("harness.update")}
-              </MenuItem>
-            </div>
           )}
         </MenuPopup>
       </Menu>

@@ -6,13 +6,13 @@
 
 use crate::store::EventRecord;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 
 const MAX_SPANS: usize = 512;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 enum Category {
     Read,
     Edit,
@@ -47,7 +47,7 @@ pub struct TimeCategory {
     pub tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeSpan {
     pub turn_seq: u64,
@@ -74,14 +74,14 @@ pub struct TimeBreakdown {
     pub spans: Vec<TimeSpan>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Segment {
     category: Category,
     start_at: u64,
     end_at: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TurnState {
     seq: u64,
     id: Option<String>,
@@ -150,10 +150,36 @@ impl TurnState {
 #[derive(Debug, Default)]
 pub(crate) struct State {
     pub(crate) initialized: bool,
+    /// A background seed is reading the journal (`views.rs` `seed_time_breakdown`): at most one.
+    pub(crate) seeding: bool,
+    /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
+    pub(crate) saved_seq: u64,
     reducer: Reducer,
 }
 
-#[derive(Debug, Clone, Default)]
+/// The fold saved beside the chat's log (`<chat folder>/time-breakdown.json`), with the last
+/// `seq` it covers. A daemon restores it and folds only the records past that `seq`, so no open
+/// of a chat reads its whole journal for the time breakdown. It is a cache of the journal: a copy
+/// that is missing, does not read, is another shape ([`SCHEMA`]) or covers records the log does
+/// not hold is not used.
+pub(crate) const FILE: &str = "time-breakdown.json";
+/// Records folded past the saved copy before the next save: a restart folds at most this many.
+pub(crate) const SAVE_EVERY: u64 = 2_000;
+const SCHEMA: u32 = 1;
+
+#[derive(Serialize)]
+struct SavedRef<'a> {
+    schema: u32,
+    reducer: &'a Reducer,
+}
+
+#[derive(Deserialize)]
+struct Saved {
+    schema: u32,
+    reducer: Reducer,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Reducer {
     turn: Option<TurnState>,
     totals: BTreeMap<Category, u64>,
@@ -166,12 +192,34 @@ struct Reducer {
 }
 
 impl State {
+    /// The fold saved by [`Self::save`]; `None` when the bytes do not read or are another shape.
+    pub(crate) fn restore(bytes: &[u8]) -> Option<Self> {
+        let saved = serde_json::from_slice::<Saved>(bytes).ok()?;
+        (saved.schema == SCHEMA).then(|| Self {
+            saved_seq: saved.reducer.last_seq,
+            reducer: saved.reducer,
+            ..Self::default()
+        })
+    }
+
+    /// The bytes to save, and the `seq` they cover.
+    pub(crate) fn save(&self) -> Option<(Vec<u8>, u64)> {
+        let bytes =
+            serde_json::to_vec(&SavedRef { schema: SCHEMA, reducer: &self.reducer }).ok()?;
+        Some((bytes, self.reducer.last_seq))
+    }
+
     pub(crate) fn record(&mut self, record: &EventRecord) {
         if record.seq <= self.reducer.last_seq {
             return;
         }
         self.reducer.last_seq = record.seq;
         self.reducer.record(record);
+    }
+
+    /// The newest record folded in so far.
+    pub(crate) fn last_seq(&self) -> u64 {
+        self.reducer.last_seq
     }
 
     pub(crate) fn snapshot(&self, now: u64) -> TimeBreakdown {

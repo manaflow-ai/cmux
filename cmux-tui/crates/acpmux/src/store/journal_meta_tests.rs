@@ -39,16 +39,138 @@ fn open(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
 /// again, one period (30 s) after that change, so the journal keeps the records of the saves
 /// that follow until the test's own flush or kill.
 fn open_after_replay_checkpoint(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
+    open_held_at_idle(home, journal, |idle| {
+        idle.recv_timeout(WAIT)
+            .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
+    })
+}
+
+/// Opens the store at `home` with its checkpointer held once at idle (holding the timer lock),
+/// runs `wait_idle` on the hold's arrival, then lets the checkpointer go.
+fn open_held_at_idle(
+    home: &Path,
+    journal: &SimStorage,
+    wait_idle: impl FnOnce(&std::sync::mpsc::Receiver<()>),
+) -> Box<dyn Store> {
     let (arrived, idle) = std::sync::mpsc::channel();
     let (release, released) = std::sync::mpsc::channel();
     super::journal_store::checkpointer_seams(home, |seams| {
         seams.idle_hold = Some((arrived, released));
     });
     let store = open(home, journal);
-    idle.recv_timeout(WAIT)
-        .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
-    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    // After the store: a panic in the wait releases before the unwind drops the store.
+    let release = super::journal_store::Release::new(release);
+    wait_idle(&idle);
+    release.now();
     store
+}
+
+/// How a body run by `ends_within` ended.
+enum Ending {
+    Returned,
+    /// It panicked, with this payload.
+    Panicked(Box<dyn std::any::Any + Send>),
+    /// It was still running after the bound: a hang, reported instead of hanging the test.
+    Hung,
+}
+
+/// Runs `body` on its own thread and returns how it ended within `bound`.
+fn ends_within(bound: Duration, body: impl FnOnce() + Send + 'static) -> Ending {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)));
+    });
+    match ended.recv_timeout(bound) {
+        Ok(Ok(())) => Ending::Returned,
+        Ok(Err(payload)) => Ending::Panicked(payload),
+        Err(_) => Ending::Hung,
+    }
+}
+
+/// The deliberate panic of the expired wait in
+/// `a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging`, raised with
+/// `std::panic::panic_any` so no other panic can pass for it.
+struct WaitExpiredAtHold;
+
+/// A panic payload as text, for a verdict's message.
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else if payload.is::<WaitExpiredAtHold>() {
+        "WaitExpiredAtHold".to_string()
+    } else {
+        "a non-text payload".to_string()
+    }
+}
+
+/// The verdict on the expiring-wait worker (#41816 F1): `Ok` only when it ended in the
+/// deliberate `WaitExpiredAtHold` panic after it observed the idle hold. Any panic before the hold
+/// (the store's `open`, a hold that never came) or any other panic after it is not the case under
+/// test, and a return or a hang fails it too; each `Err` says which.
+fn judge_expired_at_hold(hold_seen: bool, ending: Ending) -> Result<(), String> {
+    match ending {
+        Ending::Hung => Err("it hung: still running after the bound".to_string()),
+        Ending::Returned => Err("it returned instead of panicking at the hold".to_string()),
+        Ending::Panicked(payload) if !hold_seen => {
+            Err(format!("it panicked before the idle hold was observed: {}", panic_text(&*payload)))
+        }
+        Ending::Panicked(payload) if !payload.is::<WaitExpiredAtHold>() => Err(format!(
+            "it panicked after the hold, but not with the deliberate panic: {}",
+            panic_text(&*payload)
+        )),
+        Ending::Panicked(_) => Ok(()),
+    }
+}
+
+/// #41816 F1: the detector above counts only the deliberate panic after the hold. Before, any
+/// panic passed, so a store that failed to open or a hold that never came passed as "fails
+/// instead of hanging".
+#[test]
+fn the_hang_detector_counts_only_the_deliberate_panic_after_the_hold() {
+    let deliberate = || Ending::Panicked(Box::new(WaitExpiredAtHold));
+    let other = || Ending::Panicked(Box::new("open the store: denied"));
+    let cases = [
+        ("a panic before the hold", judge_expired_at_hold(false, other())),
+        ("the deliberate panic before the hold", judge_expired_at_hold(false, deliberate())),
+        ("another panic after the hold", judge_expired_at_hold(true, other())),
+        ("a return", judge_expired_at_hold(true, Ending::Returned)),
+        ("a hang", judge_expired_at_hold(true, Ending::Hung)),
+    ];
+    for (case, verdict) in cases {
+        assert!(verdict.is_err(), "the hang detector passed {case}");
+    }
+    assert_eq!(
+        judge_expired_at_hold(true, deliberate()),
+        Ok(()),
+        "the hang detector failed the deliberate panic after the hold"
+    );
+}
+
+/// #41627 F1: a wait for the idle checkpointer that expires just as the checkpointer reaches its
+/// idle hold fails the test; it does not hang it. The checkpointer holds the timer lock in the
+/// hold, and the store's drop takes that lock: a release still owed when the unwind drops the
+/// store left both waiting on each other forever. Here the wait "expires" (panics) right after
+/// the hold arrived, the worst moment.
+#[test]
+fn a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(103);
+    let path = home.path().to_path_buf();
+    let hold_seen = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&hold_seen);
+    let ending = ends_within(WAIT * 3, move || {
+        let _store = open_held_at_idle(&path, &journal, |idle| {
+            idle.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the idle hold never arrived: {e}"));
+            seen.store(true, Ordering::SeqCst);
+            std::panic::panic_any(WaitExpiredAtHold);
+        });
+    });
+    if let Err(why) = judge_expired_at_hold(hold_seen.load(Ordering::SeqCst), ending) {
+        panic!("a wait that expired at the idle hold did not end as intended: {why}");
+    }
 }
 
 fn meta(id: &str, name: &str, last_seq: u64) -> SessionMeta {

@@ -57,7 +57,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+const { SUBAGENT_DONE, SUBAGENT_STARTED } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
@@ -143,10 +143,10 @@ describe("the transcript keeps no running card", () => {
     row("a2", "assistant", 100, { text: "Both are back." }),
   ];
 
-  test("a running subagent draws no row; the tray has it", () => {
+  test("a running subagent keeps its start line while the tray owns its progress", () => {
     const rows = transcript([agent("Reviewer", { action: "Read src/app.ts" })]);
     const out = withSubagentLines(rows);
-    expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", "activity", "assistant"]);
+    expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", SUBAGENT_STARTED, "activity", "assistant"]);
     const items = trayItems([agent("Reviewer", { action: "Read src/app.ts" })], [], NONE, true);
     expect(items.map((item) => item.id)).toEqual(["Reviewer"]);
   });
@@ -160,22 +160,63 @@ describe("the transcript keeps no running card", () => {
     expect(out.map((entry) => entry.id)).toEqual([
       "u1",
       "a1",
+      `${SUBAGENT_STARTED}:${SUBAGENTS}-3`,
       "t1",
       `${SUBAGENT_DONE}:Tester`,
       `${SUBAGENT_DONE}:Reviewer`,
       "a2",
     ]);
     // The rows around them are the same objects, and so is a line whose subagent did not change.
-    expect(out[2]).toBe(rows[3]!);
+    expect(out[3]).toBe(rows[3]!);
     const cache = new Map();
     const first = withSubagentLines(rows, cache);
     const again = withSubagentLines([...rows], cache);
-    expect(again[3]).toBe(first[3]!);
+    expect(again[4]).toBe(first[4]!);
   });
 
   test("a transcript without subagents is returned as it is", () => {
     const rows = [row("u1", "user", 0), row("a1", "assistant", 5)];
     expect(withSubagentLines(rows)).toBe(rows);
+  });
+
+  test("a started line shares tool-row spacing and its name opens the actual agent", async () => {
+    const started = withSubagentLines(transcript([agent("Reviewer")])).find(
+      (entry) => entry.kind === SUBAGENT_STARTED,
+    )!;
+    const tool = row("read", "activity", 11, {
+      items: [
+        {
+          kind: "tool",
+          text: "Read source",
+          tool: { id: "read", title: "Read source", kind: "read", status: "completed" },
+        },
+      ],
+    });
+    const opened: string[] = [];
+    const { root, done } = await render(
+      createElement(
+        SubagentNavContext.Provider,
+        { value: (id: string | undefined) => void opened.push(String(id)) },
+        createElement(VirtualTranscript, {
+          rows: [started, tool],
+          onToggleActivity: () => {},
+          expanded: new Set<string>(),
+        }),
+      ),
+    );
+    try {
+      expect(
+        root.querySelector(`article[data-row-id="${started.id}"]`)?.classList.contains("acpmux-row--before-step"),
+      ).toBe(true);
+      expect(root.querySelector('article[data-row-id="read"]')?.classList.contains("acpmux-row--after-step")).toBe(
+        true,
+      );
+      const name = root.querySelector<HTMLButtonElement>(".cv-subagent-started .cv-agent-tag.is-open")!;
+      await act(async () => name.click());
+      expect(opened).toEqual(["Reviewer"]);
+    } finally {
+      await done();
+    }
   });
 
   test("the line names the subagent and how long it ran; a failure is marked failed", async () => {
@@ -198,7 +239,7 @@ describe("the transcript keeps no running card", () => {
       // The duration is the row's trailing column; the line's button still reads it whole.
       expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
-        ["completed", "Subagent finished: Reviewer · 1m 20s"],
+        ["completed", "Reviewer finished · 1m 20s"],
       ]);
       expect(root.querySelector(".cv-subagents")).toBeNull();
       // Only its name chip opens it (Leo, 2026-11-05: "subagents need to have their clickable bit be
@@ -359,14 +400,12 @@ describe("the tray", () => {
       expect(tooltip).toContain("Running a command");
       expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
-      // A click on the line expands it in place (Leo, 2026-11-07: "I would be expanding this"); its
-      // detail's Open chat is what opens the subagent.
-      await act(async () => lines[0]!.querySelector("button")!.click());
-      expect(opened).toEqual([]);
-      await act(async () =>
-        lines[0]!.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
-      );
+      const link = lines[0]!.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      expect(link.type).toBe("button");
+      expect(link.hasAttribute("aria-expanded")).toBe(false);
+      await act(async () => link.click());
       expect(opened).toEqual(["Explore the daemon"]);
+      expect(lines[0]!.closest("li")!.querySelector("[data-line-detail]")).toBeNull();
     } finally {
       await done();
     }
@@ -669,13 +708,14 @@ describe("the tray", () => {
     const live = agent("Reviewer", { startedAt: now - 39 * 60_000 });
     const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 54_000 });
     const stopped: string[] = [];
+    const opened: string[] = [];
     const { root, done } = await render(
       createElement(SubagentTray, {
         items: trayItems([live], [], NONE, true),
         finished: finishedTrayItems([ended], NONE),
         working: true,
         waiting: new Set<string>(),
-        onOpen: () => {},
+        onOpen: (id: string) => opened.push(id),
         stop: async (id: string) => {
           stopped.push(id);
         },
@@ -697,6 +737,7 @@ describe("the tray", () => {
       expect(stop.querySelectorAll('svg[data-icon="action.stop"] path').length).toBe(2);
       await act(async () => stop.click());
       expect(stopped).toEqual(["Reviewer"]);
+      expect(opened).toEqual([]);
       expect(finished.hasAttribute("data-timed")).toBe(false);
       const mark = finished.querySelector<HTMLElement>(".acpmux-done-mark[data-hat-done]")!;
       expect(mark.dataset.look).toBe("check");
@@ -784,10 +825,10 @@ describe("the tray", () => {
         "cargo watch",
         "Port the history page",
       ]);
-      // Each line expands in place; its detail's button opens it.
+      // Agent rows open directly; commands and started sessions retain their detail controls.
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
-      expect(opened).toEqual([]);
-      for (const line of lines)
+      expect(opened).toEqual(["agent:Watcher"]);
+      for (const line of lines.slice(1))
         await act(async () =>
           line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click(),
         );
@@ -1380,10 +1421,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       // The tray is the header, then the fold (trayMotion.tsx) with the list in it: the pinned header
-      // is outside the scroller, and nothing (no View all) follows the list.
+      // is outside the scroller, and nothing (no View all) follows the list. The rim's resize band
+      // (trayResize.ts) sits over the hat's top edge, out of the column's flow.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
         "acpmux-running-tray__fold",
+        "acpmux-running-tray__rim",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
       expect(list.querySelectorAll("li").length).toBe(118);

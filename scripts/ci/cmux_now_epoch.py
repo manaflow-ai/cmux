@@ -2,8 +2,9 @@
 """CMUX_NOW_EPOCH: the one clock override for scripts that judge dates against now.
 
 Whole seconds since 1970-01-01 UTC, digits only, from 0 to 253402300799 (9999-12-31T23:59:59Z, the
-last second a datetime holds). Unset means the real clock. Any other value, the empty string
-included, stops the script with exit 2 and one line:
+last second a datetime holds) once leading zeros are stripped (0000000000000 is 0). Unset means the
+real clock. Any other value, the empty string included, stops the script with exit 2 and one line,
+the value quoted (repr here, printf %q in bash) so a newline in it cannot split the line:
 
     error: CMUX_NOW_EPOCH='abc' is not an epoch: ...
 
@@ -30,7 +31,7 @@ from typing import Mapping
 
 NAME = "CMUX_NOW_EPOCH"
 MAX_EPOCH = 253402300799
-_DIGITS = re.compile(r"[0-9]{1,12}")
+_DIGITS = re.compile(r"[0-9]+")
 
 
 class NotAnEpoch(ValueError):
@@ -39,11 +40,13 @@ class NotAnEpoch(ValueError):
 
 def parse(value: str) -> dt.datetime:
     """The UTC time VALUE names, or NotAnEpoch with the line the caller prints."""
-    if not _DIGITS.fullmatch(value) or int(value) > MAX_EPOCH:
+    digits = (value.lstrip("0") or "0") if _DIGITS.fullmatch(value) else ""
+    # Bound the length before int(): a long digit string is out of range, never a ValueError.
+    if not digits or len(digits) > len(str(MAX_EPOCH)) or int(digits) > MAX_EPOCH:
         raise NotAnEpoch(
             f"{NAME}={value!r} is not an epoch: whole seconds since 1970 UTC, 0 to {MAX_EPOCH} "
             f"(4133980800 is 2101-01-01); unset it for the real clock")
-    return dt.datetime.fromtimestamp(int(value), dt.timezone.utc)
+    return dt.datetime.fromtimestamp(int(digits), dt.timezone.utc)
 
 
 def utc_now(environ: Mapping[str, str] | None = None) -> dt.datetime:

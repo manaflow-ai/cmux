@@ -453,25 +453,148 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
-    /// Fold a chat's journal once, then keep the reducer current at the append seam. The append
-    /// lock makes the seed and the next record one ordered view for Session Info.
-    fn time_breakdown_of(
+    /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
+    /// it is done, Session Info and attach carry no breakdown; the next read after it does. It
+    /// restores the saved copy (`time_breakdown::FILE`) and folds only the records past it; a
+    /// chat with none is not folded from its log here (see [`Self::start_time_breakdown_backfill`]).
+    fn start_time_breakdown_seed(&self, session: &Session) {
+        self.spawn_time_breakdown_seed(session, false);
+    }
+
+    /// The one fold of a chat's whole journal, for a chat with no saved copy (one an older daemon
+    /// wrote, or a new one): started by a turn's end, never by an open, so no open of a chat
+    /// reads its whole log. It saves the copy, so no later daemon folds that chat again.
+    pub(super) fn start_time_breakdown_backfill(&self, session: &Session) {
+        if self.store.session_path(&session.id).is_some() {
+            self.spawn_time_breakdown_seed(session, true);
+        }
+    }
+
+    fn spawn_time_breakdown_seed(&self, session: &Session, backfill: bool) {
+        {
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            if state.initialized || state.seeding {
+                return;
+            }
+            state.seeding = true;
+        }
+        let (Some(hub), Ok(runtime)) = (
+            self.hub_ref.get().and_then(std::sync::Weak::upgrade),
+            tokio::runtime::Handle::try_current(),
+        ) else {
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+            return;
+        };
+        let id = session.id.clone();
+        runtime.spawn_blocking(move || {
+            let session = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            // Gone meanwhile (purged): nothing to seed.
+            if let Some(session) = session {
+                hub.seed_time_breakdown(&session, backfill);
+            }
+        });
+    }
+
+    /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
+    /// reducer current at the append seam. A chat with no usable copy is folded from its whole
+    /// log only when `backfill` says so (or its store holds no files to read): an open never
+    /// does. Most of the read runs without the append lock; only the tail written meanwhile is
+    /// read under it, so the seed and the next appended record are one ordered view and no record
+    /// counts twice.
+    pub(super) fn seed_time_breakdown(&self, session: &Session, backfill: bool) {
+        use crate::hub::time_breakdown::{FILE, SAVE_EVERY, State};
+        let path = self.store.session_path(&session.id).map(|dir| dir.join(FILE));
+        let last = session.meta().last_seq;
+        // A copy past the log is another log's (a chat moved back in under its id): not used.
+        let saved = path
+            .as_ref()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| State::restore(&bytes))
+            .filter(|state| state.last_seq() <= last);
+        let mut seeded = match saved {
+            Some(state) => state,
+            None if backfill || path.is_none() => State::default(),
+            None => {
+                session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+                return;
+            }
+        };
+        let from = seeded.saved_seq;
+        // A few records past the copy are read back from the log's end, many forward.
+        let few = seeded.last_seq() > 0 && last.saturating_sub(seeded.last_seq()) <= SAVE_EVERY * 4;
+        if self.fold_past(session, &mut seeded, few).is_ok() {
+            let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let tail = self.fold_past(session, &mut seeded, true);
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            let installed = tail.is_ok() && !state.initialized;
+            let mut save = None;
+            if installed {
+                seeded.initialized = true;
+                // Saved at once when it was folded from the log, and once enough records passed
+                // the copy it restored; the append seam saves it after that.
+                if from == 0 || seeded.last_seq() >= from + SAVE_EVERY {
+                    save = seeded.save();
+                    seeded.saved_seq = seeded.last_seq();
+                }
+                *state = seeded;
+            }
+            state.seeding = false;
+            drop(state);
+            drop(_append);
+            if let (Some(path), Some((bytes, seq))) = (path, save) {
+                self.write_time_breakdown(session, &path, &bytes, seq);
+            }
+            // The chat pane and its census row carry the breakdown without waiting for a record.
+            if installed {
+                self.row_notice(session, "time_breakdown");
+            }
+        } else {
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+        }
+    }
+
+    /// Folds the records past `seed` into it. With `back`, they are read from the log's end
+    /// backwards and folded in order, which costs only the records past the copy; a forward read
+    /// past them reads the whole segment that holds them.
+    fn fold_past(
         &self,
         session: &Session,
-    ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
-        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-        if !state.initialized {
-            let scanned = self.store.scan(&session.id, 0, &mut |record| {
-                state.record(&record);
+        seed: &mut crate::hub::time_breakdown::State,
+        back: bool,
+    ) -> anyhow::Result<()> {
+        let after = seed.last_seq();
+        if back && after > 0 {
+            let mut past = Vec::new();
+            self.store.scan_back(&session.id, after, u64::MAX, &|_, _| false, &mut |record| {
+                past.push(record);
                 true
-            });
-            if scanned.is_err() {
-                return None;
+            })?;
+            for record in past.iter().rev() {
+                seed.record(record);
             }
-            state.initialized = true;
+            return Ok(());
         }
-        Some(state.snapshot(crate::store::now_ms()))
+        self.store.scan(&session.id, after, &mut |record| {
+            seed.record(&record);
+            true
+        })
+    }
+
+    /// Saves the fold's bytes beside the chat's log. A cache: the next daemon folds the records
+    /// past an older copy when this one fails.
+    pub(super) fn write_time_breakdown(
+        &self,
+        session: &Session,
+        path: &std::path::Path,
+        bytes: &[u8],
+        seq: u64,
+    ) {
+        match crate::config::write_atomic_unsynced(path, bytes) {
+            Ok(()) => {
+                tracing::debug!(session = %session.id, seq, "saved the time breakdown");
+            }
+            Err(e) => tracing::debug!(session = %session.id, "time breakdown not saved: {e:#}"),
+        }
     }
 
     /// Return the breakdown only after a detail/attach read has seeded it. Summary and census
@@ -494,6 +617,8 @@ impl Hub {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
+        #[cfg(test)]
+        self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
@@ -781,9 +906,9 @@ impl Hub {
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
-        // Session Info/attach is the explicit opt-in for the journal-backed chart. Seed before
-        // building the summary so the typed optional field carries the first snapshot.
-        let _ = self.time_breakdown_of(session);
+        // Session Info/attach is the explicit opt-in for the journal-backed chart. It restores the
+        // saved fold in the background, never reads the whole journal: this read answers without it.
+        self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
@@ -934,6 +1059,9 @@ impl Hub {
             "largeMessages": crate::wire_size::global().status(),
             // The session list each client is sent, by its name (`list_bytes.rs`).
             "listReplies": crate::list_bytes::global().status(),
+            // Startup phases, memory, list rebuilds and each connection's queued bytes
+            // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
+            "gauges": crate::gauges::daemon_status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -1030,6 +1158,15 @@ mod time_breakdown_tests {
             Some(200),
         );
 
+        // Attach answers without waiting on the append lock or the seed's journal read.
+        {
+            let _append = session.append_lock.lock().unwrap();
+            let detail = hub.session_detail(&session);
+            assert!(detail.get("timeBreakdown").is_none());
+            assert!(!session.time_breakdown.lock().unwrap().initialized);
+        }
+        // The seed the detail started in the background, run here so the test need not wait.
+        hub.seed_time_breakdown(&session, false);
         let detail = hub.session_detail(&session);
         assert!(session.time_breakdown.lock().unwrap().initialized);
         assert_eq!(detail["timeBreakdown"]["totalMs"], 100);

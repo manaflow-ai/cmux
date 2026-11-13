@@ -7,6 +7,7 @@
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
+  --cv-shimmer-sweep-duration: 1s;
   /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts), on the one fold
      curve every web fold shares, the settle (--cmux-ease-settle over --cmux-motion-settle, schemas/motion-scale):
      a strong ease-out that starts at full speed and decelerates into its end, never past it (Leo,
@@ -227,12 +228,12 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
-  --cv-bubble-pad-block: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);
+  --cv-bubble-pad-block: calc(2.5 * var(--grid-base));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base));
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: var(--grid-cards-radius);
+  border-radius: calc(3 * var(--grid-base));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -538,33 +539,11 @@
   line-clamp: 6;
   overflow: hidden;
 }
-/* Show all, then the action row (time, copy, retry), on one line under the bubble's right edge.
-   The toggle stays visible while the actions fade in on hover. */
-.cv-user__chief-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  height: var(--cv-meta-row);
-  margin-top: var(--cv-meta-gap);
-}
-.cv-user__chief-footer > .cv-user__actions {
-  margin-top: 0;
-}
-.cv-user__expand {
-  flex: none;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: 18px;
-  color: var(--cv-text-muted);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-user__expand:hover {
-  color: var(--agent-text);
+/* The collapsed task's last line fades out under a mask into Show all, the bubble's own bottom row
+   (ChiefPromptBubble.tsx), as a long prompt's does (.cv-user__text.is-faded). */
+.cv-user__bubble--collapsed > .cv-user__clamp {
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
 
 /* A long prompt (PromptText.tsx, promptCollapse.ts): its first twenty lines, the last one fading out
@@ -1916,9 +1895,10 @@
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
    tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
-   tall with a scrollbar as without one. A cut preview shows eight rows and the lane under them,
-   Pierre's box cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS), and its bottom fade
-   stops above the lane. Wrapped rows never scroll sideways: no lane. */
+   tall with a scrollbar as without one. A long diff shows eight rows and the lane under them:
+   Pierre's box is cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS) and scrolls down
+   itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
+   rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
   --cv-lane: 6px;
   --cv-bar: var(--cv-lane);
@@ -1928,13 +1908,15 @@
 .cv-edit-diff[data-wrap="true"] > .cv-edit-diff__body {
   --cv-lane: 0px;
 }
+/* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
+   block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
+  overflow-y: auto;
 }
-/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
-   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
-   ends on the same surface the row continues, with no strip of another colour under the lines. */
+/* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
+   its header, with no strip of another colour under the lines. */
 .cv-edit-diff > .cv-expand-row {
   min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
@@ -2432,12 +2414,14 @@ pre.cv-math-source {
   display: inline-flex;
   gap: 8px;
 }
-/* The turn's time is quieter than its words too, as its tokens are (Leo, 2026-10-21: "shouldnt the
-   token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
-   inside "Working for 35s" and "Worked for 1m 16s" (TurnTokens.tsx `TimedLabel`). */
-.cv-worked__time,
-.cv-worked__label-time {
+/* A separate elapsed time beside Thinking or a call stays secondary. Durations inside
+   Working for and Worked for inherit their label's colour. */
+.cv-worked__time {
   color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.cv-worked__label-time {
+  color: inherit;
   font-variant-numeric: tabular-nums;
 }
 /* A finished step's own time beside the label once the turn's clock reads as the total. */
@@ -2685,11 +2669,9 @@ pre.cv-math-source {
     pointer-events: none;
     user-select: none;
     -webkit-user-select: none;
-    -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
-    mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
-    animation: cmux-shimmer-band var(--cmux-shimmer-period, 2.8s) linear infinite;
-    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
-    animation-delay: var(--cmux-loop-delay, 0s);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
+    transform: translateX(-50%);
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
@@ -2697,10 +2679,8 @@ pre.cv-math-source {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
-    animation: cmux-shimmer-lit var(--cmux-shimmer-period, 2.8s) linear infinite;
-    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
-    animation-delay: var(--cmux-loop-delay, 0s);
+    color: var(--cv-text);
+    transform: translateX(50%);
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label {
     min-width: 0;
@@ -2841,7 +2821,7 @@ pre.cv-math-source {
    hidden page pauses the loop (desktop.css); the row's copy unmounts once the call ends. Focus
    lifts the words to the text colour, as on every row. Gallery: agent-pane.tool-row-shimmer. */
 .cv-tool {
-  --cv-row-shimmer-period: var(--cmux-shimmer-period, 2.8s);
+  --cv-row-shimmer-period: 1s;
   /* The band's width, a share of the words', as the Thinking line's (30% to 70% of its mask). */
   --cv-row-shimmer-width: 40%;
   --cv-row-shimmer-lit: var(--cv-text);
@@ -2912,17 +2892,9 @@ pre.cv-math-source {
     display: block;
     width: 100%;
     height: 100%;
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
-    -webkit-mask-size: var(--cv-row-shimmer-width) 100%;
-    mask-size: var(--cv-row-shimmer-width) 100%;
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    animation: cmux-shimmer-band var(--cv-row-shimmer-period) linear infinite;
-    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
-    animation-delay: var(--cmux-loop-delay, 0s);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
+    transform: translateX(-50%);
   }
   /* The lit copy lays out as the words do (one line cut with an ellipsis, or wrapped when opened). */
   .cv-tool.is-live .cv-row-shimmer__lit {
@@ -2934,9 +2906,7 @@ pre.cv-math-source {
     white-space: inherit;
     overflow-wrap: inherit;
     color: var(--cv-row-shimmer-lit);
-    animation: cmux-shimmer-lit var(--cv-row-shimmer-period) linear infinite;
-    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
-    animation-delay: var(--cmux-loop-delay, 0s);
+    transform: translateX(50%);
   }
   /* Marks with their own colour (edit counts, a failure word) keep it inside the band. */
   .cv-tool.is-live .cv-row-shimmer__lit *:not(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
@@ -2944,11 +2914,34 @@ pre.cv-math-source {
   }
 }
 
+
+/* Codex's loading text is a one-second sweep, not a stretched infinite loop. The cadence
+   controller starts a pass every four seconds and leaves only the base text between passes. */
+@keyframes cmux-cadenced-shimmer-band {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(125%); }
+}
+@keyframes cmux-cadenced-shimmer-lit {
+  from { transform: translateX(50%); }
+  to { transform: translateX(-125%); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shimmer__band.is-shimmer-active,
+  .cv-row-shimmer.is-shimmer-active > .cv-row-shimmer__band {
+    /* motion-allow: decorative loading sweep, 1s every 4s; runs only while visible and motion is allowed. */
+    animation: cmux-cadenced-shimmer-band var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+  }
+  .cv-shimmer__band.is-shimmer-active > .cv-shimmer__lit,
+  .cv-row-shimmer.is-shimmer-active > .cv-row-shimmer__band > .cv-row-shimmer__lit {
+    /* motion-allow: decorative loading sweep, 1s every 4s; runs only while visible and motion is allowed. */
+    animation: cmux-cadenced-shimmer-lit var(--cv-shimmer-sweep-duration) steps(48, end) 1;
+  }
+}
+
 .cv-tools {
   display: flex;
   flex-direction: column;
-  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
-  gap: 0;
+  gap: var(--grid-base);
   margin: 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -3004,13 +2997,12 @@ pre.cv-math-source {
   overflow: visible;
   overscroll-behavior: auto;
 }
-/* A long opened run as the Codex app draws it (runScroll.experiment.ts; Lucas, 2026-11-11): 14
-   lines tall, scrolled on its own, faded one line deep at the top and bottom where more is hidden
+/* Codex caps an opened activity group at 224px, with 24px edge fades where more is hidden
    (`data-fade-top`, `data-fade-bottom`, RunScroll.tsx). A short run is its own height, unfaded. */
 .cv-run-scroll {
   --cv-run-fade-top: 0px;
   --cv-run-fade-bottom: 0px;
-  max-height: calc(var(--cv-tool-row-height) * 14);
+  max-height: calc(var(--grid-base) * 56);
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-mask-image: linear-gradient(
@@ -3029,10 +3021,10 @@ pre.cv-math-source {
   );
 }
 .cv-run-scroll[data-fade-top] {
-  --cv-run-fade-top: var(--cv-tool-row-height);
+  --cv-run-fade-top: calc(var(--grid-base) * 6);
 }
 .cv-run-scroll[data-fade-bottom] {
-  --cv-run-fade-bottom: var(--cv-tool-row-height);
+  --cv-run-fade-bottom: calc(var(--grid-base) * 6);
 }
 .cv-tool {
   all: unset;
@@ -3153,11 +3145,13 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   color: var(--cv-text);
 }
 /* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
-   wraps instead of being cut at the row's edge. */
+   wraps instead of being cut at the row's edge. It breaks only where a word no longer fits, never
+   anywhere: `anywhere` let the label's box shrink to one character, so a file name stood as a column
+   of short lines (Lawrence, 2026-11-11 standup: "a file becomes multi-line"). */
 .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
   overflow: visible;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
@@ -3359,6 +3353,21 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
    margins stay inside the height the fold animates instead of popping in at its ends. */
 .cv-fold {
   display: flow-root;
+}
+/* The space between a line and the body it opens (`.cv-tools`' gap) is the body's own first item,
+   not the flex gap over it. The gap lies outside the height the fold animates: it stayed whole while
+   the body closed and left in one frame when the body was removed, so a close at the latest row
+   stopped one gap short for some frames and then jumped (transcript-details-toggle-steady-browser.test.ts,
+   "the clicked line stalled"), and an open began with the same step. The body takes the gap back and
+   holds the same space inside its box, so the layout at rest is the same and the space grows in and
+   folds away with the body, as the tray's divider does (subagents.css, `.acpmux-running-tray__fold::before`). */
+.cv-tools > * + .cv-fold {
+  margin-top: calc(-1 * var(--grid-base));
+}
+.cv-tools > * + .cv-fold::before {
+  content: "";
+  display: block;
+  height: var(--grid-base);
 }
 /* A row a closing "Worked for" hid, drawn where it was while it fades out under the rows sliding up
    over it (turnFold.ts): never hit, focused or selected. */
@@ -4263,9 +4272,6 @@ button.cv-video-frames__frame:focus-visible {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.cv-command__stopped {
-  color: var(--cv-text-dim);
-}
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
    turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */
 /* At the line's own size, so its words share the command's baseline and middle: a smaller face
@@ -4925,8 +4931,8 @@ a.cv-sha:focus-visible {
     transition: none;
   }
 }
-/* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
-   (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
+/* A tool-call block's body (BlockParts.tsx): past eight lines it scrolls in an eight-line box whose
+   bottom fades out while more lies under it, and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
    and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
    box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), `--cv-bar` tall, in a
@@ -4955,7 +4961,7 @@ a.cv-sha:focus-visible {
 }
 /* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
    fade above: the two selectors weigh the same, so the later one wins. */
-.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+:is(.cv-edit-diff__body, .cv-shell__body)[data-preview="cut"]:not([data-more-below]) {
   --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
@@ -4973,6 +4979,14 @@ a.cv-sha:focus-visible {
     ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
+}
+/* A long diff's lane is inside each hunk's own box, which scrolls by under the body's edge, so the
+   body fades to its very bottom; its right edge fades in each hunk's box (sideways.ts). */
+.cv-edit-diff__body[data-preview="cut"][data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom)), transparent);
+}
+.cv-edit-diff__body[data-preview="cut"]:not([data-more-below]) {
+  mask-image: none;
 }
 /* Its lines, one block each: wrapped, a long one hangs under its first row; unwrapped, it stays on
    one row and the body scrolls sideways (trackpad, Shift-wheel). */
@@ -5639,7 +5653,10 @@ a.cv-sha:focus-visible {
   letter-spacing: 0.08em;
   user-select: text;
 }
-.cv-turn-error__details[open] {
+/* Details owns a full action-row slot in both states. The raw error grows below its summary when
+   open, but the disclosure itself never changes flex line or horizontal position (Leo, 2026-11-12:
+   "this details moves aroud"). */
+.cv-turn-error__details {
   flex-basis: 100%;
 }
 .cv-turn-error__raw {
@@ -6808,8 +6825,15 @@ a.cv-sha:focus-visible {
   height: var(--cv-chevron-glyph);
   margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
 }
-/* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
-.cv-plan[data-folded] {
+/* An ended list is that line alone: no card around it, like the turn's other summary lines. Opened,
+   its steps draw under it on the same left edge, still with no card (Lucas, 2026-11-12: "make the
+   spacing left. and remove the background on open"); the running turn's pinned list keeps its card. */
+.cv-plan[data-ended] {
+  /* A row like the turn's other lines: the transcript's row gap is all the room around it, with no
+     card padding or margin left over (Lucas, 2026-11-12: "still substantial spacing there below").
+     model.ts estimates it at its 24px line. */
+  margin-block: 0;
+  padding-block: 0;
   /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
   padding-inline: calc((var(--cv-row-icon) - 12px) / 2) 0;
   background: transparent;
@@ -7446,8 +7470,7 @@ button.cv-user__file-open:focus-visible {
 .cv-tool-run {
   display: flex;
   flex-direction: column;
-  /* Flush lines, 22 apart (--cv-tool-row-height); a note keeps --cv-note-gap around it. */
-  gap: 0;
+  gap: var(--grid-base);
 }
 .cv-tool-label {
   display: inline-flex;

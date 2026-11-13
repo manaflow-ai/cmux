@@ -233,9 +233,12 @@ impl LocalStore {
         self.dir(id).join(COLD_FILE)
     }
 
-    /// The chat's log is in its archive: an archive and no segment.
+    /// The chat's log is in its archive: an archive and no segment. The archive is looked for
+    /// in the held home (`home_fs`), where the settle and the rehydrate act (#41697 review F1),
+    /// on every platform (#41721 review F1). A home that is no longer the held one reads as not
+    /// cold here; `rehydrate`, which a read of the chat goes through, answers it with an error.
     pub(super) fn is_cold(&self, id: &str) -> bool {
-        std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        crate::home_fs::try_exists_nofollow(self.cold_path(id)).unwrap_or(false)
             && self.segment_files(id).is_ok_and(|segments| segments.is_empty())
     }
 
@@ -331,7 +334,7 @@ impl LocalStore {
             }
         }
         let archive = self.cold_path(id);
-        if !crate::home_fs::exists_nofollow(&archive) || !self.held_has_segment(id)? {
+        if !crate::home_fs::try_exists_nofollow(&archive)? || !self.held_has_segment(id)? {
             return Ok(());
         }
         remove_dir_if_there(&dir.join(THAW_DIR))?;
@@ -450,8 +453,11 @@ impl LocalStore {
     /// Refused once the store is sealed: the next daemon may already own the home.
     pub(super) fn rehydrate(&self, id: &str) -> Result<bool> {
         let archive = self.cold_path(id);
-        // The cost to every read of a chat with no segment: one `lstat`.
-        if std::fs::symlink_metadata(&archive).is_err() {
+        // The cost to every read of a chat with no segment: one `*at` walk in the held home.
+        // Read there, not by path (#41697 review F1): a replacement home without the archive
+        // would answer "not archived" while the held home still holds it. On every platform:
+        // off Unix a home replaced before or during the read is an error (#41721 review F1).
+        if !crate::home_fs::try_exists_nofollow(&archive)? {
             return Ok(false);
         }
         #[cfg(test)]
@@ -459,7 +465,7 @@ impl LocalStore {
         let cold = self.cold.lock_or_recover();
         // From here on, read in the held home (`home_fs`), where the rehydrate writes and
         // removes: the archive it decodes and removes is the held home's (#41462 review F1).
-        if !crate::home_fs::exists_nofollow(&archive) {
+        if !crate::home_fs::try_exists_nofollow(&archive)? {
             return Ok(false);
         }
         let _sealed = self.unsealed(id)?;
@@ -481,7 +487,7 @@ impl LocalStore {
         let aside = dir.join(DROP_DIR);
         // Read and changed in the held home (`home_fs`): a home replaced since the decode's
         // checks keeps its `events/` and its archive (#41372 review F2).
-        if crate::home_fs::exists_nofollow(&events) {
+        if crate::home_fs::try_exists_nofollow(&events)? {
             // No segment in it (checked above): an empty folder an append made, or a lone record.
             remove_dir_if_there(&aside)?;
             crate::home_fs::rename(&events, &aside)?;
