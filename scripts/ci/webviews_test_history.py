@@ -32,7 +32,7 @@
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
     webviews_test_history.py heads SHARDS_DIR --count K --out DIR
         join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
-        results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
+        results map, runner and raw logs) for a react-apps-base-check matrix entry, and write DIR/shards.json ({file:
         shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
         exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
@@ -359,12 +359,13 @@ HEAD_RESULTS = "webviews-head-results.json"
 
 
 def join_heads(shards: Path, count: int, out: Path) -> str | None:
-    """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
-    all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
-    maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
-    the same runner from the head. None when joined; else why not (a shard's artifact is missing: the job then fails,
-    as a missing download failed it). An unreadable shard map writes unreadable joined results, which the base check
-    reads as it read one shard's unreadable results."""
+    """Join COUNT head artifacts under SHARDS into OUT for one base-check matrix entry.
+
+    The result maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every
+    shard copies the same runner from the head. None when joined; else why not (a shard's artifact is missing: the job
+    then fails, as a missing download failed it). An unreadable shard map writes unreadable joined results, which the
+    base check reads as it read one shard's unreadable results.
+    """
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
