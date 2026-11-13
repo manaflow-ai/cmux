@@ -215,6 +215,11 @@
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
    In a short pane its list gives up its height to nothing first; the header never does. Clip, not
    hidden: a hidden box still scrolls when focus or a script moves into it. */
+/* The queue's floor is one row, but never more than its rows need (ComposerQueue.tsx fitList writes
+   --acpmux-queue-fit): a one-line row shorter than the stack's row left a blank band under it. */
+.acpmux-dock > .acpmux-composer > .acpmux-composer-queue {
+  min-height: min(var(--acpmux-stack-row-min, 34px), var(--acpmux-queue-fit, var(--acpmux-stack-row-min, 34px)));
+}
 .acpmux-dock > .acpmux-running-tray {
   overflow: clip;
   /* Its one row is its header (or one line), not the stack's 34px row: the taller floor left a strip

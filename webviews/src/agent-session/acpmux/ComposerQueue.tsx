@@ -100,6 +100,10 @@ function fitList(list: HTMLElement) {
   const fit = ends.filter((end) => end <= cap + 0.5).at(-1) ?? cap;
   const height = `${fit}px`;
   if (list.style.maxHeight !== height) list.style.maxHeight = height;
+  // The stack's one-row floor (bottomStack.css) never exceeds what the rows need: a one-line row
+  // shorter than the floor would otherwise sit over a blank band, and opening or closing it under
+  // the pointer would move it by that band.
+  if (list.style.getPropertyValue("--acpmux-queue-fit") !== height) list.style.setProperty("--acpmux-queue-fit", height);
 }
 
 /// The queue's fit-ready marker is a paint boundary, but a gallery/test DOM may expose a window
