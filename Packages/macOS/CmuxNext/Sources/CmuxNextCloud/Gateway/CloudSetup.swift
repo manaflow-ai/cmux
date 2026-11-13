@@ -36,7 +36,8 @@ public final class CloudSetup {
     }
 
     /// What serves Cloud now. `personal` nil: this Mac's connections could not be read (no daemon,
-    /// an acpmux before `_acpmux/connections`); `organization` nil: the team's could not be read.
+    /// an acpmux before `_acpmux/connections`); `organization` nil: the team's keys could not be read
+    /// (signed out, a failed read). Either unread never shows Set up Cloud.
     public struct Snapshot: Sendable, Equatable {
         public var personal: [Connection]?
         /// The families the organization serves: the agents of its shared keys that are set.
@@ -53,19 +54,20 @@ public final class CloudSetup {
 
         /// The connection a Cloud chat on `family` uses (Revision 2): the picker's `account` when it
         /// serves Cloud for that family, else the first enabled Cloud-serving one of that family in
-        /// the daemon's order, else the organization's shared key. With this Mac's connections unread
-        /// (no daemon, an acpmux before `_acpmux/connections`) and no shared key the answer is
-        /// ``Choice/fallback``: the chat starts as before.
+        /// the daemon's order, else the organization's shared key. Set up Cloud only when both were read
+        /// and neither serves: with this Mac's connections or the team's keys unread (no daemon, an
+        /// acpmux before `_acpmux/connections`, a team key read that failed) the answer is
+        /// ``Choice/fallback`` and the chat starts as before.
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
                 if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
-            return personal == nil ? .fallback : .setup(family: family, model: model)
+            return personal == nil || organization == nil ? .fallback : .setup(family: family, model: model)
         }
 
-        /// Whether a connection serves `family`; nil when this Mac's connections were not read.
+        /// Whether a connection serves `family`; nil when this Mac's connections or the team's keys were not read.
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
             case .connection, .organization: true
