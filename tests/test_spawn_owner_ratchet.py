@@ -12,8 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path. It turns
-# git's auto maintenance off in the fixture repository (scripts/check-test-determinism.py).
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
 _spec = importlib.util.spec_from_file_location(
     "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = importlib.util.module_from_spec(_spec)

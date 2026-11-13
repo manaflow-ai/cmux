@@ -411,6 +411,15 @@ class DisplayTests(OneRunRule):
             self.assertEqual(state["history"][-1]["failed_parts"], ["motion"])
             self.assertEqual(state["history"][-1]["status"], "incomplete")
             self.assertEqual(state["last_good"]["sha"], "a" * 40, "partial budgets never establish a baseline")
+            # 2026-11-11..13: four tip measurements in a row ended incomplete on the same five parts, and the issue
+            # said only "no finished measurement", guessing a busy fleet.
+            why = "panes.close.4x2.frame: missing current p95"
+            self.assertEqual(state["history"][-1]["failed_why"], {"motion": why})
+            self.assertEqual(state["last_tried"]["failed_why"], {"motion": why})
+            body = cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1))
+            self.assertIn(f"is not the last measurement: 1 part(s) did not finish: motion (`{why}`).", body)
+            self.assertIn("the last 1 tip measurement(s) each ran and ended incomplete, every one without motion", body)
+            self.assertNotIn("no measure host had idle time", body)
 
     def test_the_issue_says_which_frame_rows_were_not_compared(self):
         state = cron.empty_state(T0)
@@ -769,6 +778,36 @@ class IssueTests(unittest.TestCase):
         self.assertNotIn("why", cron.record_part(cur, "launch", {"state": "done", "tail": ["ok"]}, "r"))
         self.assertIn("Failed parts of the measurement in flight: switch: `artifact not read: <HTTPError 403: 'Forbidden'>`",
                       cron.issue_body(state, "o/r", T0))
+
+    def test_an_incomplete_reports_reason_is_short_and_names_the_row(self):
+        self.assertEqual(cron.incomplete_why({"incomplete": [
+            {"name": "sidebar\\.\\d+\\.workspace_switch\\.click_to_idle", "reason": "manifest row not measured"}]}),
+            "sidebar.\\d+.workspace_switch.click_to_idle: manifest row not measured")
+        scaling = [{"workspaces": 1, "probe": "instant", "exit": 1, "report": "/Users/x/report.json"},
+                   {"workspaces": 1, "probe": "typing", "exit": 2},
+                   {"workspaces": 1, "probe": "instant", "command": "new_workspace", "incomplete": "missing_summary"},
+                   {"workspaces": 100, "probe": "instant", "exit": 1}]
+        self.assertEqual(cron.incomplete_why({"incomplete": scaling}),
+                         "workspaces 1 probe instant exit 1; workspaces 1 probe typing exit 2; "
+                         "workspaces 1 probe instant command new_workspace incomplete missing_summary; and 1 more")
+        self.assertEqual(cron.incomplete_why({"incomplete": ["ui-stability: exit 1"]}), "ui-stability: exit 1")
+        self.assertEqual(cron.incomplete_why({}), "")
+
+    def test_the_stale_line_names_the_parts_every_incomplete_measurement_lacked(self):
+        state = cron.empty_state(T0)
+        tip = {"kind": "tip", "status": "incomplete"}
+        state["history"] = [
+            {**tip, "status": "good", "failed_parts": []},
+            {**tip, "failed_parts": ["sidebar", "web-ui", "launch"]},
+            {"kind": "bisect", "status": "good"},
+            {**tip, "status": "abandoned"},
+            {**tip, "failed_parts": ["sidebar", "web-ui"]}]
+        self.assertEqual(len(cron.incomplete_streak(state)), 2)
+        body = cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1))
+        self.assertIn("the last 2 tip measurement(s) each ran and ended incomplete, every one without sidebar, web-ui (", body)
+        state["history"].append({**tip, "status": "good", "failed_parts": []})
+        self.assertIn("no measure host had idle time", cron.issue_body(state, "o/r", at(cron.STALE_HOURS + 1)),
+                      "no streak: the cause is not a part")
 
     def test_stale_opens_once(self):
         state = cron.empty_state(T0)

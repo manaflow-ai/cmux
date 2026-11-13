@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -111,7 +112,7 @@ def main() -> int:
             description = f"{label}, the cmux Computer Use helper as cmux runs it, with cmux's cmux-cua skill"
         elif label.startswith("cua-driver-"):
             arm = "cc-cua-driver-" + label.removeprefix("cua-driver-").replace(".", "")
-            build = ca.CuaBuild(arm, label, app, f"/tmp/cdb-bench-{arm}.sock", a.work / arm / "daemon-state",
+            build = ca.CuaBuild(arm, label, app, os.path.join(tempfile.mkdtemp(prefix="cdb-bench-", dir="/tmp"), f"{arm}.sock"), a.work / arm / "daemon-state",
                                 Path(skills[label]), daemon_env=(ca.SCRIPT_FLAG,),
                                 prompt_addendum=ca.RUN_SCRIPT_ADDENDUM, executable=binary_path)
             description = f"Cua Driver {label.removeprefix('cua-driver-')} release app, run_script on, its own skill"

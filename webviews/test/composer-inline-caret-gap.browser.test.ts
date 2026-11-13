@@ -1,6 +1,9 @@
 // The caret beside an attachment in the prompt's text keeps clear of the chip's edge (Leo,
 // 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what
-// we have right now ... it just sort of bleeds into the glass of the attachment"). Measured on the
+// we have right now ... it just sort of bleeds into the glass of the attachment"), and stands as far
+// from it on the left as on the right, barely to its side (Leo, 2026-11-08: "even it out a little
+// bit more between left and right sides. just have the carets be barely to the side of"; 2026-11-11:
+// "There's still extra space on the right"): half the chip-to-chip gap on each side. Measured on the
 // painted caret: the prompt's caret is drawn magenta and found in a screenshot, in both of the lane's
 // engines (WebKit is the app's), at both densities and the interface sizes. The prompt's text is the
 // same as before: the room is the chip's own, never a typed space.
@@ -31,13 +34,13 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
     "interface-1.25": { interfaceScale: 1.25 },
     "zoom-1.5": { scale: 1.5 },
   };
-  /// How far, in CSS px, the caret after a chip may stand from the chip-to-chip gap: the caret after
-  /// a chip stands as far from it as the next chip would (Leo's ask; before the fix it stood on the
-  /// chip's edge in Chromium and 2px off it in WebKit, against a 4px gap).
+  /// How far, in CSS px, the caret beside a chip may stand from half the chip-to-chip gap: the caret
+  /// before a chip and after it stand the same distance from it (before the even split it stood 8px
+  /// after a chip and on the leading edge before one).
   const TOLERANCE = 1;
 
-  /// How far the painted caret is from the point `gap` px after a chip's right edge `edge`: 0 when its
-  /// column covers that point. Each engine paints its 1px caret on whole pixels, Chromium's just
+  /// How far the painted caret is from the point `gap` px after a chip's right edge `edge` (a negative
+  /// `gap`: before its left edge): 0 when its column covers that point. Each engine paints its 1px caret on whole pixels, Chromium's just
   /// before the insertion point and WebKit's just after it, so the column, not one of its edges, is
   /// where the caret is.
   const offGap = (caret: { left: number; right: number }, edge: number, gap: number) =>
@@ -182,6 +185,9 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           deviceScaleFactor: 4,
         });
         const page = await context.newPage();
+        // Claude's look, the layout these sizes keep both chips on one line in: Codex's (the default
+        // since #42247) widens the prompt's insets and WebKit wraps the second chip.
+        await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
         try {
           // Two screenshots at the end of the text, side by side: the caret after the last one, then
           // between the two.
@@ -205,17 +211,19 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
             left: first!.left,
             right: second!.right,
           });
-          // The caret after a chip, the last one or the first of two, stands one chip gap from it. (The
-          // caret before a chip meets its leading edge, where it stays off the glass.)
+          // The caret beside a chip stands half a chip gap from it, after it and before it alike.
+          const half = chipGap / 2;
           const clear = {
-            "after the last chip": offGap(after, second!.right, chipGap),
-            "after the first of two chips": offGap(between, first!.right, chipGap),
+            "after the last chip": offGap(after, second!.right, half),
+            "between two chips": offGap(between, first!.right, half),
+            // The same caret, measured from the chip after it: as far from that one's leading edge.
+            "before the second chip": offGap(between, second!.left, -half),
           };
           report.push(`${engine} ${name} chip gap ${chipGap.toFixed(2)}, caret off it ${JSON.stringify(clear)}`);
           for (const [where, off] of Object.entries(clear))
             if (off > TOLERANCE)
               failures.push(
-                `${engine} ${name}: the caret ${where} is ${off.toFixed(2)}px off the ${chipGap.toFixed(2)}px chip gap`,
+                `${engine} ${name}: the caret ${where} is ${off.toFixed(2)}px off half the ${chipGap.toFixed(2)}px chip gap`,
               );
           // A click just right of the last chip puts the caret after it, never selects the chip.
           await page.mouse.click(second!.right + 2, (second!.top + second!.bottom) / 2);
@@ -226,10 +234,10 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           expect(await value(page)).toEqual(before);
           expect(withoutTokens(before)).toBe("Which layout reads better?");
 
-          // A huge paste's text card at the end of the prompt: the same room after it as between chips.
+          // A huge paste's text card at the end of the prompt: the same room after it as after a chip.
           // Under the 1.5 zoom the card has a line of its own at the end of the field, where the caret
           // goes down to the next line.
-          const cardGap = chipGap;
+          const cardGap = chipGap / 2;
           if (size.scale) continue;
           await open(page, port, "text-pasted-inline", size);
           const sent = await value(page);
@@ -240,7 +248,9 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           const off = offGap(tail, card!.right, cardGap);
           report.push(`${engine} ${name} text card: caret off the chip gap ${off.toFixed(2)}`);
           if (off > TOLERANCE)
-            failures.push(`${engine} ${name}: the caret after the text card is ${off.toFixed(2)}px off the chip gap`);
+            failures.push(
+              `${engine} ${name}: the caret after the text card is ${off.toFixed(2)}px off half the chip gap`,
+            );
           // Selected, the card wears the chip's ring: its rules reach it through its right-click
           // menu's wrapper (markdownField.css). The node's class is the selection ProseMirror marks;
           // arrows never select a chip (composer-inline-arrows.browser.test.ts).

@@ -106,6 +106,12 @@ export const PAGES = {
       },
     ],
   },
+  // The sentences every page shows for a failure it has no sentence of its own for
+  // (pages/shared/userMessage.ts): never the error's own text.
+  pageErrors: {
+    out: "webviews/src/pages/shared/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
+  },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
     catalogs: [{ file: "webviews/src/ui/variant-pick/Localizable.xcstrings" }],
@@ -335,8 +341,8 @@ export const PAGES = {
     out: "webviews/src/pages/tasks/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
   },
-  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
-  // component in webviews/src/browser-chrome/page-info.
+  // The browser's Page Info windows (site settings, site data, the certificate viewer); their table
+  // lives next to their components in webviews/src/browser-chrome/page-info.
   "browser-chrome-page-info": {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
@@ -454,12 +460,6 @@ export const PAGES = {
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
-  },
-  // Chat Colors (cmux-page://cmux.home-chat-colors/): the `home.chatColors.*` keys moved here from
-  // CmuxNextHome's catalog with the AppKit panel; its table lives next to it.
-  "home-chat-colors": {
-    out: "webviews/src/pages/home-chat-colors/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-chat-colors/Localizable.xcstrings" }],
   },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {
