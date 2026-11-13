@@ -15,7 +15,7 @@ without PRELUDE, `--- nextest` the nextest.toml.
 
 Sources: the rows of cmuxterm-hq's tools/agent-guards/test_rust_timing_ratio.py (hq#9512, its review
 findings F1-F4 and the self-test of tools/rust-timing-ratio/check.py), the review of hq#9478 (F1
-percentile spellings, F2 braces in strings, F3 #[ignore] before #[test]), and the tokio rows.
+percentile spellings, F2 braces in strings, F3 #[ignore] before #[test]), the tokio rows, and the review of #41523 (F3 `start_paused = false`).
 
 === clean :: busy < idle * 4 :: - :: hq#9512 F1: double quotes, exact
 #[test]
@@ -295,6 +295,18 @@ fn on_the_models_clock() {
 === clean :: p95 < P95_BUDGET :: - :: hq#9512 self-test: tokio's paused clock
 #[tokio::test(start_paused = true)]
 async fn on_a_paused_clock() {
+    let p95 = helper();
+    assert!(p95 < P95_BUDGET);
+}
+=== flagged :: p95 < P95_BUDGET :: - :: review of #41523 F3: `start_paused = false` runs on the wall clock
+#[tokio::test(start_paused = false)]
+async fn on_a_running_clock() {
+    let p95 = helper();
+    assert!(p95 < P95_BUDGET);
+}
+=== clean :: p95 < P95_BUDGET :: - :: review of #41523 F3: `start_paused = true` beside other arguments is paused
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn on_a_paused_current_thread_clock() {
     let p95 = helper();
     assert!(p95 < P95_BUDGET);
 }

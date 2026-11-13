@@ -320,7 +320,8 @@ def console_line(e):
 STACK_SYNC_OUTCOMES = frozenset({
     "duplicate", "queued", "stack_server_not_configured", "team_deleted", "team_delete_pending",
     "team_delete_unconfirmed",
-    "team_missing_recheck", "team_missing_dropped", "vm_personal_tenant_ignored", "anonymous_team_ignored",
+    "team_missing_recheck", "team_missing_dropped", "vm_personal_tenant_ignored", "vm_personal_tenant_marked",
+    "anonymous_team_ignored",
     "team_mirrored", "member_present", "member_absent", "member_anonymous", "member_anonymous_removed",
 })
 ENUM_FIELDS = {("synced a stack team", "outcome"): STACK_SYNC_OUTCOMES}

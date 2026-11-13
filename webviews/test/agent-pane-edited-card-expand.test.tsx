@@ -21,6 +21,8 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { TurnCheckpointLoad } from "../src/agent-session/acpmux/changes/turnCheckpoint";
+import { teardownDom } from "./support/domTeardown";
+import { setEditedFilesSettings } from "../src/agent-session/acpmux/turnChanges/settings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,14 +79,12 @@ beforeAll(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  setEditedFilesSettings({});
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const FOLDER = "/Users/you/src/uploader";
@@ -291,7 +291,7 @@ test.each([
   const row = activity(`turn-1-${fromInput}`, [await writeNewFile(fromInput)]);
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
-  expect(text(".acpmux-edited-sub")).toBe("+9-0");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+9-0");
   // Built from the input, the page never saw the file on disk: Undo is not offered from it.
   if (fromInput) expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   const chevron = host.querySelector(".acpmux-edited-toggle");
@@ -366,7 +366,7 @@ test("beside a Write of unknown old contents, a fragment Edit keeps its counts",
   ]);
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited 2 files");
-  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-1");
   const rows = [...host.querySelectorAll(".acpmux-edited-file")].map((entry) => [
     entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
     entry.querySelector(".acpmux-diff-counts")?.textContent,
@@ -415,7 +415,7 @@ test("a Write of unknown old contents in the repository takes the checkpoint's c
   // The checkpoint read the file before and after: its counts, listed once, and the Write's change
   // (not one made outside the tool calls).
   expect(text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
-  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-1");
   expect(host.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
   expect((await viewedFiles([row], checkpoint)).map((file) => [file.path, file.additions])).toEqual([[NOTES, 1]]);
 });
@@ -433,7 +433,7 @@ test("the same Write once its result confirmed a create is a new file, all lines
   const row = activity("turn-11", [await translatorWrite("write-6", SETUP, true)]);
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
-  expect(text(".acpmux-edited-sub")).toBe("+9-0");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+9-0");
   // Undo may move the new file to the Trash.
   expect(host.querySelector(".acpmux-edited-undo")).not.toBeNull();
   await click(host.querySelector(".acpmux-edited-toggle"));
@@ -447,7 +447,7 @@ test("a file outside the repository keeps its counts and opens inline once the c
   const row = activity("turn-2", [await editOutside()]);
   await renderCard(row, emptyCheckpoint);
   expect(text(".acpmux-edited-title > div")).toBe("Edited hosts.local");
-  expect(text(".acpmux-edited-sub")).toBe("+1-0");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-0");
   await click(host.querySelector(".acpmux-edited-toggle"));
   expect(inlineDiff()).toEqual({ name: "hosts.local", added: "+1", removed: "-0" });
 });
@@ -501,7 +501,7 @@ test("an edited file (Edit with old and new strings) opens inline with its remov
   const row = activity("turn-3", [await editInFolder()]);
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited upload.sh");
-  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-1");
   // Its input holds only the strings, not the whole file: Undo is not offered from them.
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   await click(host.querySelector(".acpmux-edited-title"));
@@ -540,7 +540,7 @@ test("a MultiEdit opens inline with every edit from its latest input", async () 
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited config.sh");
   // The whole input replaced the partial one ("a=9" is gone): +3 -2.
-  expect(text(".acpmux-edited-sub")).toBe("+3-2");
+  expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+3-2");
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   await click(host.querySelector(".acpmux-edited-toggle"));
   expect(inlineDiff()).toEqual({ name: "config.sh", added: "+3", removed: "-2" });
@@ -575,4 +575,42 @@ test.each([
     ),
   );
   expect(body()).toBe(preview);
+});
+
+test("the nine-file reference card starts with three rows, expands and restores, and opens real file changes", async () => {
+  const { referenceEditRow } = await import("../src/gallery/parity/editedFilesReference.gallery");
+  const opened = await renderCard({ ...referenceEditRow, id: "nine-file-card-default" });
+  const files = () => [...host.querySelectorAll<HTMLButtonElement>(".acpmux-edited-file")];
+  expect(text(".acpmux-edited-title")).toContain("Edited 9 files");
+  expect(text(".acpmux-edited-title .acpmux-diff-counts")).toBe("+129-5");
+  expect(files()).toHaveLength(3);
+  expect(text(".acpmux-edited-base")).toBe("CornerFlushTests.swift");
+  expect(text(".acpmux-edited-dir")).toBe("Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/");
+  expect(text(".acpmux-edited-more")).toBe("Show 6 more files");
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-edited-undo")?.disabled).toBe(false);
+  expect(text(".acpmux-review-changes")).toBe("View changes");
+
+  await click(host.querySelector(".acpmux-edited-more"));
+  expect(files()).toHaveLength(9);
+  expect(host.querySelector(".acpmux-edited-more")?.getAttribute("aria-expanded")).toBe("true");
+  await click(host.querySelector(".acpmux-edited-more"));
+  expect(files()).toHaveLength(3);
+  expect(text(".acpmux-edited-more")).toBe("Show 6 more files");
+
+  await click(files()[0]!);
+  expect(opened.at(-1)).toEqual({
+    rowId: "nine-file-card-default",
+    path: "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CornerFlushTests.swift",
+  });
+  await click(host.querySelector(".acpmux-review-changes"));
+  expect(opened.at(-1)?.rowId).toBe("nine-file-card-default");
+  expect(opened.at(-1)?.path).toBeUndefined();
+});
+
+test("an explicit edited-file row preference is preserved", async () => {
+  const { referenceEditRow } = await import("../src/gallery/parity/editedFilesReference.gallery");
+  setEditedFilesSettings({ maxRows: 5 });
+  await renderCard({ ...referenceEditRow, id: "nine-file-card-saved-preference" });
+  expect(host.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
+  expect(text(".acpmux-edited-more")).toBe("Show 4 more files");
 });

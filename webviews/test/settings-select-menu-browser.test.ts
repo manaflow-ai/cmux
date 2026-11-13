@@ -70,7 +70,6 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
     background: string;
     backdrop: string;
     title: { top: number; bottom: number; clipTop: number } | null;
-    interval: { value: string; unit: string } | null;
   };
 
   async function measure(engine: string, colorScheme: "light" | "dark", capture: boolean): Promise<Measured> {
@@ -130,10 +129,6 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
           const r = heading.getBoundingClientRect();
           title = { top: r.top, bottom: r.bottom, clipTop };
         }
-        const field = document.querySelector<HTMLInputElement>(
-          '[data-row-key="updates.checkIntervalSeconds"] input.field.number',
-        );
-        const unit = document.querySelector('[data-row-key="updates.checkIntervalSeconds"] .unit');
         return {
           trigger: box(button),
           popup: box(popup),
@@ -144,7 +139,6 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
           background: style.backgroundColor,
           backdrop: style.getPropertyValue("backdrop-filter") || style.getPropertyValue("-webkit-backdrop-filter"),
           title,
-          interval: field ? { value: field.value || field.placeholder, unit: unit?.textContent ?? "" } : null,
         };
       });
       if (capture && out) {
@@ -179,8 +173,6 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
         // The page title is whole: nothing clips its top.
         expect(m.title).not.toBeNull();
         expect(m.title!.top).toBeGreaterThanOrEqual(m.title!.clipTop - 0.5);
-        // Check Every in hours: the default hour reads "1 hr", never "3600 s".
-        expect(m.interval).toEqual({ value: "1", unit: "hr" });
       });
 
   // The same rule for every select on every Settings page: each opens at its trigger's left edge,

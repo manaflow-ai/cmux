@@ -46,11 +46,14 @@
 //! the same file. Any other marker states why the hook cannot race (one process per test, say), in
 //! at least three words.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
-use crate::source::{line_of, rel_path, rust_files, snippet, visit_macro_body};
+use crate::source::{
+    ReadError, line_of, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -167,20 +170,84 @@ impl fmt::Display for Finding {
     }
 }
 
-/// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root.
-pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
-    let mut found = Vec::new();
-    for path in rust_files(&crate_dir.join("src")) {
+/// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root. A
+/// path into another file of the crate (`crate::a::B`, `super::B`, a `use` of one) is followed
+/// there ([`Crate`]). Err names a path of `src` the check could not read (a missing `src` too):
+/// a source it skipped would read as clean.
+pub fn judge_tree(crate_dir: &Path) -> Result<Vec<Finding>, ReadError> {
+    let src = crate_dir.join("src");
+    let mut files = Vec::new();
+    let mut krate = Crate::default();
+    for path in rust_files(&src)? {
         let rel = rel_path(crate_dir, &path);
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        found.extend(judge_source(&format!("{CRATE_REL}{rel}"), &text));
+        let text = read_source(&path)?;
+        let module = module_of(&rel_path(&src, &path));
+        let parsed = syn::parse_file(&text);
+        if let (Ok(file), Some(module)) = (&parsed, &module) {
+            krate
+                .files
+                .insert(module.join("::"), Indexed { names: names_of(file), text: text.clone() });
+        }
+        files.push((rel, text, parsed, module));
     }
-    found
+    let memo = Memo::default();
+    let mut found = Vec::new();
+    for (rel, text, parsed, module) in &files {
+        let at = module.as_deref().map(|module| (&krate, module, &memo));
+        found.extend(judge_parsed(&format!("{CRATE_REL}{rel}"), text, parsed, at));
+    }
+    Ok(found)
 }
 
-/// The findings of one file, `rel` its path from the repository root.
+/// The findings of one file, `rel` its path from the repository root. A name from another file
+/// of the crate is `unresolved` here; [`judge_tree`] follows it.
 pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
-    let file = match syn::parse_file(text) {
+    judge_parsed(rel, text, &syn::parse_file(text), None)
+}
+
+/// The crate's files by module path (`crate::a::b`), for following a path of the crate into the
+/// file that defines it. Only `src/lib.rs` and the files under it by name (`a.rs`, `a/mod.rs`,
+/// `a/b.rs`) are in it: a `#[path]` module or a binary's file is not, so a path into one stays
+/// unresolved.
+#[derive(Default)]
+pub struct Crate {
+    files: HashMap<String, Indexed>,
+}
+
+struct Indexed {
+    names: Names,
+    text: String,
+}
+
+/// The module path of the file at `rel` (from `src/`), or None for a binary's (`main.rs`,
+/// `bin/...`).
+fn module_of(rel: &str) -> Option<Vec<String>> {
+    let stem = rel.strip_suffix(".rs")?;
+    let mut parts: Vec<&str> = stem.split('/').collect();
+    match parts.as_slice() {
+        ["lib"] => parts.clear(),
+        ["main"] | ["bin", ..] => return None,
+        _ if parts.last() == Some(&"mod") => {
+            parts.pop();
+        }
+        _ => {}
+    }
+    Some(std::iter::once("crate").chain(parts).map(String::from).collect())
+}
+
+fn names_of(file: &syn::File) -> Names {
+    let mut names = Names::default();
+    Collect { names: &mut names, scope: Vec::new() }.visit_file(file);
+    names
+}
+
+fn judge_parsed(
+    rel: &str,
+    text: &str,
+    parsed: &syn::Result<syn::File>,
+    krate: Option<(&Crate, &[String], &Memo)>,
+) -> Vec<Finding> {
+    let file = match parsed {
         Ok(file) => file,
         Err(error) => {
             return vec![Finding {
@@ -191,21 +258,33 @@ pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
             }];
         }
     };
-    let mut names = Names::default();
-    Collect { names: &mut names }.visit_file(&file);
-    let mut sites = Sites { out: Vec::new(), test_depth: 0, test_file: is_test_file(rel) };
-    sites.visit_file(&file);
+    let names = names_of(file);
+    let mut sites =
+        Sites { out: Vec::new(), test_depth: 0, test_file: is_test_file(rel), scope: Vec::new() };
+    sites.visit_file(file);
     let lines: Vec<&str> = text.lines().collect();
-    let resolver = Resolver { names: &names, lines: &lines };
+    let one_file = Memo::default();
+    let file_module = krate.map(|(_, module, _)| module.to_vec()).unwrap_or_default();
+    let resolver = Resolver {
+        names: &names,
+        lines: &lines,
+        krate: krate.map(|(krate, _, _)| krate),
+        file: file_module.clone(),
+        module: file_module,
+        memo: krate.map_or(&one_file, |(_, _, memo)| memo),
+    };
     let serializers: HashSet<&str> = sites
         .out
         .iter()
-        .filter(|s| resolver.is_serializer(&s.ty, 0))
+        .filter(|s| {
+            let mut steps = SERIALIZER_STEPS;
+            resolver.within(&s.scope).is_serializer(&s.ty, 0, &mut steps)
+        })
         .map(|s| s.name.as_str())
         .collect();
     let mut found = Vec::new();
     for site in &sites.out {
-        let Some((why, unresolved)) = resolver.why(site) else {
+        let Some((why, unresolved)) = resolver.within(&site.scope).why(site) else {
             continue;
         };
         let line = lines.get(site.line.saturating_sub(1)).copied().unwrap_or("");
@@ -253,7 +332,9 @@ fn is_test_file(rel: &str) -> bool {
 
 /// The comment and attribute lines directly above `lines[at]`, nearest first.
 fn leading_block<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
-    lines[..at.min(lines.len())]
+    lines
+        .get(..at)
+        .unwrap_or(lines)
         .iter()
         .rev()
         .map(|l| l.trim())
@@ -264,8 +345,8 @@ fn leading_block<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
 /// The reason a `// test-hook-allow:` comment on `line` gives.
 fn marker_reason(line: &str) -> Option<String> {
     let mut rest = line;
-    while let Some(at) = rest.find("//") {
-        rest = &rest[at + 2..];
+    while let Some((_, after)) = rest.split_once("//") {
+        rest = after;
         if let Some(reason) = rest.trim_start().strip_prefix(MARKER) {
             return Some(reason.trim().to_string());
         }
@@ -274,7 +355,7 @@ fn marker_reason(line: &str) -> Option<String> {
 }
 
 fn serialized_by(reason: &str) -> Option<String> {
-    let rest = &reason[reason.find("serialized by ")? + "serialized by ".len()..];
+    let (_, rest) = reason.split_once("serialized by ")?;
     let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
     (!name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit())).then_some(name)
 }
@@ -313,20 +394,25 @@ fn process_wide(mac: &syn::Macro) -> bool {
     mac.path.segments.last().is_some_and(|s| !PER_THREAD.iter().any(|p| s.ident == p))
 }
 
+#[derive(Clone)]
 enum Body {
     Alias(Box<Type>),
     Fields(Vec<Type>),
     Value,
 }
 
+#[derive(Clone)]
 struct Param {
     name: String,
     default: Option<Type>,
 }
 
+#[derive(Clone)]
 struct Def {
     params: Vec<Param>,
     body: Body,
+    /// The inline modules (`mod m { ... }`) it is in, from the file's top.
+    scope: Vec<String>,
 }
 
 fn params_of(generics: &Generics) -> Vec<Param> {
@@ -349,16 +435,29 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
 
 /// What the names in a file's static types stand for, as far as the file shows: its aliases,
 /// structs, enums, unions and consts, its `use` names, and its modules.
-///
-/// The file's modules share one table, so a name another module binds differently is not taken
-/// at one of its meanings: `uses` keeps every path a name is imported as, and `twice` the names
-/// defined more than once (review of cmux#41693, F1).
 #[derive(Default)]
 struct Names {
     defs: HashMap<String, Def>,
-    twice: HashSet<String>,
-    uses: HashMap<String, Vec<String>>,
+    uses: HashMap<String, String>,
     mods: HashSet<String>,
+    /// The definitions at the file's top (not in an inline module), which a path of the crate
+    /// into this file names.
+    top: HashMap<String, Def>,
+    /// Every `use` of each name with the inline modules it is in, for following it into another
+    /// file (`uses` keeps one).
+    candidates: HashMap<String, Vec<(String, Vec<String>)>>,
+    /// The modules this file declares as files (`mod m;`), `scope::m` from the file's top.
+    file_mods: HashSet<String>,
+    /// Every definition of each name, in whichever inline module (`defs` keeps one).
+    every: HashMap<String, Vec<Def>>,
+}
+
+/// One thing a name stands for in a file: a definition of it, or a `use` of it (the path and the
+/// inline modules the `use` is in).
+#[derive(Clone, Copy)]
+enum Meaning<'n> {
+    Def(&'n Def),
+    Use(&'n str, &'n [String]),
 }
 
 impl Names {
@@ -370,22 +469,15 @@ impl Names {
         }
         if path.contains("::")
             && !seen.iter().any(|s| s == root)
-            && let Some(fulls) = self.uses.get(root)
+            && let Some(full) = self.uses.get(root)
         {
             seen.push(root.to_string());
-            return fulls.iter().any(|full| self.local(full, &mut seen.clone()));
+            return self.local(full, seen);
         }
         false
     }
 
-    fn bind_use(&mut self, local: String, path: String) {
-        let paths = self.uses.entry(local).or_default();
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-
-    fn use_tree(&mut self, prefix: &str, tree: &UseTree) {
+    fn use_tree(&mut self, prefix: &str, tree: &UseTree, scope: &[String]) {
         let path_of = |ident: &syn::Ident| {
             if ident == "self" {
                 prefix.trim_end_matches("::").to_string()
@@ -394,34 +486,44 @@ impl Names {
             }
         };
         match tree {
-            UseTree::Path(p) => self.use_tree(&format!("{prefix}{}::", p.ident), &p.tree),
+            UseTree::Path(p) => self.use_tree(&format!("{prefix}{}::", p.ident), &p.tree, scope),
             UseTree::Name(n) => {
                 let path = path_of(&n.ident);
                 let local = path.rsplit("::").next().unwrap_or(&path).to_string();
-                self.bind_use(local, path);
+                self.add_use(local, path, scope);
             }
             UseTree::Rename(r) => {
                 if r.rename != "_" {
-                    self.bind_use(r.rename.to_string(), path_of(&r.ident));
+                    self.add_use(r.rename.to_string(), path_of(&r.ident), scope);
                 }
             }
             UseTree::Glob(_) => {}
-            UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(prefix, t)),
+            UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(prefix, t, scope)),
         }
+    }
+
+    fn add_use(&mut self, local: String, path: String, scope: &[String]) {
+        self.candidates.entry(local.clone()).or_default().push((path.clone(), scope.to_vec()));
+        self.uses.insert(local, path);
     }
 }
 
 /// Fills a file's Names from every item, in any module, function or macro body.
 struct Collect<'n> {
     names: &'n mut Names,
+    /// The inline modules the visit is in.
+    scope: Vec<String>,
 }
 
 impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
-        if self.names.defs.insert(name.to_string(), Def { params, body }).is_some() {
-            self.names.twice.insert(name.to_string());
+        let def = Def { params, body, scope: self.scope.clone() };
+        if self.scope.is_empty() {
+            self.names.top.insert(name.to_string(), def.clone());
         }
+        self.names.every.entry(name.to_string()).or_default().push(def.clone());
+        self.names.defs.insert(name.to_string(), def);
     }
 }
 
@@ -450,10 +552,16 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     }
     fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
         self.names.mods.insert(i.ident.to_string());
+        if i.content.is_none() {
+            let at = self.scope.iter().chain([&i.ident.to_string()]).cloned().collect::<Vec<_>>();
+            self.names.file_mods.insert(at.join("::"));
+        }
+        self.scope.push(i.ident.to_string());
         visit::visit_item_mod(self, i);
+        self.scope.pop();
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
-        self.names.use_tree("", &i.tree);
+        self.names.use_tree("", &i.tree, &self.scope);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
@@ -467,6 +575,30 @@ struct Site {
     line: usize,
     ty: Type,
     gated: bool,
+    /// The inline modules it is in, from the file's top.
+    scope: Vec<String>,
+}
+
+/// An item's attributes, whatever its kind.
+fn item_attrs(item: &Item) -> &[Attribute] {
+    match item {
+        Item::Const(i) => &i.attrs,
+        Item::Enum(i) => &i.attrs,
+        Item::ExternCrate(i) => &i.attrs,
+        Item::Fn(i) => &i.attrs,
+        Item::ForeignMod(i) => &i.attrs,
+        Item::Impl(i) => &i.attrs,
+        Item::Macro(i) => &i.attrs,
+        Item::Mod(i) => &i.attrs,
+        Item::Static(i) => &i.attrs,
+        Item::Struct(i) => &i.attrs,
+        Item::Trait(i) => &i.attrs,
+        Item::TraitAlias(i) => &i.attrs,
+        Item::Type(i) => &i.attrs,
+        Item::Union(i) => &i.attrs,
+        Item::Use(i) => &i.attrs,
+        _ => &[],
+    }
 }
 
 /// The file's process-wide statics: every static outside a `thread_local!` or `task_local!`.
@@ -474,6 +606,7 @@ struct Sites {
     out: Vec<Site>,
     test_depth: usize,
     test_file: bool,
+    scope: Vec<String>,
 }
 
 impl Sites {
@@ -483,28 +616,45 @@ impl Sites {
             line: line_of(ident.span()),
             ty: ty.clone(),
             gated: self.test_file || self.test_depth > 0 || is_cfg_test(attrs),
+            scope: self.scope.clone(),
         });
     }
 }
 
 impl<'ast> Visit<'ast> for Sites {
     fn visit_item(&mut self, item: &'ast Item) {
-        let attrs: &[Attribute] = match item {
-            Item::Mod(i) => &i.attrs,
-            Item::Fn(i) => &i.attrs,
-            Item::Impl(i) => &i.attrs,
-            Item::Trait(i) => &i.attrs,
-            _ => &[],
+        // Every kind of item, a macro's too (#41523 F2): `#[cfg(test)] wrapped! { static .. }`
+        // and `#[cfg(test)] const _: () = { static .. };` gate the statics they hold.
+        let test = is_cfg_test(item_attrs(item));
+        let inline = match item {
+            Item::Mod(m) if m.content.is_some() => Some(m.ident.to_string()),
+            _ => None,
         };
-        let test = is_cfg_test(attrs);
         self.test_depth += usize::from(test);
+        self.scope.extend(inline.clone());
         visit::visit_item(self, item);
+        if inline.is_some() {
+            self.scope.pop();
+        }
         self.test_depth -= usize::from(test);
     }
     fn visit_impl_item_fn(&mut self, i: &'ast syn::ImplItemFn) {
         let test = is_cfg_test(&i.attrs);
         self.test_depth += usize::from(test);
         visit::visit_impl_item_fn(self, i);
+        self.test_depth -= usize::from(test);
+    }
+    fn visit_impl_item_macro(&mut self, i: &'ast syn::ImplItemMacro) {
+        let test = is_cfg_test(&i.attrs);
+        self.test_depth += usize::from(test);
+        visit::visit_impl_item_macro(self, i);
+        self.test_depth -= usize::from(test);
+    }
+    fn visit_stmt_macro(&mut self, i: &'ast syn::StmtMacro) {
+        // `#[cfg(test)] wrapped! { static .. }` in a fn body (#41523 F2).
+        let test = is_cfg_test(&i.attrs);
+        self.test_depth += usize::from(test);
+        visit::visit_stmt_macro(self, i);
         self.test_depth -= usize::from(test);
     }
     fn visit_item_static(&mut self, i: &'ast syn::ItemStatic) {
@@ -554,9 +704,246 @@ type Env = HashMap<String, Bound>;
 struct Resolver<'a> {
     names: &'a Names,
     lines: &'a [&'a str],
+    /// The crate, when the whole tree is judged ([`judge_tree`]); None for one file.
+    krate: Option<&'a Crate>,
+    /// This file's module path (empty for one file), and the module the names being read are
+    /// written in (the file's, or an inline module of it).
+    file: Vec<String>,
+    module: Vec<String>,
+    memo: &'a Memo,
 }
 
-impl Resolver<'_> {
+/// What each generic-free definition of the crate holds, read once for the whole tree: its facts
+/// and whether it is an `Option`. One read with no cycle cut short (`cuts`) is the same wherever
+/// it is read from, so only those are kept.
+#[derive(Default)]
+struct Memo {
+    done: RefCell<HashMap<String, (Facts, bool)>>,
+    cuts: Cell<usize>,
+}
+
+impl<'a> Resolver<'a> {
+    /// This resolver, reading names written in the inline modules `scope` of its file.
+    fn within(&self, scope: &[String]) -> Resolver<'a> {
+        Resolver {
+            names: self.names,
+            lines: self.lines,
+            krate: self.krate,
+            file: self.file.clone(),
+            module: self.file.iter().chain(scope).cloned().collect(),
+            memo: self.memo,
+        }
+    }
+
+    /// The stack key of a definition of this file.
+    fn key(&self, name: &str) -> String {
+        if self.file.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}::{name}", self.file.join("::"))
+        }
+    }
+
+    /// `path`, written in this resolver's module, as a path from `crate`: None when it does not
+    /// start at `crate`, `self`, `super`, a module this file declares as a file there, or a `use`
+    /// (one, not one per cfg) of one of those.
+    fn absolute(&self, path: &str, depth: usize) -> Option<Vec<String>> {
+        if depth > 8 {
+            return None;
+        }
+        let mut parts = path.split("::").peekable();
+        let first = parts.next()?;
+        let mut out: Vec<String> = match first {
+            "crate" => vec!["crate".to_string()],
+            "self" => self.module.clone(),
+            "super" => {
+                let mut out = self.module.clone();
+                out.pop();
+                while parts.next_if_eq(&"super").is_some() {
+                    out.pop();
+                }
+                out
+            }
+            m if self.file_mod(m) => self.module.iter().cloned().chain([m.to_string()]).collect(),
+            u => {
+                let [(full, scope)] = self.names.candidates.get(u)?.as_slice() else {
+                    return None;
+                };
+                self.within(scope).absolute(full, depth + 1)?
+            }
+        };
+        if out.first().map(String::as_str) != Some("crate") {
+            return None;
+        }
+        for part in parts {
+            if matches!(part, "crate" | "self" | "super") {
+                return None;
+            }
+            out.push(part.to_string());
+        }
+        Some(out)
+    }
+
+    /// Whether `m` is a module this file declares as a file (`mod m;`) in this resolver's module.
+    fn file_mod(&self, m: &str) -> bool {
+        let scope = self.module.get(self.file.len()..).unwrap_or_default();
+        self.names
+            .file_mods
+            .contains(&scope.iter().map(String::as_str).chain([m]).collect::<Vec<_>>().join("::"))
+    }
+
+    /// Resolves the crate path `segs` (from `crate`) in the file that defines it, `caller` being
+    /// where its arguments are written: None when the crate has no such file or the file's top
+    /// neither defines nor `use`s the name.
+    fn follow(
+        &self,
+        caller: &Resolver<'_>,
+        segs: &[String],
+        args: &PathArguments,
+        env: &Env,
+        stack: &mut Vec<String>,
+        facts: &mut Facts,
+    ) -> Option<bool> {
+        let krate = self.krate?;
+        let (name, module) = segs.split_last()?;
+        let file = krate.files.get(&module.join("::"))?;
+        let lines: Vec<&str> = file.text.lines().collect();
+        let target = Resolver {
+            names: &file.names,
+            lines: &lines,
+            krate: Some(krate),
+            file: module.to_vec(),
+            module: module.to_vec(),
+            memo: self.memo,
+        };
+        if let Some(def) = file.names.top.get(name) {
+            return Some(target.def(caller, name, def, args, env, stack, facts));
+        }
+        // A re-export at the file's top (`pub use x::Name;`).
+        let at_top: Vec<&String> = file
+            .names
+            .candidates
+            .get(name)?
+            .iter()
+            .filter(|(_, scope)| scope.is_empty())
+            .map(|(full, _)| full)
+            .collect();
+        let [full] = at_top.as_slice() else {
+            return None;
+        };
+        if !file.names.local(full, &mut Vec::new()) {
+            let last = full.rsplit("::").next().unwrap_or(full);
+            return Some(caller.foreign(last, args, env, stack, facts));
+        }
+        // Its own key: one `use` of a name in an inline module (`use super::Name`) comes back
+        // to the top's `use` of it, which is no cycle.
+        let key = target.key(&format!("pub use {name}"));
+        if stack.contains(&key) {
+            self.memo.cuts.set(self.memo.cuts.get().wrapping_add(1));
+            return None;
+        }
+        stack.push(key);
+        let option = target
+            .absolute(full, 0)
+            .and_then(|segs| target.follow(caller, &segs, args, env, stack, facts));
+        stack.pop();
+        option
+    }
+
+    /// Resolves `name`, which a `use` of this file names in this crate, in the file that defines
+    /// it: every `use` of the name (one per cfg, say) is followed, and None when one cannot be.
+    fn follow_use(
+        &self,
+        name: &str,
+        args: &PathArguments,
+        env: &Env,
+        stack: &mut Vec<String>,
+        facts: &mut Facts,
+    ) -> Option<bool> {
+        self.krate?;
+        let candidates = self.names.candidates.get(name)?;
+        let key = self.key(&format!("use {name}"));
+        if stack.contains(&key) {
+            self.memo.cuts.set(self.memo.cuts.get().wrapping_add(1));
+            return None;
+        }
+        stack.push(key);
+        let mut option = Some(false);
+        for (full, scope) in candidates {
+            let at = self.within(scope);
+            let one = if self.names.local(full, &mut Vec::new()) {
+                at.absolute(full, 0)
+                    .and_then(|segs| self.follow(self, &segs, args, env, stack, facts))
+            } else {
+                let last = full.rsplit("::").next().unwrap_or(full);
+                Some(self.foreign(last, args, env, stack, facts))
+            };
+            option = option.zip(one).map(|(a, b)| a || b);
+            if option.is_none() {
+                break;
+            }
+        }
+        stack.pop();
+        option
+    }
+
+    /// Reads definition `name` of this file: its parameters bound to `args` (written in `caller`,
+    /// with `env`), then its body.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the resolver's walk state, as every step here takes it"
+    )]
+    fn def(
+        &self,
+        caller: &Resolver<'_>,
+        name: &str,
+        def: &Def,
+        args: &PathArguments,
+        env: &Env,
+        stack: &mut Vec<String>,
+        facts: &mut Facts,
+    ) -> bool {
+        // A definition in an inline module is not the top one of the same name.
+        let key = self.key(
+            &def.scope.iter().map(String::as_str).chain([name]).collect::<Vec<_>>().join("::"),
+        );
+        if stack.contains(&key) {
+            self.memo.cuts.set(self.memo.cuts.get().wrapping_add(1));
+            caller.args(args, env, stack, facts);
+            return false;
+        }
+        // Only a crate-wide read keeps a definition's facts: one file's read stays as it was.
+        let memo = def.params.is_empty() && self.krate.is_some();
+        if memo && let Some((done, option)) = self.memo.done.borrow().get(&key) {
+            facts.merge(done);
+            return *option;
+        }
+        let at = self.within(&def.scope);
+        let given = at.bind(caller, &key, def, args, env, stack);
+        let cuts = self.memo.cuts.get();
+        let mut own = Facts::default();
+        let into = if memo { &mut own } else { &mut *facts };
+        stack.push(key.clone());
+        let option = match &def.body {
+            Body::Alias(ty) => at.ty(ty, &given, stack, into),
+            Body::Fields(types) => {
+                for ty in types {
+                    at.ty(ty, &given, stack, into);
+                }
+                false
+            }
+            Body::Value => false,
+        };
+        stack.pop();
+        if memo {
+            facts.merge(&own);
+            if cuts == self.memo.cuts.get() {
+                self.memo.done.borrow_mut().insert(key, (own, option));
+            }
+        }
+        option
+    }
+
     /// Why a static is refused (with whether that is for an unresolved name), or None.
     fn why(&self, site: &Site) -> Option<(String, bool)> {
         let mut facts = Facts::default();
@@ -745,25 +1132,25 @@ impl Resolver<'_> {
     ) -> bool {
         let leading = path.leading_colon.is_some();
         let mut segs: Vec<&syn::PathSegment> = path.segments.iter().collect();
-        if !leading && segs.len() == 2 && segs[0].ident == "self" {
+        if !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self") {
             segs.remove(0);
         }
-        let Some(last) = segs.last() else {
+        let Some((last, init)) = segs.split_last() else {
             return false;
         };
         if !leading && segs.len() == 1 {
             return self.name(&last.ident.to_string(), &last.arguments, env, stack, facts);
         }
         let idents: Vec<String> = segs.iter().map(|s| s.ident.to_string()).collect();
-        for seg in &segs[..segs.len() - 1] {
+        for seg in init {
             self.args(&seg.arguments, env, stack, facts);
         }
         if !leading {
-            if let Some(bound) = env.get(&idents[0]) {
+            if let Some(bound) = idents.first().and_then(|first| env.get(first)) {
                 // A projection of a parameter (`T::Hook`): its argument stays in, what it names is unresolved.
                 facts.merge(&bound.facts);
                 facts.unresolved.insert(if bound.given {
-                    format!("<{}>::{}", bound.text, idents[1..].join("::"))
+                    format!("<{}>::{}", bound.text, idents.get(1..).unwrap_or_default().join("::"))
                 } else {
                     idents.join("::")
                 });
@@ -771,6 +1158,12 @@ impl Resolver<'_> {
                 return false;
             }
             if self.names.local(&idents.join("::"), &mut Vec::new()) {
+                if let Some(option) = self
+                    .absolute(&idents.join("::"), 0)
+                    .and_then(|segs| self.follow(self, &segs, &last.arguments, env, stack, facts))
+                {
+                    return option;
+                }
                 facts.unresolved.insert(idents.join("::"));
                 self.args(&last.arguments, env, stack, facts);
                 return false;
@@ -820,38 +1213,19 @@ impl Resolver<'_> {
             return self.foreign(name, args, env, stack, facts);
         }
         if let Some(def) = self.names.defs.get(name) {
-            if stack.iter().any(|s| s == name) {
+            return self.def(self, name, def, args, env, stack, facts);
+        }
+        if let Some(full) = self.names.uses.get(name) {
+            if self.names.local(full, &mut Vec::new()) {
+                if let Some(option) = self.follow_use(name, args, env, stack, facts) {
+                    return option;
+                }
+                facts.unresolved.insert(name.to_string());
                 self.args(args, env, stack, facts);
                 return false;
             }
-            let given = self.bind(name, def, args, env, stack);
-            stack.push(name.to_string());
-            let option = match &def.body {
-                Body::Alias(ty) => self.ty(ty, &given, stack, facts),
-                Body::Fields(types) => {
-                    for ty in types {
-                        self.ty(ty, &given, stack, facts);
-                    }
-                    false
-                }
-                Body::Value => false,
-            };
-            stack.pop();
-            return option;
-        }
-        if let Some(fulls) = self.names.uses.get(name) {
-            // Every path the name is imported as, in any module: what any of them holds counts.
-            let mut option = false;
-            for full in fulls {
-                if self.names.local(full, &mut Vec::new()) {
-                    facts.unresolved.insert(name.to_string());
-                    self.args(args, env, stack, facts);
-                } else {
-                    let last = full.rsplit("::").next().unwrap_or(full);
-                    option |= self.foreign(last, args, env, stack, facts);
-                }
-            }
-            return option;
+            let last = full.rsplit("::").next().unwrap_or(full);
+            return self.foreign(last, args, env, stack, facts);
         }
         if !is_cell(name) && !WELL_KNOWN.contains(&name) {
             facts.unresolved.insert(name.to_string());
@@ -864,6 +1238,7 @@ impl Resolver<'_> {
     /// parameters bound before it.
     fn bind(
         &self,
+        caller: &Resolver<'_>,
         name: &str,
         def: &Def,
         args: &PathArguments,
@@ -883,11 +1258,11 @@ impl Resolver<'_> {
             let mut facts = Facts::default();
             let bound = match (given.get(index), &param.default) {
                 (Some(GenericArgument::Type(ty)), _) => {
-                    let option = self.ty(ty, env, stack, &mut facts);
-                    Bound { facts, option, text: self.type_text(ty, env), given: true }
+                    let option = caller.ty(ty, env, stack, &mut facts);
+                    Bound { facts, option, text: caller.type_text(ty, env), given: true }
                 }
                 (Some(arg), _) => {
-                    Bound { text: self.snippet(arg.span()), given: true, ..Bound::default() }
+                    Bound { text: caller.snippet(arg.span()), given: true, ..Bound::default() }
                 }
                 (None, Some(default)) => {
                     stack.push(name.to_string());
@@ -926,80 +1301,97 @@ impl Resolver<'_> {
         }
     }
 
-    /// Every path `idents` can stand for: its first segment replaced by each path the file's `use`
-    /// items give it, again and again (`use std::sync as s; use s::Mutex as Lock;`), until no `use`
-    /// names its head. A name two modules import differently gives both; None past 64 paths.
-    fn used_paths(&self, idents: &[String]) -> Option<Vec<Vec<String>>> {
-        let mut done = Vec::new();
-        let mut todo: Vec<(Vec<String>, Vec<String>)> = vec![(idents.to_vec(), Vec::new())];
-        while let Some((path, seen)) = todo.pop() {
-            let Some(head) = path.first().filter(|h| !seen.contains(h)).cloned() else {
-                done.push(path);
-                continue;
-            };
-            let Some(fulls) = self.names.uses.get(&head) else {
-                done.push(path);
-                continue;
-            };
-            for full in fulls {
-                let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
-                next.extend(path.iter().skip(1).cloned());
-                let mut seen = seen.clone();
-                seen.push(head.clone());
-                todo.push((next, seen));
-            }
-            if done.len() + todo.len() > 64 {
-                return None;
-            }
-        }
-        Some(done)
+    /// What `name` stands for where this resolver reads: its definitions and `use`s in this
+    /// module when there are any, else every one of them in the file (a glob `use super::*` may
+    /// bring any in), so a name another module binds differently is never taken at that
+    /// module's meaning (review of cmux#41693, F1).
+    fn meanings(&self, name: &str) -> Vec<Meaning<'a>> {
+        let names: &'a Names = self.names;
+        let here = self.module.get(self.file.len()..).unwrap_or_default();
+        let defs = names.every.get(name).into_iter().flatten().map(|d| (Meaning::Def(d), &d.scope));
+        let uses = names
+            .candidates
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|(full, scope)| (Meaning::Use(full.as_str(), scope.as_slice()), scope));
+        let all: Vec<(Meaning<'a>, &Vec<String>)> = defs.chain(uses).collect();
+        let in_here: Vec<Meaning<'a>> =
+            all.iter().filter(|(_, scope)| scope.as_slice() == here).map(|(m, _)| *m).collect();
+        if in_here.is_empty() { all.into_iter().map(|(m, _)| m).collect() } else { in_here }
     }
 
-    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
-    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one). A name
-    /// the file binds more than one way is one only when every way is (review of cmux#41693, F1).
-    fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
+    /// Whether `path`, written in this resolver's module, is std's or tokio's `Mutex` through the
+    /// file's `use` names, again and again (`use std::sync as s; use s::Mutex as Lock;`): every
+    /// meaning of its head must be. A bare `Mutex` the file does not import is taken as std's
+    /// (the prelude has none, so it is an import from another file or a glob).
+    fn mutex_path(&self, path: &[String], depth: usize, steps: &mut usize) -> bool {
+        let Some((head, rest)) = path.split_first() else {
+            return false;
+        };
+        if depth > 8 || *steps == 0 {
+            return false;
+        }
+        *steps -= 1;
+        let meanings = self.meanings(head);
+        if meanings.is_empty() {
+            return matches!(
+                path.iter().map(String::as_str).collect::<Vec<_>>().as_slice(),
+                ["Mutex"] | ["std" | "tokio", "sync", "Mutex"]
+            );
+        }
+        meanings.iter().all(|m| match m {
+            Meaning::Def(_) => false,
+            Meaning::Use(full, scope) => {
+                let next: Vec<String> =
+                    full.split("::").map(str::to_string).chain(rest.iter().cloned()).collect();
+                self.within(scope).mutex_path(&next, depth + 1, steps)
+            }
+        })
+    }
+
+    /// Whether `ty`, written in this resolver's module, is a `Mutex<()>`, std's or tokio's
+    /// (through the file's aliases and its `use` names, renames included: `use std::sync::Mutex
+    /// as Lock` makes `Lock<()>` one). A name the file binds more than one way is one only when
+    /// every way is. `steps` bounds the reads.
+    fn is_serializer(&self, ty: &Type, depth: usize, steps: &mut usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
         };
-        if p.qself.is_some() || depth > 8 {
+        if p.qself.is_some() || depth > 8 || *steps == 0 {
             return false;
         }
+        *steps -= 1;
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-        if let [name] = idents.as_slice()
-            && let Some(def) = self.names.defs.get(name)
-        {
-            if self.names.twice.contains(name) {
-                return false;
+        let unit = matches!(
+            p.path.segments.last().map(|s| &s.arguments),
+            Some(PathArguments::AngleBracketed(args)) if args.args.len() == 1
+                && matches!(args.args.first(), Some(GenericArgument::Type(Type::Tuple(t))) if t.elems.is_empty())
+        );
+        if let [name] = idents.as_slice() {
+            let meanings = self.meanings(name);
+            if meanings.iter().any(|m| matches!(m, Meaning::Def(_))) {
+                return meanings.iter().all(|m| match m {
+                    Meaning::Def(Def { params, body: Body::Alias(inner), scope })
+                        if params.is_empty() =>
+                    {
+                        self.within(scope).is_serializer(inner, depth + 1, steps)
+                    }
+                    Meaning::Def(_) => false,
+                    Meaning::Use(full, scope) => {
+                        let path: Vec<String> = full.split("::").map(str::to_string).collect();
+                        unit && self.within(scope).mutex_path(&path, depth + 1, steps)
+                    }
+                });
             }
-            return match def {
-                Def { params, body: Body::Alias(inner) } if params.is_empty() => {
-                    self.is_serializer(inner, depth + 1)
-                }
-                _ => false,
-            };
         }
-        // A bare `Mutex` the file does not import is taken as std's (the prelude has none, so it
-        // is an import from another file or a glob).
-        let is_mutex = |path: &Vec<String>| {
-            matches!(
-                path.iter().map(String::as_str).collect::<Vec<_>>().as_slice(),
-                ["Mutex"] | ["std" | "tokio", "sync", "Mutex"]
-            )
-        };
-        let shape = self
-            .used_paths(&idents)
-            .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex));
-        let Some(PathArguments::AngleBracketed(args)) =
-            p.path.segments.last().map(|s| &s.arguments)
-        else {
-            return false;
-        };
-        shape
-            && args.args.len() == 1
-            && matches!(args.args.first(), Some(GenericArgument::Type(Type::Tuple(t))) if t.elems.is_empty())
+        unit && self.mutex_path(&idents, depth, steps)
     }
 }
+
+/// How many names one static's type may be read through to call it a serializer: a file that
+/// binds one name many ways in many modules is no serializer past it.
+const SERIALIZER_STEPS: usize = 64;
 
 #[cfg(test)]
 #[path = "test_hooks_tests.rs"]
