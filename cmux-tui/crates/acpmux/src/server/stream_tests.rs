@@ -127,7 +127,11 @@ fn writer(
     let (client, server) = tokio::io::duplex(buffer);
     let (out_tx, out_rx) = mpsc::channel(16);
     let (last_tx, last_rx) = oneshot::channel();
-    let task = tokio::spawn(write_lines(server, out_rx, last_rx));
+    let task = tokio::spawn(async move {
+        // These are v1 writer tests; returning the transport to a join handle
+        // would retain the write half after the last line instead of closing it.
+        drop(write_lines(server, out_rx, last_rx).await);
+    });
     (client, out_tx, last_tx, task)
 }
 
