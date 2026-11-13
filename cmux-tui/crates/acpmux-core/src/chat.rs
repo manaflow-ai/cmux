@@ -14,11 +14,12 @@ use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, Owned
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod source;
 
@@ -79,7 +80,7 @@ impl ChatConfig {
             boot_id: 0,
             source_stamp: 1,
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
-            edition_random: Arc::new(|| 1),
+            edition_random: Arc::new(system_random_edition),
         }
     }
 
@@ -95,6 +96,18 @@ impl ChatConfig {
         self.edition_random = edition_random;
         self
     }
+}
+
+fn system_random_edition() -> u32 {
+    let mut bytes = [0u8; 4];
+    if let Ok(mut source) = fs::File::open("/dev/urandom")
+        && source.read_exact(&mut bytes).is_ok()
+    {
+        return u32::from_le_bytes(bytes).max(1);
+    }
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(1, |duration| duration.subsec_nanos().max(1))
 }
 
 #[derive(Debug)]
@@ -226,22 +239,25 @@ impl ChatActor {
                 };
                 let scope = cmux_scope::Scope::new("acpmux-chat");
                 let (health, _) = tokio::sync::watch::channel(crate::life::Health::Starting);
-                let mut receiver = Some(rx);
+                let receiver = Arc::new(Mutex::new(rx));
                 let _ = runtime.block_on(crate::life::supervise(
                     &scope,
                     move || {
-                        let receiver = receiver.take();
+                        let receiver = receiver.clone();
                         let config = config.clone();
                         let queued = queued.clone();
                         async move {
-                            let Some(receiver) = receiver else {
-                                return Err(ChatError::Closed);
-                            };
-                            tokio::task::spawn_blocking(move || {
-                                run_supervised(config, receiver, queued);
+                            match tokio::task::spawn_blocking(move || {
+                                run_supervised(config, receiver, queued)
                             })
                             .await
-                            .map_err(|_| ChatError::Closed)
+                            {
+                                Ok(result) => result,
+                                Err(error) if error.is_panic() => {
+                                    std::panic::resume_unwind(error.into_panic())
+                                }
+                                Err(_) => Err(ChatError::Closed),
+                            }
                         }
                     },
                     crate::life::Policy::default(),
@@ -285,57 +301,37 @@ struct ActorState {
     recovery: Recovery,
 }
 
-fn run_supervised(config: ChatConfig, rx: Receiver<Request>, queued: Arc<Mutex<usize>>) {
-    let mut first = true;
+fn run_supervised(
+    config: ChatConfig,
+    receiver: Arc<Mutex<Receiver<Request>>>,
+    queued: Arc<Mutex<usize>>,
+) -> Result<(), ChatError> {
     loop {
-        let mut state = loop {
-            let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                open_state(config.clone())
-            }));
-            match opened {
-                Ok(Ok(state)) => break state,
-                Ok(Err(ChatError::Book(BookError::Rebuild(_)))) => {
-                    match rebuild_from_raw(config.clone()) {
-                        Ok(state) => break state,
-                        Err(_) => return,
-                    }
-                }
-                Ok(Err(ChatError::Book(BookError::Busy))) => {
-                    // A handoff can retain the old descriptor briefly. Log::open already waits
-                    // 200 ms; retrying here gives the restart path its bounded extra window.
-                    thread::sleep(Duration::from_millis(10));
-                }
-                _ => return,
+        let mut state = match open_state(config.clone()) {
+            Ok(state) => state,
+            Err(ChatError::Book(BookError::Rebuild(_))) => rebuild_from_raw(config.clone())?,
+            Err(ChatError::Book(BookError::Busy)) => {
+                thread::sleep(Duration::from_millis(10));
+                continue;
             }
+            Err(error) => return Err(error),
         };
-        if !first {
-            state.recovery = Recovery::Stopped;
-        }
-        first = false;
-        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_once(&mut state, &rx, &queued)
-        }));
+        let run = {
+            let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            run_once(&mut state, &receiver, &queued)
+        };
         match run {
-            Ok(Ok(true)) => return,
-            Ok(Ok(false)) => continue,
-            Ok(Err(ChatError::Book(BookError::CorruptRow { .. }))) => {
+            Ok(true) => return Ok(()),
+            Ok(false) => continue,
+            Err(ChatError::Book(BookError::CorruptRow { .. })) => {
                 drop(state);
-                match rebuild_from_raw(config.clone()) {
-                    Ok(rebuilt) => {
-                        state = rebuilt;
-                        state.recovery = Recovery::Rebuild;
-                    }
-                    Err(_) => return,
-                }
-                let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run_once(&mut state, &rx, &queued)
-                }));
-                if matches!(run, Ok(Ok(true))) {
-                    return;
-                }
+                let mut rebuilt = rebuild_from_raw(config.clone())?;
+                rebuilt.recovery = Recovery::Rebuild;
+                let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                return run_once(&mut rebuilt, &receiver, &queued).map(|_| ());
             }
-            Ok(Err(ChatError::SourceChanged)) => continue,
-            Ok(Err(_)) | Err(_) => return,
+            Err(ChatError::SourceChanged) => continue,
+            Err(error) => return Err(error),
         }
     }
 }

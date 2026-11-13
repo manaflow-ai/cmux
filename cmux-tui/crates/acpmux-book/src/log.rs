@@ -889,50 +889,57 @@ impl Log {
             }
             slot = slot.saturating_add(1);
         }
-        let rows_synced = self.rows.sync()?;
-        let seqs_synced = self.seqs.sync()?;
-        self.stats.syncs =
-            self.stats.syncs.saturating_add(u64::from(rows_synced) + u64::from(seqs_synced));
+        let result = (|| {
+            let rows_synced = self.rows.sync()?;
+            let seqs_synced = self.seqs.sync()?;
+            self.stats.syncs =
+                self.stats.syncs.saturating_add(u64::from(rows_synced) + u64::from(seqs_synced));
 
-        let old_last = self.tail.seg;
-        if old_last == self.checkpoint_mark.seg {
-            self.tail.file.set_len(u64::from(self.checkpoint_mark.off))?;
-            fsio::sync(&self.tail.file)?;
-            self.stats.syncs = self.stats.syncs.saturating_add(1);
-            self.tail.len = u64::from(self.checkpoint_mark.off);
-            self.tail.file.seek(SeekFrom::End(0))?;
-        } else {
-            let checkpoint_path = segment_path(&self.rows_dir, self.checkpoint_mark.seg);
-            let checkpoint_file =
-                OpenOptions::new().read(true).append(true).open(&checkpoint_path)?;
-            checkpoint_file.set_len(u64::from(self.checkpoint_mark.off))?;
-            fsio::sync(&checkpoint_file)?;
-            self.stats.syncs = self.stats.syncs.saturating_add(1);
-            let old_file = std::mem::replace(&mut self.tail.file, checkpoint_file);
-            drop(old_file);
-            for seg in (self.checkpoint_mark.seg + 1)..=old_last {
-                let path = segment_path(&self.rows_dir, seg);
-                if path.exists() {
-                    fs::remove_file(path)?;
-                    fsio::sync_dir(&self.rows_dir)?;
+            let old_last = self.tail.seg;
+            if old_last == self.checkpoint_mark.seg {
+                self.tail.file.set_len(u64::from(self.checkpoint_mark.off))?;
+                fsio::sync(&self.tail.file)?;
+                self.stats.syncs = self.stats.syncs.saturating_add(1);
+                self.tail.len = u64::from(self.checkpoint_mark.off);
+                self.tail.file.seek(SeekFrom::End(0))?;
+            } else {
+                let checkpoint_path = segment_path(&self.rows_dir, self.checkpoint_mark.seg);
+                let checkpoint_file =
+                    OpenOptions::new().read(true).append(true).open(&checkpoint_path)?;
+                checkpoint_file.set_len(u64::from(self.checkpoint_mark.off))?;
+                fsio::sync(&checkpoint_file)?;
+                self.stats.syncs = self.stats.syncs.saturating_add(1);
+                let old_file = std::mem::replace(&mut self.tail.file, checkpoint_file);
+                drop(old_file);
+                for seg in (self.checkpoint_mark.seg + 1)..=old_last {
+                    let path = segment_path(&self.rows_dir, seg);
+                    if path.exists() {
+                        fs::remove_file(path)?;
+                        fsio::sync_dir(&self.rows_dir)?;
+                    }
                 }
+                self.tail.seg = self.checkpoint_mark.seg;
+                self.tail.len = u64::from(self.checkpoint_mark.off);
             }
-            self.tail.seg = self.checkpoint_mark.seg;
-            self.tail.len = u64::from(self.checkpoint_mark.off);
+            self.raw_map.set_len(self.checkpoint_raw_map_len)?;
+            fsio::sync(&self.raw_map)?;
+            self.raw_map.seek(SeekFrom::End(0))?;
+            self.raw_files = self.checkpoint_raw_files;
+            self.raw_map_len = self.checkpoint_raw_map_len;
+            self.undo.set_len(0)?;
+            fsio::sync(&self.undo)?;
+            self.undo_head = None;
+            self.last_seq = self.checkpoint_last_seq;
+            self.min_row = self.checkpoint_min_row;
+            self.max_row = self.checkpoint_max_row;
+            self.readers.clear();
+            self.unsynced = false;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.broken = true;
         }
-        self.raw_map.set_len(self.checkpoint_raw_map_len)?;
-        self.raw_map.seek(SeekFrom::End(0))?;
-        self.raw_files = self.checkpoint_raw_files;
-        self.raw_map_len = self.checkpoint_raw_map_len;
-        self.undo.set_len(0)?;
-        fsio::sync(&self.undo)?;
-        self.undo_head = None;
-        self.last_seq = self.checkpoint_last_seq;
-        self.min_row = self.checkpoint_min_row;
-        self.max_row = self.checkpoint_max_row;
-        self.readers.clear();
-        self.unsynced = false;
-        Ok(())
+        result
     }
 
     fn create_segment(rows_dir: &Path, seg: u32) -> Result<File, Error> {

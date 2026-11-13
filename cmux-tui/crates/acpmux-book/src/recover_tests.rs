@@ -397,12 +397,29 @@ fn a_source_change_cuts_the_replay_suffix_to_the_checkpoint() {
         assert_eq!(log.last_seq(), 1);
         assert_eq!(log.max_row(), 1);
         assert!(log.row(2).is_none());
+        let row = log.row(1).expect("the cut restores the checkpoint row");
+        assert_eq!(row.rev, 1);
+        assert_eq!(texts(&mut log, &[row]).0[0], text(1));
+        assert_eq!(log.patch(1, 2, RawRange::NONE, b"patched after cut").unwrap(), 2);
     }
     assert_eq!(fs::metadata(segment(&book)).unwrap().len(), mark_len);
     let (log, recovered) = open(&book);
     assert_eq!(recovered.replayed, 0);
     assert_eq!(log.last_seq(), 1);
     assert!(log.row(2).is_none());
+}
+
+#[test]
+fn a_checkpoint_open_row_can_settle_again_after_a_cut() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let (mut log, _) = open(&book);
+    log.write_checkpoint(&[], &[1]).unwrap();
+    log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap();
+    log.cut_to_checkpoint(&[1]).unwrap();
+    assert!(log.row(1).is_none());
+    assert_eq!(log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap(), 1);
+    assert_eq!(log.row(1).unwrap().rev, 1);
 }
 
 #[test]
