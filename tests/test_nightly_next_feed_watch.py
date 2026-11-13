@@ -332,12 +332,12 @@ class QueuedGateTests(unittest.TestCase):
 
 
 class FeedTests(unittest.TestCase):
-    def test_watches_the_cmux_next_feed(self):
-        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # feed is cmux NIGHTLY's (com.cmuxterm.app.nightly reads it), written
-        # only by publish-nightly-identity-legacy, and watched too.
-        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+    def test_watches_the_cmux_nightly_feed(self):
+        # nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on
+        # the bare feed it polls (hq#7156). `/next/` is read only to find builds the
+        # legacy jobs have not copied yet (legacy_lag), until nightly-next signs once.
         self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
 
 def feed(*items):
@@ -390,6 +390,10 @@ class LegacyFeedTests(unittest.TestCase):
         build, message = self.lag()
         self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", message)
+
+    def test_a_frozen_next_feed_behind_the_bare_one_reruns_nothing(self):
+        # Once nightly-next signs once, `/next/` freezes and the bare feed moves ahead of it.
+        self.assertIsNone(self.lag(next_xml=self.OLD, old_xml=self.NEXT)[0])
 
     def test_current_or_fresh_is_not_behind(self):
         self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
@@ -492,12 +496,9 @@ class LegacyFeedTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("actions: write", workflow)
 
-    def test_watches_both_next_appcast_paths(self):
-        """The shipped app polls the bare path; `/next/` is the channel path."""
-        self.assertEqual(set(watch.NEXT_FEED_URLS), {
-            "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
-            "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-        })
+    def test_watches_only_the_bare_appcast(self):
+        """The shipped app polls the bare path; the retired `/next/` appcast gets no builds."""
+        self.assertEqual(watch.NEXT_FEED_URLS, ("https://files-next.cmux.com/nightly-next/appcast-arm64.xml",))
 
     def test_freshness_is_the_older_of_the_two_feeds(self):
         """On 2026-10-26 the bare feed was two hours ahead of `/next/`; a build
@@ -899,6 +900,39 @@ class UnstartedRunTests(unittest.TestCase):
                 self.assertEqual(answer.startswith("running "), blocks, answer)
                 if head == other:
                     self.assertEqual(gh.compared, [f"/compare/{self.TIP}...{other}"])
+
+    def test_a_started_nightly_next_push_build_of_an_older_commit_holds_the_dispatch(self):
+        """ask-4f5b99b22b: nightly-next pushes share one concurrency group, so a dispatch beside an older
+        commit's running push build only got the run waiting on that group cancelled. The loop's retry
+        takes the push group too, and a published holder keeps it through its tail. Another dispatch,
+        a resume and a stuck push run do not hold it."""
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        stuck = [live_job("queued_deltas", created_at=at(0.5), started_at=at(0.5))]
+        tail = [live_job("publish_done"),
+                live_job("mac_build_done", name="dispatch-nightly-next-sign", status="in_progress",
+                         conclusion=None, completed_at=None)]
+        older = "d" * 40
+        for changes, jobs, blocks in (({}, running, True),
+                                      ({"event": "workflow_dispatch"}, running, False),
+                                      ({"event": "workflow_dispatch", "display_title": "Retry nightly-next (1 of 2)"},
+                                       running, True),
+                                      ({}, tail, True),
+                                      ({"display_title": "Resume nightly-next run 1 attempt 1"}, running, False),
+                                      ({"run_minutes_ago": 30}, stuck, False)):
+            with self.subTest(changes=dict(changes), jobs=[j.get("name") for j in jobs]):
+                minutes = changes.pop("run_minutes_ago", 2)
+                run = dict(self.live(run_minutes_ago=minutes, status="in_progress"), head_sha=older, **changes)
+                gh = self.Flows(self, {("nightly.yml", "nightly-next"): [run]}, jobs, compare={older: "behind"})
+                answer = watch.starvation_dispatch(
+                    gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+                    workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES,
+                    active_workflows=watch.next_delivery_workflows(""),
+                    carries=lambda run, tip, landed: watch.next_holds_dispatch(gh, run, tip, landed),
+                    started_check=watch.next_started)
+                self.assertEqual(answer.startswith("running "), blocks, answer)
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("carries=lambda run, tip, landed: next_holds_dispatch(", source)
+        self.assertIn("started_check=next_started", source)
 
     def test_cmux_next_is_dispatched_after_twenty_minutes(self):
         """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""

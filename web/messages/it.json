@@ -199,7 +199,10 @@
     "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
-    "backToSignIn": "Torna all'accesso"
+    "backToSignIn": "Torna all'accesso",
+    "chatgptLinkTitle": "Accedi una volta per collegare ChatGPT",
+    "chatgptLinkBody": "Questa email ha già un account cmux. Accedi con il metodo usato in precedenza e ChatGPT verrà collegato a quell’account.",
+    "chatgptEmailUnverifiedBody": "L’email del tuo account ChatGPT non è verificata. Verificala con OpenAI o accedi in un altro modo."
   },
   "cloudPublicationAccess": {
     "title": "Non hai accesso",
@@ -422,13 +425,13 @@
     "faqCustomizeQ": "Posso personalizzare cmux?",
     "faqCustomizeA": "Sì. Il rendering del terminale usa la tua configurazione di Ghostty, quindi temi, font, colori e cursore vengono ereditati direttamente. Le impostazioni proprie di cmux in <path>~/.config/cmux/cmux.json</path> controllano la barra laterale, la barra dei tab, i pannelli divisi e il comportamento, e ogni <shortcutsLink>scorciatoia da tastiera</shortcutsLink> è modificabile. Vedi <link>configurazione</link>.",
     "faqIosQ": "Esiste un'app per iOS?",
-    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA. L’accesso anticipato è incluso con <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA. L’accesso anticipato è incluso con <proLink>cmux Pro</proLink>.",
     "faqSkillsQ": "cmux ha le skill?",
     "faqSkillsA": "Sì. Le skill sono flussi di lavoro riutilizzabili che puoi assegnare a qualsiasi agente in esecuzione in cmux, per cose come il controllo della CLI, l'automazione dello spazio di lavoro, le impostazioni e le superfici del browser. Sfoglia la raccolta aperta su <skillsLink>cmux-skills</skillsLink>, oppure leggi la <link>documentazione delle skill</link>.",
     "faqBrowserQ": "Cosa può fare il browser integrato?",
     "faqBrowserA": "cmux può aprire un vero pannello browser accanto al tuo terminale, ed è completamente programmabile: naviga, cattura il DOM, fai clic, digita, valuta JavaScript e leggi l'attività della console e della rete tramite la stessa socket API. Gli agenti lo usano per verificare le proprie modifiche web senza uscire da cmux. Vedi l'<link>automazione del browser</link>.",
     "faqSupportQ": "Come posso supportare cmux?",
-    "faqSupportA": "cmux è gratuito e open source, e lo sarà sempre. Se vuoi sostenere lo sviluppo e ottenere l'accesso anticipato alle prossime novità, tra cui cmux AI, l'app iOS e le Cloud VMs, dai un'occhiata a <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux è gratuito e open source, e lo sarà sempre. Se vuoi sostenere lo sviluppo e ottenere l'accesso anticipato alle prossime novità, tra cui cmux AI, l'app iOS e le Cloud VMs, dai un'occhiata a <proLink>cmux Pro</proLink>.",
     "faqFeatureQ": "Ho una richiesta di funzionalità o ho trovato un bug",
     "faqFeatureA": "Vogliamo saperlo. Apri una <issuesLink>issue</issuesLink> o una <prLink>pull request</prLink> su GitHub, oppure <mailLink>scrivici</mailLink>."
   },
@@ -509,7 +512,18 @@
         "grantedBody": "L’accesso Team è stato concesso a {team} dal team di cmux. Non c’è alcun abbonamento da gestire.",
         "seatsUsed": "{members} di {seats} utilizzati",
         "overSeat": "{team} ha {members} membri e {seats} posti pagati. I posti seguono il numero di membri, quindi l’abbonamento si aggiorna da solo.",
-        "addSeats": "Aggiungi posti"
+        "addSeats": "Aggiungi posti",
+        "enterprise": {
+          "current": "Piano attuale",
+          "body": "{team} ha un piano personalizzato concordato con il team di cmux. Contatta il team di cmux per modificarlo.",
+          "price": "Prezzo",
+          "perMonth": "{amount}/mese",
+          "machines": "Macchine cloud",
+          "pool": "vCPU / memoria condivise",
+          "largest": "Macchina più grande",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Nessun limite"
+        }
       },
       "teamList": {
         "heading": "Ambiti di fatturazione",
@@ -2947,7 +2961,7 @@
       "intro": "L'app cmux per iOS è un companion per il tuo Mac. Abbina il tuo iPhone o iPad a un Mac che esegue cmux e collegati ai tuoi terminali dal telefono, con inoltro opzionale delle notifiche del terminale.",
       "betaNote": "L'app per iOS è in beta. Viene distribuita su TestFlight come cmux BETA.",
       "accessTitle": "Ottenere l'accesso",
-      "accessDesc": "L'app è distribuita tramite TestFlight. L'accesso anticipato è incluso con <foundersLink>cmux Founders Edition</foundersLink>, insieme ad altre funzionalità in anteprima.",
+      "accessDesc": "L'app è distribuita tramite TestFlight. L'accesso anticipato è incluso con <proLink>cmux Pro</proLink>, insieme ad altre funzionalità in anteprima.",
       "prereqTitle": "Prerequisiti",
       "prereqIntro": "Prima di iniziare ti serve:",
       "prereq1": "Un Mac che esegue cmux con l'accesso effettuato.",
@@ -3520,11 +3534,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Build di anteprima della prossima app cmux",
-    "metaTitle": "cmux NEXT NIGHTLY — Build di anteprima",
-    "metaDescription": "Scarica cmux NEXT NIGHTLY, un'anteprima della prossima app cmux compilata automaticamente dal suo ultimo commit. Funziona accanto a cmux con aggiornamenti automatici propri.",
-    "description": "cmux NEXT NIGHTLY è un'anteprima della prossima versione di cmux, compilata automaticamente dal suo ultimo commit. Ha un proprio bundle ID, quindi funziona accanto a cmux e cmux NIGHTLY senza conflitti. Richiede un Mac con Apple silicon.",
+    "metaTitle": "cmux NEXT — Chief e i tuoi agenti di codice, in un'unica app per Mac",
+    "metaDescription": "cmux NEXT è il prossimo cmux per Mac. Di' a Chief cosa vuoi fare: avvia agenti di codice nei loro spazi di lavoro e ti aggiorna.",
+    "description": "cmux NEXT NIGHTLY è un'anteprima della prossima versione di cmux, compilata automaticamente dal suo ultimo commit. Si installa come cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), quindi sostituisce cmux NIGHTLY e funziona accanto a cmux. Richiede un Mac con Apple silicon.",
     "download": "Scarica NEXT NIGHTLY per Mac",
-    "warning": "Le build NEXT NIGHTLY possono contenere bug o funzionalità incomplete. Se qualcosa non funziona, segnalalo su <githubLink>GitHub</githubLink> o in <discordLink>#nightly-bugs su Discord</discordLink> e torna alla versione stabile."
+    "warning": "Le build NEXT NIGHTLY possono contenere bug o funzionalità incomplete. Se qualcosa non funziona, segnalalo su <githubLink>GitHub</githubLink> o in <discordLink>#nightly-bugs su Discord</discordLink> e torna alla versione stabile.",
+    "landing": {
+      "tagline": "Di' a Chief cosa vuoi fare. Pensa lui agli agenti.",
+      "subtitle": "cmux NEXT è la prossima versione di cmux: un'app nativa per Mac basata su Ghostty. Chief, il suo assistente integrato, avvia agenti di codice nei loro spazi di lavoro, li tiene d'occhio e ti avvisa quando uno ha bisogno di te. Accanto a ogni agente ci sono un terminale, un vero browser e i diff.",
+      "requirements": "Apple silicon · macOS 14 o successivo · Funziona accanto a cmux",
+      "featuresTitle": "Funzionalità",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Digli cosa vuoi fare. Avvia gli agenti, affida i lavori grandi ai subagenti e ti aggiorna."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Un'unica lista di chat per Chief e tutti gli agenti, con pallini di non letto quando uno ha bisogno di te."
+        },
+        "agents": {
+          "title": "Qualsiasi agente di codice",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi e altri, come vere chat con modifiche e diff in vista."
+        },
+        "floating": {
+          "title": "Chief fluttuante",
+          "body": "⌘I porta Chief sopra lo spazio di lavoro in uso. ⌥⇧Space lo richiama da qualsiasi app."
+        },
+        "search": {
+          "title": "Cerca ovunque",
+          "body": "⌘⇧A trova spazi di lavoro, schede, chat degli agenti, cronologia del browser e comandi passati."
+        },
+        "spaces": {
+          "title": "Spazi (Spaces)",
+          "body": "Insiemi di finestre separati per lavori separati. Passa dall'uno all'altro con ⌃⌥⌘← e →."
+        },
+        "browser": {
+          "title": "Un vero browser",
+          "body": "Chromium in una scheda, con estensioni, DevTools e profili, accanto ai tuoi agenti."
+        },
+        "machines": {
+          "title": "Le tue macchine",
+          "body": "Esegui gli spazi di lavoro via SSH, o su macchine cmux Cloud che si mettono in pausa quando sono inattive (cmux Pro)."
+        },
+        "history": {
+          "title": "Porta con te la cronologia",
+          "body": "Importa la cronologia di Claude Code e Codex come chat ricercabili e riparti da dove eri rimasto."
+        },
+        "terminal": {
+          "title": "Terminale Ghostty",
+          "body": "Renderizzato con la GPU, e legge la tua configurazione di Ghostty."
+        },
+        "sidebar": {
+          "title": "La tua barra laterale",
+          "body": "Aggiungi sezioni alla barra laterale come elenchi o griglie, create come piccole app JavaScript."
+        },
+        "phone": {
+          "title": "iPhone, in beta",
+          "body": "Rispondi alla richiesta di permesso di un agente dal telefono."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home con Chief a sinistra, un agente Claude Code con i file modificati a destra",
+      "demosTitle": "Guardalo in azione",
+      "demos": {
+        "docked": {
+          "caption": "Chief ancorato accanto a uno spazio di lavoro.",
+          "alt": "Chief ancorato a destra di uno spazio di lavoro del terminale"
+        },
+        "floating": {
+          "caption": "⌘I fa fluttuare Chief sopra ciò che stai facendo.",
+          "alt": "Chief che fluttua sopra uno spazio di lavoro del terminale"
+        },
+        "agents": {
+          "caption": "La chat di un agente accanto a quella di Chief.",
+          "alt": "Una conversazione con un agente accanto a una chat con Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P esegue qualsiasi azione per nome.",
+          "alt": "La palette dei comandi aperta sopra una conversazione"
+        },
+        "history": {
+          "caption": "Porta la cronologia di Claude Code e Codex.",
+          "alt": "La schermata di importazione con Claude Code, Codex e altre fonti"
+        },
+        "machines": {
+          "caption": "Scegli la macchina su cui gira un gruppo di spazi di lavoro.",
+          "alt": "Scelta della macchina su cui gira un gruppo di spazi di lavoro"
+        }
+      },
+      "nightlyTitle": "Informazioni su NEXT NIGHTLY",
+      "nightlyBody": "Ogni notte arriva una nuova build dall'ultimo commit, e l'app si aggiorna da sola.",
+      "iconAlt": "Icona di cmux NEXT NIGHTLY"
+    }
   },
   "languageSwitcher": {
     "label": "Lingua"

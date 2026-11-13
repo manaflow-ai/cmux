@@ -3,7 +3,10 @@ name: Fast checks
 # (glaeda-gh wait run|pr --sha) can match it: a dispatched run's head_sha is the
 # dispatch ref's tip (main), never the commit it tests. Only a tested_sha the
 # "Confirm the tested commit" step proves is named; a wrong claim fails the run.
-run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}
+# ` job <id>` names the lane-gh broker's cmux-ci job (input ci_job): two jobs at one
+# head never share a run-name, so the broker binds each run to its own job by that
+# exact name. Readers take the snapshot sha as the third word and allow a suffix.
+run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}${{ inputs.ci_job && format(' job {0}', inputs.ci_job) || '' }}
 
 on:
   workflow_dispatch:
@@ -19,6 +22,9 @@ on:
         default: '.'
       tested_sha:
         description: The commit this run tests (the snapshot's parent, same tree), or empty
+        default: ''
+      ci_job:
+        description: The lane-gh broker's cmux-ci job id (32 hex digits) for the run-name; empty for other callers
         default: ''
       setup:
         type: choice
@@ -40,30 +46,38 @@ permissions:
   contents: read
 
 jobs:
-  # A small hosted picker is the only job that starts before the checks. It
-  # proves an online, idle fleet Linux runner from the routing App's census;
-  # after 180 seconds without that proof it selects the measured Blacksmith
-  # overflow set. The source snapshot and its arbitrary command never reach
+  # A small picker starts on hosted Ubuntu, or on the smallest measured
+  # Blacksmith size when the broker re-dispatches a run whose admission
+  # waited 180 seconds with no runner: its one re-run route, never 16 or 32
+  # vCPU. It proves an online, idle fleet Linux runner from the routing
+  # App's census; after 180 seconds without that proof it selects the
+  # measured Blacksmith overflow set. The source snapshot and its arbitrary command never reach
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission
+    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
     permissions:
       contents: read
     outputs:
       runner: ${{ steps.pick.outputs.runner }}
     steps:
       # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
-      # main only carries this wiring and reads that exact helper revision.
+      # main only carries this wiring and reads that exact helper revision:
+      # #34270's, which decides on one census read instead of polling 180 s.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ecc5d6074e78b81627a5ba840dcdf0690c4bfd4e
+          ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
           path: .fast-checks-tools
-          # Keep the admission checkout narrow, but include the shared census
-          # client imported by the picker.
+          # Keep the admission checkout narrow, but include every helper the
+          # pinned picker imports: the shared census client, its request counter
+          # (github_spend, imported at load since #34270's pin) and the warm
+          # routing modules it imports on the distance path.
           sparse-checkout: |
             scripts/ci/fast_checks_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/warm_distance.py
+            scripts/ci/owned_warm_state.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -125,11 +139,13 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           TESTED_SHA: ${{ inputs.tested_sha }}
+          CI_JOB: ${{ inputs.ci_job }}
           COMMAND_TIMEOUT: ${{ inputs.timeout }}
         working-directory: ${{ github.workspace }}
         run: |
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ -z "$TESTED_SHA" || "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$CI_JOB" || "$CI_JOB" =~ ^[0-9a-f]{32}$ ]]
           [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
           (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
 

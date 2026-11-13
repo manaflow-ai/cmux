@@ -35,6 +35,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
     ("nightly-next-launch-smoke.yml", ""): (
         "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
         "per pull request, and such a run delivers nothing (it never rolls back or files)"),
+    ("nightly-next-tick.yml", "unstick"): (
+        "the stuck-run rescue and cancelled-tip re-run read every run's state when they start, so the "
+        "newest waiting one does the work of any it replaced; a sha request skips the job"),
     ("nightly-next-tick.yml", "request"): (
         "the tick dispatches no build itself (test_delivery_coalescers_have_fixed_backstops...); a sha "
         "request has its own group"),
@@ -66,8 +69,10 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # sign, runner, verify and the rcodesign signer build too (#26001 renamed it from rcodesign-dmg):
     # a pending handoff waiting for any of them would be evicted by a newer one (2026-10-26: nothing
     # published from 00:13Z for over six hours).
+    # supersede cancels older publish runs itself, keeping the oldest waiting one, so it must not take a
+    # group either: one would replace its own pending run and could cancel this run's.
     "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign",
-                                "tip-dmg", "tip", "tip-deltas"),
+                                "tip-dmg", "tip", "tip-deltas", "supersede"),
     # Classic main and rc push runs build in parallel (#25959), so their
     # continuations publish in any order. Sharing release-publish-<tag> let an
     # older run's delta job replace a newer publish that was still pending.

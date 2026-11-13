@@ -199,7 +199,10 @@
     "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
-    "backToSignIn": "Nazad na prijavu"
+    "backToSignIn": "Nazad na prijavu",
+    "chatgptLinkTitle": "Prijavite se jednom da povežete ChatGPT",
+    "chatgptLinkBody": "Ovaj email već ima cmux račun. Prijavite se metodom koju ste ranije koristili i ChatGPT će biti povezan s tim računom.",
+    "chatgptEmailUnverifiedBody": "Email na vašem ChatGPT računu nije potvrđen. Potvrdite ga kod OpenAI-ja ili se prijavite na drugi način."
   },
   "cloudPublicationAccess": {
     "title": "Nemate pristup",
@@ -422,13 +425,13 @@
     "faqCustomizeQ": "Mogu li prilagoditi cmux?",
     "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
     "faqIosQ": "Postoji li iOS aplikacija?",
-    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <proLink>cmux Pro</proLink>.",
     "faqSkillsQ": "Ima li cmux skills-e?",
     "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
     "faqBrowserQ": "Šta može ugrađeni preglednik?",
     "faqBrowserA": "cmux može podijeliti pravi panel preglednika pored vašeg terminala i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, izvršite JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste da provjere vlastite web izmjene bez napuštanja cmux-a. Pogledajte <link>automatizaciju preglednika</link>.",
     "faqSupportQ": "Kako mogu podržati cmux?",
-    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <proLink>cmux Pro</proLink>.",
     "faqFeatureQ": "Imam prijedlog za funkciju ili sam pronašao grešku",
     "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
@@ -509,7 +512,18 @@
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
         "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama.",
-        "addSeats": "Dodaj mjesta"
+        "addSeats": "Dodaj mjesta",
+        "enterprise": {
+          "current": "Trenutni plan",
+          "body": "{team} koristi prilagođeni plan dogovoren s cmux timom. Kontaktirajte cmux tim da ga promijenite.",
+          "price": "Cijena",
+          "perMonth": "{amount}/mjesečno",
+          "machines": "Cloud mašine",
+          "pool": "Dijeljeni vCPU / memorija",
+          "largest": "Najveća mašina",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Bez ograničenja"
+        }
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -2947,7 +2961,7 @@
       "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
       "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
       "accessTitle": "Dobivanje pristupa",
-      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>, zajedno s drugim ranim funkcijama.",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <proLink>cmux Pro</proLink>, zajedno s drugim ranim funkcijama.",
       "prereqTitle": "Preduvjeti",
       "prereqIntro": "Prije nego što počnete, potrebno vam je:",
       "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",
@@ -3520,11 +3534,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Pregledne verzije sljedeće cmux aplikacije",
-    "metaTitle": "cmux NEXT NIGHTLY — Pregledne verzije",
-    "metaDescription": "Preuzmite cmux NEXT NIGHTLY, pregled sljedeće cmux aplikacije koji se automatski gradi iz najnovijeg commita. Radi uz cmux s vlastitim automatskim ažuriranjima.",
-    "description": "cmux NEXT NIGHTLY je pregled sljedeće verzije cmux-a, koji se automatski gradi iz najnovijeg commita. Ima vlastiti bundle ID, pa radi uz cmux i cmux NIGHTLY bez sukoba. Zahtijeva Mac s Apple čipom.",
+    "metaTitle": "cmux NEXT — Chief i vaši agenti za kod, u jednoj Mac aplikaciji",
+    "metaDescription": "cmux NEXT je sljedeći cmux za Mac. Recite Chiefu šta želite uraditi: pokreće agente za kod u njihovim radnim prostorima i javlja vam se.",
+    "description": "cmux NEXT NIGHTLY je pregled sljedeće verzije cmux-a, koji se automatski gradi iz najnovijeg commita. Instalira se kao cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), pa zamjenjuje cmux NIGHTLY i radi uz cmux. Zahtijeva Mac s Apple čipom.",
     "download": "Preuzmi NEXT NIGHTLY za Mac",
-    "warning": "NEXT NIGHTLY verzije mogu sadržavati greške ili nedovršene funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHub</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i vratite se na stabilnu verziju."
+    "warning": "NEXT NIGHTLY verzije mogu sadržavati greške ili nedovršene funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHub</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i vratite se na stabilnu verziju.",
+    "landing": {
+      "tagline": "Recite Chiefu šta želite uraditi. On vodi agente.",
+      "subtitle": "cmux NEXT je sljedeća verzija cmuxa: izvorna Mac aplikacija izgrađena na Ghosttyju. Chief, ugrađeni asistent, pokreće agente za kod u njihovim radnim prostorima, prati ih i javlja vam kad vas neki treba. Uz svakog agenta su terminal, pravi preglednik i diffovi.",
+      "requirements": "Apple silicon · macOS 14 ili noviji · Radi uz cmux",
+      "featuresTitle": "Mogućnosti",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Recite šta želite uraditi. Pokreće agente, velike poslove daje podagentima i javlja se."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Jedna lista chatova za Chiefa i sve agente, s tačkama nepročitanog kad vas neki treba."
+        },
+        "agents": {
+          "title": "Bilo koji agent za kod",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi i drugi, kao pravi chatovi s vidljivim izmjenama i diffovima."
+        },
+        "floating": {
+          "title": "Lebdeći Chief",
+          "body": "⌘I dovodi Chiefa iznad radnog prostora u kojem ste. ⌥⇧Space ga prizove iz bilo koje aplikacije."
+        },
+        "search": {
+          "title": "Pretražite sve",
+          "body": "⌘⇧A nalazi radne prostore, kartice, chatove agenata, historiju preglednika i ranije komande."
+        },
+        "spaces": {
+          "title": "Prostori (Spaces)",
+          "body": "Odvojeni skupovi prozora za odvojeni posao. Prebacujte se sa ⌃⌥⌘← i →."
+        },
+        "browser": {
+          "title": "Pravi preglednik",
+          "body": "Chromium u kartici, s ekstenzijama, DevTools i profilima, pored vaših agenata."
+        },
+        "machines": {
+          "title": "Vaše mašine",
+          "body": "Pokrećite radne prostore preko SSH ili na cmux Cloud mašinama koje se pauziraju kad miruju (cmux Pro)."
+        },
+        "history": {
+          "title": "Ponesite svoju historiju",
+          "body": "Uvezite historiju Claude Codea i Codexa kao chatove koje možete pretraživati i nastavite gdje ste stali."
+        },
+        "terminal": {
+          "title": "Terminal Ghostty",
+          "body": "Renderuje se na GPU-u i čita vašu Ghostty konfiguraciju."
+        },
+        "sidebar": {
+          "title": "Vaša vlastita bočna traka",
+          "body": "Dodajte sekcije bočne trake kao liste ili mreže, napravljene kao male JavaScript aplikacije."
+        },
+        "phone": {
+          "title": "iPhone, u beti",
+          "body": "Odgovorite na zahtjev agenta za dozvolu s telefona."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home s Chiefom lijevo, Claude Code agent s izmijenjenim fajlovima desno",
+      "demosTitle": "Pogledajte",
+      "demos": {
+        "docked": {
+          "caption": "Chief usidren pored radnog prostora.",
+          "alt": "Chief usidren desno od radnog prostora s terminalom"
+        },
+        "floating": {
+          "caption": "⌘I čini da Chief lebdi iznad onoga što radite.",
+          "alt": "Chief lebdi iznad radnog prostora s terminalom"
+        },
+        "agents": {
+          "caption": "Chat agenta pored Chiefovog chata.",
+          "alt": "Razgovor s agentom pored chata s Chiefom"
+        },
+        "palette": {
+          "caption": "⌘⇧P pokreće bilo koju radnju po imenu.",
+          "alt": "Paleta komandi otvorena iznad razgovora"
+        },
+        "history": {
+          "caption": "Ponesite historiju Claude Codea i Codexa.",
+          "alt": "Ekran uvoza s popisom Claude Codea, Codexa i drugih izvora"
+        },
+        "machines": {
+          "caption": "Odaberite mašinu na kojoj radi grupa radnih prostora.",
+          "alt": "Biranje mašine na kojoj radi grupa radnih prostora"
+        }
+      },
+      "nightlyTitle": "O NEXT NIGHTLY",
+      "nightlyBody": "Nova verzija izlazi svake noći iz najnovijeg commita, a aplikacija se sama ažurira.",
+      "iconAlt": "Ikona cmux NEXT NIGHTLY"
+    }
   },
   "languageSwitcher": {
     "label": "Jezik"

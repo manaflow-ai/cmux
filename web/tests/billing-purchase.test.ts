@@ -2494,7 +2494,11 @@ describe("recordCheckoutCompletion", () => {
   });
 
   test("clears Team metadata when a Team subscription lapses", async () => {
-    const updateTeam = mock(async () => undefined);
+    // The sync must hold the team lease that admin grants and deals use.
+    let leaseHeldDuringTeamUpdate = false;
+    const updateTeam = mock(async () => {
+      leaseHeldDuringTeamUpdate = accountMutationOperationId !== null;
+    });
     const team = {
       id: "team_123",
       clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
@@ -2545,6 +2549,65 @@ describe("recordCheckoutCompletion", () => {
     expect(updateTeam).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     });
+    expect(leaseHeldDuringTeamUpdate).toBe(true);
+    expect(accountMutationOperationId).toBeNull();
+  });
+
+  test("decides the Team seat sync under the team lease, not from a read before it", async () => {
+    // Stripe says 5 seats. A read outside the lease still shows 5, but a
+    // concurrent writer has landed 3 by the time the lease is held. Deciding
+    // "nothing to write" from the unleased read would leave 3 in place.
+    const leasedReads: boolean[] = [];
+    const updateTeam = mock(async () => undefined);
+    const getTeam = mock(async () => {
+      const leased = accountMutationOperationId !== null;
+      leasedReads.push(leased);
+      const seats = leased ? 3 : 5;
+      return {
+        id: "team_123",
+        clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: seats },
+        update: updateTeam,
+      };
+    });
+    selectResults = [[{ stackUserId: "owner_123" }], [{ stackUserId: "owner_123" }], []];
+
+    await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 5,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => ({
+            id: "owner_123",
+            primaryEmail: "owner@example.com",
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
+          getTeam,
+        } as never,
+      },
+    );
+
+    expect(leasedReads.length).toBeGreaterThan(0);
+    expect(leasedReads.every(Boolean)).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 5 },
+    });
+    expect(accountMutationOperationId).toBeNull();
   });
 
   test("syncs legacy Team subscription webhooks whose customer owner is the team id", async () => {
