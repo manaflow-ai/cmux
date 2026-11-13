@@ -17,7 +17,7 @@ struct WorkspaceCloseSelectionTests {
 
     /// A person's New Workspace: `window` showed `old` and now shows `new`. `quick`: placed at the end or the top.
     private func make(_ new: String, from old: String, quick: Bool, in rule: WindowCloseSelection) {
-        rule.expect(new, in: window, quick: quick)
+        rule.expect(new, in: window, relation: quick ? .quick : .task)
         rule.shown(new, after: old, in: window, gesture: true)
     }
 
@@ -116,11 +116,25 @@ struct WorkspaceCloseSelectionTests {
     @Test func onlyAPersonsOwnNewWorkspaceReportsACreate() {
         let after = NewWorkspaceDefaultSlot(placement: .afterCurrent), end = NewWorkspaceDefaultSlot(placement: .bottom)
         let new = WorkspaceSpawn(newTabPage: true)
-        #expect(new.quickOpener(setting: after) == false)
-        #expect(new.quickOpener(setting: end) == true)
-        #expect(WorkspaceSpawn(cwd: "/tmp", name: "copy").quickOpener(setting: after) == nil)
-        ActionRunScope.carrying(ActionRunScope(origin: .cli, allowsViewChange: true)) { #expect(new.quickOpener(setting: after) == nil) }
-        ActionRunScope.carrying(ActionRunScope(origin: .user, allowsViewChange: false)) { #expect(new.quickOpener(setting: after) == nil) }
+        let none = WindowCloseSelection.Relation.none
+        #expect(new.closeRelation(setting: after) == .task)
+        #expect(new.closeRelation(setting: end) == .quick)
+        #expect(WorkspaceSpawn(cwd: "/tmp", name: "copy").closeRelation(setting: after) == none)
+        ActionRunScope.carrying(ActionRunScope(origin: .cli, allowsViewChange: true)) { #expect(new.closeRelation(setting: after) == none) }
+        ActionRunScope.carrying(ActionRunScope(origin: .user, allowsViewChange: false)) { #expect(new.closeRelation(setting: after) == none) }
+    }
+
+    /// The codes of `cmux_window_close_selection_relation` are not `CloseSelection.Kind`'s raw values (review of
+    /// #40920): each case maps to Rust's constant by name. From Rust: the three answers. To Rust: a create with
+    /// no relation holds nothing (the task and the quick relation each have their tests above).
+    @Test func aCreatesRelationMapsToRustsConstantsByName() {
+        #expect(WindowCloseSelection.relation(opensNewTabPage: true, personsAction: true, mayChangeView: true, afterCurrent: true) == .task)
+        #expect(WindowCloseSelection.relation(opensNewTabPage: true, personsAction: true, mayChangeView: true, afterCurrent: false) == .quick)
+        #expect(WindowCloseSelection.relation(opensNewTabPage: false, personsAction: true, mayChangeView: true, afterCurrent: true) == WindowCloseSelection.Relation.none)
+        let rule = WindowCloseSelection()
+        rule.expect("n", in: window, relation: .none)
+        rule.shown("n", after: "b", in: window, gesture: true)
+        #expect(rule.isEmpty)
     }
 
     @Test func aRelationDoesNotCrossWindows() {
@@ -136,7 +150,7 @@ struct WorkspaceCloseSelectionTests {
     /// when the window shows it later.
     @Test func aCreateTheWindowDidNotShowGetsNoOpener() {
         let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
-        rule.expect("n", in: window, quick: false)
+        rule.expect("n", in: window, relation: .task)
         // The window lists "n" and still shows "b": the repair after it settles the state.
         rule.settle(window, owner: { _ in "w" }, exists: { _ in true }, claimed: { _ in false })
         go("n", from: "b", in: rule)
@@ -147,7 +161,7 @@ struct WorkspaceCloseSelectionTests {
     /// While its window waits for the create (not listed yet, still claimed), a repair keeps it.
     @Test func aRepairWhileTheCreateWaitsKeepsItsOpener() {
         let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
-        rule.expect("n", in: window, quick: false)
+        rule.expect("n", in: window, relation: .task)
         rule.settle(window, owner: { $0 == "n" ? nil : "w" }, exists: { _ in true }, claimed: { $0 == "n" })
         go("n", from: "b", in: rule)
         #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
@@ -183,20 +197,49 @@ struct WorkspaceCloseSelectionTests {
         #expect(WindowRegistry.repairedSelection(current: "n", previous: rows + ["n"], members: rows, rule: rule) == "b")
     }
 
-    /// A person's close of several rows keeps its own rule (second review of #40649, S4): by position, with no
-    /// opener rank. a b c d n*, "n" made from "b", Close Below on "c": the pick is "c". One row: the opener.
-    @Test func aCloseOfSeveralRowsHasNoOpenerRank() {
+    /// A person's close of several rows is the same pick as a close of one row (coordinator, FLAG 2; Chrome 156):
+    /// the opener rank over the rows that survive. a b c d n*, "n" made from "b". Close Below on "c" (closes "d"
+    /// and "n"): the opener "b". A close of "b" and "n": the opener closes with it and is no candidate, so the
+    /// pick is by position, the row above the last. One row: the opener.
+    @Test func aCloseOfSeveralRowsIsTheSamePickOverTheSurvivors() {
         let rule = WindowCloseSelection(), rows = ["a", "b", "c", "d", "n"]
         make("n", from: "b", quick: false, in: rule)
-        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c"], orders: [rows], rule: rule, batch: true) == "c")
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c"], orders: [rows], rule: rule) == "b")
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "c", "d"], orders: [rows], rule: rule) == "d")
         #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: ["a", "b", "c", "d"], orders: [rows], rule: rule) == "b")
+    }
+
+    // MARK: The press of a close that can still be cancelled (`InstantClose`; review of #40920)
+
+    /// The press hides the row and selects the pick at once. A quick relation of the hidden row lasts through the
+    /// repair of the press only: the cancel shows the row again with its opener. A repair that is no press (a
+    /// room change) ends it, as every selection that leaves the workspace does.
+    @Test(arguments: [true, false]) func aQuickRelationLastsThroughThePressOfACloseOnly(pressed: Bool) {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c", "n"], survivors = ["a", "b", "c"]
+        make("n", from: "a", quick: true, in: rule)
+        #expect(WindowRegistry.repairedSelection(current: "n", previous: rows, members: survivors, orders: [rows], rule: rule) == "a")
+        rule.repair(shown: "n", pick: "a", gesture: false, pressed: pressed, members: survivors, preferred: []) { rule.shown("a", after: "n", in: window, gesture: true) }
+        rule.repairing { rule.shown("n", after: "a", in: window, gesture: true) }
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == (pressed ? "a" : "c"))
+    }
+
+    /// A cancelled close of several rows whose pick was by position (the opener "b" closed with "n"): the rows are
+    /// listed again and the window shows "n" again. That selection is the close's (`repairing`), and "n" keeps its
+    /// opener. As a person's gesture it is a jump from "d" to an unrelated row, which ends the relation.
+    @Test(arguments: [true, false]) func aCancelledCloseOfSeveralRowsKeepsTheOpener(asTheCloses: Bool) {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "c", "d", "n"], survivors = ["a", "c", "d"]
+        make("n", from: "b", quick: false, in: rule)
+        rule.repair(shown: "n", pick: "d", gesture: false, pressed: true, members: survivors, preferred: []) { rule.shown("d", after: "n", in: window, gesture: true) }
+        if asTheCloses { rule.repairing { rule.shown("n", after: "d", in: window, gesture: true) } } else { rule.shown("n", after: "d", in: window, gesture: true) }
+        #expect(close("n", shown: "n", rows: rows, rule: rule) == (asTheCloses ? "b" : "d"))
     }
 
     // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
-    /// members and read no rows; with one held, the repair asks the registry about that relation's two workspaces
-    /// only. `settle` gets no row list at all (review of #40649, C and F), so it cannot walk the members.
+    /// members and read no rows; with one held, the repair asks the registry the two facts Rust wants (the owner,
+    /// the waiting create) about that relation's two workspaces only. `settle` gets no row list at all (review of
+    /// #40649, C and F), so it cannot walk the members.
     @Test(arguments: [3, 60, 826]) func aSwitchAndACloseNeverWalkTheMembers(count: Int) {
         final class Counter { var asked = 0, reads = 0 }
         let rows = (0..<count).map { "w\($0)" }, counter = Counter(), rule = WindowCloseSelection()
@@ -214,8 +257,27 @@ struct WorkspaceCloseSelectionTests {
         make("n", from: rows[1], quick: false, in: rule)
         go(rows[1], from: "n", in: rule)
         settle()
-        #expect(counter.asked == 2)
+        #expect(counter.asked == 4)
         #expect(!rule.isEmpty)
+    }
+
+    /// Rust asks about each workspace it holds; with more than the first call's 8 places the settle asks again
+    /// with arrays that hold them all. 5 relations = 10 held workspaces: each is asked for its owner and its
+    /// waiting create, and each relation is still there after the settle.
+    @Test func aSettleAsksAboutEveryHeldWorkspace() {
+        final class Counter { var asked = 0 }
+        let rule = WindowCloseSelection(), counter = Counter()
+        let rows = (0..<5).flatMap { ["o\($0)", "n\($0)"] }
+        for index in 0..<5 {
+            if index > 0 { rule.shown("o\(index)", after: "n\(index - 1)", in: window, gesture: false) }
+            make("n\(index)", from: "o\(index)", quick: false, in: rule)
+        }
+        rule.settle(window, owner: { _ in counter.asked += 1; return window }, exists: { _ in true }, claimed: { _ in counter.asked += 1; return false })
+        #expect(counter.asked == 20)
+        // With no opener the pick is the next row (the opener of the next pair); only for the last row is it the row above.
+        for index in 0..<5 {
+            #expect(WindowRegistry.repairedSelection(current: "n\(index)", previous: rows, members: rows.filter { $0 != "n\(index)" }, orders: [rows], rule: rule) == "o\(index)")
+        }
     }
 
     // MARK: The feed (WindowState through `WindowCloseSelection.watch`) and the sidebar model's own close
@@ -225,7 +287,7 @@ struct WorkspaceCloseSelectionTests {
         _ = windows.registry.apply { $0.openWindow(id: window, workspaceIDs: ["a", "b", "n", "c"]) }
         let state = windows.state(for: window), rule = windows.registry.closeSelection
         state.showWorkspace("b")
-        rule.expect("n", in: window, quick: false)
+        rule.expect("n", in: window, relation: .task)
         #expect(rule.isEmpty)
         state.showWorkspace("n")
         #expect(!rule.isEmpty)
@@ -238,7 +300,7 @@ struct WorkspaceCloseSelectionTests {
         _ = windows.registry.apply { $0.openWindow(id: window, workspaceIDs: ["a", "b", "n", "c", "d"]) }
         let state = windows.state(for: window), rule = windows.registry.closeSelection
         state.showWorkspace("b")
-        rule.expect("n", in: window, quick: false)
+        rule.expect("n", in: window, relation: .task)
         state.showWorkspace("n")
         ActionRunScope.carrying(ActionRunScope(origin: .cli, allowsViewChange: true)) {
             state.showWorkspace("d")
@@ -280,7 +342,7 @@ struct WorkspaceCloseSelectionTests {
     @Test func aRenamedWindowKeepsItsCreatesAndRelations() {
         let rule = WindowCloseSelection(), rows = ["a", "b", "n", "m", "c"]
         make("n", from: "b", quick: false, in: rule)
-        rule.expect("m", in: window, quick: false)
+        rule.expect("m", in: window, relation: .task)
         rule.renamed(window: window, to: "w2")
         rule.settle("w2", owner: { $0 == "m" ? nil : "w2" }, exists: { $0 == "w2" }, claimed: { $0 == "m" })
         #expect(!rule.isEmpty)

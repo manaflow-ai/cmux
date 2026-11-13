@@ -148,7 +148,7 @@ final class TerminalPredictionOverlayView: UIView {
     private var fontSize: CGFloat = 0
     private var cellWidth: CGFloat = 0
 
-    private static let foreground = UIColor(red: 0xE6 / 255, green: 0xE6 / 255, blue: 0xE6 / 255, alpha: 1)
+    private static let foreground = CmuxMobileGhosttyApp.foreground
 
     func hide() {
         guard !isHidden else { return }

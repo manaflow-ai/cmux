@@ -992,19 +992,6 @@ impl Terminal {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
     }
 
-    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
-        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
-            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        })?;
-        while prompt_y > 0
-            && self.active_row_prompt_semantic(prompt_y - 1)
-                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        {
-            prompt_y -= 1;
-        }
-        Some(prompt_y)
-    }
-
     fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
         while y > 0 && self.active_row_wrap_continuation(y)? {
             y -= 1;
@@ -1613,6 +1600,26 @@ impl Terminal {
         }
         let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
         Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    /// Whether [`Terminal::pwd`] would return `expected`, without building a
+    /// `String`. A pwd that is not valid UTF-8 never matches here (`pwd`
+    /// returns it lossily), so a caller then falls back to `pwd`.
+    pub fn pwd_is(&self, expected: Option<&str>) -> bool {
+        let current: Option<sys::GhosttyString> = self
+            .get(sys::GHOSTTY_TERMINAL_DATA_PWD)
+            .ok()
+            .filter(|s: &sys::GhosttyString| s.len != 0 && !s.ptr.is_null());
+        match (current, expected) {
+            (None, None) => true,
+            (Some(s), Some(expected)) => {
+                // SAFETY: the terminal owns `len` bytes at `ptr` until its
+                // next write, and `&self` rules a write out for this borrow.
+                let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
+                bytes == expected.as_bytes()
+            }
+            _ => false,
+        }
     }
 
     /// Query a terminal mode (DEC private when `ansi` is false).

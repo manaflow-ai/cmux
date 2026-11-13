@@ -25,8 +25,9 @@ public protocol ScreenSignalSocket: Sendable {
 /// `"<sid>|<role>|<fingerprint>"`, `role` the sender's), and verifies the
 /// peer's against the ticket's `peerKey`. A mismatch aborts: the stream
 /// throws ``ScreenSignalingError/fingerprintMismatch``, `bye` is sent and the
-/// socket closed. The ticket admits once, so no new signaling follows a
-/// closed socket; a peer connection already open outlives it.
+/// socket closed. The ticket admits once, so ordinary tickets have no new
+/// signaling after a closed socket; a peer connection already open outlives it.
+/// A reattach ticket is a separate, short-lived admission for the same pair.
 // crash-allow: `socket` and `closed` are read and written only under `lock`; every other field is a `let`.
 public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
     // @unchecked: `socket` and `opened` are behind `lock`.

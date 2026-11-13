@@ -27,6 +27,23 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_closed(&self) -> bool {
         false
     }
+    /// The client is gone: it closed its whole end, so it reads nothing this
+    /// side writes. One poll for writing that never blocks: a hang-up there
+    /// says this side cannot send any more. A client that shut down only its
+    /// writing half still reads its replies and is not gone, which
+    /// [`Stream::peer_closed`] cannot tell on macOS. `false` where it cannot
+    /// be told.
+    fn peer_gone(&self) -> bool {
+        false
+    }
+    /// Waits until a read will not block: data, the end or an error is
+    /// waiting. The socket's read timeout still bounds the wait, which then
+    /// fails as the read would (`WouldBlock`). The default does not wait.
+    /// The daemon's line reader calls it before every read (server
+    /// line_connection.rs, `LineSocket`).
+    fn wait_readable(&self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub struct Listener {
@@ -67,9 +84,52 @@ mod imp {
     use std::io;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::Stream;
+
+    /// Waits in poll() until a read of `stream` will not block, for at most
+    /// its read timeout (then `WouldBlock`, as the read would fail). On macOS
+    /// 26 and 27 a thread blocked in recv() can miss the wake of the peer's
+    /// shutdown (the daemon line reader with 8 clients at once: 1 in 7,000 to
+    /// 1 in 17,000); one waiting in poll() saw every one (opt-tools
+    /// probes/shutdown_wake.rs).
+    /// Every event returns (POLLIN, POLLHUP, POLLERR, POLLNVAL): the read then
+    /// takes the waiting bytes, the end or the error, so bytes sent before a
+    /// hang-up are still read. EINTR waits again for the time left.
+    fn wait_readable(stream: &UnixStream) -> io::Result<()> {
+        let deadline = stream.read_timeout()?.map(|timeout| Instant::now() + timeout);
+        let mut poll = libc::pollfd {
+            fd: std::os::fd::AsRawFd::as_raw_fd(stream),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        loop {
+            let timeout_ms = match deadline {
+                None => -1,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    // Rounded up: a 0 ms poll for the last 0.4 ms would spin.
+                    libc::c_int::try_from(left.as_micros().div_ceil(1000))
+                        .unwrap_or(libc::c_int::MAX)
+                }
+            };
+            poll.revents = 0;
+            // SAFETY: one pollfd for a descriptor `stream` owns while it is
+            // borrowed here.
+            let ready = unsafe { libc::poll(&mut poll, 1, timeout_ms) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 
     pub(super) struct Listener {
         inner: UnixListener,
@@ -129,16 +189,27 @@ mod imp {
         }
 
         fn peer_closed(&self) -> bool {
-            let mut poll = libc::pollfd {
-                fd: std::os::fd::AsRawFd::as_raw_fd(self),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            // SAFETY: one pollfd for a descriptor this stream owns; a zero
-            // timeout never blocks.
-            let ready = unsafe { libc::poll(&mut poll, 1, 0) };
-            ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
+            hung_up(self, libc::POLLIN)
         }
+
+        fn peer_gone(&self) -> bool {
+            hung_up(self, libc::POLLOUT)
+        }
+
+        fn wait_readable(&self) -> io::Result<()> {
+            wait_readable(self)
+        }
+    }
+
+    /// Whether a poll of `stream` for `events` that never blocks reports a
+    /// hang-up or an error.
+    fn hung_up(stream: &UnixStream, events: libc::c_short) -> bool {
+        let mut poll =
+            libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(stream), events, revents: 0 };
+        // SAFETY: one pollfd for a descriptor this stream owns; a zero
+        // timeout never blocks.
+        let ready = unsafe { libc::poll(&mut poll, 1, 0) };
+        ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
     }
 }
 

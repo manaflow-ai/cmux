@@ -30,13 +30,13 @@ struct ParkedWorkspacePageTabTests {
             let live = try #require(workspace.screens.flatMap(\.panes).first)
 
             // A background open: no focus, the top page stays.
-            #expect(services.pages.openNew(.inbox, in: window, focus: false) != nil)
+            #expect(services.pages.openNew(.keybindings, in: window, focus: false) != nil)
             // In the open's own turn: the store tab shows (its intent) in a pane the model has, or the app-only
             // tab is listed under it; never under the pane the daemon closed.
-            let inLive = live.tabs.contains { $0.page == InternalPageID.inbox.rawValue }
-                || services.pages.tab(of: .inbox, inPanes: [live.id]) != nil
+            let inLive = live.tabs.contains { $0.page == InternalPageID.keybindings.rawValue }
+                || services.pages.tab(of: .keybindings, inPanes: [live.id]) != nil
             #expect(inLive, "the page did not open in the pane the model has (\(live.id))")
-            #expect(services.pages.tab(of: .inbox, inPanes: [first.id]) == nil, "the page went into the pane the daemon closed")
+            #expect(services.pages.tab(of: .keybindings, inPanes: [first.id]) == nil, "the page went into the pane the daemon closed")
         }
     }
 }

@@ -18,7 +18,14 @@ import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
 from test_ci_change_areas import (
     GUARD_WORKFLOW as GUARD_WORKFLOW_PATH,
     workflow_job_block,
@@ -29,11 +36,10 @@ from test_ci_change_areas import (
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
 
-spec = importlib.util.spec_from_file_location("validate_test_execution_registry", VALIDATOR)
-assert spec and spec.loader
-validator = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = validator
-spec.loader.exec_module(validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as validator  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 RUNNER = ROOT / "scripts" / "ci" / "run_python_test_lane.py"
@@ -377,7 +383,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
                     text=True,
                 )
 
-            subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, text=True)
+            git_fixture_env.init_repo(origin, "--bare")
             repo.mkdir()
             git("init", "-b", "main")
             git("remote", "add", "origin", str(origin))

@@ -18,7 +18,7 @@ import { poolsMachineTime, teamCapApplies } from "../billing-catalog.ts"
 import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
 import { Effect, Result } from "effect"
-import { allowedModels, validateChat } from "./chat-request.ts"
+import { allowedModels, fitToRoutes, omittedImagePlaceholder, validateChat } from "./chat-request.ts"
 
 const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
@@ -43,7 +43,11 @@ export type Caller =
 export const ACCESS_ACTIONS = ["add_credits", "add_api_key", "see_plans"] as const
 const TOPUP_PATH = "/v1/credits/topup"
 
-const MAX_BODY_BYTES = 8 * 1024 * 1024
+// A memory-safe bound, not a send limit we chose: a Worker isolate has 128 MB of memory
+// (https://developers.cloudflare.com/workers/platform/limits/#memory), and the body is held as text
+// and then as parsed JSON (readBody drops the byte buffer first). Every route's published body limit
+// is higher (DeepSeek 48 MiB, Particle 144 MiB, OpenAI 512 MB), so nothing past this point is cut for size.
+const MAX_BODY_BYTES = 32 * 1024 * 1024
 
 /** Body fields passed upstream; everything else (provider routing fields, n, logit_bias...) is dropped. */
 const PASS_FIELDS = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "stop", "stream", "response_format", "seed", "frequency_penalty", "presence_penalty", "reasoning_effort"] as const
@@ -165,16 +169,22 @@ export const admitRequest = async (env: Env, request: Request): Promise<{ caller
   if (caller instanceof Response) return caller
   const length = Number(request.headers.get("content-length") ?? "0")
   if (length > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
-  const bytes = new Uint8Array(await request.arrayBuffer())
-  if (bytes.byteLength > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
+  const read = await readBody(request)
+  if (read.bytes > MAX_BODY_BYTES) return err(413, "validation.too_large", "request body is too large")
   let body: Record<string, unknown>
   try {
-    body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
+    body = JSON.parse(read.text) as Record<string, unknown>
   } catch {
     return err(400, "validation.invalid", "body must be JSON")
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return err(400, "validation.invalid", "body must be a JSON object")
-  return { caller, body, bytes: bytes.byteLength }
+  return { caller, body, bytes: read.bytes }
+}
+
+/** The body's size and text; its byte buffer is not kept past the decode (MAX_BODY_BYTES). */
+const readBody = async (request: Request): Promise<{ readonly bytes: number; readonly text: string }> => {
+  const buffer = await request.arrayBuffer()
+  return { bytes: buffer.byteLength, text: new TextDecoder().decode(buffer) }
 }
 
 export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
@@ -190,21 +200,28 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const checked = await Effect.runPromise(Effect.result(validateChat(env, body)))
   if (Result.isFailure(checked)) return err(checked.failure.status, checked.failure.code, checked.failure.message)
-  const { model, images } = checked.success
+  const { model } = checked.success
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"
-  if (free && images > 0) return err(403, "free.images", "the free tier takes text only; sign in to send images")
+  if (free && checked.success.images.length > 0) return err(403, "free.images", "the free tier takes text only; sign in to send images")
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
   const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
-  const routes = servingRoutes(env, model, free, pinned)
-  if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
-  if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
+  const serving = servingRoutes(env, model, free, pinned)
+  if (pinned !== undefined && serving.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
+  if (serving.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
+  // Images: fitted to the highest limit of the routes that can serve the request; a route that takes
+  // fewer is skipped, never the cause of a refusal (chat-request.ts fitImages).
+  const fitted = await Effect.runPromise(Effect.result(fitToRoutes(body.messages as ReadonlyArray<unknown>, checked.success.images, model, serving)))
+  if (Result.isFailure(fitted)) return err(fitted.failure.status, fitted.failure.code, fitted.failure.message)
+  const { images, omittedImages, messages, limit, routes } = fitted.success
 
   const id = crypto.randomUUID()
-  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling.
-  const promptBound = promptBytes + images * (model.vision?.tokensPerImage ?? 0)
+  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling. An
+  // omitted image's placeholder may be longer than its part was (a short https URL): count it too.
+  const placeholderBytes = omittedImages * omittedImagePlaceholder(limit).length
+  const promptBound = promptBytes + placeholderBytes + images * (model.vision?.tokensPerImage ?? 0)
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 
@@ -250,6 +267,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
+  upstreamBody.messages = messages
   upstreamBody.max_tokens = maxTokens
   if (body.stream === true) upstreamBody.stream_options = { include_usage: true }
 
@@ -289,7 +307,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
         log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: r.status, attempt, input: r.usage?.input ?? null, output: r.usage?.output ?? null, usd, priced_by: r.usage?.costUsd !== undefined ? "provider" : r.usage ? "card" : "reservation", ttfb_ms: r.ttfbMs, stream: body.stream === true })
       }
     })
-    if (outcome.kind === "response") return outcome.response
+    if (outcome.kind === "response") return withOmittedImages(outcome.response, omittedImages)
     if (outcome.kind === "charged") {
       // The provider may have billed (a timeout or a broken body after the request was sent): the
       // full reservation is spent and there is no fallback, so a client cannot repeat it for free.
@@ -312,6 +330,17 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
   await settleMember(null)
   return last ?? err(503, "provider.unavailable", "no provider can serve this model now")
+}
+
+/** Names the answer's count of older images left out to fit the model's per-request limit. */
+export const IMAGES_OMITTED_HEADER = "x-cmux-images-omitted"
+
+/** `response` with `IMAGES_OMITTED_HEADER` when images were left out, so the cut is never silent. */
+const withOmittedImages = (response: Response, omitted: number): Response => {
+  if (omitted === 0) return response
+  const headers = new Headers(response.headers)
+  headers.set(IMAGES_OMITTED_HEADER, String(omitted))
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
 const log = (env: Env, fields: Record<string, unknown>) => console.log(JSON.stringify({ msg: "inference.request", environment: env.ENVIRONMENT, ...fields }))

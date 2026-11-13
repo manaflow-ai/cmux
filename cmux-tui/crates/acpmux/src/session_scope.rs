@@ -1110,7 +1110,9 @@ mod tests {
             let _ = std::fs::remove_file(&stall);
             let _ = release.recv();
         });
-        ready.recv().unwrap();
+        ready
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the holder never reached its stalled `systemctl`");
         // The holder is in its stalled `systemctl` (so it holds the lock).
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while !marker.exists() {
