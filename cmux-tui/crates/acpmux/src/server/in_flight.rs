@@ -19,6 +19,9 @@ use tokio::sync::{OwnedSemaphorePermit, oneshot};
 struct Entry {
     generation: u64,
     method: String,
+    /// Its key among requests sent on two paths (`dual_requests.rs`): a cancel stops whichever
+    /// copy runs.
+    dual: Option<super::dual_requests::Key>,
     cancel: oneshot::Sender<()>,
     _slot: Option<OwnedSemaphorePermit>,
 }
@@ -72,12 +75,14 @@ impl InFlight {
         Some(entry)
     }
 
-    /// Request `id` of `method` starts, holding `slot`.
+    /// Request `id` of `method` starts, holding `slot`; `dual` is its key when it is one copy of
+    /// a request sent on two paths.
     pub(crate) fn begin(
         &self,
         id: &Id,
         method: &str,
         slot: Option<OwnedSemaphorePermit>,
+        dual: Option<super::dual_requests::Key>,
     ) -> Ticket {
         let (tx, rx) = oneshot::channel();
         let key = id.to_string();
@@ -88,21 +93,21 @@ impl InFlight {
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
             key.clone(),
-            Entry { generation, method: method.to_owned(), cancel: tx, _slot: slot },
+            Entry { generation, method: method.to_owned(), dual, cancel: tx, _slot: slot },
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
         let won = Arc::default();
         Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
     }
 
-    /// The client cancelled request `id`: its method when it was in flight. Its slot is free
-    /// and its task told to stop; the caller answers it.
-    pub(crate) fn cancel(&self, id: &Id) -> Option<String> {
+    /// The client cancelled request `id`: its method and dual key when it was in flight. Its
+    /// slot is free and its task told to stop; the caller answers it.
+    pub(crate) fn cancel(&self, id: &Id) -> Option<(String, Option<super::dual_requests::Key>)> {
         let mut map = self.map();
         let entry = self.remove(&mut map, &id.to_string())?;
         drop(map);
         let _ = entry.cancel.send(());
-        Some(entry.method)
+        Some((entry.method, entry.dual))
     }
 
     /// The request takes its entry for its own answer: true when it owns the answer (now, or by
@@ -155,17 +160,18 @@ mod tests {
         let slots = Arc::new(Semaphore::new(2));
         let gauge = Arc::new(AtomicUsize::new(0));
         let flights = InFlight::counted(gauge.clone());
-        let first = flights.begin(&json!(1), "m", Some(slots.clone().try_acquire_owned().unwrap()));
+        let first =
+            flights.begin(&json!(1), "m", Some(slots.clone().try_acquire_owned().unwrap()), None);
         let second =
-            flights.begin(&json!(2), "m", Some(slots.clone().try_acquire_owned().unwrap()));
+            flights.begin(&json!(2), "m", Some(slots.clone().try_acquire_owned().unwrap()), None);
         assert_eq!((slots.available_permits(), gauge.load(Ordering::Relaxed)), (0, 2));
-        assert_eq!(flights.cancel(&json!(1)).as_deref(), Some("m"));
+        assert_eq!(flights.cancel(&json!(1)).map(|(m, _)| m).as_deref(), Some("m"));
         assert_eq!(slots.available_permits(), 1, "freed by the cancel");
         assert!(!flights.finish(&first), "its answer is not sent");
         assert!(flights.finish(&second));
         assert_eq!((flights.len(), slots.available_permits()), (0, 2));
         assert_eq!(flights.cancel(&json!(2)), None, "nothing left to cancel");
-        let _left = flights.begin(&json!(3), "m", None);
+        let _left = flights.begin(&json!(3), "m", None, None);
         assert_eq!(gauge.load(Ordering::Relaxed), 1);
         drop(flights);
         assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
@@ -174,8 +180,8 @@ mod tests {
     #[test]
     fn a_reused_id_keeps_its_own_slot_and_is_not_cancelled_for_the_first() {
         let flights = InFlight::default();
-        let first = flights.begin(&json!("a"), "m", None);
-        let again = flights.begin(&json!("a"), "m", None);
+        let first = flights.begin(&json!("a"), "m", None, None);
+        let again = flights.begin(&json!("a"), "m", None, None);
         assert!(flights.finish(&again));
         assert_eq!(flights.len(), 1);
         assert!(flights.finish(&first));
@@ -186,8 +192,8 @@ mod tests {
     #[test]
     fn a_claimed_answer_is_not_cancelled_and_still_finishes() {
         let flights = InFlight::default();
-        let sent = flights.begin(&json!(1), "_acpmux/sessions", None);
-        let lost = flights.begin(&json!(2), "_acpmux/sessions", None);
+        let sent = flights.begin(&json!(1), "_acpmux/sessions", None, None);
+        let lost = flights.begin(&json!(2), "_acpmux/sessions", None, None);
         assert!(flights.claim(&sent.claim().unwrap()));
         assert_eq!(flights.cancel(&json!(1)), None, "nothing left to cancel");
         assert!(flights.finish(&sent), "it sent its answer");

@@ -41,9 +41,10 @@ import Testing
         defer { reset() }
         load(radius: nil, padding: nil, density: density)
         #expect(Metrics.cornerRadius == Self.omnibarRadius, "\(density): the default radius is \(Metrics.cornerRadius) pt")
-        #expect(OmnibarStyle.barCornerRadius == Metrics.cornerRadius,
-                "\(density): the omnibar is \(OmnibarStyle.barCornerRadius) pt, the default radius \(Metrics.cornerRadius) pt")
-        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight) == Self.omnibarRadius)
+        // Lawrence 2026-11-11, "same roundness as chrome": the bar is a tab's height and takes the tab's radius.
+        #expect(OmnibarStyle.barCornerRadius == Metrics.tabCornerRadius,
+                "\(density): the omnibar is \(OmnibarStyle.barCornerRadius) pt, the tab \(Metrics.tabCornerRadius) pt")
+        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight) == Metrics.tabCornerRadius)
     }
 
     /// A set radius moves the omnibar with it.

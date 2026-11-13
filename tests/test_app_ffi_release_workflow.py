@@ -42,10 +42,13 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from test_seed_derived_data import evaluate  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -111,7 +114,7 @@ def executable(path: Path, text: str) -> None:
 
 
 def render(text: str, context: dict) -> str:
-    return re.sub(r"\$\{\{(.*?)\}\}", lambda match: str(evaluate(match.group(1), context) or ""), str(text))
+    return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(match.group(1), context) or ""), str(text))
 
 
 def condition(expression: str | None, context: dict, failed: bool, cancelled: bool = False) -> bool:
@@ -132,21 +135,25 @@ def condition(expression: str | None, context: dict, failed: bool, cancelled: bo
 class PublishJob(unittest.TestCase):
     def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
                     read_fails: str = "", curl_fails: str = "") -> tuple[bool, str]:
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = document["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
             bin_dir, state, work = temp_path / "bin", temp_path / "state", temp_path / "work"
-            for path in (bin_dir, state, work / "assets"):
+            # The job downloads into ${{ runner.temp }}/assets (RUNNER_TEMP is `temp`), not into its workspace.
+            assets = temp_path / "assets"
+            work.mkdir()
+            for path in (bin_dir, state, assets):
                 path.mkdir(parents=True)
             executable(bin_dir / "gh", FAKE_GH)
             executable(bin_dir / "curl", FAKE_CURL)
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
-            archive = work / "assets/CCmuxAppFFI.xcframework.zip"
+            archive = assets / "CCmuxAppFFI.xcframework.zip"
             archive.write_bytes(b"xcframework bytes")
             checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
-            (work / "assets/CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
-            (work / "assets/SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
-            (work / "assets/SOURCE_SHA").write_text(SHA + "\n")
+            (assets / "CCmuxAppFFI.xcframework.zip.sha256").write_text(checksum + "\n")
+            (assets / "SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n")
+            (assets / "SOURCE_SHA").write_text(SHA + "\n")
             if existing:
                 (state / "release").mkdir()
                 (state / "release/CCmuxAppFFI.xcframework.zip").write_bytes(archive.read_bytes())
@@ -165,7 +172,7 @@ class PublishJob(unittest.TestCase):
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
                         "GITHUB_STEP_SUMMARY": str(temp_path / "summary")})
-            base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
+            base_env.update({key: render(value, context) for key, value in workflow_jobs.effective_env(document, job).items()})
             failed, log = False, []
             for step in job["steps"]:
                 if "run" not in step or not condition(step.get("if"), context, failed):
@@ -210,6 +217,17 @@ class PublishJob(unittest.TestCase):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
 
+    def test_the_hand_publish_command_is_one_shell_command_that_ends_with_the_pin_proved(self):
+        # Review of #37645 at ec4829a3, F1: it read "...; then pin it with ...", prose no shell accepts, so the
+        # command named on a failed publish could not be pasted as given.
+        command = workflow_jobs.resolve(workflow_jobs.jobs(WORKFLOW)["publish"]).env["HAND_PUBLISH"]
+        command = gh_expressions.EXPRESSION.sub("X", command)
+        checked = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertRegex(command, r"&& scripts/cmux-next/repin-app-ffi\.sh X X "
+                                  r"&& scripts/cmux-next/check-app-ffi-pin\.sh --verify-release$")
+
+
     def test_a_failed_read_of_a_published_release_is_asked_again(self):
         # Run 42919934207 published the release, then one read in the last
         # check failed (GitHub 502s) and the job said the release did not
@@ -247,7 +265,7 @@ class PublishToken(unittest.TestCase):
         self.steps = {step.get("id") or step.get("name"): step for step in self.job["steps"]}
 
     def test_the_job_runs_in_the_ffi_release_environment_with_a_read_only_github_token(self):
-        self.assertEqual(self.job.get("environment"), "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(self.job).environment, {"name": "ffi-release"})
         self.assertEqual(self.job.get("permissions"), {"contents": "read"})
 
     def test_the_app_tokens_are_scoped_to_this_repository(self):
@@ -278,43 +296,79 @@ class PublishToken(unittest.TestCase):
 
 
 REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import app_ffi_pin  # noqa: E402
+
+
+def manifest(checksum):
+    """A Package.swift holding the loader for CHECKSUM, with text before and after it."""
+    return ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+            + app_ffi_pin.loader(checksum) + "\nlet package = Package(\n    name: \"x\",\n    targets: [\n        appFFI,\n    ]\n)\n")
 
 
 class RePin(unittest.TestCase):
     @staticmethod
-    def canonical(sha, checksum, extra=""):
-        return ("// CmuxNextCloud -> CCmuxAppFFI\nlet appFFI: Target = .binaryTarget(\n"
-                '    name: "CCmuxAppFFI",\n'
-                f'    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip",\n'
-                f'    checksum: "{checksum}"\n)\n'
-                '            dependencies: ["CmuxNextDesign", "CCmuxAppFFI"],\n'
-                f'let other = [1] // checksum is {"a" * 64}\n{extra}')
+    def canonical(sha, checksum):
+        """app-ffi-pin.json in its one format (scripts/ci/app_ffi_pin.py render)."""
+        return json.dumps({"url": f"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/"
+                                  "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
 
     def test_repin_rewrites_only_the_url_sha_and_checksum(self):
+        # The pin file's two values and Package.swift's one checksum line, nothing else (SwiftPM caches the evaluated
+        # manifest by Package.swift's text, so a re-pin must change that text).
         with tempfile.TemporaryDirectory() as temp:
-            manifest = Path(temp) / "Package.swift"
-            old_sum = "a" * 64
-            manifest.write_text(self.canonical(SHA, old_sum).replace(f"is {'a' * 64}", "unchanged"))
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            package = Path(temp) / "Package.swift"
+            pin_file.write_text(self.canonical(SHA, "a" * 64))
+            package.write_text(manifest("a" * 64))
             new_sha, new_sum = "d" * 40, "e" * 64
-            subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(manifest)], check=True, capture_output=True)
-            self.assertEqual(manifest.read_text(),
-                             self.canonical(new_sha, new_sum).replace(f"is {'a' * 64}", "unchanged"))
+            subprocess.run(["bash", str(REPIN), new_sha, new_sum, str(pin_file)], check=True, capture_output=True)
+            self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
+            self.assertEqual(package.read_text(), manifest(new_sum))
+            changed = [(a, b) for a, b in zip(manifest("a" * 64).split("\n"), package.read_text().split("\n")) if a != b]
+            self.assertEqual(changed, [(f"// app-ffi-pin-checksum: {'a' * 64}", f"// app-ffi-pin-checksum: {new_sum}")])
             for bad in (("x", new_sum), (new_sha, "y")):
-                result = subprocess.run(["bash", str(REPIN), *bad, str(manifest)], capture_output=True)
+                result = subprocess.run(["bash", str(REPIN), *bad, str(pin_file)], capture_output=True)
                 self.assertNotEqual(result.returncode, 0, bad)
+            self.assertEqual(pin_file.read_text(), self.canonical(new_sha, new_sum))
+            self.assertEqual(package.read_text(), manifest(new_sum))
 
-    def test_repin_refuses_a_manifest_that_is_not_canonical(self):
+    def test_repin_refuses_a_manifest_whose_checksum_line_is_not_the_pin_files(self):
         with tempfile.TemporaryDirectory() as temp:
-            manifest = Path(temp) / "Package.swift"
-            for text in (self.canonical(SHA, "a" * 64, extra='let s = """\nx\n"""\n'),
-                         self.canonical(SHA, "a" * 64).replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                         self.canonical(SHA, "a" * 64, extra='.binaryTarget(name: "Other", path: "x"),\n')):
-                manifest.write_text(text)
-                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(manifest)], capture_output=True,
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            package = Path(temp) / "Package.swift"
+            pin_file.write_text(self.canonical(SHA, "a" * 64))
+            for text in (manifest("b" * 64), manifest("a" * 64).replace(f"// app-ffi-pin-checksum: {'a' * 64}\n", "")):
+                package.write_text(text)
+                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(pin_file)], capture_output=True,
                                         text=True)
                 self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("error: Package.swift", result.stderr)
-                self.assertEqual(manifest.read_text(), text)
+                self.assertIn("app-ffi-pin-checksum", result.stderr)
+                self.assertEqual(pin_file.read_text(), self.canonical(SHA, "a" * 64))
+                self.assertEqual(package.read_text(), text)
+
+    def test_repin_refuses_a_pin_file_that_is_not_canonical(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pin_file = Path(temp) / "app-ffi-pin.json"
+            (Path(temp) / "Package.swift").write_text(manifest("a" * 64))
+            good = self.canonical(SHA, "a" * 64)
+            for text in (good.replace('", "checksum"', '", "extra": 1, "checksum"'),
+                         json.dumps(json.loads(good), indent=2) + "\n",
+                         good.replace("manaflow-ai/cmux", "someone/cmux"),
+                         "let x = 1\n"):
+                pin_file.write_text(text)
+                result = subprocess.run(["bash", str(REPIN), "d" * 40, "e" * 64, str(pin_file)], capture_output=True,
+                                        text=True)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("error: Packages/macOS/CmuxNext/app-ffi-pin.json", result.stderr)
+                self.assertEqual(pin_file.read_text(), text)
+
+    def test_the_repin_writes_package_swift_only_through_the_pin_reader(self):
+        body = REPIN.read_text().split("set -euo pipefail", 1)[1]
+        self.assertEqual([line for line in body.splitlines() if "$manifest" in line and "app_ffi_pin.py" not in line
+                          and not line.startswith("manifest=")], [])
 
     def test_repin_job_opens_or_updates_a_pull_request(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -491,7 +545,7 @@ class RePinPublication(unittest.TestCase):
     def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
                   check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
-                  workflow=WORKFLOW, pr_files=None, pin_json=False, current_pin=None, diff_exit=None,
+                  workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
@@ -501,11 +555,9 @@ class RePinPublication(unittest.TestCase):
             manifest = work / "Packages/macOS/CmuxNext/Package.swift"
             manifest.parent.mkdir(parents=True)
             current = self.PINNED if current_pin is None else current_pin
-            if pin_json:
-                manifest.write_text("loader\n")
-                (manifest.parent / "app-ffi-pin.json").write_text(current + "\n")
-            else:
-                manifest.write_text(current + "\n")
+            # The JSON pin: the pin file holds the pin, Package.swift its loader block (scripts/ci/app_ffi_pin.py).
+            manifest.write_text("loader\n")
+            (manifest.parent / "app-ffi-pin.json").write_text(current + "\n")
             bin_dir = work / "bin"
             bin_dir.mkdir()
             for command in ("git", "gh"):
@@ -590,6 +642,8 @@ class RePinPublication(unittest.TestCase):
         result, state = self.run_repin()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["published"], ["b" * 40])
+        # One signed commit per pin path: the pin file, then Package.swift's checksum line.
+        self.assertEqual(state["writes"], 2)
         self.assertEqual(state["prs"]["1"], "open")
         self.assertEqual(list(state["refs"]), ["app-ffi-repin"])
 
@@ -608,7 +662,7 @@ class RePinPublication(unittest.TestCase):
     def test_lost_write_response_reuses_the_signed_commit(self):
         result, state = self.run_repin(write_mode="lost")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["writes"], 1)
+        self.assertEqual(state["writes"], 2)  # each file once, never repeated after a lost response
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_concurrent_stable_ref_change_is_preserved(self):
@@ -691,13 +745,16 @@ class RePinPublication(unittest.TestCase):
         job = workflow["jobs"]["repin"]
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
-        self.assertEqual(job["environment"], "ffi-release")
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ffi-release"})
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
         self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ github.token }}")
-        self.assertNotIn("macos", str(job["runs-on"]))
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "repin: runs-on reads a matrix value nothing resolves, or is missing")
+        for runs_on in cells:
+            self.assertNotIn("macos", runs_on)
         self.assertEqual([s.get("with") for s in job["steps"]], [s.get("with") for s in release["steps"]])
         self.assertEqual(pin_step(job)["run"], pin_step(release)["run"])
         result, state = self.run_repin(workflow=REPIN_WORKFLOW, refs={})
@@ -853,9 +910,10 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_the_json_pin_is_read_when_the_tree_has_it(self):
-        result, state = self.run_repin(pin_json=True, same_inputs=True)
+        result, state = self.run_repin(same_inputs=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("read-pin-file", state["pin_reads"])
+        # Every read is the pin file with Package.swift's loader block, never Package.swift alone.
+        self.assertEqual(set(state["pin_reads"]), {"read-pin-file"})
         self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
         self.assertEqual(state["published"], [])
 
@@ -874,10 +932,24 @@ class RePinPublication(unittest.TestCase):
     # an open PR that pins something else stayed open, stale.
     PR_PIN = "4" * 40  # the pin at the head of the open re-pin PR
 
+    @staticmethod
+    def pr_head(pin):
+        """The re-pin branch head's pin files: PIN in app-ffi-pin.json, Package.swift its loader block."""
+        return {"Packages/macOS/CmuxNext/Package.swift": "loader", "Packages/macOS/CmuxNext/app-ffi-pin.json": pin}
+
+    def test_a_re_pin_head_without_the_pin_file_pins_nothing(self):
+        # A head from before the pin moved to app-ffi-pin.json: its Package.swift alone is no pin, so the run re-pins
+        # the picked release instead of keeping the branch's.
+        result, state = self.run_repin(same_inputs=[[self.PR_PIN, self.NEWEST]],
+                                       pr_files={"Packages/macOS/CmuxNext/Package.swift": self.PR_PIN})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("keeping that release", result.stdout)
+        self.assertEqual(state["repins"], [[self.NEWEST, "e" * 64]])
+
     def test_an_open_re_pin_pr_that_pins_the_picked_inputs_keeps_its_pin(self):
         for name, same in {"the same inputs": [[self.PR_PIN, self.NEWEST]], "the picked release itself": []}.items():
             pr_pin = self.PR_PIN if same else self.NEWEST
-            files = {"Packages/macOS/CmuxNext/Package.swift": pr_pin}
+            files = self.pr_head(pr_pin)
             with self.subTest(name, head="young, no failed check"):
                 result, state = self.run_repin(same_inputs=same, pr_files=files, head_age_min=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -921,15 +993,14 @@ class RePinPublication(unittest.TestCase):
 
     def test_the_pin_on_the_base_gets_the_branchs_release_after_the_swap(self):
         result, state = self.run_repin(base_result="pinned", same_inputs=[[self.PR_PIN, self.NEWEST]],
-                                       pr_files={"Packages/macOS/CmuxNext/Package.swift": self.PR_PIN})
+                                       pr_files=self.pr_head(self.PR_PIN))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("keeping that release", result.stdout)
         # The branch's release and its checksum (the fake pin reader's), not the newest release's.
         self.assertEqual(state["base_call"], ["base-token", "true", self.PR_PIN, "0" * 64])
 
     def test_an_open_re_pin_pr_is_closed_when_the_picked_release_has_the_base_inputs(self):
-        result, state = self.run_repin(same_inputs=[[self.PINNED, self.NEWEST]], pr_files={
-            "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN}, ancestry=[(self.PR_PIN, self.NEWEST)])
+        result, state = self.run_repin(same_inputs=[[self.PINNED, self.NEWEST]], pr_files=self.pr_head(self.PR_PIN), ancestry=[(self.PR_PIN, self.NEWEST)])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state.get("closes"), ["1"])
         self.assertIn("closed #1", result.stdout)
@@ -942,12 +1013,11 @@ class RePinPublication(unittest.TestCase):
                               "the PR pins a commit after the picked release": {}}.items():
             with self.subTest(name):
                 same = [[options.get("current_pin", self.PINNED), self.NEWEST]]
-                result, state = self.run_repin(same_inputs=same, head_age_min=20, pr_files={
-                    "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN}, **options)
+                result, state = self.run_repin(same_inputs=same, head_age_min=20, pr_files=self.pr_head(self.PR_PIN), **options)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotIn("closes", state)
         # A PR that already pins the base's pin, or no re-pin branch at all, is not closed.
-        for options in ({"pr_files": {"Packages/macOS/CmuxNext/Package.swift": self.PINNED}}, {"refs": {}}):
+        for options in ({"pr_files": self.pr_head(self.PINNED)}, {"refs": {}}):
             with self.subTest(**options):
                 result, state = self.run_repin(same_inputs=[[self.PINNED, self.NEWEST]], **options)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -1021,7 +1091,7 @@ class NewestPublishedRelease(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
         self.git("remote", "add", "origin", str(self.origin))
         self.commits = [self.commit(f"c{i}") for i in range(6)]
-        self.manifest = self.temp / "Package.swift"
+        self.pin_file = self.temp / "app-ffi-pin.json"
         self.pin(self.commits[1], "1" * 64)
 
     def git(self, *args):
@@ -1033,7 +1103,7 @@ class NewestPublishedRelease(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def pin(self, sha, checksum):
-        self.manifest.write_text(RePin.canonical(sha, checksum).replace("manaflow-ai/cmux", REPO))
+        self.pin_file.write_text(RePin.canonical(sha, checksum).replace("manaflow-ai/cmux", REPO))
 
     def publish(self, sha, checksum, *, sums=True, source=None):
         """A release: its tag on origin, and the files its downloads serve (a missing one is a 404)."""
@@ -1047,7 +1117,7 @@ class NewestPublishedRelease(unittest.TestCase):
 
     def pick(self):
         env = dict(os.environ, CMUX_APP_FFI_RELEASE_DOWNLOAD=self.releases.as_uri())
-        return subprocess.run([sys.executable, str(self.PICKER), "--manifest", str(self.manifest)], cwd=self.work,
+        return subprocess.run([sys.executable, str(self.PICKER), "--pin-file", str(self.pin_file)], cwd=self.work,
                               env=env, capture_output=True, text=True, timeout=30)
 
     def test_the_newest_published_release_wins(self):
@@ -1087,12 +1157,12 @@ class NewestPublishedRelease(unittest.TestCase):
         self.assertEqual(result.stdout.split(), [self.commits[1], "1" * 64])
         self.assertIn("nothing newer", result.stderr)
 
-    def test_a_manifest_with_no_pin_fails(self):
-        self.manifest.write_text("let x = 1\n")
+    def test_a_pin_file_with_no_pin_fails(self):
+        self.pin_file.write_text("let x = 1\n")
         self.assertNotEqual(self.pick().returncode, 0)
 
-    def test_a_manifest_whose_pin_is_not_canonical_fails(self):
-        self.manifest.write_text(self.manifest.read_text() + 'let s = #"x"#\n')
+    def test_a_pin_file_that_is_not_canonical_fails(self):
+        self.pin_file.write_text(self.pin_file.read_text().replace('", "checksum"', '",  "checksum"'))
         result = self.pick()
         self.assertEqual(result.returncode, 1)
         self.assertIn("no canonical cmux-app-ffi pin", result.stderr)
@@ -1193,7 +1263,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
         build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
-        return evaluate(build["runs-on"], {
+        return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})
