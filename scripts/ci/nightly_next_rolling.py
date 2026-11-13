@@ -23,9 +23,10 @@ builds alongside a running one instead of waiting behind it"):
   a burst of landings still becomes one build of the newest tip and no build is
   ever cancelled. --window-minutes now only spaces starts when a run list lags.
 
-"Building" uses nightly_next_feed_watch.run_is_building: a run whose
-publication job finished, or that has sat 10 minutes with nothing running and
-every queued job without a runner, is not building anything. A promotion run on
+"Building" means holding the push group (nightly_next_feed_watch.holds_push_group: a
+push or the loop's retry dispatch; run_holds_group): a published run still holds it
+through its tail, and a run that has sat 10 minutes with nothing running and every
+queued job without a runner holds nothing. A promotion run on
 main that is still moving nightly-next counts as building for --promotion-minutes.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
@@ -143,7 +144,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
         # while the head's run waits on it is the case a promotion would cancel.
         seen = set()
         for run in [*head_runs, *(starts or [])]:
-            if run.get("id") in seen or run.get("status") == "completed":
+            if run.get("id") in seen or run.get("status") == "completed" or not watch.holds_push_group(run):
                 continue
             seen.add(run.get("id"))
             try:
@@ -151,7 +152,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                     continue
             except (KeyError, TypeError, ValueError):
                 pass
-            if watch.run_is_building(run, jobs_of(run), now):
+            if watch.run_holds_group(run, jobs_of(run), now):
                 building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                             f"{(run.get('head_sha') or head)[:12]}")
                 break
@@ -293,9 +294,10 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         return False, f"nightly-next ({head[:12]}) already has the tip {tip[:12]}; nothing waits to be promoted"
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
-        # One listing of nightly-next's recent push runs: its head's runs, and the newest start.
-        recent = api(base + urllib.parse.urlencode(
-            {"branch": "nightly-next", "event": "push", "per_page": 20}))["workflow_runs"]
+        # One listing of nightly-next's recent runs, kept to the push group's (pushes and the loop's
+        # retry dispatches, watch.holds_push_group): its head's runs, and the newest start.
+        recent = [run for run in api(base + urllib.parse.urlencode(
+            {"branch": "nightly-next", "per_page": 50}))["workflow_runs"] if watch.holds_push_group(run)]
     except Exception as error:  # noqa: BLE001
         print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
         return True, f"could not read the running builds ({error!r}); promoting"
