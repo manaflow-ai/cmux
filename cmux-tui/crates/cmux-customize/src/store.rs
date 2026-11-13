@@ -320,3 +320,7 @@ fn private_file(path: &Path) -> io::Result<()> {
     let _ = path;
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+#[path = "store_lock_tests.rs"]
+mod lock_tests;
