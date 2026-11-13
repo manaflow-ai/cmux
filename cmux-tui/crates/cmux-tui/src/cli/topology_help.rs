@@ -63,7 +63,8 @@ workspace's siblings (the session's workspaces, the home one never) as one
 closed group: one `cmux closed reopen` restores them all. The same flags on
 screen, pane and tab close work in the screen, pane or tab bar.
 open-url opens an http(s) link on the workspace's right side (without a
-selector, the home workspace): it navigates the browser tab shown there last,
+selector, the caller's own workspace; the home workspace only for a shell
+outside cmux): it navigates the browser tab shown there last,
 else opens a browser tab, never in the agent chat dock, and keeps the focus.
 Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else

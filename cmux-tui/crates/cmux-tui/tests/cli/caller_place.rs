@@ -338,6 +338,13 @@ fn an_agent_chat_no_app_places_uses_the_workspace_its_environment_names() {
     // `current` is that workspace too, never the focused one.
     let current = run(server, &chat, &["workspace", "current", "show"]);
     assert_eq!(current["id"], alpha.as_str(), "{current}");
+    // An agent it starts opens there as well.
+    let started = run(
+        server,
+        &chat,
+        &["agent", "start", "helper", "--cmd", "sleep 600", "--no-wait", "--no-focus"],
+    );
+    assert_eq!(started["workspace_id"], alpha.as_str(), "{started}");
 
     // A key this session does not have (another session's, or a closed
     // workspace) names no place: the daemon's default.
