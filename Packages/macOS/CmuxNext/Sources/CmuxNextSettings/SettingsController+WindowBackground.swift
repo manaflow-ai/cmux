@@ -3,7 +3,8 @@ import CmuxNextDesign
 /// Settings > Window Background: Material "Ghostty" (both keys unset) takes
 /// opacity and blur from the Ghostty config. Moving Opacity leaves Ghostty for
 /// the material its blur gives; resetting Opacity returns that material to
-/// Ghostty (a material the user chose stays), and resetting Material resets both.
+/// Ghostty (a material the user chose stays), and resetting Material resets both. Picking a
+/// background picture at Opacity 100% resets Opacity, which would hide the picture.
 /// Every writer (the page, the palette, the socket's `settings.set`) and the
 /// page's live preview share this rule (`WindowBackgroundSetting.linkedEdits`).
 extension SettingsController {
@@ -38,7 +39,7 @@ extension SettingsController {
     /// The linked edits for a write, read against the file as it is now.
     func windowBackgroundLinkedEdits(writing path: [String], value: JSONValue?) async throws -> [(path: [String], value: JSONValue?)] {
         let keys = [WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath]
-        guard keys.contains(path) else { return [] }
+        guard keys.contains(path) || path == BackdropSelectionSetting.configPath else { return [] }
         var root = JSONValue.object([:])
         for key in keys {
             if let stored = try await file.value(at: key) { root = Self.replacing(key, with: stored, in: root) }

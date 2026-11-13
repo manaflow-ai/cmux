@@ -1,7 +1,8 @@
 // Settings > Appearance's undo stack. Every appearance change (a row, the background picker, a
 // theme level, a preset, a reset) is one entry of before and after states; Undo puts the before
 // states back, Redo the after states. The stack is page state, never written to cmux.json: it
-// lasts while the Settings page is open. A pure model, so the stack and its labels are tested
+// lasts while the Settings page is open. A step applies only while its targets still show what
+// the step left (Undo) or found (Redo); after another writer changed one, the step is dropped. A pure model, so the stack and its labels are tested
 // without a page.
 
 /** One setting's state: `customized` false means unset (the default), whatever `value` says. */
@@ -97,6 +98,13 @@ export class AppearanceHistory {
     this.undoStack.push(entry);
     this.emit();
     return { entry, apply: entry.changes.map((change) => change.after) };
+  }
+
+  /** Drops the step Undo or Redo would take next without applying it: one whose targets another
+   * writer has changed since (#29881), so putting its states back would overwrite that change. */
+  discard(direction: "undo" | "redo"): void {
+    const stack = direction === "undo" ? this.undoStack : this.redoStack;
+    if (stack.pop()) this.emit();
   }
 
   /** Puts a step back where it was when applying it failed (nothing changed). */

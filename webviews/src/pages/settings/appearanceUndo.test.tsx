@@ -1,6 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { AppearanceHistory, diff, HISTORY_LIMIT, type KeyState } from "./appearanceHistory";
 import { activePreset, APPEARANCE_PRESETS } from "./appearancePresets";
+import { linkedWriteKeys, withLinked } from "./appearanceUndo";
+import type { SettingsState } from "./store";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -22,6 +24,36 @@ const setting = (key: string, value: unknown, customized = true): KeyState => ({
 });
 
 describe("the undo stack (model)", () => {
+  // https://github.com/manaflow-ai/cmux/issues/29881: picking a picture at Opacity 100% also clears
+  // Opacity (and the Material it named) on the host, so the step records both and Undo restores them.
+  test("a picture written at Opacity 100% names the Opacity and Material the host clears with it", () => {
+    const state = (opacity: number | null, blur: string | null) =>
+      ({
+        rows: new Map<string, { value: unknown; customized: boolean }>([
+          ["appearance.backgroundOpacity", { value: opacity ?? 1, customized: opacity !== null }],
+          ["appearance.backgroundBlur", { value: blur ?? "none", customized: blur !== null }],
+        ]),
+      }) as unknown as SettingsState;
+    const picture = setting("appearance.background", "van-gogh-starry-night");
+    expect(linkedWriteKeys(state(1, "none"), picture)).toEqual([
+      "appearance.backgroundOpacity",
+      "appearance.backgroundBlur",
+    ]);
+    expect(linkedWriteKeys(state(1, null), picture)).toEqual(["appearance.backgroundOpacity"]);
+    expect(linkedWriteKeys(state(0.6, "none"), picture)).toEqual([]);
+    expect(linkedWriteKeys(state(null, null), picture)).toEqual([]);
+    expect(linkedWriteKeys(state(1, "none"), setting("appearance.background", "none"))).toEqual([]);
+    expect(linkedWriteKeys(state(1, "none"), setting("appearance.background", null, false))).toEqual([]);
+  });
+
+  test("a background write's step also records the window Opacity and Material it may clear", () => {
+    expect(withLinked(["appearance.background"])).toEqual([
+      "appearance.background",
+      "appearance.backgroundOpacity",
+      "appearance.backgroundBlur",
+    ]);
+  });
+
   test("undo returns the before states last change first, redo the after states", () => {
     const history = new AppearanceHistory();
     const before = [setting("a", null, false), setting("b", 1)];
@@ -131,6 +163,22 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(back.get("appearance.backgroundOpacity")?.value).toBe(0.5);
   });
 
+  // #29881: the host resets Opacity when a picture is written at 100%, so a step that puts back both
+  // writes the background first and the Opacity after it.
+  test("Undo writes the background before the Opacity it puts back", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    await run(() => page!.store.resetAppearanceToDefaults());
+    const before = ops(page.provider, "cmux.settings.set").length;
+    await run(() => page!.store.undoAppearance());
+    const keys = ops(page.provider, "cmux.settings.set")
+      .slice(before)
+      .map((op) => (op as { key: string }).key);
+    expect(keys.indexOf("appearance.background")).toBe(0);
+    expect(keys).toContain("appearance.backgroundOpacity");
+  });
+
   test("Restore How It Was puts back what Appearance showed when it opened", async () => {
     page = await renderPage({
       path: "/settings/appearance",
@@ -147,6 +195,181 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.appearance.nextUndo?.label).toBe("Appearance as opened");
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/29881: a step recorded earlier must never write over
+  // a newer value another writer (the CLI, an agent, another window, a hand edit) put there.
+  test("Undo after another writer changed the same key drops that step and offers the one below", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.9));
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
+    // The Background step is stale and gone; the Opacity step below it is still the page's own.
+    expect(undoButton().disabled).toBe(false);
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Opacity → 90 %");
+    const resets = ops(page.provider, "cmux.settings.reset").length;
+    await click(undoButton());
+    expect(ops(page.provider, "cmux.settings.reset").slice(resets)).toContainEqual({
+      key: "appearance.backgroundOpacity",
+    });
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
+    expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    // The Material the host named with that Opacity goes back to Ghostty's with it.
+    expect(rows.get("appearance.backgroundBlur")?.customized).toBe(false);
+    expect(undoButton().disabled).toBe(true);
+  });
+
+  test("Undo of a step another writer made stale writes nothing", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
+    const writes = ops(page.provider, "cmux.settings.set").length + ops(page.provider, "cmux.settings.reset").length;
+    expect(await run(() => page!.store.undoAppearance())).toBe(false);
+    expect(ops(page.provider, "cmux.settings.set").length + ops(page.provider, "cmux.settings.reset").length).toBe(
+      writes,
+    );
+    expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
+  });
+
+  test("Redo after another writer changed the key writes nothing and drops the step", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.store.undoAppearance());
+    await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
+    expect(redoButton().disabled).toBe(true);
+    expect(await run(() => page!.store.redoAppearance())).toBe(false);
+    expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
+    expect(page.store.appearance.canRedo).toBe(false);
+  });
+
+  test("Restore How It Was leaves a key another writer changed after Appearance opened", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.9));
+    await run(() => page!.provider.externalSet("appearance.background", "aivazovsky-ship-stormy-seas"));
+    await run(() => page!.store.restoreAppearanceOpened());
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
+    expect(rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.store.appearanceChangedSinceOpened()).toBe(false);
+  });
+
+  test("Restore How It Was leaves a key the page only read, after another writer changed it", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.backgroundOpacity": 0.5, "appearance.backgroundBlur": "frosted" } },
+    });
+    await run(() => page!.provider.externalSet("appearance.backgroundBlur", "glass"));
+    // Opacity's step reads its linked Material too, but does not change it.
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.7));
+    await run(() => page!.store.restoreAppearanceOpened());
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+    expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
+  });
+
+  test("Undo of a Material step leaves an Opacity another writer set since (the host's linked reset)", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundBlur", "frosted"));
+    await run(() => page!.provider.externalSet("appearance.backgroundOpacity", 0.4));
+    // Resetting Material would make the host remove Opacity too, the other writer's 0.4.
+    expect(page.store.appearanceUndoStep()).toBeNull();
+    expect(await run(() => page!.store.undoAppearance())).toBe(false);
+    expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+  });
+
+  test("a slider moved while another step runs is the page's own: Restore puts it back", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.backgroundOpacity": 0.5 } },
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    // A long step (as Use Museum Art's download) still running when the person moves Opacity.
+    const art = page.store.trackAppearance(["appearance.background"], async () => {
+      await gate;
+      return page!.store.set("appearance.background", "daily");
+    });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.7));
+    release();
+    await run(() => art);
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+  });
+
+  // #29881, against the fake host's copy of the host's linked edits: final states, not write order.
+  test("picking a picture at Opacity 100% shows it; Undo and Redo put back what each side had", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "none",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    const rows = () => page!.store.getSnapshot().rows;
+    await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
+    expect(rows().get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(rows().get("appearance.backgroundBlur")?.customized).toBe(false);
+    await run(() => page!.store.undoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("none");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
+    expect(rows().get("appearance.backgroundBlur")?.value).toBe("none");
+    await run(() => page!.store.redoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
+    expect(rows().get("appearance.backgroundOpacity")?.customized).toBe(false);
+  });
+
+  test("Restore How It Was puts a hidden picture back at Opacity 100%, and Undo returns the other one", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "friedrich-forest-moonlight",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    const rows = () => page!.store.getSnapshot().rows;
+    await run(() => page!.store.set("appearance.background", "daily"));
+    // The person drags Opacity back to 100%: only the picture differs from how Appearance opened.
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(rows().get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
+    expect(page.store.appearanceChangedSinceOpened()).toBe(false);
+    await run(() => page!.store.undoAppearance());
+    expect(rows().get("appearance.background")?.value).toBe("daily");
+    expect(rows().get("appearance.backgroundOpacity")?.value).toBe(1);
+  });
+
+  test("a Restore whose picture write the host refuses records no step", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "friedrich-forest-moonlight",
+          "appearance.backgroundOpacity": 1,
+          "appearance.backgroundBlur": "none",
+        },
+      },
+    });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    await run(() => page!.store.set("appearance.backgroundOpacity", 1));
+    const top = page.store.appearance.nextUndo;
+    const provider = page.provider as unknown as { set: (key: string, value: unknown) => unknown };
+    const set = provider.set.bind(provider);
+    provider.set = (key, value) => {
+      if (key === "appearance.background") throw new Error("refused");
+      return set(key, value);
+    };
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("daily");
+    // Only the kept Opacity (1 before and after) would have been recorded: no step.
+    expect(page.store.appearance.nextUndo).toBe(top);
+  });
+
   test("other parts of Appearance record their own steps through trackAppearance", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() =>
@@ -161,6 +384,24 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
 describe("Appearance's presets", () => {
   const frosted = APPEARANCE_PRESETS.find((preset) => preset.id === "frosted")!;
+
+  test("a preset leaves a managed surface alone and stays undoable", async () => {
+    const sidebar = "appearance.surfaces.sidebar.opacity";
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: { [sidebar]: 0.2 },
+        managed: { [sidebar]: { value: 0.2, source: "profile", reason: "Set by your organization's profile" } },
+      },
+    });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    expect(await run(() => page!.store.applyAppearancePreset(frosted))).toBe(true);
+    // The preset's step is offered, and the step below it survives.
+    expect(page.store.appearanceUndoStep()?.label).toContain("Frosted");
+    await run(() => page!.store.undoAppearance());
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.store.appearanceUndoStep()).not.toBeNull();
+  });
 
   test("a preset sets Opacity and Material and puts every surface back on the window, as one step", async () => {
     page = await renderPage({
