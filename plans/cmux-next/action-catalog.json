@@ -61947,6 +61947,65 @@
       "waitsForResult" : false
     },
     {
+      "arguments" : [],
+      "category" : "notifications",
+      "cliName" : "action toasts-show-hidden",
+      "computed" : {
+        "canonical_action_id" : "toasts.showHidden",
+        "cli" : false,
+        "default_aliases" : [],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "toasts.showHidden",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "toast",
+        "toasts",
+        "notice",
+        "hidden",
+        "don't show again",
+        "never show",
+        "reset",
+        "restore"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [],
+      "title" : "Show Hidden Toasts Again",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
       "arguments" : [
         {
           "isAskedInPalette" : false,
@@ -88843,6 +88902,67 @@
 
       ],
       "title" : "Hide Host Pressure Warning",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [],
+      "category" : "settings",
+      "cliName" : "action debug-toast-tuning",
+      "computed" : {
+        "canonical_action_id" : "debug.toastTuning",
+        "cli" : false,
+        "default_aliases" : [],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.toastTuning",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "toast",
+        "toasts",
+        "notice",
+        "duration",
+        "glass",
+        "padding",
+        "motion",
+        "tuning",
+        "playground",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [],
+      "title" : "Toast Tuning",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

@@ -1289,6 +1289,9 @@ async fn dispatch_request_with_identity(
             {
                 reply.set_path(&["_meta", "acpmux", "cliPath"], json!(path));
             }
+            if matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                hub.mark_local_ready();
+            }
             // Advertised only where they work; other builds answer `not_built`.
             #[cfg(all(unix, feature = "tailnet"))]
             if let Some(extensions) =

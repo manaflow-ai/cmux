@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import UniformTypeIdentifiers
 import WebKit
 
@@ -291,6 +292,17 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if let prefix = components.first, page.dynamicPrefixes.contains(prefix) {
             return .dynamic(PageResourceRequest(prefix: prefix, path: Array(components.dropFirst()), url: url))
+        }
+        // Build-owned JavaScript shared by the first-party pages. Keep the page's origin and
+        // CSP; only this sibling asset directory is mounted, never another page's resources.
+        // `root` is already the page's pinned bundle/update/overlay, so chunks follow that tree.
+        if components.first == "__shared", FirstPartyPages.shippedIDs.contains(page.id.lowercased()),
+           root.lastPathComponent == page.resource, root.deletingLastPathComponent().lastPathComponent == "pages" {
+            guard components.count == 2, components[1].hasSuffix(".js") else { return nil }
+            let shared = root.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                .appendingPathComponent("__shared", isDirectory: true)
+            guard shared.standardizedFileURL == shared.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
+            return fileURL(components: Array(components.dropFirst()), root: shared).map(Route.file)
         }
         return fileURL(components: components, root: root).map(Route.file)
     }

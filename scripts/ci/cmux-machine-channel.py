@@ -10,7 +10,11 @@ The payload names, per Linux target, each binary's immutable URL, sha256 and siz
 sha256 comes from the commit's published manifest (--manifest), or, before the manifest is
 published, from this run's own build of the binary (--binaries-dir: point-machine-channel-early
 uploads the Linux binaries ahead of publish). Either way it is checked again here against a
-download of every binary from its URL, which also gives its size:
+download of every binary from its URL, which also gives its size. With --machine-path the URLs are
+the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>: the Cloud machine channel's
+thin-LTO build, which the early job uploads there (scripts/ci/cmux-machine-linux-bytes.sh) so it
+never stands in for the shipped fat cmux-tui/<commit>/<name>-<target>. The updater accepts exactly
+these two URLs for the payload's commit (cmux-tui/crates/cmux-host/src/updater/channel.rs):
 
   {"schema": 1, "purpose": "cmux-cloud-machine-update", "channel": "cloud-machine",
    "key": "<sha256 over the binaries>", "commit": "<sha>", "committed_at": T,
@@ -38,8 +42,8 @@ An installer holds the channel pointer to expires_at; the per-commit file carrie
 but an installer that asks for a version by name does not enforce it.
 
 Usage:
-  cmux-machine-channel.py payload (--manifest M | --binaries-dir B) --commit SHA --committed-at T
-      --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
+  cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
+      --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
 """
 import argparse
 import hashlib
@@ -123,6 +127,10 @@ def payload(args):
         # artifacts are outside the bucket: sign only bytes equal to them.
         fail("--purpose linux-release needs --binaries-dir, this run's own build of the binaries; "
              "a checksum from the bucket proves nothing about who built the bytes")
+    if args.machine_path and (release or not args.binaries_dir):
+        # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
+        # this run's build of it names its checksums.
+        fail("--machine-path is for the cloud-machine payload of --binaries-dir")
     args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -134,7 +142,7 @@ def payload(args):
             sha = binaries.get(published)
             if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
                 fail(f"no sha256 for {published} ({args.manifest or args.binaries_dir})")
-            url = f"{FILES}/{args.commit}/{published}"
+            url = f"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}"
             path = os.path.join(args.download_dir, published)
             subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
                            check=True)
@@ -179,6 +187,8 @@ def main(argv):
     p.add_argument("--purpose", choices=("cloud-machine", "linux-release"), default="cloud-machine")
     p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
+    p.add_argument("--machine-path", action="store_true",
+                   help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     args = parser.parse_args(argv[1:])
     payload(args)
     return 0
