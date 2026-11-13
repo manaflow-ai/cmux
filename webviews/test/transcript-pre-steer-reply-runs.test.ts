@@ -1,8 +1,8 @@
 // The agent's reply right before a person's steer is that segment's end-of-turn reply, so it stays in
 // sight wherever the turn's runs fold (Leo, 2026-10-31: "the delineation is between
-// end-of-turn-that-had-a-steer-between vs otherwise"). A short interim note that no steer follows still
-// folds into its run (turns.ts mergeShortNotes); the reply before a steer never does: not in a running
-// turn's Codex-style runs, not in an ended turn's opened "Worked for".
+// end-of-turn-that-had-a-steer-between vs otherwise"). Commentary also stays a separate paragraph
+// while the turn runs and inside its opened "Worked for"; the reply before a steer stays visible
+// beside the closed fold too.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
@@ -42,12 +42,12 @@ const ended = [
 const notesIn = (rows: AcpmuxRow[]) =>
   rows.flatMap((each) => (each.items ?? []).filter((item) => item.kind === "note").map((item) => item.text));
 
-test("a running turn's Codex-style runs keep the reply before a steer; other chatter folds", () => {
+test("a running turn keeps commentary and the reply before a steer as separate paragraphs", () => {
   const view = turnView(running, new Set(), { working: true, now: START + 200_000 });
   expect(view.some((each) => each.id === "r1")).toBe(true);
   expect(notesIn(view)).not.toContain("The minis are healthy.");
-  expect(view.some((each) => each.id === "n1")).toBe(false);
-  expect(notesIn(view)).toContain("Reading the logs.");
+  expect(view.some((each) => each.id === "n1")).toBe(true);
+  expect(notesIn(view)).not.toContain("Reading the logs.");
 });
 
 test("an ended Codex turn keeps the reply before a steer in sight, closed or opened", () => {
@@ -59,5 +59,6 @@ test("an ended Codex turn keeps the reply before a steer in sight, closed or ope
   const open = turnView(ended, new Set([`${WORKED}-u`]), options);
   expect(open.some((each) => each.id === "r1")).toBe(true);
   expect(notesIn(open)).not.toContain("The minis are healthy.");
-  expect(notesIn(open)).toContain("Reading the logs.");
+  expect(open.find((each) => each.id === "n1")?.text).toBe("Reading the logs.");
+  expect(notesIn(open)).not.toContain("Reading the logs.");
 });
