@@ -2,6 +2,12 @@
 
 # Vercel runs this from the project root, which is web/. Return 0 to skip the
 # build and 1 to continue it. If Git history is incomplete, build defensively.
+#
+# A skip shows in Vercel as a "Canceled" production deployment whose log ends
+# with "No web build inputs changed": expected for a main commit outside web/.
+# A production deployment cancelled before it clones (no build log) is
+# .github/workflows/classic-deploy-guard.yml refusing the commit instead; its run
+# on that push names why.
 
 previous_sha="${VERCEL_GIT_PREVIOUS_SHA:-}"
 current_sha="${VERCEL_GIT_COMMIT_SHA:-HEAD}"
