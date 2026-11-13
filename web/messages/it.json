@@ -199,7 +199,10 @@
     "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
-    "backToSignIn": "Torna all'accesso"
+    "backToSignIn": "Torna all'accesso",
+    "chatgptLinkTitle": "Accedi una volta per collegare ChatGPT",
+    "chatgptLinkBody": "Questa email ha già un account cmux. Accedi con il metodo usato in precedenza e ChatGPT verrà collegato a quell’account.",
+    "chatgptEmailUnverifiedBody": "L’email del tuo account ChatGPT non è verificata. Verificala con OpenAI o accedi in un altro modo."
   },
   "cloudPublicationAccess": {
     "title": "Non hai accesso",

@@ -199,7 +199,10 @@
     "signupPendingBody": "Jeśli masz już konto, zaloguj się metodą używaną wcześniej. Jeśli właśnie utworzyłeś konto, potwierdź adres e-mail przed zalogowaniem.",
     "genericTitle": "Nie udało się zalogować",
     "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
-    "backToSignIn": "Wróć do logowania"
+    "backToSignIn": "Wróć do logowania",
+    "chatgptLinkTitle": "Zaloguj się raz, aby połączyć ChatGPT",
+    "chatgptLinkBody": "Ten adres e-mail ma już konto cmux. Zaloguj się metodą, której używałeś wcześniej, a ChatGPT zostanie połączony z tym kontem.",
+    "chatgptEmailUnverifiedBody": "Adres e-mail konta ChatGPT nie jest zweryfikowany. Zweryfikuj go w OpenAI albo zaloguj się w inny sposób."
   },
   "cloudPublicationAccess": {
     "title": "Nie masz dostępu",
