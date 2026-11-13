@@ -432,7 +432,10 @@ fn a_size_lease_v2_claim_ends_after_the_short_lease() {
         // close to the 8 s lease on a loaded host).
         let deadline = claimed + Duration::from_secs(30);
         loop {
-            let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+            let state = request(
+                &harness.socket,
+                serde_json::json!({"cmd": "vt-state", "surface": surface}),
+            );
             if state["cols"].as_u64() == Some(120) {
                 break;
             }

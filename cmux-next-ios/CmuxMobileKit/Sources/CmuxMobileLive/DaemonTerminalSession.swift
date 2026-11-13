@@ -229,6 +229,8 @@ public final class DaemonTerminalSession: TerminalSession {
     private var releasesInFlight = 0
     private var leaseTask: Task<Void, Never>?
     private var draining = false
+    /// The request `drain()` has on its way (while `draining`) is a size.
+    private var drainingSize = false
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
@@ -1014,7 +1016,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The same size renews the lease and resizes nothing.
     private func claimAgain() {
         guard attached, replacing == nil, let client, let size = lastSize else { return }
-        guard !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
+        // A size already queued or on its way answers the same grid (an
+        // attach's replay can land just after the attach queued its size).
+        guard !(draining && drainingSize),
+              !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
         log.notice("surface \(self.surface, privacy: .public): the Mac sent a grid the phone did not ask for, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public) again")
         sizeClaimed = true
         startLeaseRefresh()
@@ -1114,6 +1119,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard attached, replacing == nil, !draining, let client, !outbox.isEmpty else { return }
         draining = true
         let next = outbox.removeFirst()
+        if case .size = next { drainingSize = true } else { drainingSize = false }
         let surface = surface
         Task { [weak self] in
             guard let self else { return }
