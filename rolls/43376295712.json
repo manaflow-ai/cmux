@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43376295712",
+  "recorded_at": "2026-11-13T06:14:18Z",
+  "reason": "cmux-tui 6519afa956c1 changes the image's cmux-tui (pinned 63dd6b4723bb)",
+  "dry_run": false,
+  "cmux_tui": "6519afa956c1f620f3967601699f0581b09b2700",
+  "fixes": [
+    {
+      "sha": "6519afa956c1f620f3967601699f0581b09b2700",
+      "mergedAt": "2026-11-13T05:41:48Z",
+      "subject": "cmux-config: the cost test of a fallen back folder gets a ceiling; the watch doc names a FIFO and a device (#42414)"
+    },
+    {
+      "sha": "741b74c050cf7e42f5b3d04234246c69a37e695a",
+      "mergedAt": "2026-11-12T21:34:28-08:00",
+      "subject": "Mac Screen: typed carrier fallback FFI prerequisite (#42196) (#42381)"
+    },
+    {
+      "sha": "9f15fe6a6a796cc3080f3d2a554904627e734d86",
+      "mergedAt": "2026-11-12T21:33:33-08:00",
+      "subject": "Cloud: a spare gets the harness login the moment it is ready, before any claim (#41676)"
+    },
+    {
+      "sha": "3859c6103e75d49fa2c8a19019595d34af7faefc",
+      "mergedAt": "2026-11-13T05:15:17Z",
+      "subject": "acpmux tests: the bounded-wait detector reads Rust as tokens and exempts by meaning (#41842 review) (#41961)"
+    },
+    {
+      "sha": "70f77858095a9bead50dd76b5ee80267a4e593ba",
+      "mergedAt": "2026-11-12T21:14:34-08:00",
+      "subject": "cmux-source-scan: no false clean on aliased serializers, bad regex filters, wrapped spread bindings (#41693)"
+    },
+    {
+      "sha": "da6ece1c496c634e902923f8a9101934a124aa2b",
+      "mergedAt": "2026-11-12T21:14:06-08:00",
+      "subject": "source-scan: rows compare the exact multiset of findings they name (#42341 F1) (#42359)"
+    },
+    {
+      "sha": "ccd4ae18ff19349fa7b48d447559ef32ca47c372",
+      "mergedAt": "2026-11-12T20:59:38-08:00",
+      "subject": "fix(sidebar): every new workspace goes to the top by default, from every client and creator"
+    },
+    {
+      "sha": "b4513af1ead43205d302d5a6651f07a1d1e612d1",
+      "mergedAt": "2026-11-12T20:59:38-08:00",
+      "subject": "test(sidebar): every new workspace goes to the top by default (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T06:14:18Z",
+    "snapshot_id": "sh-3de8c566bf43469b9261d895d2a72759",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43376295712): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4f451c3e3a4f693f3c2eec4004912f86dcf7cff4",
+    "image": "cloud-native-auto-6519afa9-43376295712-1",
+    "revision": "ci-43376295712-1",
+    "at": "2026-11-13T06:14:18Z"
+  },
+  "rolled_back": false
+}
