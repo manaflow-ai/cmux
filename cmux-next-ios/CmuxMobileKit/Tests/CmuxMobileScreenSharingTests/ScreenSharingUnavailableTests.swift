@@ -5,7 +5,7 @@ import Testing
 
 /// A Mac that can't be shared says why in an alert when it's tapped (user 2026-11-13), never as
 /// a full-screen card over the list, and + › Screen Sharing never connects to it on its own.
-@Suite struct ScreenSharingUnavailableTests {
+@MainActor @Suite struct ScreenSharingUnavailableTests {
     typealias Service = ScreenSharingService
 
     private func mac(_ name: String = "Aziz's MacBook Pro", id: String = "mbp", shared: Bool = true, online: Bool = true) -> HubDevice {
