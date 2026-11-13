@@ -27,6 +27,15 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_closed(&self) -> bool {
         false
     }
+    /// The client is gone: it closed its whole end, so it reads nothing this
+    /// side writes. One poll for writing that never blocks: a hang-up there
+    /// says this side cannot send any more. A client that shut down only its
+    /// writing half still reads its replies and is not gone, which
+    /// [`Stream::peer_closed`] cannot tell on macOS. `false` where it cannot
+    /// be told.
+    fn peer_gone(&self) -> bool {
+        false
+    }
 }
 
 pub struct Listener {
@@ -129,16 +138,23 @@ mod imp {
         }
 
         fn peer_closed(&self) -> bool {
-            let mut poll = libc::pollfd {
-                fd: std::os::fd::AsRawFd::as_raw_fd(self),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            // SAFETY: one pollfd for a descriptor this stream owns; a zero
-            // timeout never blocks.
-            let ready = unsafe { libc::poll(&mut poll, 1, 0) };
-            ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
+            hung_up(self, libc::POLLIN)
         }
+
+        fn peer_gone(&self) -> bool {
+            hung_up(self, libc::POLLOUT)
+        }
+    }
+
+    /// Whether a poll of `stream` for `events` that never blocks reports a
+    /// hang-up or an error.
+    fn hung_up(stream: &UnixStream, events: libc::c_short) -> bool {
+        let mut poll =
+            libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(stream), events, revents: 0 };
+        // SAFETY: one pollfd for a descriptor this stream owns; a zero
+        // timeout never blocks.
+        let ready = unsafe { libc::poll(&mut poll, 1, 0) };
+        ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
     }
 }
 

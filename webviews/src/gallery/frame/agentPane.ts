@@ -11,6 +11,7 @@ import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
+import { DEFAULT_COMPOSER_LOOK, setComposerLook } from "../../agent-session/acpmux/composerLook";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -33,6 +34,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
   resetSummaryCards();
+  setComposerLook(state.composerLook ?? DEFAULT_COMPOSER_LOOK, { remember: false });
   // Only the gallery's mock daemon reads these. Clear them between staged variants, so one
   // capture's negative auth cannot leak into the next fixture.
   Object.assign(globalThis, {
