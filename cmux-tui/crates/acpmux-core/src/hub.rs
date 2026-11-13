@@ -23,7 +23,6 @@ pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
 const EVENT_CAPACITY: usize = 1024;
 const HISTORY_CAPACITY: usize = 16 * 1024;
-const SUBSCRIBER_BYTES: usize = 4 * 1024 * 1024;
 
 /// A summary change in index sequence order. The summary is shared with the
 /// published snapshot, so sending it to subscribers is O(1) in chat count.
@@ -87,15 +86,7 @@ impl UpdateQueue {
     }
 }
 
-#[derive(Clone)]
-enum PendingItem {
-    Summary(SummaryEvent),
-    Gone { seq: u64, chat_id: String },
-}
-
 struct SubscriberState {
-    pending: HashMap<String, PendingItem>,
-    bytes: usize,
     dropped: Option<u64>,
     cursor: u64,
 }
@@ -107,15 +98,7 @@ struct Subscriber {
 
 impl Subscriber {
     fn new(cursor: u64) -> Self {
-        Self {
-            state: Mutex::new(SubscriberState {
-                pending: HashMap::new(),
-                bytes: 0,
-                dropped: None,
-                cursor,
-            }),
-            notify: Notify::new(),
-        }
+        Self { state: Mutex::new(SubscriberState { dropped: None, cursor }), notify: Notify::new() }
     }
 }
 
@@ -127,64 +110,10 @@ fn item_seq(item: &ListItem) -> u64 {
     }
 }
 
-fn pending_bytes(item: &PendingItem) -> usize {
-    match item {
-        PendingItem::Summary(event) => event.summary.encoded_len().saturating_add(32),
-        PendingItem::Gone { .. } => 32,
-    }
-}
-
-fn pending_seq(item: &PendingItem) -> u64 {
-    match item {
-        PendingItem::Summary(event) => event.seq,
-        PendingItem::Gone { seq, .. } => *seq,
-    }
-}
-
-fn retain_pending_after(state: &mut SubscriberState, cursor: u64) {
-    let mut bytes = 0usize;
-    state.pending.retain(|_, item| {
-        let keep = pending_seq(item) > cursor;
-        if keep {
-            bytes = bytes.saturating_add(pending_bytes(item));
-        }
-        keep
-    });
-    state.bytes = bytes;
-}
-
-fn enqueue_item(state: &mut SubscriberState, item: ListItem) {
-    let (chat_id, pending) = match item {
-        ListItem::Summary(event) => (event.summary.chat_id.clone(), PendingItem::Summary(event)),
-        ListItem::Gone { seq, chat_id } => (chat_id.clone(), PendingItem::Gone { seq, chat_id }),
-        ListItem::Dropped { cursor } => {
-            state.dropped = Some(state.cursor.max(cursor));
-            return;
-        }
-    };
-    if let Some(old) = state.pending.get(&chat_id) {
-        let old_seq = pending_seq(old);
-        let new_seq = pending_seq(&pending);
-        if old_seq >= new_seq {
-            return;
-        }
-    }
-    if let Some(old) = state.pending.insert(chat_id, pending.clone()) {
-        state.bytes = state.bytes.saturating_sub(pending_bytes(&old));
-    }
-    state.bytes = state.bytes.saturating_add(pending_bytes(&pending));
-    if state.bytes > SUBSCRIBER_BYTES {
-        state.pending.clear();
-        state.bytes = 0;
-        // Resume from what the peer actually received, never from the event
-        // that overflowed the queue.
-        state.dropped = Some(state.cursor);
-    }
-}
-
 pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
+    history: Arc<Mutex<VecDeque<ListItem>>>,
 }
 
 impl Drop for ListReceiver {
@@ -196,34 +125,42 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
+    /// Mark the history consumed by a connection's synchronous resume prefix.
+    /// Subsequent `recv` calls therefore observe only records published after
+    /// the resume snapshot, so live delivery cannot precede its `end` mark.
+    pub fn advance_to(&self, cursor: u64) {
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = state.cursor.max(cursor);
+        }
+    }
+
     pub async fn recv(&self) -> Option<ListItem> {
         loop {
             if let Ok(mut state) = self.subscriber.state.lock() {
                 if let Some(cursor) = state.dropped.take() {
                     return Some(ListItem::Dropped { cursor });
                 }
-                if let Some((chat_id, item)) = state
-                    .pending
-                    .iter()
-                    .min_by_key(|(_, item)| match item {
-                        PendingItem::Summary(event) => event.seq,
-                        PendingItem::Gone { seq, .. } => *seq,
-                    })
-                    .map(|(chat_id, item)| (chat_id.clone(), item.clone()))
-                {
-                    state.pending.remove(&chat_id);
-                    match item {
-                        PendingItem::Summary(event) => {
-                            state.bytes =
-                                state.bytes.saturating_sub(event.summary.encoded_len() + 32);
-                            state.cursor = state.cursor.max(event.seq);
-                            return Some(ListItem::Summary(event));
-                        }
-                        PendingItem::Gone { seq, chat_id } => {
-                            state.bytes = state.bytes.saturating_sub(32);
-                            state.cursor = state.cursor.max(seq);
-                            return Some(ListItem::Gone { seq, chat_id });
-                        }
+                // The subscriber deliberately retains no event frames. Select the newest
+                // event for each chat from the shared history only when the reader asks for
+                // one, then advance the cursor to the selected event. This preserves the old
+                // coalescing behaviour while making an unread subscriber cost a cursor.
+                if let Ok(history) = self.history.lock() {
+                    let oldest = history.front().map(item_seq);
+                    if oldest.is_some_and(|seq| state.cursor.saturating_add(1) < seq) {
+                        return Some(ListItem::Dropped { cursor: state.cursor });
+                    }
+                    let mut latest = HashMap::<String, ListItem>::new();
+                    for item in history.iter().filter(|item| item_seq(item) > state.cursor) {
+                        let key = match item {
+                            ListItem::Summary(event) => event.summary.chat_id.clone(),
+                            ListItem::Gone { chat_id, .. } => chat_id.clone(),
+                            ListItem::Dropped { .. } => continue,
+                        };
+                        latest.insert(key, item.clone());
+                    }
+                    if let Some(item) = latest.into_values().min_by_key(item_seq) {
+                        state.cursor = state.cursor.max(item_seq(&item));
+                        return Some(item);
                     }
                 }
             }
@@ -316,6 +253,45 @@ impl Hub {
         self.published.load_full()
     }
 
+    /// Bytes retained by subscribers that have not been fed. The cursor-only
+    /// subscriber model intentionally keeps this at zero; frames belong to the
+    /// connection queue only after credit admits them.
+    pub fn not_fed_bytes(&self) -> usize {
+        0
+    }
+
+    /// Returns the retained list records after a cursor. `None` means the
+    /// cursor is outside the retained history and the caller must use a fresh
+    /// window. The source decides how to frame the returned records.
+    pub fn list_resume(&self, sub: &Sub) -> Result<Option<Vec<ListItem>>, HubError> {
+        if sub.stream.as_str() != "list" {
+            return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
+        }
+        let Some(cursor) = sub.cursor.map(|cursor| cursor.0) else { return Ok(None) };
+        let index = self.snapshot();
+        if cursor > index.seq() {
+            return Ok(None);
+        }
+        let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
+        if history.front().is_some_and(|item| cursor.saturating_add(1) < item_seq(item)) {
+            return Ok(None);
+        }
+        let mut bytes = 0usize;
+        let mut items = Vec::new();
+        for item in history.iter().filter(|item| item_seq(item) > cursor) {
+            bytes = bytes.saturating_add(match item {
+                ListItem::Summary(event) => event.summary.encoded_len().saturating_add(32),
+                ListItem::Gone { .. } => 32,
+                ListItem::Dropped { .. } => 0,
+            });
+            if bytes > crate::wire::CREDIT_WINDOW_BYTES as usize {
+                return Ok(None);
+            }
+            items.push(item.clone());
+        }
+        Ok(Some(items))
+    }
+
     /// Wakes a writer task and prevents any later submit from waiting for it.
     pub fn close(&self) {
         self.updates.closed.store(true, Ordering::Release);
@@ -350,29 +326,23 @@ impl Hub {
         let subscriber = Arc::new(Subscriber::new(0));
         if let Ok(mut state) = subscriber.state.lock() {
             if sub.cursor.is_some() {
-                let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
                 if resume_cursor == cursor {
-                    retain_pending_after(&mut state, cursor);
                     state.cursor = cursor;
-                    for item in history
-                        .iter()
-                        .filter(|item| item_seq(item) > cursor && item_seq(item) <= index.seq())
-                    {
-                        enqueue_item(&mut state, item.clone());
-                    }
                 } else {
-                    retain_pending_after(&mut state, index.seq());
                     state.cursor = index.seq();
                 }
             } else {
-                retain_pending_after(&mut state, index.seq());
                 state.cursor = index.seq();
             }
         }
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
-            receiver: ListReceiver { subscriber, subscribers: self.subscribers.clone() },
+            receiver: ListReceiver {
+                subscriber,
+                subscribers: self.subscribers.clone(),
+                history: self.history.clone(),
+            },
         })
     }
 
@@ -484,17 +454,14 @@ impl HubWriter {
     fn publish(&self, event: SummaryEvent) {
         let Ok(mut subscribers) = self.subscribers.lock() else { return };
         subscribers.retain(|subscriber| {
-            let mut keep = true;
-            let Ok(mut state) = subscriber.state.lock() else { return true };
+            let Ok(state) = subscriber.state.lock() else { return true };
             if event.seq <= state.cursor || state.dropped.is_some() {
                 return state.dropped.is_none();
             }
-            enqueue_item(&mut state, ListItem::Summary(event.clone()));
+            // The history is the subscriber's resume source. Do not enqueue the frame here:
+            // an unread subscriber must retain only its cursor.
             subscriber.notify.notify_one();
-            if state.dropped.is_some() {
-                keep = false;
-            }
-            keep
+            true
         });
     }
 
@@ -521,16 +488,16 @@ impl HubWriter {
         Ok(true)
     }
 
-    fn publish_gone(&self, seq: u64, chat_id: String) {
+    fn publish_gone(&self, seq: u64, _chat_id: String) {
         let Ok(mut subscribers) = self.subscribers.lock() else { return };
         subscribers.retain(|subscriber| {
-            let Ok(mut state) = subscriber.state.lock() else { return true };
+            let Ok(state) = subscriber.state.lock() else { return true };
             if seq <= state.cursor || state.dropped.is_some() {
                 return state.dropped.is_none();
             }
-            enqueue_item(&mut state, ListItem::Gone { seq, chat_id: chat_id.clone() });
+            // See `publish`: the subscriber wakes and reads from history on demand.
             subscriber.notify.notify_one();
-            state.dropped.is_none()
+            true
         });
     }
 
@@ -804,7 +771,6 @@ mod tests {
             other => panic!("expected newer summary, got {other:?}"),
         }
         let state = subscription.receiver.subscriber.state.lock().unwrap();
-        assert!(state.pending.is_empty());
         assert_eq!(state.cursor, 2);
     }
 
@@ -816,7 +782,7 @@ mod tests {
             hub.subscribe(&Sub::new("ahead", "list").from_cursor(Cursor(10))).unwrap();
         let window: Window<Summary> = subscription.window.decode_json().unwrap();
         assert_eq!(window.cursor, 1);
-        assert!(subscription.receiver.subscriber.state.lock().unwrap().pending.is_empty());
+        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
     }
 
     #[test]

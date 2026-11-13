@@ -330,6 +330,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    // The v2 handle is created only after the listener is ready. Its empty
+    // published index is filled by the list tee in the follow-up lane; startup
+    // never waits on this handle or on a chat book.
+    let _v2 = if config.acpmux_v2.is_empty() {
+        None
+    } else {
+        let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+        Some(acpmux_core::life::V2::new(hub, writer))
+    };
     // The socket as bound, read at once: the home watch and the shutdown's removal use it.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
     // Gone already: nothing can reach this daemon, so it stops before the startup.

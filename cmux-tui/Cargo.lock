@@ -6,7 +6,9 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-book",
  "acpmux-build-id",
+ "acpmux-core",
  "acpmux-hot",
  "aho-corasick",
  "anyhow",
