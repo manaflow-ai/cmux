@@ -8,52 +8,6 @@ import os
 
 private let previewPresenterLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-preview")
 
-/// What a preview may show now, from its stream's events (pure: tests feed it a real stream's
-/// events). A still shows until the video's first frame is in the layer; `blocked`, a closed
-/// channel and another window (`windowChanged`) take every picture away, and nothing shows again
-/// until a new frame or still comes.
-public struct ComputerUsePreviewPicture: Equatable {
-    /// The stream said its window's app is private: nothing shows until it says `streaming` or
-    /// `still` again (the channel stays open; cmux Remote looks every 500 ms).
-    public private(set) var blocked = false
-    /// A picture (a video frame or a still) of the current window came since the stream (re)started.
-    public private(set) var pictured = false
-    /// The still on screen, nil while the video shows or nothing does.
-    public private(set) var still: CGImage?
-
-    public init() {}
-
-    public mutating func apply(_ event: ComputerUsePreviewStream.Event) {
-        switch event {
-        case .status(let status):
-            switch status.state {
-            case .streaming, .still: blocked = false
-            case .blocked: (blocked, pictured, still) = (true, false, nil)
-            case .noWindow, .paused: break
-            }
-        case .pictured: (pictured, still) = (true, nil)
-        case .still(let image): (pictured, still) = (true, image)
-        case .windowChanged, .closed: (pictured, still) = (false, nil)
-        }
-    }
-
-    /// Whether the overlay stays hidden: its window is private, or (shown as a card or expanded) no
-    /// picture of the current window has come yet. The chip a person hid the preview to shows without one.
-    public func hidesOverlay(presentation: ComputerUsePreviewPresentation) -> Bool {
-        blocked || (!pictured && presentation != .hidden)
-    }
-}
-
-/// What the live preview reads from the App: the setting and the surface the person looks at. The App conforms (AppServices); tests can stand in.
-@MainActor
-public protocol ComputerUsePreviewHost: AnyObject {
-    /// `computerUse.livePreview` now.
-    var computerUseLivePreviewEnabled: Bool { get }
-    /// The surface the person looks at (the focused tab of the key window's shown workspace, while
-    /// cmux is the active app), with the view the preview docks over; nil when it is no agent's.
-    func computerUsePreviewFocus() -> (surface: ComputerUsePreviewSurface, host: NSView)?
-}
-
 /// The live preview of an agent's Computer Use (`computerUse.livePreview`, on by default), as the
 /// ChatGPT app shows its Computer Use picture: a live video of the window the agent drives, docked
 /// at the top right of that agent's own surface (its terminal pane or its chat), while that surface
@@ -81,6 +35,13 @@ public final class ComputerUsePreviewPresenter {
         var stream: ComputerUsePreviewStream?
         /// What the preview may show now (``ComputerUsePreviewPicture``).
         var picture = ComputerUsePreviewPicture()
+    }
+
+    /// Whether the keyboard is in the preview's own surface (the docked view or a view inside it):
+    /// Escape typed into another field of the window (a tab being renamed) belongs to that field.
+    static func keyboardIsInSurface(_ responder: NSResponder?, surface: NSView?) -> Bool {
+        guard let surface, let view = responder as? NSView else { return false }
+        return view === surface || view.isDescendant(of: surface)
     }
 
     /// Whether a key-down is the plain Escape that closes the expanded view (no Command, Option,
@@ -234,6 +195,7 @@ public final class ComputerUsePreviewPresenter {
                 overlay.bottomAnchor.constraint(equalTo: focused.host.bottomAnchor),
             ])
             overlay.place(corner: corner, longSide: longSide)
+            if case .terminal = focused.surface { overlay.surfaceIsTerminal = true }
             overlay.onRequest = { [weak self] request in self?.handle(request) }
             shown = Shown(surface: focused.surface, session: pick.session, host: focused.host, overlay: overlay)
         }
@@ -389,7 +351,8 @@ public final class ComputerUsePreviewPresenter {
                 let composing = (event.window?.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true
                 guard !composing, Self.closesExpandedView(keyCode: event.keyCode, modifiers: event.modifierFlags),
                       let self, let current = self.shown, let window = current.overlay.window,
-                      event.window === window, window.isKeyWindow, self.escapeCloses(current) else { return event }
+                      event.window === window, window.isKeyWindow, self.escapeCloses(current),
+                      Self.keyboardIsInSurface(window.firstResponder, surface: current.host) else { return event }
                 self.handle(.collapse)
                 return nil
             }

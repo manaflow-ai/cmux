@@ -79,17 +79,20 @@ public final class ComputerUsePreviewOverlay: NSView {
     public func present(_ presentation: ComputerUsePreviewPresentation) {
         guard presentation != self.presentation || !entered else { return }
         entered = true
+        let wasExpanded = self.presentation == .expanded && expanded.superview === self
         self.presentation = presentation
-        expanded.removeFromSuperview()
         chip.removeFromSuperview()
+        if wasExpanded, presentation != .expanded { fadeOutExpanded() }
         switch presentation {
         case .card:
             thumbnail.isHidden = false
         case .expanded:
-            thumbnail.isHidden = false
+            // The large view takes the picture; the card under the scrim is hidden, not doubled.
+            thumbnail.isHidden = true
             expanded.frame = bounds
-            addSubview(expanded)
-            Motion.overlays.animate(.fadeIn, in: expanded, { expanded.animator().alphaValue = 1 })
+            if expanded.superview !== self { addSubview(expanded) }
+            expanded.alphaValue = 0 // every expand fades in
+            Motion.overlays.animate(.fadeIn, in: expanded, { self.expanded.animator().alphaValue = 1 })
         case .hidden:
             thumbnail.isHidden = true
             addSubview(chip)
@@ -106,11 +109,29 @@ public final class ComputerUsePreviewOverlay: NSView {
         needsLayout = true
     }
 
-    /// The agent finished or stopped: the completion effect, then `done`.
+    /// The agent finished or stopped: the completion effect on whichever view shows (the card's
+    /// pulse, or the expanded view fading out), then `done`.
     public func complete(_ done: @escaping @MainActor @Sendable () -> Void) {
-        expanded.removeFromSuperview()
-        guard !isHidden, !thumbnail.isHidden else { return done() }
+        guard !isHidden else { return done() }
+        if presentation == .expanded, expanded.superview === self {
+            return Motion.overlays.animate(.fadeOut, in: expanded, { self.expanded.animator().alphaValue = 0 }, completion: done)
+        }
+        guard !thumbnail.isHidden else { return done() }
         thumbnail.playCompletion(done)
+    }
+
+    /// Collapsing: the expanded view fades out, then leaves (unless the person expanded again).
+    private func fadeOutExpanded() {
+        Motion.overlays.animate(.fadeOut, in: expanded, { self.expanded.animator().alphaValue = 0 }, completion: { [weak self] in
+            guard let self, self.presentation != .expanded else { return }
+            self.expanded.removeFromSuperview()
+        })
+    }
+
+    /// The surface is an agent's terminal: Hide names the agent, not the chat.
+    public var surfaceIsTerminal: Bool {
+        get { thumbnail.surfaceIsTerminal }
+        set { thumbnail.surfaceIsTerminal = newValue }
     }
 
     /// The still goes where the picture is: the expanded view while expanded, else the thumbnail.
