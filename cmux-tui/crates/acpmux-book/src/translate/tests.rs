@@ -6,6 +6,7 @@
     reason = "deterministic generated inputs and assertions"
 )]
 use super::*;
+use serde::Deserialize;
 fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
     super::translate(state, harness, 0, 1, bytes)
 }
@@ -18,6 +19,14 @@ struct Mirror {
     raw: BTreeMap<(u64, String), String>,
     queue: BTreeMap<u64, QueueEntry>,
     queued_text: BTreeMap<(u64, u32), String>,
+}
+#[derive(Deserialize)]
+struct MirrorEnvelope {
+    msg: Option<MirrorMessage>,
+}
+#[derive(Deserialize)]
+struct MirrorMessage {
+    text: Option<String>,
 }
 impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
@@ -62,13 +71,10 @@ impl Mirror {
             }
             Change::Queue(QueueChange::Add(entry)) => {
                 self.queue.insert(entry.id_hash, *entry);
-                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes)
-                    && let Some(text) = value
-                        .get("msg")
-                        .and_then(|msg| msg.get("text"))
-                        .and_then(serde_json::Value::as_str)
+                if let Ok(envelope) = serde_json::from_slice::<MirrorEnvelope>(bytes)
+                    && let Some(text) = envelope.msg.and_then(|msg| msg.text)
                 {
-                    self.queued_text.insert((entry.place, entry.span), text.to_owned());
+                    self.queued_text.insert((entry.place, entry.span), text);
                 }
             }
             Change::Queue(QueueChange::Remove(hash)) => {
