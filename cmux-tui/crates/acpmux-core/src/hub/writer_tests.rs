@@ -179,15 +179,17 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
 #[tokio::test(flavor = "current_thread")]
 async fn byte_history_resumes_recent_changes_and_windows_after_eviction() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    for activity in 1..=6000 {
-        let mut row = if activity == 6000 { closed("one") } else { Summary::new("one") };
+    for activity in 1..=5998 {
+        let mut row = Summary::new("one");
         row.origin = "remote".into();
-        if activity != 6000 {
-            row.state = "running".into();
-        }
+        row.state = "running".into();
         row.last_activity = activity;
         writer.apply(row).unwrap();
     }
+    let mut row = closed("one");
+    row.origin = "remote".into();
+    row.last_activity = 6000;
+    writer.apply(row).unwrap();
     writer.remove("remote", "one").unwrap();
     let seq = hub.snapshot().seq();
     let mut request = Sub::new("recent", "list").from_cursor(seq - 2);
