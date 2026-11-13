@@ -22,11 +22,6 @@ import {
   type ChatGPTSignInSettings,
 } from "./chatgpt-sign-in";
 
-/** Whether this deployment offers Sign in with ChatGPT (an OpenAI client ID is set). */
-export function chatGPTSignInEnabled(): boolean {
-  return Boolean(env.CMUX_CHATGPT_SIGNIN_CLIENT_ID) && isStackConfigured();
-}
-
 /** The Hexclave user's server metadata key holding the linked ChatGPT identity. */
 const METADATA_KEY = "cmuxChatGPT";
 const SESSION_EXPIRES_IN_MS = 365 * 24 * 60 * 60 * 1000;
