@@ -145,8 +145,8 @@ struct CloudMoveTests {
                 }
                 let synced = try #require(calls.first?.last)
                 #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced && shown.key == "tr-1")
-                // Retry, once the folder is there: only the tab opens.
-                try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+                // Retry, once the machine's daemon knows the chat landed: only the tab opens.
+                try move.land()
                 if let again = await move.run() { Issue.record("Retry failed: \(again.code) \(again.message)") }
                 let moved = try await move.read()
                 #expect(moved.calls.count == 2, "Retry synced or moved the chat again: \(moved.calls)")
@@ -206,7 +206,7 @@ struct CloudMoveTests {
                 return
             }
             #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced)
-            try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+            try move.land()
             if let again = await move.run() { Issue.record("Retry after the relaunch failed: \(again.code) \(again.message)") }
             let moved = try await move.read()
             #expect(moved.calls.count == 2, "Retry after the relaunch synced or moved the chat again: \(moved.calls)")
@@ -477,6 +477,16 @@ struct CloudMoveTests {
         let log: URL
         let vmSocket: String
         var tabID = ""
+
+        /// Leaves the landed chat's record a `tabFailed` move left out (``standInCLI(in:log:mode:vmState:)``): the machine's
+        /// daemon then takes a `registry:` tab naming the chat.
+        func land() throws {
+            let state = log.deletingLastPathComponent().appendingPathComponent("vm-state")
+            let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+            let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" }, "the machine's daemon has no registry")
+            let landed: [[String: Any]] = [["session": "chat-on-vm", "landed_at_ms": Int(Date().timeIntervalSince1970 * 1000)]]
+            try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+        }
         /// The chat tab's id on this Mac, as the app keys it.
         var key = ""
         /// The chat tab's surface on this Mac.
@@ -715,12 +725,12 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
-    /// `link seed push` creates the synced folder (not in `tabFailed`, so the machine's terminal
-    /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
-    /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
-    /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
-    /// to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
-    /// naming the chat (cx-k21v).
+    /// `link seed push` creates the synced folder (in `syncTimeout` it outlives the CLI timeout);
+    /// `link agent move` answers as `mode` says. A move that answers ok also leaves what the machine
+    /// daemon's own `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json`
+    /// next to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
+    /// naming the chat (cx-k21v). `tabFailed` leaves it out, so the machine's chat tab can't open
+    /// until ``Move/land()``.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -736,7 +746,7 @@ struct CloudMoveTests {
                     exit 1
                 fi
                 for target in "$@"; do :; done
-                [ '\(mode)' = tabFailed ] || mkdir -p "$target"
+                mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
             "link machine update")
                 case '\(mode)' in
@@ -764,7 +774,7 @@ struct CloudMoveTests {
                 *)
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
                     [ -n "$registry" ] || exit 70
-                    printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
+                    [ '\(mode)' = tabFailed ] || printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
                 esac ;;
             *) exit 64 ;;
