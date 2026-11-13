@@ -310,11 +310,8 @@ fn backward_page_can_read_a_large_row_before_a_small_anchor() {
     let dir = tempfile::tempdir().unwrap();
     let mut previous = Summary::new("previous");
     previous.last_activity = 2;
-    previous.extra = serde_json::value::RawValue::from_string(format!(
-        "{{\"preview\":\"{}\"}}",
-        "x".repeat(1600)
-    ))
-    .unwrap();
+    previous.extra =
+        RawValue::from_string(format!("{{\"preview\":\"{}\"}}", "x".repeat(1600))).unwrap();
     let mut anchor = Summary::new("anchor");
     anchor.last_activity = 1;
     let key = SortKey::of(&anchor);
