@@ -282,6 +282,25 @@ fn a_removed_record_and_takeover_never_replace_each_others_queue_slot() {
 }
 
 #[test]
+fn queued_origin_removal_survives_later_state_replacements() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.origin("peer", OriginState::Connected, 1).unwrap();
+    let old = remote("old", 1);
+    writer.apply(old.clone()).unwrap();
+    writer.process_batch();
+
+    hub.submit(old).unwrap();
+    hub.origin("peer", OriginState::Removed, 2).unwrap();
+    hub.origin("peer", OriginState::Connected, 3).unwrap();
+    hub.origin("peer", OriginState::Down, 4).unwrap();
+    writer.process_batch();
+    writer.process_batch();
+
+    assert!(hub.snapshot().get_row(&RowKey::new("peer", "old")).is_none());
+    assert_eq!(hub.snapshot().origin("peer").unwrap().state, OriginState::Down);
+}
+
+#[test]
 fn a_row_named_like_origin_metadata_has_a_separate_queue_slot() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 500);

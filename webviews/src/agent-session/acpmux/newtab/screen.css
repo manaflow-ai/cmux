@@ -10,7 +10,7 @@
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
-.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
+.nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--nt-box-radius);position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:calc(1lh + 2 * var(--nt-input-pad-block));--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
@@ -26,7 +26,9 @@
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
 /* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
-.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
+/* The suggestions are the composer's: its row height, glyph and type steps at its density (composerLocation.css
+   scopes them here), so the list never reads bigger than the box it serves (Lucas 2026-11-13). */
+.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
@@ -34,7 +36,7 @@
 .nt-row.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
 /* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
 .nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:var(--ds-color-hover);color:var(--agent-text)}
-.nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
+.nt-row-glyph{flex:none;display:grid;place-items:center;width:var(--acpmux-composer-glyph,16px);height:var(--acpmux-composer-glyph,16px)}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
 .nt-row-favicon{border-radius:4px;box-shadow:none;object-fit:contain}
@@ -140,6 +142,15 @@
    spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
+/* Under Default the composer narrows as its bar shortens, so it keeps Default's shape (Lucas 2026-11-13: at Compact
+   it was a long thin bar across the whole column). The bar is the chat composer's box at the composer's size scale
+   (--nt-input-pad-block), so the ratio is that scale. Default and up keep the column. */
+.nt-screen .nt-composer {
+  --nt-composer-shape: min(1, var(--nt-density));
+  width: min(100%, calc(var(--cv-column, 800px) * var(--nt-composer-shape)));
+  align-self: center;
+  margin-inline: auto;
+}
 .nt-composer[data-cloud-starting="true"] .nt-box { visibility: hidden; pointer-events: none; }
 .nt-location { display: contents; }
 /* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
@@ -147,7 +158,8 @@
 .nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
   visibility: hidden;
 }
-.nt-composer { --acpmux-strip-radius: 20px; }
+/* The strip over the box takes the box's corner (--nt-box-radius, the chat composer's). */
+.nt-composer { --acpmux-strip-radius: var(--nt-box-radius); }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
    ChatGPT's; only its controls answer the pointer). */
@@ -160,7 +172,7 @@
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
   /* Read by the Codex tray's mask too (composerStates.css). */
-  --nt-composer-gap: 6px;
+  --nt-composer-gap: calc(6px * var(--nt-density));
   gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
@@ -404,21 +416,38 @@
   /* The prompt's room over and under its text: the content size (48 px at Default with 14 px text, the
      chat composer's box), so it grows with the text, and smaller at a compact density, where the box
      was too tall. */
-  --nt-input-pad-block: calc(var(--text-content) * min(1, var(--cmux-density-scale, 1)));
-  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1))) / 2));
+  /* The prompt's room: what its line leaves of the chat composer's box (composerLocation.css
+     --grid-composer-box, 48 px at the composer's size scale), so New Tab's bar is the chat's at every density
+     (Lucas 2026-11-13). */
+  /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density). */
+  --nt-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  /* New Tab's box corner is the chat composer's (composerLocation.css --grid-composer-radius, 12 px at Default on
+     its 48 px box), so the two boxes round alike and scale with the density, never near a pill (Lucas 2026-11-14:
+     "copy that exactly as it is onto the new tab composer"). */
+  --nt-box-radius: var(--grid-composer-radius, calc(12px * var(--nt-density)));
+  /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
+     line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
+     10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
+     smaller text draws a smaller box (test/newtab-input-scale.test.ts) and each look keeps its line's inset. */
+  --nt-text-room: max(1, var(--acpmux-density-text, 1));
+  --nt-input-pad-block: max(
+    4px,
+    calc(var(--text-content) * (24 * var(--nt-density) - 10 * var(--nt-text-room)) / (14 * var(--nt-text-room)))
+  );
+  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--nt-density)) / 2));
 }
 /* The composer's control tokens (composerLocation.css), restated here so a page that loads only this
    sheet draws the same row. */
 .nt-screen .nt-composer {
-  --acpmux-composer-control: calc(28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  --acpmux-composer-glyph: calc(16px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-control: calc(28px * var(--nt-density));
+  --acpmux-composer-glyph: calc(16px * var(--nt-density));
   --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
   --acpmux-composer-trail-stroke: 1.5;
-  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--nt-density));
   --acpmux-text-drop: 0px;
   --acpmux-composer-inset: var(--nt-composer-inset);
   --acpmux-chip-glyph: var(--acpmux-composer-glyph);
-  --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-chip-chevron: calc(12px * var(--nt-density));
 }
 /* The folder and computer chips over the box draw what the permission and model chips under it do
    (composerLocation.css, the chip tokens): the label in the control style, a 16 px glyph and a 12 px
@@ -432,7 +461,7 @@
 }
 /* A project's badge is a glyph like the rest: the chip glyph's box, no tile behind it, overhanging
    its slot as the folder glyph does, so a picked project's name starts where "No folder" and the
-   permission mode's label start. Its 16 px image or mark fills the box. */
+   permission mode's label start. Its mark fills the box; a picture draws at a glyph's ink (below). */
 .nt-above .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
   --acpmux-project-badge-size: var(--acpmux-chip-glyph);
 }
@@ -443,6 +472,34 @@
 .nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
   width: var(--acpmux-chip-glyph);
   height: var(--acpmux-chip-glyph);
+}
+/* A project's picture fills its whole square, where a line glyph's ink fills about 13 of its 16 px, so at the
+   glyph's size it read bigger than the folder and the computer and touched its name (Lucas 2026-11-13). It draws
+   at that ink, 13/16 of the chip glyph, centered in the glyph's box, with the 3 px corner on 16 kept to scale, so
+   it grows and shrinks with the density and keeps the folder glyph's gap to its name. */
+:is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child > img {
+  width: calc(var(--acpmux-chip-glyph) * 13 / 16);
+  height: calc(var(--acpmux-chip-glyph) * 13 / 16);
+  border-radius: calc(var(--acpmux-chip-glyph) * 13 / 16 * 3 / 16);
+}
+/* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
+   inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
+   to baseline, and a lowercase name's ink sits low in that box, so the fill read 1 pt high (Lucas 2026-11-14). */
+.nt-above .acpmux-location-button {
+  --acpmux-location-fill-drop: 1px;
+  top: var(--acpmux-location-fill-drop);
+  padding-top: 0;
+  padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
+}
+/* A tray chip's leading mark (the folder, the laptop, a project's picture or mark) sits 1 pt under the label's line
+   box, where a lowercase name's ink sits, so the marks and the names share one line (Lucas 2026-11-14: "the
+   folder/project image ... needs to drop by 1pt", "make sure the laptop icon is aligned"). */
+.nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
+  translate: 0 1px;
+}
+/* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
+:is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
+  align-self: center;
 }
 .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child) > svg {
   width: var(--acpmux-chip-chevron);
@@ -496,7 +553,21 @@
 /* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
    popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
 .nt-popover .nt-rows > .nt-row {
-  padding-inline-start: calc(var(--nt-composer-inset) + 6px - var(--ui-popup-padding, 4px));
+  /* The + glyph's center: its control's inset plus half the control less half the glyph, at the composer's
+     density (a fixed 6 px was that only at Default; Lucas 2026-11-13: the rows' icons stood off the + column). */
+  padding-inline-start: calc(
+    var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
+      var(--ui-popup-padding, 4px)
+  );
+}
+/* A project's picture centers where the folder glyph does: the ghost button's leading padding (its inset less its
+   bearing) and the folder's 14 px box at the composer's density, the + glyph's column (Lucas 2026-11-13: it stood
+   3 pt right of + and the shield). It beats the gallery arms' full inset. */
+:root:not([data-top-strip]) .nt-composer .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  padding-inline-start: calc(
+    var(--ui-ghost-inset) - var(--ui-ghost-bearing) +
+      (var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2
+  );
 }
 .nt-input[data-split] {
   gap: var(--acpmux-composer-lead-gap);
