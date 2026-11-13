@@ -291,5 +291,94 @@ class BackgroundStepTests(unittest.TestCase):
         self.assertEqual((result.returncode, out), (0, "run=42001\nartifact=11\nartifacts=11\n"))
 
 
+ONE_JOB = "nightly-next-one"
+NOTICES_START = "Start the third-party notices (they need no build output)"
+NOTICES_FINISH = "Finish the third-party notices"
+NOTICES_STEP = "Generate third-party notices (cmux-next)"
+
+
+class OneJobNoticesInBackgroundTests(unittest.TestCase):
+    """nightly-next-one generates the notices beside the build, not after it.
+
+    "Generate third-party notices (cmux-next)" took 95-134 s serially after the Release build in nightly-next-one
+    (runs 43390156751 and 43395323737: git fetches of the pinned crates' sources plus cargo tree), and it reads no
+    build output. The one job starts it right after "Install compilation dependencies" (cargo) and joins it before
+    that step, which then takes the result as a hand-off (nightly_inputs.py install-notices) and bundles it. The
+    background run writes outside the checkout: the Release build copies the committed THIRD_PARTY_LICENSES.md,
+    which bundle-notices requires. A failed background run leaves no hand-off, and the step generates as before.
+    """
+
+    def test_it_starts_after_cargo_and_joins_before_the_notices_step(self):
+        start, finish = index(ONE_JOB, NOTICES_START), index(ONE_JOB, NOTICES_FINISH)
+        self.assertLess(index(ONE_JOB, "Install compilation dependencies"), start)
+        self.assertLess(start, index(ONE_JOB, "Build nightly app (Release)"))
+        self.assertLess(finish, index(ONE_JOB, NOTICES_STEP))
+        self.assertLess(index(ONE_JOB, "Build nightly app (Release)"), finish)
+        self.assertIs(step(ONE_JOB, NOTICES_FINISH).get("continue-on-error"), True)
+        self.assertEqual(step(ONE_JOB, NOTICES_START)["env"].get("CMUX_NOTICES_ALLOW_CARGO"), "1")
+        self.assertIn("app-third-party-notices.sh start", step(ONE_JOB, NOTICES_START)["run"])
+        self.assertIn("background_build.py join", step(ONE_JOB, NOTICES_FINISH)["run"])
+        # A job that fails before the join leaves nothing running.
+        self.assertIn("Stop the helper builds still running", [s.get("name") for s in steps(ONE_JOB)])
+
+    def test_the_split_build_job_is_unchanged(self):
+        names = [s.get("name") for s in steps(APP_JOB)]
+        self.assertNotIn(NOTICES_START, names)
+        self.assertNotIn(NOTICES_FINISH, names)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.ws = self.tmp / "ws"
+        for rel in ("scripts/ci/background_build.py", "scripts/ci/nightly_inputs.py",
+                    "scripts/ci/nightly-steps/app-third-party-notices.sh", "scripts/cmux-next/safe_log.py"):
+            (self.ws / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / rel, self.ws / rel)
+        (self.ws / "THIRD_PARTY_LICENSES.md").write_text("committed\n")
+        self.app = self.ws / "build-universal/Build/Products/Release/cmux.app/Contents/Resources"
+        self.app.mkdir(parents=True)
+        (self.app / "THIRD_PARTY_LICENSES.md").write_text("committed\n")
+        git = ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", str(self.ws)], check=True)
+        subprocess.run([*git, "add", "THIRD_PARTY_LICENSES.md"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "x"], check=True)
+        self.runner_temp = self.tmp / "runner-temp"
+        self.runner_temp.mkdir()
+
+    def generator(self, body: str) -> None:
+        gen = self.ws / "scripts/cmux-next/generate-third-party-notices.sh"
+        gen.parent.mkdir(parents=True, exist_ok=True)
+        gen.write_text("#!/bin/bash\nset -e\n" + body)
+        gen.chmod(0o755)
+
+    def run_step(self, name: str, job: str = ONE_JOB) -> subprocess.CompletedProcess:
+        env = {**os.environ, "RUNNER_TEMP": str(self.runner_temp), **(step(job, name).get("env") or {})}
+        return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
+                              text=True, capture_output=True, timeout=60)
+
+    def test_the_background_notices_are_bundled_and_the_checkout_keeps_the_committed_file(self):
+        self.generator('out="${CMUX_NOTICES_OUT:-THIRD_PARTY_LICENSES.md}"\necho "tree notices" > "$out"\n'
+                       'echo "$CMUX_NOTICES_CACHE" > "$RUNNER_TEMP/cache-seen"\n')
+        started = self.run_step(NOTICES_START)
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        finished = self.run_step(NOTICES_FINISH)
+        self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
+        # The Release build copies the committed file: the background run never wrote over it.
+        self.assertEqual((self.ws / "THIRD_PARTY_LICENSES.md").read_text(), "committed\n")
+        bundled = self.run_step(NOTICES_STEP, APP_JOB)
+        self.assertEqual(bundled.returncode, 0, bundled.stdout + bundled.stderr)
+        self.assertNotIn("generating them here", bundled.stdout + bundled.stderr)
+        self.assertEqual((self.app / "THIRD_PARTY_LICENSES.md").read_text(), "tree notices\n")
+
+    def test_a_failed_background_run_falls_back_to_the_serial_generation(self):
+        self.generator('if [ -n "${CMUX_NOTICES_OUT:-}" ]; then echo half > "$CMUX_NOTICES_OUT"; exit 1; fi\n'
+                       'echo "serial notices" > THIRD_PARTY_LICENSES.md\n')
+        self.assertEqual(self.run_step(NOTICES_START).returncode, 0)
+        self.assertNotEqual(self.run_step(NOTICES_FINISH).returncode, 0)
+        bundled = self.run_step(NOTICES_STEP, APP_JOB)
+        self.assertEqual(bundled.returncode, 0, bundled.stdout + bundled.stderr)
+        self.assertEqual((self.app / "THIRD_PARTY_LICENSES.md").read_text(), "serial notices\n")
+
+
 if __name__ == "__main__":
     unittest.main()
