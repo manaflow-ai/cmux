@@ -14,9 +14,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{DeltaFrame, DeltaOp, Frame, FrameError, FrameKind, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Sub};
 
-pub use crate::wire::{Delta, Window};
+pub use crate::wire::Window;
 
 /// The default list window and the hard row count ceiling for one window.
 pub const DEFAULT_WINDOW_ROWS: usize = 100;
@@ -36,7 +36,7 @@ pub struct SummaryEvent {
 pub enum ListItem {
     Summary(SummaryEvent),
     Gone { seq: u64, chat_id: String },
-    Dropped { cursor: u64 },
+    Lagged { cursor: u64 },
 }
 
 enum PendingUpdate {
@@ -87,7 +87,7 @@ impl UpdateQueue {
 }
 
 struct SubscriberState {
-    dropped: Option<u64>,
+    ended: bool,
     cursor: u64,
 }
 
@@ -98,7 +98,7 @@ struct Subscriber {
 
 impl Subscriber {
     fn new(cursor: u64) -> Self {
-        Self { state: Mutex::new(SubscriberState { dropped: None, cursor }), notify: Notify::new() }
+        Self { state: Mutex::new(SubscriberState { ended: false, cursor }), notify: Notify::new() }
     }
 }
 
@@ -106,14 +106,31 @@ fn item_seq(item: &ListItem) -> u64 {
     match item {
         ListItem::Summary(event) => event.seq,
         ListItem::Gone { seq, .. } => *seq,
-        ListItem::Dropped { cursor } => *cursor,
+        ListItem::Lagged { cursor } => *cursor,
+    }
+}
+
+#[derive(Default)]
+struct History {
+    records: VecDeque<(ListItem, usize)>,
+    bytes: usize,
+}
+
+impl History {
+    fn front_seq(&self) -> Option<u64> {
+        self.records.front().map(|(item, _)| item_seq(item))
+    }
+
+    fn after(&self, cursor: u64) -> Option<&ListItem> {
+        let offset = cursor.saturating_add(1).checked_sub(self.front_seq()?)?;
+        self.records.get(usize::try_from(offset).ok()?).map(|(item, _)| item)
     }
 }
 
 pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
-    history: Arc<Mutex<VecDeque<ListItem>>>,
+    history: Arc<Mutex<History>>,
 }
 
 impl Drop for ListReceiver {
@@ -134,47 +151,44 @@ impl ListReceiver {
         }
     }
 
+    pub fn reposition(&self, cursor: u64) {
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = cursor;
+            state.ended = false;
+        }
+    }
+
+    pub fn try_next(&self) -> Option<ListItem> {
+        let mut state = self.subscriber.state.lock().ok()?;
+        if state.ended {
+            return None;
+        }
+        let history = self.history.lock().ok()?;
+        if history.front_seq().is_some_and(|seq| state.cursor.saturating_add(1) < seq) {
+            state.ended = true;
+            return Some(ListItem::Lagged { cursor: state.cursor });
+        }
+        history.after(state.cursor).cloned()
+    }
+
     pub async fn recv(&self) -> Option<ListItem> {
         loop {
-            if let Ok(mut state) = self.subscriber.state.lock() {
-                if let Some(cursor) = state.dropped.take() {
-                    return Some(ListItem::Dropped { cursor });
-                }
-                // The subscriber deliberately retains no event frames. Read the first retained
-                // record after the cursor only when the reader asks for one. The source advances
-                // the cursor after the connection accepts the frame; a full credit window must
-                // therefore retry this same record instead of skipping it.
-                if let Ok(history) = self.history.lock() {
-                    let oldest = history.front().map(item_seq);
-                    if oldest.is_some_and(|seq| state.cursor.saturating_add(1) < seq) {
-                        return Some(ListItem::Dropped { cursor: state.cursor });
-                    }
-                    if let Some(oldest) = oldest {
-                        // History sequences are assigned once per retained record. Indexing by
-                        // the sequence offset avoids rescanning the whole deque for a reader
-                        // that is many records behind while keeping the lock to one clone.
-                        let offset = state.cursor.saturating_add(1).saturating_sub(oldest) as usize;
-                        if let Some(item) = history.get(offset)
-                            && item_seq(item) > state.cursor
-                        {
-                            return Some(item.clone());
-                        }
-                        // Be defensive around a future source that introduces sequence gaps.
-                        if let Some(item) =
-                            history.iter().find(|item| item_seq(item) > state.cursor)
-                        {
-                            return Some(item.clone());
-                        }
-                    }
-                }
+            // notify_one stores a permit even when a publish races this read.
+            let changed = self.subscriber.notify.notified();
+            if let Some(item) = self.try_next() {
+                return Some(item);
             }
-            self.subscriber.notify.notified().await;
+            if self.subscriber.state.lock().ok()?.ended {
+                return None;
+            }
+            changed.await;
         }
     }
 }
 
 pub struct ListSubscription {
     pub window: Frame,
+    pub cursor: u64,
     pub receiver: ListReceiver,
 }
 
@@ -183,7 +197,7 @@ pub struct Hub {
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
-    history: Arc<Mutex<VecDeque<ListItem>>>,
+    history: Arc<Mutex<History>>,
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -196,7 +210,7 @@ pub struct HubWriter {
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
-    history: Arc<Mutex<VecDeque<ListItem>>>,
+    history: Arc<Mutex<History>>,
     log: Option<IndexLog>,
     log_errors: Arc<AtomicU64>,
 }
@@ -228,7 +242,7 @@ impl Hub {
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
-        let history = Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_CAPACITY)));
+        let history = Arc::new(Mutex::new(History::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let hub = Self {
             published: published.clone(),
@@ -257,72 +271,22 @@ impl Hub {
         self.published.load_full()
     }
 
-    /// Bytes retained by subscribers that have not been fed. The cursor-only
-    /// subscriber model intentionally keeps this at zero; frames belong to the
-    /// connection queue only after credit admits them.
-    pub fn not_fed_bytes(&self) -> usize {
-        0
-    }
-
-    /// Returns the retained list records after a cursor. `None` means the
-    /// cursor is outside the retained history and the caller must use a fresh
-    /// window. The source decides how to frame the returned records.
-    pub fn list_resume(&self, sub: &Sub) -> Result<Option<Vec<ListItem>>, HubError> {
-        if sub.stream.as_str() != "list" {
-            return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
-        }
-        let Some(cursor) = sub.cursor.map(|cursor| cursor.0) else { return Ok(None) };
-        let index = self.snapshot();
-        if cursor > index.seq() {
-            return Ok(None);
-        }
+    /// A consistent replay cut: the retained records and their last seq are
+    /// inspected under one short lock. Encoding happens after this lock is gone.
+    pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-        if history.front().is_some_and(|item| cursor.saturating_add(1) < item_seq(item)) {
+        let target = history
+            .records
+            .back()
+            .map(|(item, _)| item_seq(item))
+            .unwrap_or_else(|| self.published.load().seq());
+        if cursor > target
+            || history.front_seq().is_some_and(|seq| cursor.saturating_add(1) < seq)
+            || (history.records.is_empty() && cursor != target)
+        {
             return Ok(None);
         }
-        let mut bytes = 0usize;
-        let mut items = Vec::new();
-        for item in history.iter().filter(|item| item_seq(item) > cursor) {
-            let encoded = match item {
-                ListItem::Summary(event) => Frame::json(
-                    FrameKind::Delta,
-                    &DeltaFrame {
-                        sid: sub.sid.clone(),
-                        replay: Some(crate::wire::ReplayMark::Replay),
-                        ops: vec![DeltaOp::Summary {
-                            seq: event.seq,
-                            summary: (*event.summary).clone(),
-                        }],
-                    },
-                )?
-                .encoded_len(),
-                ListItem::Gone { seq, chat_id } => Frame::json(
-                    FrameKind::Delta,
-                    &DeltaFrame::<serde_json::Value> {
-                        sid: sub.sid.clone(),
-                        replay: Some(crate::wire::ReplayMark::Replay),
-                        ops: vec![DeltaOp::Gone { seq: *seq, chat_id: chat_id.clone() }],
-                    },
-                )?
-                .encoded_len(),
-                ListItem::Dropped { cursor: dropped } => Frame::json(
-                    FrameKind::Dropped,
-                    &crate::wire::Dropped {
-                        sid: sub.sid.clone(),
-                        cursor: crate::wire::Cursor(*dropped),
-                    },
-                )?
-                .encoded_len(),
-            };
-            // Leave room for the final end marker and framing overhead. A conservative bound
-            // chooses a fresh window rather than constructing a replay that cannot be admitted.
-            bytes = bytes.saturating_add(encoded.saturating_add(64));
-            if bytes > crate::wire::CREDIT_WINDOW_BYTES as usize {
-                return Ok(None);
-            }
-            items.push(item.clone());
-        }
-        Ok(Some(items))
+        Ok(Some(target))
     }
 
     /// Wakes a writer task and prevents any later submit from waiting for it.
@@ -331,8 +295,7 @@ impl Hub {
         self.updates.notify.notify_waiters();
     }
 
-    #[cfg(test)]
-    fn subscriber_count(&self) -> usize {
+    pub fn subscriber_count(&self) -> usize {
         self.subscribers.lock().map(|subscribers| subscribers.len()).unwrap_or(0)
     }
 
@@ -344,34 +307,20 @@ impl Hub {
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
         let index = self.snapshot();
         let edition_matches = sub.edition.is_none_or(|edition| edition == 0);
-        let resume_cursor = if edition_matches && sub.cursor.is_some() && cursor <= index.seq() {
-            let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-            history
-                .front()
-                .map(item_seq)
-                .filter(|first| cursor.saturating_add(1) >= *first)
-                .map_or(index.seq(), |_| cursor)
-        } else {
-            index.seq()
-        };
-        // Build and validate the initial frame before publishing the subscriber. A
-        // serialization or lock failure must not leave a ghost subscriber behind.
-        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
-        let subscriber = Arc::new(Subscriber::new(0));
-        if let Ok(mut state) = subscriber.state.lock() {
-            if sub.cursor.is_some() {
-                if resume_cursor == cursor {
-                    state.cursor = cursor;
-                } else {
-                    state.cursor = index.seq();
-                }
+        let resume_cursor =
+            if edition_matches && sub.cursor.is_some() && self.resume_target(cursor)?.is_some() {
+                cursor
             } else {
-                state.cursor = index.seq();
-            }
-        }
+                index.seq()
+            };
+        // The window always describes this snapshot, even when a source chooses
+        // to replay instead. A failed frame leaves no registered subscriber.
+        let frame = self.window_frame_at_cursor(sub, &index, index.seq())?;
+        let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
+            cursor: index.seq(),
             receiver: ListReceiver {
                 subscriber,
                 subscribers: self.subscribers.clone(),
@@ -489,8 +438,8 @@ impl HubWriter {
         let Ok(mut subscribers) = self.subscribers.lock() else { return };
         subscribers.retain(|subscriber| {
             let Ok(state) = subscriber.state.lock() else { return true };
-            if event.seq <= state.cursor || state.dropped.is_some() {
-                return state.dropped.is_none();
+            if event.seq <= state.cursor || state.ended {
+                return !state.ended;
             }
             // The history is the subscriber's resume source. Do not enqueue the frame here:
             // an unread subscriber must retain only its cursor.
@@ -526,8 +475,8 @@ impl HubWriter {
         let Ok(mut subscribers) = self.subscribers.lock() else { return };
         subscribers.retain(|subscriber| {
             let Ok(state) = subscriber.state.lock() else { return true };
-            if seq <= state.cursor || state.dropped.is_some() {
-                return state.dropped.is_none();
+            if seq <= state.cursor || state.ended {
+                return !state.ended;
             }
             // See `publish`: the subscriber wakes and reads from history on demand.
             subscriber.notify.notify_one();
@@ -536,10 +485,24 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
+        // Compute record size outside the lock used by a reader. The shared
+        // retention has its own byte bound; a stopped subscriber owns only a cursor.
+        let bytes = match &item {
+            ListItem::Summary(event) => event.summary.encoded_len().saturating_add(32),
+            ListItem::Gone { chat_id, .. } => chat_id.len().saturating_add(32),
+            ListItem::Lagged { .. } => 0,
+        };
         if let Ok(mut history) = self.history.lock() {
-            history.push_back(item);
-            while history.len() > HISTORY_CAPACITY {
-                history.pop_front();
+            history.bytes = history.bytes.saturating_add(bytes);
+            history.records.push_back((item, bytes));
+            while history.records.len() > HISTORY_CAPACITY
+                || history.bytes > crate::wire::CREDIT_WINDOW_BYTES as usize
+            {
+                if let Some((_, bytes)) = history.records.pop_front() {
+                    history.bytes = history.bytes.saturating_sub(bytes);
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -587,7 +550,7 @@ impl HubWriter {
 }
 
 /// A wire delta frame helper shared by the list and chat lanes.
-pub fn delta_frame(delta: &Delta<Summary>) -> Result<Frame, FrameError> {
+pub fn delta_frame(delta: &crate::wire::DeltaFrame<Summary>) -> Result<Frame, FrameError> {
     crate::wire::delta_frame(delta)
 }
 
@@ -629,7 +592,7 @@ mod tests {
         let mut sorted = samples.to_vec();
         sorted.sort_unstable();
         let rank = ((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-        sorted[rank]
+        sorted.get(rank).copied().unwrap_or_default()
     }
 
     fn best_p95(rounds: &[Vec<u128>]) -> u128 {

@@ -1,28 +1,17 @@
 //! One bounded v2 connection over any ordered byte stream.
 
-use crate::hub::{Hub, HubError, ListItem, ListReceiver};
+use crate::hub::HubError;
+mod list;
 use crate::wire::{
-    CONNECTION_BUDGET_BYTES, CREDIT_WINDOW_BYTES, Credit, Cursor, DeltaFrame, DeltaOp, Dropped,
-    Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, ReplayMark, Sub, Unsub,
+    Credit, Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub, Unsub,
 };
+pub use list::HubSource;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::Notify;
 
 pub const MAX_SUBSCRIPTIONS: usize = crate::wire::MAX_SUBSCRIPTIONS;
-const DROPPED_NOTICE_RESERVE_BYTES: usize = 256;
-
-fn notice_reserve(budget: usize) -> usize {
-    if budget > DROPPED_NOTICE_RESERVE_BYTES.saturating_mul(2) {
-        DROPPED_NOTICE_RESERVE_BYTES
-    } else {
-        0
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "method", content = "params", rename_all = "lowercase")]
 pub enum Request {
@@ -41,224 +30,8 @@ pub enum Offer {
     UnknownSubscription,
 }
 
-#[derive(Clone, Debug)]
-struct Queued {
-    sid: Option<String>,
-    cursor: Cursor,
-    frame: Frame,
-}
-
-#[derive(Clone, Debug)]
-struct SubscriptionState {
-    sent: u64,
-    consumed: u64,
-    cursor: Cursor,
-    dropped: bool,
-    control: Arc<SubscriptionControl>,
-}
-
-#[derive(Debug, Default)]
-pub struct SubscriptionControl {
-    ended: AtomicBool,
-    wake: Notify,
-}
-
-impl SubscriptionControl {
-    pub fn end(&self) {
-        self.ended.store(true, Ordering::Release);
-        self.wake.notify_waiters();
-    }
-
-    pub fn ended(&self) -> bool {
-        self.ended.load(Ordering::Acquire)
-    }
-
-    pub async fn wait(&self) {
-        self.wake.notified().await;
-    }
-}
-
-/// The connection-owned queue and credit accounting.
-#[derive(Debug)]
-pub struct ConnectionState {
-    queue: VecDeque<Queued>,
-    subscriptions: HashMap<String, SubscriptionState>,
-    queued_bytes: usize,
-    budget: usize,
-    identity: Option<Vec<u8>>,
-}
-
-impl Default for ConnectionState {
-    fn default() -> Self {
-        Self::new(CONNECTION_BUDGET_BYTES)
-    }
-}
-
-impl ConnectionState {
-    pub fn new(budget: usize) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            subscriptions: HashMap::new(),
-            queued_bytes: 0,
-            budget,
-            identity: None,
-        }
-    }
-
-    pub fn queued_bytes(&self) -> usize {
-        self.queued_bytes
-    }
-
-    pub fn subscription_count(&self) -> usize {
-        self.subscriptions.len()
-    }
-
-    pub fn identity(&self) -> Option<&[u8]> {
-        self.identity.as_deref()
-    }
-
-    fn set_identity(&mut self, identity: Option<&str>) -> Result<(), ConnError> {
-        if identity.is_some_and(|identity| identity.len() > 64) {
-            return Err(ConnError::IdentityTooLarge);
-        }
-        self.identity = identity.map(|identity| identity.as_bytes().to_vec());
-        Ok(())
-    }
-
-    pub fn subscribe(&mut self, sid: impl Into<String>, cursor: Cursor) -> Result<(), ConnError> {
-        if self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
-            return Err(ConnError::TooManySubscriptions);
-        }
-        let sid = sid.into();
-        if self.subscriptions.contains_key(&sid) {
-            return Err(ConnError::DuplicateSubscription(sid));
-        }
-        self.subscriptions.insert(
-            sid,
-            SubscriptionState {
-                sent: 0,
-                consumed: 0,
-                cursor,
-                dropped: false,
-                control: Arc::new(SubscriptionControl::default()),
-            },
-        );
-        Ok(())
-    }
-
-    pub fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>> {
-        self.subscriptions.get(sid).map(|state| state.control.clone())
-    }
-
-    pub fn unsubscribe(&mut self, sid: &str) -> bool {
-        let removed = self.subscriptions.remove(sid);
-        if let Some(subscription) = removed {
-            subscription.control.end();
-            self.remove_queued_for(sid);
-            return true;
-        }
-        false
-    }
-
-    pub fn credit(&mut self, credit: Credit) -> Result<bool, ConnError> {
-        let Some(subscription) = self.subscriptions.get_mut(&credit.sid) else {
-            return Err(ConnError::UnknownSubscription(credit.sid));
-        };
-        subscription.consumed = subscription.consumed.max(credit.consumed).min(subscription.sent);
-        subscription.control.wake.notify_waiters();
-        Ok(subscription.consumed < subscription.sent)
-    }
-
-    pub fn offer(&mut self, sid: &str, frame: Frame, cursor: Cursor) -> Offer {
-        let Some(subscription) = self.subscriptions.get(sid) else {
-            return Offer::UnknownSubscription;
-        };
-        if subscription.dropped {
-            return Offer::NotFed;
-        }
-        let encoded = frame.encoded_len();
-        if subscription.sent.saturating_sub(subscription.consumed).saturating_add(encoded as u64)
-            > CREDIT_WINDOW_BYTES
-        {
-            return Offer::NotFed;
-        }
-        if self.queued_bytes.saturating_add(encoded).saturating_add(notice_reserve(self.budget))
-            > self.budget
-        {
-            let cursor = self.drop_subscription(sid);
-            return Offer::Dropped { sid: sid.to_owned(), cursor };
-        }
-        let Some(subscription) = self.subscriptions.get_mut(sid) else {
-            return Offer::UnknownSubscription;
-        };
-        subscription.sent = subscription.sent.saturating_add(encoded as u64);
-        self.queued_bytes = self.queued_bytes.saturating_add(encoded);
-        self.queue.push_back(Queued { sid: Some(sid.to_owned()), cursor, frame });
-        Offer::Taken
-    }
-
-    pub fn offer_reply(&mut self, frame: Frame) -> Result<(), ConnError> {
-        let encoded = frame.encoded_len();
-        if self.queued_bytes.saturating_add(encoded).saturating_add(notice_reserve(self.budget))
-            > self.budget
-        {
-            return Err(ConnError::ReplyBudget);
-        }
-        self.queued_bytes = self.queued_bytes.saturating_add(encoded);
-        self.queue.push_back(Queued { sid: None, cursor: Cursor::default(), frame });
-        Ok(())
-    }
-
-    pub fn take(&mut self) -> Option<FrameLease> {
-        self.queue.pop_front().map(|queued| {
-            self.queued_bytes = self.queued_bytes.saturating_sub(queued.frame.encoded_len());
-            FrameLease { sid: queued.sid, cursor: queued.cursor, frame: queued.frame }
-        })
-    }
-
-    pub fn written(&mut self, lease: &FrameLease) {
-        if let Some(sid) = lease.sid.as_deref()
-            && let Some(subscription) = self.subscriptions.get_mut(sid)
-        {
-            subscription.cursor = lease.cursor;
-        }
-    }
-
-    fn drop_subscription(&mut self, sid: &str) -> Cursor {
-        let cursor = self.subscriptions.get(sid).map(|s| s.cursor).unwrap_or_default();
-        self.remove_queued_for(sid);
-        let subscription = self.subscriptions.remove(sid);
-        if let Some(subscription) = subscription {
-            subscription.control.end();
-        }
-        let notice = Frame::json(FrameKind::Dropped, &Dropped { sid: sid.to_owned(), cursor });
-        if let Ok(frame) = notice
-            && self.queued_bytes.saturating_add(frame.encoded_len()) <= self.budget
-        {
-            self.queued_bytes = self.queued_bytes.saturating_add(frame.encoded_len());
-            self.queue.push_back(Queued { sid: None, cursor, frame });
-        }
-        cursor
-    }
-
-    fn remove_queued_for(&mut self, sid: &str) {
-        let mut kept = VecDeque::with_capacity(self.queue.len());
-        while let Some(queued) = self.queue.pop_front() {
-            if queued.sid.as_deref() == Some(sid) {
-                self.queued_bytes = self.queued_bytes.saturating_sub(queued.frame.encoded_len());
-            } else {
-                kept.push_back(queued);
-            }
-        }
-        self.queue = kept;
-    }
-}
-
-pub struct FrameLease {
-    sid: Option<String>,
-    cursor: Cursor,
-    pub frame: Frame,
-}
+mod state;
+pub use state::{ConnectionMetrics, ConnectionState, FrameLease, SubscriptionControl};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnError {
@@ -278,6 +51,8 @@ pub enum ConnError {
     InvalidRequest(String),
     #[error("hub error: {0}")]
     Hub(#[from] HubError),
+    #[error("sid or id is longer than 256 UTF-8 bytes")]
+    IdentifierTooLong,
     #[error("identity proof is larger than 64 bytes")]
     IdentityTooLarge,
 }
@@ -288,109 +63,29 @@ pub enum ConnError {
 pub trait OfferSink: Send + Sync {
     fn offer(&self, sid: &str, frame: Frame, cursor: Cursor) -> Offer;
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>>;
+    fn metrics(&self) -> Arc<ConnectionMetrics>;
 }
 
-pub struct SourceSubscription {
-    pub initial: Option<(Frame, Cursor)>,
-    pub replay: Vec<(Frame, Cursor)>,
-    pub events: Option<SubscriptionEvents>,
-}
+/// A source owns its delivery tasks and the order of its frames. `subscribe`
+/// queues its first frame through the handle before returning. `NotFed` consumes
+/// the offered frame: the source retains only its last taken cursor until resume.
+pub type CloseFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 
-/// Events a source can deliver after its initial frame. The source owns the
-/// receiver and its task; the connection owns only the sink and byte budget.
-pub enum SubscriptionEvents {
-    List(ListReceiver),
-}
-
-/// A source owns ordering and resume policy. Chat actors implement this trait
-/// without exposing a queue to the connection; list uses the same seam.
 pub trait Source: Send + Sync + 'static {
     fn subscribe(
         &self,
         sub: &Sub,
-        identity: Option<&[u8]>,
+        person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
-    ) -> Result<SourceSubscription, ConnError>;
-
-    fn resume(
-        &self,
-        _sid: &str,
-        _cursor: Cursor,
-        _sink: Arc<dyn OfferSink>,
-    ) -> Result<(), ConnError> {
-        Ok(())
-    }
-
-    fn page(&self, _page: &Page, _identity: Option<&[u8]>) -> Result<Frame, ConnError> {
+    ) -> Result<(), ConnError>;
+    fn resume(&self, sid: &str, cursor: Cursor);
+    fn page(&self, _page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
         Err(ConnError::InvalidRequest("page is not supported for this stream".into()))
     }
-
-    fn end(&self, _sid: &str) {}
-}
-
-pub struct HubSource {
-    hub: Arc<Hub>,
-}
-
-impl HubSource {
-    pub fn new(hub: Arc<Hub>) -> Self {
-        Self { hub }
-    }
-}
-
-impl Source for HubSource {
-    fn subscribe(
-        &self,
-        sub: &Sub,
-        _identity: Option<&[u8]>,
-        _sink: Arc<dyn OfferSink>,
-    ) -> Result<SourceSubscription, ConnError> {
-        if sub.stream.as_str() != "list" {
-            return Err(ConnError::InvalidRequest("no such stream".into()));
-        }
-        let subscription = self.hub.subscribe(sub)?;
-        let resume = if sub.edition.is_none_or(|edition| edition == 0) {
-            self.hub.list_resume(sub)?
-        } else {
-            None
-        };
-        let (initial, replay) = if let Some(items) = resume {
-            let mut frames = list_replay_frames(&sub.sid, &items)?;
-            if items.is_empty()
-                && let Some((_, cursor)) = frames.last_mut()
-            {
-                *cursor = Cursor(sub.cursor.map_or(0, |cursor| cursor.0));
-            }
-            let mut frames = frames.into_iter();
-            (frames.next(), frames.collect())
-        } else {
-            (Some((subscription.window, Cursor(self.hub.snapshot().seq()))), Vec::new())
-        };
-        Ok(SourceSubscription {
-            initial,
-            replay,
-            events: Some(SubscriptionEvents::List(subscription.receiver)),
-        })
-    }
-
-    fn resume(
-        &self,
-        _sid: &str,
-        _cursor: Cursor,
-        _sink: Arc<dyn OfferSink>,
-    ) -> Result<(), ConnError> {
-        // The list receiver is cursor based; its task retries from the same
-        // receiver cursor after credit. A missed-history source returns a fresh
-        // window from `subscribe` instead.
-        Ok(())
-    }
-
-    fn page(&self, page: &Page, _identity: Option<&[u8]>) -> Result<Frame, ConnError> {
-        if page.stream.as_str() != "list" {
-            return Err(ConnError::InvalidRequest("no such stream".into()));
-        }
-        let sub = Sub::new(page.sid.clone(), page.stream.clone());
-        Ok(self.hub.list_window(&sub)?)
+    fn end(&self, sid: &str);
+    /// Join tasks released by end, including on a read or write error.
+    fn close(&self) -> CloseFuture<'_> {
+        Box::pin(std::future::ready(()))
     }
 }
 
@@ -402,269 +97,277 @@ impl Source for MissingChatSource {
         sub: &Sub,
         _identity: Option<&[u8]>,
         _sink: Arc<dyn OfferSink>,
-    ) -> Result<SourceSubscription, ConnError> {
+    ) -> Result<(), ConnError> {
         if sub.stream.as_str().starts_with("chat:") {
             Err(ConnError::InvalidRequest("no such stream".into()))
         } else {
             Err(ConnError::InvalidRequest("unsupported stream".into()))
         }
     }
+    fn resume(&self, _sid: &str, _cursor: Cursor) {}
+    fn end(&self, _sid: &str) {}
 }
 
-/// Runs the framing loop. The writer is owned exclusively by this task.
 #[derive(Clone)]
 struct ConnectionSink {
     state: Arc<std::sync::Mutex<ConnectionState>>,
+    control: Arc<SubscriptionControl>,
 }
-
 impl OfferSink for ConnectionSink {
-    fn offer(&self, sid: &str, frame: Frame, cursor: Cursor) -> Offer {
+    fn metrics(&self) -> Arc<ConnectionMetrics> {
         self.state
             .lock()
-            .map_or(Offer::UnknownSubscription, |mut state| state.offer(sid, frame, cursor))
+            .map_or_else(|_| Arc::new(ConnectionMetrics::default()), |state| state.metrics.clone())
     }
-
+    fn offer(&self, sid: &str, frame: Frame, cursor: Cursor) -> Offer {
+        self.state.lock().map_or(Offer::UnknownSubscription, |mut state| {
+            state.offer_from(sid, &self.control, frame, cursor)
+        })
+    }
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>> {
-        self.state.lock().ok().and_then(|state| state.control(sid))
+        self.state.lock().ok()?.control(sid).filter(|c| Arc::ptr_eq(c, &self.control))
+    }
+}
+struct Cleanup {
+    state: Arc<std::sync::Mutex<ConnectionState>>,
+    source: Arc<dyn Source>,
+}
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let sids = if let Ok(mut state) = self.state.lock() {
+            let mut sids: Vec<_> = state.subscriptions.keys().cloned().collect();
+            sids.extend(state.take_ended());
+            for sid in &sids {
+                state.unsubscribe(sid);
+            }
+            sids
+        } else {
+            Vec::new()
+        };
+        for sid in sids {
+            self.source.end(&sid);
+        }
     }
 }
 
-pub async fn run<R, W, S>(
-    mut reader: R,
-    mut writer: W,
-    source: Arc<S>,
+/// The only stream writer. Reads, source wakes and cancellation-safe partial
+/// writes share one select. No subscription task lives in the connection.
+pub async fn run<R, W>(
+    reader: R,
+    writer: W,
+    source: Arc<dyn Source>,
     daemon_id: impl Into<String>,
     surfaces: &[String],
 ) -> Result<(), ConnError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    S: Source,
 {
+    let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
+    let cleanup = Cleanup { state: state.clone(), source: source.clone() };
+    let result =
+        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, state).await;
+    drop(cleanup);
+    source.close().await;
+    result
+}
+
+async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    mut reader: R,
+    mut writer: W,
+    source: Arc<dyn Source>,
+    daemon_id: String,
+    surfaces: &[String],
+    state: Arc<std::sync::Mutex<ConnectionState>>,
+) -> Result<(), ConnError> {
+    let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
     let hello = Frame::json(
         FrameKind::Hello,
         &HelloReply { daemon_id: daemon_id.into(), limits: Limits::default() },
     )?;
-    writer.write_all(&hello.encode()).await?;
+    state.lock().map_err(|_| poisoned())?.offer_reply(hello)?;
     let mut decoder = crate::wire::FrameDecoder::default();
     let mut buffer = [0_u8; 16 * 1024];
-    let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
-    let sink: Arc<dyn OfferSink> = Arc::new(ConnectionSink { state: state.clone() });
-    let mut pending = VecDeque::new();
-    let mut source_tasks = tokio::task::JoinSet::new();
+    let mut pending = VecDeque::<Frame>::new();
     let mut writing: Option<WritingFrame> = None;
     let mut hello_seen = false;
     loop {
-        if writing.is_none() {
-            writing = state.lock().ok().and_then(|mut state| state.take()).map(WritingFrame::new);
+        let ended = state.lock().map_err(|_| poisoned())?.take_ended();
+        for sid in ended {
+            source.end(&sid);
         }
+        if writing.is_none() {
+            writing = state.lock().map_err(|_| poisoned())?.take().map(WritingFrame::new);
+        }
+        let can_process = if let Some(frame) = pending.front() {
+            let state = state.lock().map_err(|_| poisoned())?;
+            state.request_room() || (hello_seen && known_control(frame, &state))
+        } else {
+            false
+        };
         tokio::select! {
-            biased;
+            // The default select is fair: a perpetually ready writer cannot
+            // starve credit, and a request burst cannot starve a partial write.
             result = write_lease(&mut writer, writing.as_mut()), if writing.is_some() => {
-                if result?
-                    && let Some(written) = writing.take()
-                    && let Ok(mut state) = state.lock()
-                {
-                    state.written(&written.lease);
+                if result? && let Some(written) = writing.take() {
+                    let mut state = state.lock().map_err(|_| poisoned())?;
+                    if written.cancelled { state.abandon(&written.lease); }
+                    else { state.written(&written.lease); }
                 }
             }
-            Some(frame) = async { pending.pop_front() }, if !pending.is_empty() => {
-                if let Err(error) = process_frame(
-                    &state,
-                    source.clone(),
-                    frame,
-                    sink.clone(),
-                    &mut hello_seen,
-                    &mut source_tasks,
-                    surfaces,
-                )
-                .await
-                {
-                    queue_error(&state, &error.to_string());
+            _ = wake.notified() => {}
+            _ = std::future::ready(()), if can_process => {
+                let Some(frame) = pending.pop_front() else { continue };
+                let reserved = {
+                    let mut state = state.lock().map_err(|_| poisoned())?;
+                    if hello_seen && known_control(&frame, &state) { true }
+                    else { state.reserve_reply() }
+                };
+                if !reserved { pending.push_front(frame); continue; }
+                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces);
+                if let Err(error) = result {
+                    let reply = error_frame(&frame, &error)?;
+                    state.lock().map_err(|_| poisoned())?.offer_reply(reply)?;
                 }
+                state.lock().map_err(|_| poisoned())?.release_reply();
             }
-            Some(_task) = source_tasks.join_next(), if !source_tasks.is_empty() => {}
-            read = reader.read(&mut buffer) => {
+            read = reader.read(&mut buffer), if pending.is_empty() => {
                 let read = read?;
-                if read == 0 {
-                    let sids = state
-                        .lock()
-                        .map(|state| state.subscriptions.keys().cloned().collect::<Vec<_>>())
-                        .unwrap_or_default();
-                    for sid in sids {
-                        source.end(&sid);
-                        if let Ok(mut state) = state.lock() {
-                            state.unsubscribe(&sid);
-                        }
-                    }
-                    return Ok(());
-                }
-                match decoder.push(&buffer[..read]) {
-                    Ok(frames) => pending.extend(frames),
-                    Err(error) => queue_error(&state, &error.to_string()),
-                }
+                if read == 0 { return Ok(()); }
+                // An invalid length loses framing: close, release the decoder,
+                // and run Cleanup. Unknown kinds are valid frames, handled below.
+                pending.extend(decoder.push(buffer.get(..read).ok_or_else(poisoned)?)?);
             }
         }
     }
 }
-
-async fn process_frame<S: Source>(
+fn poisoned() -> ConnError {
+    ConnError::InvalidRequest("connection state poisoned".into())
+}
+fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
+    if frame.kind != FrameKind::Request {
+        return false;
+    }
+    match frame.decode_json::<Request>() {
+        Ok(Request::Credit(credit)) => state.subscriptions.contains_key(&credit.sid),
+        Ok(Request::Unsub(unsub)) => state.subscriptions.contains_key(&unsub.sid),
+        _ => false,
+    }
+}
+fn process_frame(
     state: &Arc<std::sync::Mutex<ConnectionState>>,
-    source: Arc<S>,
-    frame: Frame,
-    sink: Arc<dyn OfferSink>,
+    source: Arc<dyn Source>,
+    frame: &Frame,
     hello_seen: &mut bool,
-    source_tasks: &mut tokio::task::JoinSet<()>,
     surfaces: &[String],
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
-        return Err(ConnError::InvalidRequest("expected request frame".into()));
+        return Err(ConnError::InvalidRequest("unknown request kind".into()));
     }
-    let request: Request = match frame.decode_json() {
-        Ok(request) => request,
-        Err(error) => {
-            queue_error(state, &format!("invalid request: {error}"));
-            return Ok(());
-        }
-    };
+    let value: serde_json::Value = frame.decode_json()?;
+    validate_identifiers(&value)?;
+    let request: Request = frame.decode_json()?;
+    if !*hello_seen && !matches!(request, Request::Hello(_)) {
+        return Err(ConnError::InvalidRequest("hello must be first".into()));
+    }
     match request {
         Request::Hello(hello) => {
             validate_hello(&hello)?;
             if *hello_seen {
                 return Err(ConnError::InvalidRequest("hello was already received".into()));
             }
-            state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .set_identity(hello.identity.as_deref())?;
+            state.lock().map_err(|_| poisoned())?.set_identity(hello.identity.as_deref())?;
             *hello_seen = true;
-            Ok(())
         }
         Request::Sub(sub) => {
-            if !*hello_seen {
-                return Err(ConnError::InvalidRequest("hello must be first".into()));
-            }
             require_surface(&sub.stream, surfaces)?;
-            let sid = sub.sid.clone();
-            let identity =
-                state.lock().ok().and_then(|state| state.identity().map(ToOwned::to_owned));
-            state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .subscribe(sid.clone(), Cursor(sub.cursor.map_or(0, |c| c.0)))?;
-            let subscription = match source.subscribe(&sub, identity.as_deref(), sink.clone()) {
-                Ok(subscription) => subscription,
-                Err(error) => {
-                    if let Ok(mut state) = state.lock() {
-                        state.unsubscribe(&sid);
-                    }
-                    return Err(error);
-                }
+            let (identity, control, ended) = {
+                let mut state = state.lock().map_err(|_| poisoned())?;
+                state.subscribe_at(sub.sid.clone(), sub.cursor)?;
+                (
+                    state.identity().map(ToOwned::to_owned),
+                    state.control(&sub.sid).ok_or_else(poisoned)?,
+                    state.take_ended(),
+                )
             };
-            let prefix = subscription.replay;
-            let initial_cursor = subscription.initial.as_ref().map(|(_, cursor)| *cursor);
-            if let Some((frame, cursor)) = subscription.initial {
-                let outcome = sink.offer(&sid, frame, cursor);
-                if !matches!(outcome, Offer::Taken) {
-                    source.end(&sid);
-                    return Ok(());
-                }
+            for sid in ended {
+                source.end(&sid);
             }
-            let events = subscription.events;
-            let task_sid = sid;
-            let sink = sink.clone();
-            let control = sink.control(&task_sid);
-            if let Some(control) = control {
-                source_tasks.spawn(async move {
-                    let replay_cursor = prefix.last().map(|(_, cursor)| *cursor).or(initial_cursor);
-                    for (frame, cursor) in prefix {
-                        let outcome = drive_offer(
-                            source.as_ref(),
-                            sink.clone(),
-                            task_sid.clone(),
-                            control.clone(),
-                            frame,
-                            cursor,
-                        )
-                        .await;
-                        if control.ended()
-                            || matches!(outcome, Offer::Dropped { .. } | Offer::UnknownSubscription)
-                        {
-                            return;
-                        }
-                    }
-                    if let Some(SubscriptionEvents::List(receiver)) = events {
-                        if let Some(cursor) = replay_cursor {
-                            receiver.advance_to(cursor.0);
-                        }
-                        while !control.ended() {
-                            let Some(item) = receiver.recv().await else { break };
-                            let Ok((frame, cursor)) = list_item_frame(&task_sid, item) else {
-                                break;
-                            };
-                            let outcome = drive_offer(
-                                source.as_ref(),
-                                sink.clone(),
-                                task_sid.clone(),
-                                control.clone(),
-                                frame,
-                                cursor,
-                            )
-                            .await;
-                            if matches!(outcome, Offer::Taken) {
-                                receiver.advance_to(cursor.0);
-                            }
-                            if control.ended()
-                                || matches!(
-                                    outcome,
-                                    Offer::Dropped { .. } | Offer::UnknownSubscription
-                                )
-                            {
-                                return;
-                            }
-                        }
-                    }
-                });
+            let sink = Arc::new(ConnectionSink { state: state.clone(), control });
+            if let Err(error) = source.subscribe(&sub, identity.as_deref(), sink) {
+                source.end(&sub.sid);
+                state.lock().map_err(|_| poisoned())?.unsubscribe(&sub.sid);
+                return Err(error);
             }
-            Ok(())
         }
         Request::Credit(credit) => {
-            let cursor = state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .subscriptions
-                .get(&credit.sid)
-                .map(|subscription| subscription.cursor)
-                .unwrap_or_default();
-            state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .credit(credit.clone())?;
-            source.resume(&credit.sid, cursor, sink)?;
-            Ok(())
+            let sid = credit.sid.clone();
+            let cursor = state.lock().map_err(|_| poisoned())?.credit(credit)?;
+            if let Some(cursor) = cursor {
+                source.resume(&sid, cursor);
+            }
         }
         Request::Unsub(unsub) => {
+            if !state.lock().map_err(|_| poisoned())?.unsubscribe(&unsub.sid) {
+                return Err(ConnError::UnknownSubscription(unsub.sid));
+            }
             source.end(&unsub.sid);
-            state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .unsubscribe(&unsub.sid);
-            Ok(())
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
-            if page.before.is_some() || page.after.is_some() {
-                return Err(ConnError::InvalidRequest("page anchors are not available yet".into()));
-            }
-            let identity =
-                state.lock().ok().and_then(|state| state.identity().map(ToOwned::to_owned));
+            let identity = state.lock().map_err(|_| poisoned())?.identity().map(ToOwned::to_owned);
             let frame = source.page(&page, identity.as_deref())?;
-            state
-                .lock()
-                .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
-                .offer_reply(frame)
+            state.lock().map_err(|_| poisoned())?.offer_reply(frame)?;
         }
     }
+    Ok(())
+}
+
+fn validate_identifiers(value: &serde_json::Value) -> Result<(), ConnError> {
+    for id in [value.pointer("/params/sid"), value.pointer("/params/id"), value.get("id")]
+        .into_iter()
+        .flatten()
+    {
+        if id.as_str().is_some_and(|s| !crate::wire::identifier_fits(s)) {
+            return Err(ConnError::IdentifierTooLong);
+        }
+    }
+    Ok(())
+}
+
+fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
+    let value = request.decode_json::<serde_json::Value>().unwrap_or_default();
+    let method = value
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.chars().take(256).collect::<String>())
+        .unwrap_or_else(|| format!("kind:{:?}", request.kind));
+    let code = match error {
+        ConnError::IdentifierTooLong => "identifier_too_long",
+        ConnError::UnknownSubscription(_) => "unknown_sid",
+        ConnError::DuplicateSubscription(_) => "duplicate_sid",
+        ConnError::TooManySubscriptions => "subscription_limit",
+        ConnError::Frame(_) => "invalid_request",
+        _ => "request_failed",
+    };
+    let mut fields = serde_json::Map::new();
+    fields.insert("method".into(), method.into());
+    fields.insert("code".into(), code.into());
+    fields.insert("message".into(), error.to_string().chars().take(512).collect::<String>().into());
+    // An oversized identifier is never echoed or truncated. Both keys are omitted.
+    if validate_identifiers(&value).is_ok() {
+        if let Some(sid) = value.pointer("/params/sid").filter(|s| s.is_string()) {
+            fields.insert("sid".into(), sid.clone());
+        }
+        if let Some(id) = value
+            .pointer("/params/id")
+            .or_else(|| value.get("id"))
+            .filter(|id| id.is_number() || id.is_string())
+        {
+            fields.insert("id".into(), id.clone());
+        }
+    }
+    Ok(Frame::json(FrameKind::Error, &fields)?)
 }
 
 fn require_surface(stream: &crate::wire::Stream, surfaces: &[String]) -> Result<(), ConnError> {
@@ -678,13 +381,13 @@ fn require_surface(stream: &crate::wire::Stream, surfaces: &[String]) -> Result<
 
 struct WritingFrame {
     lease: FrameLease,
-    bytes: Vec<u8>,
     offset: usize,
+    cancelled: bool,
 }
 
 impl WritingFrame {
     fn new(lease: FrameLease) -> Self {
-        Self { bytes: lease.frame.encode(), lease, offset: 0 }
+        Self { lease, offset: 0, cancelled: false }
     }
 }
 
@@ -695,7 +398,12 @@ async fn write_lease<W: AsyncWrite + Unpin>(
     writing: Option<&mut WritingFrame>,
 ) -> Result<bool, std::io::Error> {
     let Some(writing) = writing else { return std::future::pending().await };
-    let remaining = writing.bytes.get(writing.offset..).ok_or_else(|| {
+    if writing.offset == 0 && writing.lease.ended() {
+        writing.cancelled = true;
+        return Ok(true);
+    }
+
+    let remaining = writing.lease.bytes.get(writing.offset..).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid write offset")
     })?;
     if remaining.is_empty() {
@@ -706,52 +414,7 @@ async fn write_lease<W: AsyncWrite + Unpin>(
         return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "frame write stopped"));
     }
     writing.offset += count;
-    Ok(writing.offset == writing.bytes.len())
-}
-
-fn queue_error(state: &Arc<std::sync::Mutex<ConnectionState>>, message: &str) {
-    if let Ok(frame) = Frame::json(FrameKind::Error, &serde_json::json!({"message": message}))
-        && let Ok(mut state) = state.lock()
-    {
-        let _ = state.offer_reply(frame);
-    }
-}
-
-async fn drive_offer(
-    source: &dyn Source,
-    sink: Arc<dyn OfferSink>,
-    sid: String,
-    control: Arc<SubscriptionControl>,
-    frame: Frame,
-    cursor: Cursor,
-) -> Offer {
-    drive_offer_inner(Some(source), sink, sid, control, frame, cursor).await
-}
-
-async fn drive_offer_inner(
-    source: Option<&dyn Source>,
-    sink: Arc<dyn OfferSink>,
-    sid: String,
-    control: Arc<SubscriptionControl>,
-    frame: Frame,
-    cursor: Cursor,
-) -> Offer {
-    loop {
-        if control.ended() {
-            return Offer::UnknownSubscription;
-        }
-        match sink.offer(&sid, frame.clone(), cursor) {
-            Offer::Taken => return Offer::Taken,
-            Offer::Dropped { sid: dropped_sid, cursor: dropped_cursor } => {
-                if let Some(source) = source {
-                    source.end(&sid);
-                }
-                return Offer::Dropped { sid: dropped_sid, cursor: dropped_cursor };
-            }
-            Offer::UnknownSubscription => return Offer::UnknownSubscription,
-            Offer::NotFed => control.wait().await,
-        }
-    }
+    Ok(writing.offset == writing.lease.bytes.len())
 }
 
 fn validate_hello(hello: &Hello) -> Result<(), ConnError> {
@@ -764,202 +427,5 @@ fn validate_hello(hello: &Hello) -> Result<(), ConnError> {
     Ok(())
 }
 
-fn item_cursor(item: &ListItem) -> u64 {
-    match item {
-        ListItem::Summary(event) => event.seq,
-        ListItem::Gone { seq, .. } => *seq,
-        ListItem::Dropped { cursor } => *cursor,
-    }
-}
-
-fn list_item_frame(sid: &str, item: ListItem) -> Result<(Frame, Cursor), ConnError> {
-    match item {
-        ListItem::Summary(event) => Ok((
-            Frame::json(
-                FrameKind::Delta,
-                &DeltaFrame {
-                    sid: sid.to_owned(),
-                    replay: None,
-                    ops: vec![DeltaOp::Summary {
-                        seq: event.seq,
-                        summary: (*event.summary).clone(),
-                    }],
-                },
-            )?,
-            Cursor(event.seq),
-        )),
-        ListItem::Gone { seq, chat_id } => Ok((
-            Frame::json(
-                FrameKind::Delta,
-                &DeltaFrame::<serde_json::Value> {
-                    sid: sid.to_owned(),
-                    replay: None,
-                    ops: vec![DeltaOp::Gone { seq, chat_id }],
-                },
-            )?,
-            Cursor(seq),
-        )),
-        ListItem::Dropped { cursor } => Ok((
-            Frame::json(
-                FrameKind::Dropped,
-                &Dropped { sid: sid.to_owned(), cursor: Cursor(cursor) },
-            )?,
-            Cursor(cursor),
-        )),
-    }
-}
-
-fn list_replay_frames(sid: &str, items: &[ListItem]) -> Result<Vec<(Frame, Cursor)>, ConnError> {
-    let mut result = Vec::new();
-    let mut ops: Vec<DeltaOp<acpmux_book::index::Summary>> = Vec::new();
-    let mut cursor = 0;
-    let flush = |result: &mut Vec<(Frame, Cursor)>,
-                 ops: &mut Vec<DeltaOp<acpmux_book::index::Summary>>,
-                 sid: &str,
-                 cursor: u64,
-                 mark: ReplayMark|
-     -> Result<(), ConnError> {
-        let frame = Frame::json(
-            FrameKind::Delta,
-            &DeltaFrame { sid: sid.to_owned(), replay: Some(mark), ops: std::mem::take(ops) },
-        )?;
-        result.push((frame, Cursor(cursor)));
-        Ok(())
-    };
-    for item in items {
-        let op = match item {
-            ListItem::Summary(event) => {
-                DeltaOp::Summary { seq: event.seq, summary: (*event.summary).clone() }
-            }
-            ListItem::Gone { seq, chat_id } => {
-                DeltaOp::Gone { seq: *seq, chat_id: chat_id.clone() }
-            }
-            ListItem::Dropped { cursor: dropped } => {
-                let frame = Frame::json(
-                    FrameKind::Dropped,
-                    &Dropped { sid: sid.to_owned(), cursor: Cursor(*dropped) },
-                )?;
-                result.push((frame, Cursor(*dropped)));
-                continue;
-            }
-        };
-        let next_cursor = item_cursor(item);
-        ops.push(op);
-        let probe = Frame::json(
-            FrameKind::Delta,
-            &DeltaFrame { sid: sid.to_owned(), replay: Some(ReplayMark::Replay), ops: ops.clone() },
-        )?;
-        if probe.encoded_len() > crate::wire::MAX_REPLAY_FRAME_BYTES && ops.len() > 1 {
-            let last = ops
-                .pop()
-                .ok_or_else(|| ConnError::InvalidRequest("empty replay operation".into()))?;
-            let previous_cursor = cursor;
-            flush(&mut result, &mut ops, sid, previous_cursor, ReplayMark::Replay)?;
-            ops.push(last);
-        }
-        cursor = next_cursor;
-    }
-    if ops.is_empty() {
-        let frame = Frame::json(
-            FrameKind::Delta,
-            &DeltaFrame::<serde_json::Value> {
-                sid: sid.to_owned(),
-                replay: Some(ReplayMark::End),
-                ops: Vec::new(),
-            },
-        )?;
-        result.push((frame, Cursor(cursor)));
-    } else {
-        flush(&mut result, &mut ops, sid, cursor, ReplayMark::End)?;
-    }
-    Ok(result)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::hub::SummaryHub;
-    use acpmux_book::index::{Summary, SummaryIndex};
-    use serde_json::json;
-
-    fn frame(bytes: usize) -> Frame {
-        Frame::new(FrameKind::Delta, vec![0; bytes]).unwrap()
-    }
-
-    #[test]
-    fn queue_is_bounded_and_drops_only_the_overflowing_subscription() {
-        let mut state = ConnectionState::new(128);
-        state.subscribe("slow", Cursor(7)).unwrap();
-        state.subscribe("fast", Cursor(2)).unwrap();
-        assert_eq!(state.offer("slow", frame(90), Cursor(8)), Offer::Taken);
-        assert!(matches!(state.offer("slow", frame(40), Cursor(9)), Offer::Dropped { .. }));
-        assert_eq!(state.subscription_count(), 1);
-        assert_eq!(state.offer("fast", frame(16), Cursor(3)), Offer::Taken);
-        state.subscribe("slow", Cursor(9)).expect("dropped sid is reusable");
-    }
-
-    #[test]
-    fn credit_is_monotonic_and_duplicate_credit_is_free() {
-        let mut state = ConnectionState::default();
-        state.subscribe("s", Cursor(0)).unwrap();
-        assert_eq!(state.offer("s", frame(20), Cursor(1)), Offer::Taken);
-        assert!(state.credit(Credit { sid: "s".into(), consumed: 10 }).unwrap());
-        assert!(state.credit(Credit { sid: "s".into(), consumed: 5 }).unwrap());
-    }
-
-    #[test]
-    fn request_shape_is_tagged() {
-        let request = Request::Credit(Credit { sid: "s".into(), consumed: 4 });
-        let value = serde_json::to_value(request).unwrap();
-        assert_eq!(value, json!({"method":"credit","params":{"sid":"s","consumed":4}}));
-    }
-
-    #[test]
-    fn list_resume_that_missed_nothing_is_one_end_marker() {
-        let frames = list_replay_frames("s", &[]).unwrap();
-        assert_eq!(frames.len(), 1);
-        let delta: DeltaFrame<Summary> = frames[0].0.decode_json().unwrap();
-        assert_eq!(delta.replay, Some(ReplayMark::End));
-        assert!(delta.ops.is_empty());
-    }
-
-    #[test]
-    fn a_cursor_only_subscriber_reports_zero_retained_bytes() {
-        let (hub, _) = SummaryHub::new(SummaryIndex::new());
-        assert_eq!(hub.not_fed_bytes(), 0);
-    }
-
-    #[tokio::test]
-    async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
-        let (mut writer, mut reader) = tokio::io::duplex(7);
-        let mut state = ConnectionState::default();
-        state.subscribe("s", Cursor(3)).unwrap();
-        let frame = Frame::json(FrameKind::Delta, &json!({"sid":"s","text":"abcdef"})).unwrap();
-        let expected = frame.encode();
-        assert_eq!(state.offer("s", frame, Cursor(4)), Offer::Taken);
-        let mut writing = WritingFrame::new(state.take().unwrap());
-        let mut received = Vec::new();
-        loop {
-            let complete = write_lease(&mut writer, Some(&mut writing)).await.unwrap();
-            assert_eq!(state.subscriptions.get("s").unwrap().cursor, Cursor(3));
-            if !complete {
-                // The duplex buffer is full. An unrelated ready arm cancels the
-                // pending write, exactly as a credit request does in run().
-                tokio::select! {
-                    biased;
-                    _ = write_lease(&mut writer, Some(&mut writing)) => panic!("buffer was full"),
-                    _ = std::future::ready(()) => {}
-                }
-            }
-            let mut chunk = [0_u8; 7];
-            let count = reader.read(&mut chunk).await.unwrap();
-            received.extend_from_slice(chunk.get(..count).unwrap());
-            if complete {
-                state.written(&writing.lease);
-                break;
-            }
-        }
-        assert_eq!(received, expected);
-        assert_eq!(state.subscriptions.get("s").unwrap().cursor, Cursor(4));
-    }
-}
+mod tests;

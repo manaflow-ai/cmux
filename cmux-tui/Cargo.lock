@@ -145,6 +145,7 @@ dependencies = [
  "acpmux-book",
  "acpmux-client",
  "arc-swap",
+ "cmux-scope",
  "serde",
  "serde_json",
  "tempfile",

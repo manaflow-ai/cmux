@@ -16,6 +16,13 @@ pub const MAX_REPLAY_FRAME_BYTES: usize = 256 * 1024;
 pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
+pub const MAX_IDENTIFIER_BYTES: usize = 256;
+
+/// Subscription and request identifiers have one UTF-8 byte bound.
+pub fn identifier_fits(value: &str) -> bool {
+    value.len() <= MAX_IDENTIFIER_BYTES
+}
+
 const HEADER_BYTES: usize = size_of::<u32>();
 const KIND_BYTES: usize = 1;
 const MAX_PAYLOAD_BYTES: usize = MAX_FRAME_BYTES - HEADER_BYTES - KIND_BYTES;
@@ -279,7 +286,8 @@ pub enum ReplayMark {
 #[serde(rename_all = "camelCase")]
 pub struct Dropped {
     pub sid: String,
-    pub cursor: Cursor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Cursor>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -393,32 +401,6 @@ pub struct Window<T> {
     pub origins: Vec<Origin>,
 }
 
-/// A generic delta shared by list and chat streams.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", tag = "op")]
-pub enum Delta<T> {
-    Summary {
-        sid: String,
-        seq: u64,
-        summary: T,
-    },
-    Gone {
-        sid: String,
-        seq: u64,
-        chat_id: String,
-    },
-    Queue {
-        sid: String,
-        seq: u64,
-        bytes: u64,
-    },
-    Marker {
-        sid: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        replay: Option<ReplayMark>,
-    },
-}
-
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
 /// the final frame has `replay: "end"` and may contain no operations.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -433,12 +415,26 @@ pub struct DeltaFrame<T> {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "op")]
 pub enum DeltaOp<T> {
-    Summary { seq: u64, summary: T },
-    Gone { seq: u64, chat_id: String },
-    Queue { seq: u64, bytes: u64 },
+    Summary {
+        seq: u64,
+        summary: T,
+    },
+    Gone {
+        seq: u64,
+        chat_id: String,
+    },
+    Queue {
+        seq: u64,
+        bytes: u64,
+    },
+    Origin {
+        seq: u64,
+        #[serde(flatten)]
+        origin: Origin,
+    },
 }
 
-pub fn delta_frame<T: Serialize>(delta: &Delta<T>) -> Result<Frame, FrameError> {
+pub fn delta_frame<T: Serialize>(delta: &DeltaFrame<T>) -> Result<Frame, FrameError> {
     Frame::json(FrameKind::Delta, delta)
 }
 
@@ -456,6 +452,7 @@ pub enum FrameKind {
     Dropped = 7,
     Error = 8,
     Request = 9,
+    Unknown(u8),
 }
 
 impl TryFrom<u8> for FrameKind {
@@ -472,7 +469,7 @@ impl TryFrom<u8> for FrameKind {
             7 => Ok(Self::Dropped),
             8 => Ok(Self::Error),
             9 => Ok(Self::Request),
-            _ => Err(FrameError::UnknownKind(value)),
+            _ => Ok(Self::Unknown(value)),
         }
     }
 }
@@ -516,7 +513,18 @@ impl Frame {
         let body_len = KIND_BYTES + self.payload.len();
         let mut out = Vec::with_capacity(HEADER_BYTES + body_len);
         out.extend_from_slice(&(body_len as u32).to_be_bytes());
-        out.push(self.kind as u8);
+        out.push(match self.kind {
+            FrameKind::Hello => 1,
+            FrameKind::Window => 2,
+            FrameKind::Delta => 3,
+            FrameKind::Page => 4,
+            FrameKind::Blob => 5,
+            FrameKind::Ack => 6,
+            FrameKind::Dropped => 7,
+            FrameKind::Error => 8,
+            FrameKind::Request => 9,
+            FrameKind::Unknown(kind) => kind,
+        });
         out.extend_from_slice(&self.payload);
         out
     }
