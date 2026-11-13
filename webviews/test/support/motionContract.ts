@@ -50,6 +50,8 @@ export type MotionFrame = {
   block: number;
   /// Script markers set this frame (`__motion.mark(name)`).
   marks: string[];
+  /// VEHICLE, never merges: what draws the live line in this frame.
+  probe?: string;
 };
 export type AnimationRecord = {
   /// What it animates: a tracked key, or a selector-ish description.
@@ -158,6 +160,63 @@ export function defineMotionRecorder() {
         frame: frames.length,
       });
     }
+    // VEHICLE, never merges: the thread's offset, the pin, the live line's own translate, its box,
+    // its words, its padding, each animation on it and on the row over it.
+    const probe = (() => {
+      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+      const live = scroller.querySelector<HTMLElement>('.acpmux-row[data-row-id="thinking-live"]');
+      const plays = (element: Element | null | undefined) =>
+        (element?.getAnimations() ?? [])
+          .map((animation) => {
+            const effect = animation.effect as KeyframeEffect | null;
+            let names = "?";
+            let ends = "";
+            try {
+              const keyframes = effect?.getKeyframes() ?? [];
+              names = [
+                ...new Set(
+                  keyframes.flatMap((frame) =>
+                    Object.keys(frame).filter(
+                      (key) => !["offset", "computedOffset", "easing", "composite"].includes(key),
+                    ),
+                  ),
+                ),
+              ].join("+");
+              const first = keyframes[0] as Record<string, unknown> | undefined;
+              const last = keyframes.at(-1) as Record<string, unknown> | undefined;
+              if (first && "translate" in first) ends = `[${String(first.translate)}>${String(last?.translate)}]`;
+            } catch {
+              names = "?";
+            }
+            return `${names}${ends}:${animation.playState}@${Number(animation.currentTime ?? -1).toFixed(0)}/${Number(effect?.getComputedTiming().duration ?? 0).toFixed(0)}`;
+          })
+          .join(",") || "-";
+      if (!thread) return "no-thread";
+      const over = live?.previousElementSibling as HTMLElement | null | undefined;
+      const words = live?.querySelector<HTMLElement>(".cv-worked--live");
+      const style = live ? getComputedStyle(live) : undefined;
+      return [
+        `tx=${thread.style.translate || "-"}`,
+        `pin=${thread.hasAttribute("data-pin-live") ? 1 : 0}`,
+        `end=${thread.hasAttribute("data-turn-end-folding") ? 1 : 0}`,
+        `lt=${live?.style.translate || "-"}`,
+        `lct=${style?.translate ?? "-"}`,
+        `ltop=${live ? live.offsetTop : "-"}`,
+        `lh=${live ? live.offsetHeight : "-"}`,
+        `lpad=${style?.paddingTop ?? "-"}/${style?.marginTop ?? "-"}`,
+        `words=${words ? words.getBoundingClientRect().top.toFixed(2) : "-"}`,
+        `la=${plays(live)}`,
+        `over=${over?.dataset.rowId ?? "-"}`,
+        `oclip=${over?.style.clipPath || "-"}`,
+        `oa=${plays(over)}`,
+        `ta=${plays(thread)}`,
+        `sh=${scroller.scrollHeight}`,
+        `rows=${[...thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]")]
+          .slice(-6)
+          .map((row) => `${(row.dataset.rowId ?? "").slice(0, 14)}:${getComputedStyle(row).translate}:${plays(row)}`)
+          .join(";")}`,
+      ].join(" ");
+    })();
     frames.push({
       t,
       els,
@@ -165,6 +224,7 @@ export function defineMotionRecorder() {
       fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
       block: longest,
       marks,
+      probe,
     });
     longest = 0;
     marks = [];

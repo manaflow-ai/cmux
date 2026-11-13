@@ -250,6 +250,28 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
       const fixed = allowed.filter((letter) => !letters.includes(letter));
       if (fixed.length) console.log(`motion-contract ratchet: ${key} now passes (${fixed.join(", ")}): take it out`);
       if (gated.length) failures[transition.name] = gated;
+      // VEHICLE, never merges: each frame of a Chromium transition that fails a gated check.
+      if (engine === "chromium" && gated.length) {
+        const frames = recording.frames;
+        const last = Math.min(transition.to, transition.from + 28);
+        for (let index = transition.from; index < last; index += 1) {
+          const frame = frames[index]!;
+          const lowest = Object.entries(frame.els)
+            .filter(([name]) => name.startsWith("row:"))
+            .sort((a, b) => b[1].top - a[1].top)
+            .slice(0, 6)
+            .map(([name, box]) => `${name.slice(4, 22)}=${box.top.toFixed(2)}/${box.height.toFixed(2)}`)
+            .join(" ");
+          console.log(
+            `motion-trace ${key} i=${index - transition.from} t=${frame.t.toFixed(1)} st=${frame.scrollTop.toFixed(1)} fe=${frame.fromEnd.toFixed(1)} marks=${frame.marks.join("+") || "-"} | ${lowest} | ${frame.probe ?? "-"}`,
+          );
+        }
+        for (const animation of recording.animations)
+          if (animation.frame >= transition.from && animation.frame < transition.to)
+            console.log(
+              `motion-trace-anim ${key} i=${animation.frame - transition.from} ${animation.target} ${animation.kind} ${Math.round(animation.duration)}ms ${animation.easing} ${animation.properties.join("+")}`,
+            );
+      }
     }
     return failures;
   }
