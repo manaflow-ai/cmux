@@ -194,7 +194,9 @@ export function SubagentTranscript({
       else view.scrollTop = view.scrollHeight;
       return;
     }
-    // The window moved: hold what the reader sees where it was.
+    // The window moved: hold what the reader sees where it was. Not in the commit that still draws
+    // the replaced blocks: the hold just taken there applies once the new window is drawn.
+    if (replaced !== undefined) return;
     if (held.current !== undefined) {
       restore(view, held.current);
       if (held.current.settled) held.current = undefined;
