@@ -433,6 +433,8 @@ pub struct PageResult<T> {
     pub rows: Vec<T>,
     pub has_before: bool,
     pub has_after: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cold_unread: bool,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]
@@ -775,6 +777,14 @@ mod tests {
             serde_json::to_value(page).unwrap().get("maxBytes"),
             Some(&serde_json::json!(262_144))
         );
+    }
+
+    #[test]
+    fn old_page_results_default_cold_unread_and_false_stays_off_wire() {
+        let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
+        let page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
+        assert!(!page.cold_unread);
+        assert!(serde_json::to_value(page).unwrap().get("coldUnread").is_none());
     }
 
     #[test]
