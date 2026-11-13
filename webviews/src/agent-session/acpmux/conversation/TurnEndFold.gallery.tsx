@@ -7,9 +7,9 @@
 // (`data-turn-end-fold`): `fade`, shipped, fades each where it was while the answer and the rows
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
-// states run a longer turn (a third run of calls) whose fold moves the answer far enough that the
-// fold's clock grows past the settle's 180 ms (turnEndFold.ts `turnEndFoldTiming`): each frame keeps
-// under 0.6 of a line, and nothing is drawn back as the clock grows.
+// states run a longer turn (a third run of calls) whose fold moves the answer far: it still ends with
+// the settle's 180 ms, its curve flattened toward the straight line (turnEndFold.ts
+// `turnEndFoldTiming`), and nothing is drawn back as the curve changes.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -181,7 +181,7 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
       timers.current.push(window.setTimeout(() => setSteps(step), (step - done) * 140));
     if (variant === "live") return;
     timers.current.push(window.setTimeout(() => setEnded(true), (played + 2) * 140));
-    // The fold plays on the house settle (180 ms, longer for a long move); the line reads done once it has.
+    // The fold plays on the house settle (180 ms, a long move too); the line reads done once it has.
     timers.current.push(window.setTimeout(() => setState("folded"), (played + 2) * 140 + 800));
   };
   return (

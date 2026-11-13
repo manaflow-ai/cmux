@@ -327,12 +327,18 @@ final class BrowserTabService {
             // across machines, and a page looks its notice up by its tab).
             if let tab = daemon.store.tab(surface: surface) { pendingTabNotices[tab.id] = notice } else { pendingNotices[key] = notice }
         }
+        opened(choice, surface, on: daemon)
+        return surface
+    }
+
+    /// The app opened the tab on `surface` with `choice` (also a new workspace's first tab, made by its create).
+    func opened(_ choice: BrowserEngineChoice, _ surface: SurfaceID, on daemon: DaemonService) {
+        let key = key(daemon, surface)
         openedSurfaces.insert(key)
         if choice.pinned { pinnedEngines.insert(key) }
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, machine: daemon.machineID, surface: surface)
         }
-        return surface
     }
 
     /// The notice to show on the page of `tab`, once.

@@ -274,8 +274,10 @@ extension SidebarViewComponents {
     /// A space switch (R99): the list shows the new space's rows at rest in the frame of the switch, as a
     /// browser shows a tab (Lawrence 2026-11-10: a press on a space "instantly switches"). After a swipe the
     /// list takes the page's place. Nothing slides: a dot, a key, the wheel, the palette and the CLI all end here.
-    func showSpace() {
+    /// `left` is the space the list showed, `shown` the model's now: a space shown again takes the rows the list
+    /// kept for it (`SidebarListView.showSpace`).
+    func showSpace(leaving left: ProfileKey?, entering shown: ProfileKey?) {
         spacePaging.modelDidSwitch()
-        list.reload(animated: false)
+        list.showSpace(leaving: left, entering: shown)
     }
 }

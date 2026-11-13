@@ -18,7 +18,10 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
 remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
 limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
-and no machine made; link/sync_cli/size_cap.rs), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+and no machine made; link/sync_cli/size_cap.rs), a parent folder of repositories that is no repository
+itself, under the limits (`parent-repos`, copied whole) and past them (`huge-parent-repos`, ~/Projects' shape: refused
+fast before any machine, the refusal naming the repositories inside it to start in instead; Leo, 2026-11-10: "then
+there's this limit", "did you guys not test these"), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -30,6 +33,8 @@ run kills any machine still named after it at the end.
     python3 -I scripts/cmux-next/cloud-chat-matrix.py --cli "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" \\
         --out /tmp/matrix --only small-repo,secrets
 """
+from __future__ import annotations
+
 import argparse
 import base64
 import concurrent.futures
@@ -46,10 +51,16 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "huge-plain", "secrets", "odd-names")
+              "big-plain", "huge-plain", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+# The cells whose right answer is a refusal before any machine, with the way on in its words.
+REFUSED_CELLS = ("huge-plain", "huge-parent-repos")
+# The repositories inside parent-repos and huge-parent-repos, which the refusal must name.
+PARENT_REPOS = ("api", "web", "work/tools")
 WORD_FILE = "cmux-matrix-word.txt"
 # huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
 HUGE_PLAIN_BYTES = 21 * 1024 ** 3
@@ -209,6 +220,15 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         write(path / "src/app.py", "print('hi')\n")
         with open(path / "disk.img", "wb") as sparse:
             sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind in ("parent-repos", "huge-parent-repos"):
+        # ~/Projects' shape: no repository itself, repositories right inside it and one level down.
+        path.mkdir(parents=True)
+        for name in PARENT_REPOS:
+            small_repo(path / name)
+        write(path / "notes.md", "a parent of repositories\n")
+        if kind == "huge-parent-repos":
+            with open(path / "disk.img", "wb") as sparse:
+                sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -548,6 +568,13 @@ class Matrix:
             shutil.rmtree(self.config_dir, ignore_errors=True)
             self.config_dir = None
 
+    def trust(self, folder: Path) -> str:
+        """Trusts a fixture this run made, as a person does on this Mac before a Cloud start: a start from a folder
+        this Mac doesn't trust is refused before any machine (#41079), which left every cell red at 0.0 s. Never
+        called on a --folder (a person's own folder): its refusal is the finding. Answers "" or the cell's failure."""
+        code, out, err = self.cmux("setup", "trust", str(folder))
+        return "" if code == 0 else f"fail: trust: {clean(self.error(out, err).get('message') or err or out, 300)}"
+
     def kill(self, machine: str) -> bool:
         for _ in range(2):
             code, _, _ = self.cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
@@ -613,7 +640,7 @@ class Matrix:
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
-        if name == "huge-plain":
+        if name in REFUSED_CELLS:
             return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
         expected = local_manifest(folder, canary)
@@ -727,7 +754,8 @@ class Matrix:
 
 
 def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
-    """huge-plain: start-chat refuses the folder with copy.too_large, fast, before any machine is made."""
+    """huge-plain, huge-parent-repos: start-chat refuses the folder with copy.too_large, fast, before any machine is
+    made; a parent of repositories is refused naming each repository inside it, the folder to start in instead."""
     started = time.monotonic()
     code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
                                "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
@@ -747,6 +775,11 @@ def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
         problems.append(f"refused after {cell['create_to_reply_s']} s")
     if machine:
         problems.append("a machine was made")
+    if cell["workspace"] == "huge-parent-repos":
+        words = failure.get("message", "") or err
+        missing = [name for name in PARENT_REPOS if name not in words]
+        if missing or "--from-folder" not in words:
+            problems.append(f"the refusal names no way on (missing {', '.join(missing) or '--from-folder'})")
     cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
     return cell
 
@@ -828,6 +861,9 @@ def main(argv=None) -> int:
             word = f"w{random.token_hex(5)}"
             if folder is not None and kind != "empty":
                 write(folder / WORD_FILE, word + "\n")
+            if folder is not None:
+                note = matrix.trust(folder) or note
+                folder = None if note else folder
             jobs.append((kind, agents[0], folder, note, word, canary if kind == "secrets" else "", False,
                          round(time.monotonic() - started, 1)))
         for agent in agents[1:]:
@@ -835,7 +871,8 @@ def main(argv=None) -> int:
             small_repo(folder)
             word = f"w{random.token_hex(5)}"
             write(folder / WORD_FILE, word + "\n")
-            jobs.append(("small-repo", agent, folder, "", word, "", False, 0.0))
+            note = matrix.trust(folder)
+            jobs.append(("small-repo", agent, None if note else folder, note, word, "", False, 0.0))
         for spec in args.folder:
             name, _, path = spec.partition("=")
             folder = Path(path).expanduser()
@@ -853,7 +890,7 @@ def main(argv=None) -> int:
                     cell = {"workspace": job[0], "agent": job[1], "result": f"fail: {clean(repr(error), 300)}"}
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
-                print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+                safe_print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
         finally:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)
