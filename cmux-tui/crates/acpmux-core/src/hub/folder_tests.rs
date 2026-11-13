@@ -246,6 +246,8 @@ fn summary_keyed_pages_reject_folder_keys_before_any_lookup() {
         folder: "/a".into(),
     });
     let mut request = Page::new("summary", "list", PageSide::After, 0);
+    request.before = None;
+    request.after = None;
     request.keys = Some(vec![summary, folder]);
     assert!(hub.page(&request).is_err());
     assert_eq!(calls.load(Ordering::Relaxed), 0);
