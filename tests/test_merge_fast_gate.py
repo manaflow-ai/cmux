@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import re
 import subprocess
 import tempfile
@@ -40,12 +41,13 @@ class Reader:
 
 class Clock:
     def __init__(self):
-        self.now = 0.0
+        self.now, self.slept = 0.0, []
 
     def __call__(self):
         return self.now
 
     def sleep(self, seconds):
+        self.slept.append(seconds)
         self.now += seconds
 
 
@@ -400,6 +402,93 @@ class FastGate(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("waited=0", printed)
         self.assertIn("waiting=cmux-next fast tier (queued)", printed)
+
+    def gh_reads(self, *answers):
+        """Each `gh` call takes the next answer (the last repeats): an exception to raise, or
+        (status, stdout, stderr). Returns the call list; the real gh_json does the reading."""
+        calls = []
+
+        def fake_run(command, **_kwargs):
+            calls.append(command)
+            answer = answers[min(len(calls), len(answers)) - 1]
+            if isinstance(answer, BaseException):
+                raise answer
+            return subprocess.CompletedProcess(command, *answer)
+        original = gate.subprocess.run
+        gate.subprocess.run = fake_run
+        self.addCleanup(setattr, gate.subprocess, "run", original)
+        return calls
+
+    GREEN_PR = (0, json.dumps({"headRefOid": HEAD, "baseRefName": "feat-cmux-next", "statusCheckRollup": GREEN,
+                               "files": [{"path": "Packages/macOS/CmuxNext/Sources/A.swift"}]}), "")
+    SLOW = subprocess.TimeoutExpired(["gh"], 60)
+
+    def test_a_read_that_times_out_once_is_retried_and_passes(self):
+        """#40271 (2026-11-10): one slow read refused the merge after 90 minutes of waiting:
+        `fast gate on 10a3f6f2: reading the pull request took over 60s`."""
+        calls = self.gh_reads(self.SLOW, self.GREEN_PR)
+        clock = Clock()
+        waited, seen, reds = gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock,
+                                      sleep=clock.sleep, base="feat-cmux-next")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(waited, 30)
+        self.assertEqual(reds, [])
+        self.assertIn("cmux-next fast tier", seen)
+
+    def test_a_transient_5xx_read_is_retried_and_passes(self):
+        calls = self.gh_reads((1, "", "HTTP 502: Bad Gateway (https://api.github.com/graphql)"),
+                              (1, "", "error connecting to api.github.com: read: connection reset by peer"),
+                              self.GREEN_PR)
+        clock = Clock()
+        _, _, reds = gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep,
+                              base="feat-cmux-next")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(reds, [])
+
+    def test_reads_that_time_out_until_the_budget_ends_raise_the_budget_error_with_backoff(self):
+        calls = self.gh_reads(self.SLOW)
+        clock = Clock()
+        with self.assertRaises(gate.WaitRanOut) as caught:
+            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep,
+                     base="feat-cmux-next")
+        message = str(caught.exception)
+        self.assertIn("--wait budget of 600s ran out", message)
+        self.assertIn("6 reads timed out or failed", message)
+        self.assertIn("took over 60s", message)
+        self.assertEqual(clock.slept, [30, 60, 120, 240, 150])
+        self.assertEqual(len(calls), 6)
+        self.assertGreaterEqual(caught.exception.waited, 600)
+
+    def test_main_names_the_failing_reads_when_the_budget_ends(self):
+        self.gh_reads(self.SLOW)
+        with tempfile.TemporaryFile("w+") as out, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            status = gate.main(["manaflow-ai/cmux", "42", HEAD, "--next-covered", "--timeout", "0"])
+        self.assertEqual(status, 1)
+        self.assertIn(": 1 read timed out or failed, the last:", err.getvalue())
+
+    def test_a_zero_interval_still_backs_off_from_one_second(self):
+        """--interval 0 must not turn failing reads into a loop of reads with no wait."""
+        reads = []
+
+        def read(*_args):
+            reads.append(1)
+            if len(reads) > 20:
+                raise AssertionError("read again with no backoff")
+            raise gate.ReadFailed("reading the pull request took over 60s")
+        clock = Clock()
+        with self.assertRaises(gate.WaitRanOut):
+            gate.run("manaflow-ai/cmux", "42", HEAD, 10, 0, True, read=read, clock=clock, sleep=clock.sleep)
+        self.assertEqual(clock.slept, [1, 2, 4, 3])
+        self.assertEqual(len(reads), 5)
+
+    def test_a_failed_read_that_is_not_transient_refuses_at_once(self):
+        calls = self.gh_reads((1, "", "GraphQL: Could not resolve to a PullRequest with the number of 42."))
+        clock = Clock()
+        with self.assertRaisesRegex(gate.Refused, "cannot read the pull request") as caught:
+            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep)
+        self.assertNotIsInstance(caught.exception, gate.WaitRanOut)
+        self.assertEqual(len(calls), 1)
 
     def test_a_rate_limited_read_refuses_at_once_with_the_reset_time(self):
         def limited(args):

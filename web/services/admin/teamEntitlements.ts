@@ -126,7 +126,15 @@ export async function setTeamEntitlementOverride(input: {
   return loadTeamEntitlements({ teamId: input.teamId, app });
 }
 
-export function teamEntitlementsView(team: AdminStackTeam): AdminTeamEntitlementsView {
+/** The team fields a deal is read from; a member's server-side team carries them too. */
+export type TeamDealSource = {
+  readonly id: string;
+  readonly displayName: string;
+  readonly clientReadOnlyMetadata?: unknown;
+  readonly serverMetadata?: unknown;
+};
+
+export function teamEntitlementsView(team: TeamDealSource): AdminTeamEntitlementsView {
   const planId = billingPlanIdFromMetadata(team.clientReadOnlyMetadata);
   const seats = billingSeatsFromMetadata(team.clientReadOnlyMetadata);
   const override = teamEntitlementOverrideFromMetadata(team.clientReadOnlyMetadata);

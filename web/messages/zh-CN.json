@@ -199,7 +199,10 @@
     "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
-    "backToSignIn": "返回登录"
+    "backToSignIn": "返回登录",
+    "chatgptLinkTitle": "登录一次以连接 ChatGPT",
+    "chatgptLinkBody": "此邮箱已有 cmux 账户。请使用之前的方式登录，ChatGPT 将连接到该账户。",
+    "chatgptEmailUnverifiedBody": "你的 ChatGPT 账户邮箱尚未验证。请在 OpenAI 完成验证，或使用其他方式登录。"
   },
   "cloudPublicationAccess": {
     "title": "你没有访问权限",
@@ -509,7 +512,18 @@
         "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
         "seatsUsed": "已使用 {members}/{seats}",
         "overSeat": "{team} 有 {members} 名成员和 {seats} 个付费席位。席位数跟随成员数，订阅会自动更新。",
-        "addSeats": "添加席位"
+        "addSeats": "添加席位",
+        "enterprise": {
+          "current": "当前方案",
+          "body": "{team} 正在使用与 cmux 团队商定的定制方案。如需更改，请联系 cmux 团队。",
+          "price": "价格",
+          "perMonth": "{amount}/月",
+          "machines": "云端机器",
+          "pool": "共享 vCPU / 内存",
+          "largest": "最大机器",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "无限制"
+        }
       },
       "teamList": {
         "heading": "账单范围",

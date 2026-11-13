@@ -29,9 +29,12 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-cef-publish-${{ inputs.tag }}
-  cancel-in-progress: false
+# No workflow-level concurrency group: the publish job waits for a cef-publish
+# reviewer, and a run waiting there never times out, so a workflow group let
+# one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
+# run 42677635673, 2026-11-09). Two runs for one tag
+# may publish side by side: publish-cef-r2.sh writes once and reads back.
+# scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
 jobs:
   resolve:
@@ -79,6 +82,8 @@ jobs:
           # refuses any other commit); the tip may have moved on since, so
           # accept a branch that contains the commit and name it.
           branch="$(gh api "repos/manaflow-ai/cef/commits/$commit/branches-where-head" --jq '[.[].name | select(startswith("cmux/"))][0] // empty' 2>/dev/null || true)"
+          # A failed read prints its error body on stdout; fall back to the branch search.
+          [[ "$branch" =~ ^cmux/[A-Za-z0-9._/-]+$ ]] || branch=""
           if [[ -z "$branch" ]]; then
             for name in $(gh api "repos/manaflow-ai/cef/branches?per_page=100" --jq '.[].name | select(startswith("cmux/"))'); do
               status="$(gh api "repos/manaflow-ai/cef/compare/$commit...$name" --jq .status)"
@@ -101,6 +106,7 @@ jobs:
   publish:
     name: Publish to R2
     needs: resolve
+    # Waits for a reviewer, so it holds no concurrency group.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45

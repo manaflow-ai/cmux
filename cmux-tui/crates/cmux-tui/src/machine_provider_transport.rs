@@ -774,10 +774,8 @@ mod tests {
 
         fn script(&self, name: &str, body: &str) -> PathBuf {
             let path = self.path.join(name);
-            fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}\n"))
+            cmux_test_exec::write_executable(&path, format!("#!/bin/sh\nset -eu\n{body}\n"))
                 .expect("write provider test script");
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
-                .expect("make provider test script executable");
             path
         }
     }

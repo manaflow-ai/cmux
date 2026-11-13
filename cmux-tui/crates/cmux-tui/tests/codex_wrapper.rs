@@ -4,7 +4,6 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -39,8 +38,8 @@ impl Launch {
         listener.set_nonblocking(true).unwrap();
         let bin = root.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        fs::write(bin.join("codex"), "#!/bin/sh\nprintf '%s\\0' \"$@\"\n").unwrap();
-        fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
+        cmux_test_exec::write_executable(&bin.join("codex"), "#!/bin/sh\nprintf '%s\\0' \"$@\"\n")
+            .unwrap();
         Self { root, socket, listener }
     }
 
@@ -228,12 +227,11 @@ impl ShellSession {
         fs::create_dir_all(&bin).unwrap();
         fs::create_dir_all(home.join(".config/fish")).unwrap();
         // The fake Codex records the argv it was started with, then exits.
-        fs::write(
-            bin.join("codex"),
+        cmux_test_exec::write_executable(
+            &bin.join("codex"),
             "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$HOME/codex-argv.tmp\" && mv \"$HOME/codex-argv.tmp\" \"$HOME/codex-argv\"\n",
         )
         .unwrap();
-        fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
         // The startup files prepend ~/bin, and a prompt hook prepends it
         // again at every prompt, as tool managers do.
         fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
@@ -510,7 +508,7 @@ fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_
     let tmux_dir = launch.root.path().join("tmux-bin");
     fs::create_dir(&tmux_dir).unwrap();
     let tmux = tmux_dir.join("tmux");
-    fs::write(
+    cmux_test_exec::write_executable(
         &tmux,
         format!(
             "#!/bin/sh\ncase \"$1\" in\ndisplay-message) printf '%b\\n' '$1\\t\\t@1';;\nlist-clients) printf '%b\\n' '{}\\t999\\t$1\\t\\t@1';;\nesac\n",
@@ -518,7 +516,6 @@ fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_
         ),
     )
     .unwrap();
-    fs::set_permissions(&tmux, fs::Permissions::from_mode(0o700)).unwrap();
 
     let mut command = launch.command();
     command

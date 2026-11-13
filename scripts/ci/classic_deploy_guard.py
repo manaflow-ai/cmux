@@ -222,9 +222,23 @@ class GitHub:
         raise Unreadable(f"commit {sha[:12]} changes more files than GitHub lists")
 
     def pulls(self, sha: str) -> list[dict]:
+        """The pull requests that landed SHA: GitHub's commit-to-PR link, else the PRs its message names.
+
+        GitHub sometimes never links a merge to its pull request (515fdc0 of #42462 stayed unlinked, so the
+        guard took a teammate's squash merge for a direct push and cancelled the deploy). A `#N` the message
+        names counts only when pull N's own merge_commit_sha is SHA, so a message cannot borrow another PR."""
         pulls = self.get(f"commits/{sha}/pulls?per_page=100")
         if not isinstance(pulls, list):
             raise Unreadable(f"commit {sha[:12]}'s pull requests returned no list")
+        if any(pr.get("merged_at") and pr.get("merge_commit_sha") == sha for pr in pulls):
+            return pulls
+        commit = self.get(f"commits/{sha}?per_page=100&page=1")
+        message = str(((commit or {}).get("commit") or {}).get("message") or "") if isinstance(commit, dict) else ""
+        named = list(dict.fromkeys(re.findall(r"#(\d+)", message)))[:5]
+        for number in named:
+            pr = self.get(f"pulls/{number}")
+            if isinstance(pr, dict) and pr.get("merged_at") and pr.get("merge_commit_sha") == sha:
+                pulls = [pr, *pulls]
         return pulls
 
 
