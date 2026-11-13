@@ -1490,7 +1490,7 @@
     --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
 }
 .cv-table-block.cv-enter tbody tr {
-  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
 }
 :root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .cv-table-wrap {
   transition: none;
@@ -5778,7 +5778,7 @@ a.cv-sha:focus-visible {
      (opacity 1, no translate), and a translate held past it would win over the one a fold ride
      moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
   .acpmux-row--enter {
-    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in
