@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43388787331",
+  "recorded_at": "2026-11-13T08:03:53Z",
+  "reason": "cmux-tui 2980bd106e40 changes the image's cmux-tui (pinned 66b6d2b90256)",
+  "dry_run": false,
+  "cmux_tui": "2980bd106e4094b633ec64ec37c3d1f71019aa72",
+  "fixes": [
+    {
+      "sha": "2980bd106e4094b633ec64ec37c3d1f71019aa72",
+      "mergedAt": "2026-11-13T07:27:01Z",
+      "subject": "cmux-mobile-ffi: the Swift fixture runner starts at the default policy, last active (#42485)"
+    },
+    {
+      "sha": "ed6169f7254f87aa6a563263c52ed04dd190c77c",
+      "mergedAt": "2026-11-13T07:26:29Z",
+      "subject": "cmux-browser-host: the Linux release notices are the ones the script writes at this tree (#42484)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T08:03:53Z",
+    "snapshot_id": "sh-5c216a2d73ff4d4e86013bd9cbce4d9a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43388787331): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3ba872786af605e1192c48580256597df9336094",
+    "image": "cloud-native-auto-2980bd10-43388787331-1",
+    "revision": "ci-43388787331-1",
+    "at": "2026-11-13T08:03:53Z"
+  },
+  "rolled_back": false
+}
