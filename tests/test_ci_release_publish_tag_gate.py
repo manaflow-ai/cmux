@@ -44,16 +44,18 @@ WORKFLOWS = ROOT / ".github/workflows"
 class Policy(NamedTuple):
     ref: re.Pattern  # an atom that requires the release ref
     push_only: bool  # the gate must also exclude a dispatch (a tag ref can be dispatched)
+    events: frozenset = frozenset()  # allowed github.event_name values, when the policy requires an event term
 
 
 POLICIES = {
     "coderouter-release.yml": Policy(re.compile(
         r"startsWith\(\s*github\.ref\s*,\s*'refs/tags/coderouter-v[^']*'\s*\)"
         r"|github\.ref\s*==\s*'refs/tags/coderouter-v[^']*'"), push_only=True),
-    "app-ffi-release.yml": Policy(re.compile(r"github\.ref\s*==\s*'refs/heads/feat-cmux-next'"), push_only=False),
+    "app-ffi-release.yml": Policy(re.compile(r"github\.ref\s*==\s*'refs/heads/feat-cmux-next'"), push_only=False,
+                                  events=frozenset({"push", "workflow_dispatch"})),
 }
 PUSH_ONLY_ATOM = re.compile(r"github\.event_name\s*==\s*'push'|github\.event_name\s*!=\s*'workflow_dispatch'")
-STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled)\s*\(", re.IGNORECASE)
+STATUS_FUNCTION = re.compile(r"\b(always|failure|cancelled|success)\s*\(", re.IGNORECASE)
 RELEASE_ACTION = re.compile(
     r"attest|gh-action-pypi-publish|action-gh-release|release-action|upload-release-asset|create-release|"
     r"npm-publish|cargo-publish", re.IGNORECASE)
@@ -84,11 +86,86 @@ def requires(expression: Any, atom: Callable[[str], bool]) -> bool:
     return atom(text)
 
 
+def event_term(atom: str, allowed: frozenset) -> bool:
+    match = re.fullmatch(r"github\.event_name\s*==\s*'([A-Za-z_]+)'", atom)
+    return bool(match) and match.group(1) in allowed
+
+
+def event_atoms(expression: Any) -> list[str]:
+    """Collect every atomic event_name condition, including both sides of nested && and || expressions."""
+    text = _strip(expression)
+    while workflow_jobs._wrapped(text):
+        text = text[1:-1].strip()
+    parts = workflow_jobs._split_top(text, "||")
+    if len(parts) == 1:
+        parts = workflow_jobs._split_top(text, "&&")
+    if len(parts) > 1:
+        return [atom for part in parts for atom in event_atoms(part)]
+    return [text] if "github.event_name" in text else []
+
+
 def gated(expression: Any, policy: Policy) -> bool:
     if expression is None or not str(expression).strip():
         return False
     ref = requires(expression, lambda atom: bool(policy.ref.fullmatch(atom)))
-    return ref and (not policy.push_only or requires(expression, lambda atom: bool(PUSH_ONLY_ATOM.fullmatch(atom))))
+    if not ref:
+        return False
+    if policy.push_only and not requires(expression, lambda atom: bool(PUSH_ONLY_ATOM.fullmatch(atom))):
+        return False
+    atoms = event_atoms(expression)
+    return (not policy.events or (bool(atoms) and all(event_term(atom, policy.events) for atom in atoms)
+                                  and requires(expression, lambda atom: event_term(atom, policy.events))))
+
+
+RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
+GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q",
+                      "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
+GH_API_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
+
+
+def gh_api_writes_release(args: list[str]) -> bool:
+    """Classify gh api release/tag paths, keeping explicit GET and HEAD reads and failing closed otherwise."""
+    method: str | None = None
+    method_known = True
+    fields = False
+    paths: list[str] = []
+    index = 0
+
+    def readable_method(value: str) -> bool:
+        return not value.startswith("$") and not any(ch in value for ch in "{}()[]`\\")
+
+    while index < len(args):
+        word = args[index]
+        index += 1
+        name, attached = (word.split("=", 1) + [None])[:2] if word.startswith("--") else (word, None)
+        if word.startswith("-X") and len(word) > 2:
+            method = word[2:]
+            method_known = readable_method(method)
+        elif name in ("-X", "--method"):
+            if attached is not None:
+                method = attached
+                method_known = readable_method(method)
+            elif index >= len(args):
+                method, method_known = "", False
+            else:
+                method = args[index]
+                index += 1
+                method_known = readable_method(method)
+        elif name in GH_API_FIELD_FLAGS or (len(word) > 2 and word[:2] in ("-f", "-F") and not word.startswith("--")):
+            fields = True
+            if name in GH_API_VALUE_FLAGS and attached is None:
+                index += 1
+        elif name in GH_API_VALUE_FLAGS:
+            if attached is None:
+                index += 1
+        elif not word.startswith("-"):
+            paths.append(word)
+    if not any(RELEASE_PATH.search(path) for path in paths):
+        return False
+    if not method_known:
+        return True
+    effective = (method or ("POST" if fields else "GET")).upper()
+    return effective not in {"GET", "HEAD"}
 
 
 def publishing_command(words: list[str]) -> bool:
@@ -98,11 +175,7 @@ def publishing_command(words: list[str]) -> bool:
     if program == "gh":
         if rest[:1] == ["release"] and rest[1:2] and rest[1] in {"create", "upload", "edit", "delete", "delete-asset"}:
             return True
-        if rest[:1] == ["api"] and any("releases" in word for word in rest):
-            for flag, value in zip(rest, rest[1:]):
-                if flag in ("-X", "--method") and value.upper() != "GET":
-                    return True
-        return False
+        return rest[:1] == ["api"] and gh_api_writes_release(rest[1:])
     if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
         return "publish" in rest[:2]
     if program == "twine" or (program.startswith("python") and rest[:2] == ["-m", "twine"]):
@@ -150,11 +223,14 @@ def job_gates(jobs: Mapping[str, Mapping[str, Any]], policy: Policy) -> dict[str
     while changed:
         changed = False
         for name, job in jobs.items():
-            if state[name] or STATUS_FUNCTION.search(str(job.get("if", ""))):
+            if state[name]:
                 continue
             needs = job.get("needs") or []
             needs = [needs] if isinstance(needs, str) else list(needs)
-            if any(state.get(need) for need in needs):
+            condition = str(job.get("if", ""))
+            if any(state.get(need) and (not STATUS_FUNCTION.search(condition) or requires(
+                    condition, lambda atom, need=need: bool(re.fullmatch(
+                        rf"needs\.{re.escape(need)}\.result\s*==\s*'success'", atom)))) for need in needs):
                 state[name], changed = True, True
     return state
 
@@ -182,7 +258,8 @@ def problems(name: str, document: Mapping[str, Any], policy: Policy,
             if why and not gates[job_name] and not gated(step.get("if"), policy):
                 label = step.get("name") or step.get("uses") or f"step {index}"
                 found.append(f"{name} {job_name}: step {label!r} ({'; '.join(why)}) has no condition that requires "
-                             "the release ref" + (" and the push event" if policy.push_only else ""))
+                             "the release ref" + (" and the push event" if policy.push_only else "")
+                             + (f" and an event term naming only {sorted(policy.events)}" if policy.events else ""))
     return found
 
 
@@ -258,6 +335,29 @@ class TagGate(unittest.TestCase):
                 self.assertEqual(self.check(fixture(job("publish", step(UPLOAD, condition)))), [])
                 self.assertEqual(self.check(fixture(job("publish", step(UPLOAD), f"    if: {condition}\n"))), [])
 
+    def test_explicit_read_methods_with_input_stay_reads_and_unknown_methods_write(self) -> None:
+        for method in ("GET", "HEAD", "get", "head"):
+            run = f"gh api repos/o/r/releases --method {method} --input body.json"
+            with self.subTest(run=run):
+                self.assertFalse(publishing_command(run.split()))
+        for args in (
+                ["gh", "api", "repos/o/r/releases", "--method"],
+                ["gh", "api", "repos/o/r/releases", "--method", "$METHOD", "--input", "body.json"],
+                ["gh", "api", "repos/o/r/releases", "--method", "PATCH", "--input", "body.json"],
+        ):
+            with self.subTest(args=args):
+                self.assertTrue(publishing_command(args), args)
+
+    def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
+        policy = POLICIES["app-ffi-release.yml"]
+        branch = "github.ref == 'refs/heads/feat-cmux-next'"
+        allowed = "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+        for other in ("github.event_name == 'schedule'", "github.event_name == 'workflow_run'",
+                      "github.event_name == 'repository_dispatch'", "github.event_name != 'pull_request'"):
+            condition = f"{branch} && ({allowed} && {other})"
+            with self.subTest(condition=condition):
+                self.assertFalse(gated(condition, policy))
+
     def test_a_gate_upstream_covers_a_job_that_needs_it_unless_a_status_function_runs_it_anyway(self) -> None:
         gate = job("gate", "      - run: echo ok\n", f"    if: {PUSH_TAG}\n")
         chained = fixture(gate + job("publish", step(UPLOAD), "    needs: gate\n"))
@@ -279,6 +379,8 @@ class TagGate(unittest.TestCase):
             "cargo publish": "      - run: cargo publish --token x\n",
             "npm publish": "      - run: cd pkg && npm publish --provenance\n",
             "twine": "      - run: python3 -m twine upload dist/*\n",
+            "quoted env operand and publisher": '      - run: env "X=1" g"h" release create v1\n',
+            "quoted env operator and publisher": '      - run: env X"="1 g"h" release create v1\n',
             "gh release create": "      - run: gh release create v1 dist/*\n",
             "gh api write": "      - run: gh api -X POST repos/o/r/releases -f tag_name=v1\n",
             "codesign": "      - run: codesign --force --sign - dist/x\n",

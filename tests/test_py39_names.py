@@ -35,6 +35,7 @@ than pass unchecked. Run it on the fleet: `python3 tests/test_py39_names.py` (CL
 """
 
 import ast
+import importlib.util
 import json
 import os
 import re
@@ -46,6 +47,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+# Load beside this suite even under python -I; no runtime/install dependency on another repository.
+_scope_spec = importlib.util.spec_from_file_location("py39_scope_resolver", HERE / "py39_scope_resolver.py")
+scope_resolver = importlib.util.module_from_spec(_scope_spec)
+_scope_spec.loader.exec_module(scope_resolver)
 INSTALLER = "scripts/install-git-hooks.sh"
 COPIED = re.compile(r"^scripts/cmux-next/(?:[^/]+|lint/.+|arch_rules/.+)\.py$")  # install-git-hooks.sh COPY_CHECKERS
 NAMED = re.compile(r"\bscripts/[\w./-]+\.py\b")
@@ -117,35 +122,37 @@ _CMP = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b, ast.Gt: lambda
 _SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set()}
 
 
+class _LexicalAliases:
+    """Stdlib imports as seen at each read, using the compiler-backed lexical resolver."""
+
+    def __init__(self, tree):
+        self.resolver = scope_resolver.Resolver(tree)
+        std = set(getattr(sys, "stdlib_module_names", ()))
+        self.modules = {a.name if a.asname else a.name.split(".")[0]
+                        for n in ast.walk(tree) if isinstance(n, ast.Import)
+                        for a in n.names if a.name.split(".")[0] in std}
+
+    def modules_at(self, node):
+        values, _ = self.resolver.values(node, node.id)
+        return values & self.modules
+
+    def for_name(self, node):
+        values, complete = self.resolver.values(node, node.id)
+        return next(iter(values)) if complete and len(values) == 1 and values <= self.modules else None
+
+
 def _aliases(tree):
-    """{local name: stdlib module} for each `import M` / `import M as A` in TREE."""
-    std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = {}
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Import):
-            for a in n.names:
-                top = a.name.split(".")[0]
-                if top in std:
-                    alias[a.asname or top] = a.name if a.asname else top
-    shadowed = set()
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-            shadowed.add(n.id)
-        elif isinstance(n, ast.arg):
-            shadowed.add(n.arg)
-        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            shadowed.add(n.name)
-    for name in shadowed:
-        alias.pop(name, None)
-    return alias
+    return _LexicalAliases(tree)
 
 
 def _guard_pair(expr):
     """(module, name) when EXPR is hasattr(M, "N") or getattr(M, "N", ...) of a stdlib module alias, else None."""
     if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in GUARD_CALLS
-            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name) and expr.args[0].id in _SCOPE["alias"]
+            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name)
             and isinstance(expr.args[1], ast.Constant) and isinstance(expr.args[1].value, str)):
-        return _SCOPE["alias"][expr.args[0].id], expr.args[1].value
+        module = _SCOPE["alias"].for_name(expr.args[0])
+        if module is not None:
+            return module, expr.args[1].value
     return None
 
 
@@ -291,7 +298,10 @@ def sites(path):
     except (SyntaxError, ValueError):
         return []  # a file 3.9 cannot parse is py39_check's to report
     std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = _SCOPE["alias"] = _aliases(tree)
+    try:
+        alias = _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     parent = _parents(tree)
 
     def guarded(node):
@@ -307,9 +317,9 @@ def sites(path):
             out.append((n.module, None, n.lineno, guarded(n), "import"))
             for a in n.names:
                 out.append((n.module, a.name, n.lineno, guarded(n), "import"))
-        elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)
-              and n.value.id in alias):
-            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n), "attr"))
+        elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)):
+            for module in sorted(alias.modules_at(n.value)):
+                out.append((module, n.attr, n.lineno, guarded(n), "attr"))
     return out
 
 
@@ -319,7 +329,10 @@ def guard_pairs(path):
         tree = ast.parse(path.read_bytes(), str(path))
     except (SyntaxError, ValueError):
         return set()
-    _SCOPE["alias"] = _aliases(tree)
+    try:
+        _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     return {pair for n in ast.walk(tree) for pair in [_guard_pair(n)] if pair is not None}
 
 
@@ -331,7 +344,10 @@ def runtime_sites(path):
     except (SyntaxError, ValueError):
         return []
     rel = path.relative_to(ROOT).as_posix()
-    _SCOPE["alias"] = _aliases(tree)
+    try:
+        _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     parent = _parents(tree)
     out = []
     future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and
@@ -403,15 +419,30 @@ print(json.dumps(missing))
 """
 
 
-def _here_has(module, name):
-    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here."""
+def _found(fullname):
+    """True when this Python can find the module FULLNAME. find_spec imports the parent of a dotted name and never
+    the module itself."""
+    if fullname in sys.modules:
+        return True
     try:
-        __import__(module)
-        if name is not None and not hasattr(sys.modules[module], name):
-            __import__(module + "." + name)
+        return importlib.util.find_spec(fullname) is not None
+    except ModuleNotFoundError:
+        return False  # its parent is not here, or is no package
+
+
+def _here_has(module, name):
+    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here.
+    It asks find_spec and imports no module by a computed name (tests/test_script_module_loads.py cannot read
+    one); a submodule that is found counts as there, whether or not its import would pass."""
+    try:
+        if not _found(module):
+            return False
+        if name is None:
+            return True
+        # _found(MODULE.NAME) imported MODULE as the parent, so sys.modules has it for the attribute read.
+        return _found(module + "." + name) or hasattr(sys.modules[module], name)
     except Exception:
         return False
-    return True
 
 
 def _version(python):
@@ -642,6 +673,116 @@ class UnderPython39(unittest.TestCase):
                   "        pass\n"
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_assignment_preserves_uncertain_default_binding(self):
+        """cmux#42240 F1: an assignment from a default-bound parameter remains uncertain to the guard resolver."""
+        self.scan("import ast, sys\n"
+                  "def check(candidate=sys):\n"
+                  "    alias = candidate\n"
+                  "    if hasattr(alias, 'version_info'):\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_import_call_fromlist_keeps_the_imported_module(self):
+        """cmux#42289 F1: __import__ returns the requested submodule when fromlist is nonempty."""
+        tree = ast.parse("load = __import__('xml.etree.ElementTree', fromlist=['ElementTree'])\n"
+                         "value = load\n")
+        resolver = scope_resolver.Resolver(tree)
+        read = tree.body[1].value
+        values, complete = resolver.values(read, read.id)
+        self.assertEqual(values, {"xml.etree.ElementTree"})
+        self.assertTrue(complete)
+
+    def test_multiple_callee_bindings_are_not_complete(self):
+        """cmux#42289 F2: an ambiguous call cannot certainly return the imported module."""
+        tree = ast.parse("from pathlib import Path\n"
+                         "load = __import__\n"
+                         "load = Path\n"
+                         "value = load('sys')\n"
+                         "result = value\n")
+        resolver = scope_resolver.Resolver(tree)
+        read = tree.body[4].value
+        values, complete = resolver.values(read, read.id)
+        self.assertIn("sys", values)
+        self.assertFalse(complete)
+
+    def test_scope_build_failure_refuses_the_file(self):
+        """cmux#42289 F3: a deeply nested expression that cannot be unparsed is a named refusal."""
+        import tempfile
+        global ROOT
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "probe.py"
+            p.write_text("value = " + "x + " * 399 + "x\n")
+            old = ROOT
+            ROOT = Path(d)
+            try:
+                with self.assertRaisesRegex(AssertionError, r"scope resolution refused"):
+                    sites(p)
+            finally:
+                ROOT = old
+
+    def test_scope_constructor_recursion_is_a_named_refusal(self):
+        """Failures while walking the AST must refuse before any binding can be lost."""
+        tree = ast.parse("value = " + "x + " * 1499 + "x\n")
+        with self.assertRaisesRegex(scope_resolver.ScopeResolutionError, r"scope.*recursion"):
+            scope_resolver.Resolver(tree)
+
+    def test_unsettled_call_signatures_are_uncertain(self):
+        calls = [
+            "__import__('xml.etree.ElementTree', **options)",
+            "__import__('xml.etree.ElementTree', level=level)",
+            "__import__('xml.etree.ElementTree', fromlist=['x'], level=1)",
+            "__import__('xml.etree.ElementTree', *args)",
+            "__import__('xml.etree.ElementTree', unknown=True)",
+            "getattr(sys, 'version_info', default)",
+            "getattr(sys, 'version_info', **options)",
+        ]
+        for call in calls:
+            with self.subTest(call=call):
+                tree = ast.parse("import sys\nvalue = " + call + "\nresult = value\n")
+                resolver = scope_resolver.Resolver(tree)
+                self.assertFalse(resolver.dotted_info(tree.body[-1].value)[1])
+
+    def test_repeated_known_bindings_keep_a_complete_value_set(self):
+        tree = ast.parse("import sys\nvalue = sys\nvalue = sys\nresult = value\n")
+        resolver = scope_resolver.Resolver(tree)
+        self.assertEqual(resolver.dotted_info(tree.body[-1].value), ({"sys"}, True))
+
+    def test_import_as_shadowing_is_lexical(self):
+        self.scan("import ast as parser\n"
+                  "def shadow(parser):\n    return parser.match_case\n"
+                  "value = parser.match_case  # bare: ast.match_case\n")
+
+    def test_from_import_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    from sys import version_info as ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_except_as_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    try:\n        pass\n"
+                  "    except Exception as ast:\n"
+                  "        return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_match_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow(value):\n"
+                  "    match value:\n"
+                  "        case ast:\n"
+                  "            return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_del_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    del ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
 
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
