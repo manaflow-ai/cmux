@@ -37,8 +37,11 @@ pub(super) enum Kind {
 pub(super) enum NoEntry {
     /// A link stands where a folder above the entry must be.
     Link,
-    /// A folder above the entry is not there or is not a folder, or the path
-    /// is not a list of names.
+    /// A file, or another thing that is no folder and no link, stands where
+    /// a folder above the entry must be.
+    NotFolder,
+    /// A folder above the entry is not there or cannot be opened, or the
+    /// path is not a list of names.
     Nothing,
 }
 
@@ -69,8 +72,10 @@ mod through_folders {
 
     use super::{Kind, NoEntry};
 
+    /// `O_DIRECTORY` refuses a name that is no folder. No open waits for the
+    /// other end of a FIFO that has the name (`O_NONBLOCK`).
     const FOLDER_FLAGS: libc::c_int =
-        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     const FILE_FLAGS: libc::c_int =
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
 
@@ -124,9 +129,16 @@ mod through_folders {
     }
 
     impl Tree {
-        /// The work tree at `root`, the folder that the caller names.
+        /// The work tree at `root`, the folder that the caller names. A name
+        /// that is no folder is no work tree, and the open waits for the
+        /// other end of no FIFO that has the name.
         pub(in crate::git_ops) fn open(root: &Path) -> Option<Self> {
-            let root = File::open(root).ok()?;
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let root = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NONBLOCK)
+                .open(root)
+                .ok()?;
             root.metadata().ok()?.is_dir().then(|| Self { root: root.into(), above: Vec::new() })
         }
 
@@ -150,7 +162,8 @@ mod through_folders {
                     open_at(parent, &part_name, FOLDER_FLAGS).map_err(|_| {
                         match kind_at(parent, &part_name) {
                             Some(Kind::Link) => NoEntry::Link,
-                            _ => NoEntry::Nothing,
+                            Some(Kind::File | Kind::Other) => NoEntry::NotFolder,
+                            Some(Kind::Folder) | None => NoEntry::Nothing,
                         }
                     })?;
                 self.above.push((part.to_os_string(), folder));
@@ -228,7 +241,8 @@ mod by_path {
                 match kind_of(&path) {
                     Some(Kind::Folder) => {}
                     Some(Kind::Link) => return Err(NoEntry::Link),
-                    _ => return Err(NoEntry::Nothing),
+                    Some(Kind::File | Kind::Other) => return Err(NoEntry::NotFolder),
+                    None => return Err(NoEntry::Nothing),
                 }
             }
             path.push(name);
@@ -299,10 +313,10 @@ mod tests {
         assert_eq!(kind(&mut tree, "real/none"), Ok(None));
         assert_eq!(kind(&mut tree, "link"), Ok(Some(Kind::Link)));
         assert_eq!(kind(&mut tree, "real/file-link"), Ok(Some(Kind::Link)));
-        // No entry below a link, below nothing or below a file.
+        // No entry below a link, below nothing or below a file, and the result says which.
         assert_eq!(kind(&mut tree, "link/file"), Err(NoEntry::Link));
         assert_eq!(kind(&mut tree, "none/file"), Err(NoEntry::Nothing));
-        assert_eq!(kind(&mut tree, "real/deep/file/below"), Err(NoEntry::Nothing));
+        assert_eq!(kind(&mut tree, "real/deep/file/below"), Err(NoEntry::NotFolder));
         // A path is a list of names: no `..`, no path from the root, no empty path.
         assert_eq!(kind(&mut tree, "real/../link"), Err(NoEntry::Nothing));
         assert_eq!(kind(&mut tree, &outside.join("file").to_string_lossy()), Err(NoEntry::Nothing));
@@ -324,6 +338,25 @@ mod tests {
         let mut again = Tree::open(&root).unwrap();
         assert_eq!(kind(&mut again, "real/deep/file"), Err(NoEntry::Link));
         assert_eq!(text(&mut again, "real/deep/file"), None);
+
+        std::fs::remove_dir_all(top).unwrap();
+    }
+
+    #[test]
+    fn work_tree_entry_waits_for_no_writer_of_a_named_pipe_in_the_place_of_a_folder() {
+        let top = fresh_folder();
+        let root = top.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        for pipe in [top.join("pipe"), root.join("pipe")] {
+            let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+            assert!(made.success(), "mkfifo {}", pipe.display());
+        }
+        // Nothing has a pipe open for a write: an open that waits for a writer does not end.
+        assert!(Tree::open(&top.join("pipe")).is_none(), "a named pipe is no work tree");
+        let mut tree = Tree::open(&root).unwrap();
+        assert_eq!(kind(&mut tree, "pipe"), Ok(Some(Kind::Other)));
+        assert_eq!(kind(&mut tree, "pipe/below"), Err(NoEntry::NotFolder));
+        assert_eq!(text(&mut tree, "pipe"), None, "a named pipe is no file");
 
         std::fs::remove_dir_all(top).unwrap();
     }

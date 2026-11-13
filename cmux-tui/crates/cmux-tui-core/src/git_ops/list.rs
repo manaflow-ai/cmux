@@ -5,16 +5,18 @@
 //! in the working tree and untracked files no ignore rule hides. Each is
 //! folded into its first path component; a component with more below it is a
 //! directory, and so is a lone component that is a real folder on disk (a
-//! submodule; a symlink is never one). Directories come first, then names
+//! submodule). A symlink is never one, also when git still lists tracked
+//! paths below its name. Directories come first, then names
 //! case-insensitively.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use serde_json::{Value, json};
 
 use super::Repository;
 use super::files::{Folders, candidates, folder};
+use super::work_tree_entry::Kind;
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.files.list";
@@ -38,6 +40,8 @@ pub(super) fn list(
     let mut folders = Folders::of(repository, &listed);
     // name -> is a directory
     let mut children: BTreeMap<&str, bool> = BTreeMap::new();
+    // The names with listed paths below them that are a link in the work tree.
+    let mut links: HashSet<&str> = HashSet::new();
     for path in &paths {
         let (name, nested) = match path.split_once('/') {
             Some((name, _)) => (name, true),
@@ -47,8 +51,17 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        if nested || (!*directory && folders.has(name)) {
-            *directory = true;
+        if *directory || links.contains(name) {
+            continue;
+        }
+        match (nested, folders.kind(name)) {
+            // A link stays a leaf when git still lists tracked paths below its name.
+            (true, Some(Kind::Link)) => {
+                links.insert(name);
+            }
+            // Paths below the name: a folder, also one that is not on disk.
+            (true, _) | (false, Some(Kind::Folder)) => *directory = true,
+            (false, _) => {}
         }
     }
     let total = children.len();

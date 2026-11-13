@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use super::run::run_git;
-use super::work_tree_entry::{Kind, Tree};
+use super::work_tree_entry::{Kind, NoEntry, Tree};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
 use crate::resource::ResourceError;
 use cmux_json::JsonSet as _;
@@ -83,10 +83,11 @@ pub(super) fn search(
             .then_with(|| left.path.cmp(right.path))
     });
     // A submodule is listed as one path, but it is a folder: never a result.
+    // A path below a link is not in the work tree: never a result either.
     let mut folders = Folders::of(repository, &search_root);
     let results: Vec<Value> = ranked
         .iter()
-        .filter(|entry| !folders.has(entry.path))
+        .filter(|entry| folders.file(entry.path))
         .take(limit)
         .map(|entry| {
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
@@ -144,10 +145,22 @@ impl Folders {
         }
     }
 
-    /// True when `path`, relative to the listed folder, is a real folder.
-    pub(super) fn has(&mut self, path: &str) -> bool {
-        let Some(tree) = self.tree.as_mut() else { return false };
-        tree.entry(&self.below.join(path)).is_ok_and(|entry| entry.kind() == Some(Kind::Folder))
+    /// What `path`, relative to the listed folder, is in the work tree.
+    /// `None` when nothing has its name, or when a folder above it is not a
+    /// real folder.
+    pub(super) fn kind(&mut self, path: &str) -> Option<Kind> {
+        self.tree.as_mut()?.entry(&self.below.join(path)).ok()?.kind()
+    }
+
+    /// True when `path`, relative to the listed folder, can be a search
+    /// result: it is no real folder, and no folder above it is a link.
+    fn file(&mut self, path: &str) -> bool {
+        let Some(tree) = self.tree.as_mut() else { return true };
+        match tree.entry(&self.below.join(path)) {
+            Ok(entry) => entry.kind() != Some(Kind::Folder),
+            Err(NoEntry::Link) => false,
+            Err(NoEntry::NotFolder | NoEntry::Nothing) => true,
+        }
     }
 }
 

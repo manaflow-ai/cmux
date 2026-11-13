@@ -173,7 +173,8 @@ fn read_text(tree: &mut Tree, file: &str) -> Result<Option<String>, String> {
     let entry = match tree.entry(Path::new(file)) {
         Ok(entry) => entry,
         Err(NoEntry::Link) => return Err(LINK_PROBLEM.into()),
-        Err(NoEntry::Nothing) => return Ok(None),
+        // A file in the place of a folder above it: no recipe file is there.
+        Err(NoEntry::NotFolder | NoEntry::Nothing) => return Ok(None),
     };
     match entry.kind() {
         Some(Kind::File) => {}
