@@ -70,6 +70,8 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod folder_instructions;
+#[cfg(all(test, unix))]
+mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
