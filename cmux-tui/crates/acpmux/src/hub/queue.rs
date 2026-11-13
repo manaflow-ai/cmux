@@ -1479,13 +1479,6 @@ impl Hub {
                 }
                 true
             });
-        // Every prompt id the log holds, so a client's unmarked copy of one runs no second turn
-        // (`prompt_ledger.rs` `maybe_logged`): this daemon's ledger starts empty.
-        // A scan that failed read some ids, not all: the first lookup reads them again.
-        prompt_ledger::set_logged(
-            session,
-            scanned.is_ok().then(|| recorded.iter().map(String::as_str)),
-        );
         if only.is_none() {
             if scanned.is_ok() {
                 self.restore_git_branch(session, branch);

@@ -280,18 +280,14 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
-        // An id this chat's log may hold already (a daemon before this one took it, or its
-        // outcome left the bounded ledger): looked up there below, as a `resend` is, so a client
-        // that sends it again unmarked (the pane's held send after a reconnect) runs it once.
-        // Read with the ledger entry in place, so a copy that comes meanwhile waits on this one.
-        let look_in_log = opts.resend || self.maybe_logged(session, &prompt_id);
-        prompt_ledger::note_logged(session, [prompt_id.as_str()]);
         // A client's resend of this id was answered above: the coach counts the prompt once.
         if let Some(text) = opts.coach.take() {
             self.coach_prompt(session, &prompt_id, &text);
         }
         // A resent inbox message answers as its notice did, a failure as the same error.
-        if look_in_log && let Some(answer) = self.logged_inbox_answer(session, &prompt_id) {
+        if opts.resend
+            && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
+        {
             if let Some(f) = opts.on_accepted.take() {
                 f(duplicate(answer.clone().unwrap_or(Value::Null)));
             }
@@ -300,7 +296,9 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
-        if look_in_log && let Some(logged) = self.logged_prompt(session, &prompt_id) {
+        if opts.resend
+            && let Some(logged) = self.logged_prompt(session, &prompt_id)
+        {
             if let Some(f) = opts.on_accepted.take() {
                 let value = match &logged {
                     Ok(value) => value.clone(),
