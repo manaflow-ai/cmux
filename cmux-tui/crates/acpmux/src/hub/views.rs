@@ -1021,22 +1021,45 @@ impl Hub {
         v
     }
 
+    /// `_acpmux/status`. Every pane's connect waits on it: the app's endpoint lookup that all
+    /// panes share, and the pane's first frame (its machines). So it never waits long on any
+    /// one reading: the readings that may wait (host pressure, the disk, each chat's agent slot)
+    /// run side by side, each under [`STATUS_READING_BUDGET`], and one that misses it is null.
+    /// The config lock is never held across a wait: a writer queued behind a held read would stall
+    /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
+    /// disk walk, held status, and every pane said "Waiting for the agent service" at once
+    /// (Leo, 2026-11-12, ask-64cfa32e34).
     pub async fn status(&self) -> Value {
-        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let loading = !self.store_loaded() || !self.startup_complete();
-        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
-        let cfg = self.config.read().await;
-        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
-        // (statvfs and a bounded, cached folder walk), so off the async workers.
-        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = if loading {
-            Value::Null
-        } else {
-            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-                .await
-                .unwrap_or(Value::Null)
-        };
+        let low = self
+            .config
+            .read()
+            .await
+            .disk_low_bytes
+            .unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
         let sessions = self.sessions();
+        let (host_pressure, disk, agents) = tokio::join!(
+            within_status_budget(async {
+                if loading { Value::Null } else { self.host_pressure_status().await }
+            }),
+            // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+            // (statvfs and a bounded, cached folder walk), so off the async workers.
+            within_status_budget(async move {
+                if loading {
+                    return Value::Null;
+                }
+                tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                    .await
+                    .unwrap_or(Value::Null)
+            }),
+            within_status_budget(live_agents(&sessions)),
+        );
+        let (host_pressure, disk) =
+            (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
+        // Counts that missed the budget are null, never 0: readers take a missing count as busy
+        // (`RemoteAgentDaemon.idleForKeyedRestart`) and say nothing of other builds.
+        let (live, other_build) =
+            agents.map_or((Value::Null, Value::Null), |(l, o)| (json!(l), json!(o)));
         let stuck: Vec<Value> = sessions
             .iter()
             .filter_map(|s| {
@@ -1049,24 +1072,8 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        // Never waits on a chat's child lock: a start or a detach holds it while its agent starts
-        // or ends (`detach_child` through the agent's kill), and every pane's handshake asks this
-        // (`AgentPaneHost` lookup), so one chat ending slowly drew "Waiting for the agent service"
-        // in every pane (cmuxterm-hq#8489). A held lock is an agent starting or ending: live, as
-        // the idle reaper counts it (`idle.rs`), its build read on the next status.
-        let (mut live, mut other_build) = (0, 0);
-        for s in &sessions {
-            let Ok(slot) = s.child.try_lock() else {
-                live += 1;
-                continue;
-            };
-            if let Some(child) = slot.as_ref() {
-                live += 1;
-                if host_build_differs(child.host_build().as_deref(), build()) {
-                    other_build += 1;
-                }
-            }
-        }
+        // Read after every wait above and held through no other.
+        let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
@@ -1146,6 +1153,39 @@ impl Hub {
             "host_pressure": host_pressure,
         })
     }
+}
+
+/// The longest `status` waits on any one reading that may wait. Under the app lookup's first
+/// 5 s ask (`AgentPaneHost.lookupStatusAttempts`) with room for the reply.
+// timeout: a reading past it is reported null, never an error; status itself always answers.
+pub(crate) const STATUS_READING_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `reading`, or None when it misses [`STATUS_READING_BUDGET`].
+async fn within_status_budget<T>(reading: impl std::future::Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(STATUS_READING_BUDGET, reading).await.ok()
+}
+
+/// The chats whose agent runs, and those of them on a host of another build. Never waits on a
+/// chat's child lock: a start or a detach holds it while its agent starts or ends (`detach_child`
+/// through the agent's kill), and every pane's handshake asks status (`AgentPaneHost` lookup), so
+/// one chat ending slowly drew "Waiting for the agent service" in every pane (cmuxterm-hq#8489).
+/// A held lock is an agent starting or ending: live, as the idle reaper counts it (`idle.rs`), its
+/// build read on the next status.
+async fn live_agents(sessions: &[Arc<Session>]) -> (usize, usize) {
+    let (mut live, mut other_build) = (0, 0);
+    for s in sessions {
+        let Ok(slot) = s.child.try_lock() else {
+            live += 1;
+            continue;
+        };
+        if let Some(child) = slot.as_ref() {
+            live += 1;
+            if host_build_differs(child.host_build().as_deref(), build()) {
+                other_build += 1;
+            }
+        }
+    }
+    (live, other_build)
 }
 
 /// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
@@ -1270,3 +1310,7 @@ mod time_breakdown_tests {
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
     }
 }
+
+#[cfg(test)]
+#[path = "views_status_budget_tests.rs"]
+mod status_budget_tests;
