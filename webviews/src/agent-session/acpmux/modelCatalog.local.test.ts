@@ -1,6 +1,45 @@
 import { expect, test } from "bun:test";
 import { mergeModelCatalog } from "./modelCatalog";
 
+test("new releases retain metadata and daemon order over a stale session menu", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const { relevantModelSections } = await import("./relevantModels");
+  const ids = ["gemini-4-carbon", "gemini-4-hydrogen"];
+  const result = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "gemini",
+        name: "Gemini CLI",
+        family: "gemini",
+        topModels: ids,
+        models: ids.map((id) => ({ id, curated: true })),
+      },
+    ],
+    session: {
+      harness: "gemini",
+      model: ids[1],
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: ids[1]!,
+          options: [{ value: "gemini-2.5-pro", name: "Pro" }],
+        },
+      ],
+    },
+  });
+  const harness = result.harnesses.find((entry) => entry.id === "gemini")!;
+  expect(harness.topModels).toEqual(ids);
+  const shown = relevantModelSections(harness.models, harness.topModels).shown;
+  expect(shown.map((model) => model.id)).toEqual(ids);
+  expect(shown.map((model) => model.name)).toEqual(["4 Carbon", "4 Hydrogen"]);
+  expect(shown.map((model) => model.contextWindow)).toEqual([1_048_576, 1_048_576]);
+  expect(harness.models.some((model) => model.id === "gemini-4-argon")).toBe(false);
+});
+
 for (const olderHost of [false, true]) {
   test(`daemon fallback identities stay unverified through the wire join (older host: ${olderHost})`, async () => {
     const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");

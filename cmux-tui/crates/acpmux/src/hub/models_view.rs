@@ -292,6 +292,59 @@ mod picker_models_tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    #[tokio::test]
+    async fn gemini_advisory_menu_keeps_new_releases_and_unknown_models() {
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"my-gemini": {"argv": ["gemini", "--acp"], "family": "gemini"}}
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        // CLI 0.68.0's menu is incomplete; an explicit model ID is still accepted.
+        hub.known_models.lock().unwrap().insert(
+            "my-gemini".into(),
+            vec![
+                ("auto".into(), "Auto".into()),
+                ("gemini-2.5-pro".into(), "Gemini 2.5 Pro".into()),
+                ("gemini-future".into(), "Future".into()),
+            ],
+        );
+        let row = models_row(&hub.models_catalog().await, "my-gemini");
+        let models = row["models"].as_array().unwrap();
+        for (id, name, input, output) in [
+            ("gemini-4-carbon", "Gemini 4 Carbon", 2.0, 10.0),
+            ("gemini-4-hydrogen", "Gemini 4 Hydrogen", 1.5, 7.5),
+        ] {
+            let model =
+                models.iter().find(|m| m["id"] == id).expect("new release survives stale menu");
+            assert_eq!(model["name"], name);
+            assert_eq!(model["contextWindow"], 1_048_576);
+            assert_eq!(model["maxOutput"], 65_536);
+            assert_eq!(model["cost"]["input"], input);
+            assert_eq!(model["cost"]["output"], output);
+        }
+        assert_eq!(
+            &row["topModels"].as_array().unwrap()[..2],
+            &[json!("gemini-4-carbon"), json!("gemini-4-hydrogen")]
+        );
+        assert!(models.iter().any(|m| m["id"] == "gemini-future"));
+        assert!(!models.iter().any(|m| m["id"] == "gemini-4-argon"));
+        assert_eq!(row["catalog"]["defaultModel"], "gemini-3.1-pro-preview");
+    }
+
+    #[test]
+    fn authoritative_acp_menus_still_filter_unreported_models() {
+        let catalog = CatalogService::default().current();
+        let mut curated = catalog.harnesses.iter().find(|h| h.id == "gemini").unwrap().clone();
+        curated.id = "authoritative-agent".into();
+        curated.families = vec!["authoritative-agent".into()];
+        let reported = vec![("gemini-2.5-pro".into(), "Pro".into())];
+        let models = offered(&HarnessKind::Acp, Some(&curated), &catalog, &reported, false);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0]["id"], "gemini-2.5-pro");
+    }
+
     #[test]
     fn harness_picker_order_survives_catalog_order_and_aliases() {
         let models = vec![
