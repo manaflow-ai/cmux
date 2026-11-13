@@ -85,6 +85,9 @@ mod tests {
         assert_eq!(super::session_change_kind("process_update"), Some("process_update"));
         assert_eq!(super::session_change_kind("loop_detected"), Some("loop_detected"));
         assert_eq!(super::session_change_kind("loop_cleared"), Some("loop_cleared"));
+        // A turn Claude Code runs on its own starts or ends: the row's `backgroundTurn` and its
+        // working dot (manaflow-ai/cmux#42447).
+        assert_eq!(super::session_change_kind("background_turn"), Some("background_turn"));
     }
 
     /// A parent's row reads `input` while a sub-session below it waits (`hub/asks_below.rs`).

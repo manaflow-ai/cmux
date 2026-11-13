@@ -189,8 +189,11 @@ fn a_background_turn_is_working_since_it_started() {
     // Ended: done again, idle since the last turn.
     let mut ended = at("ready", "completed");
     ended["backgroundTurn"] = Value::Null;
+    ended["backgroundTurnEndedAt"] = json!(12);
     assert_eq!(status_indicator(&ended), Some("done"));
     assert_eq!(lane(&ended)["state"], "idle");
+    // Idle since the background turn ended, not since the turn before it.
+    assert_eq!(lane(&ended)["since"], 12);
 }
 
 /// A harness title that is a whole prompt shows as its first 200 characters in every summary; a

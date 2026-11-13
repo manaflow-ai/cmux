@@ -76,6 +76,9 @@ pub(super) struct BackgroundTurns {
     messages: VecDeque<String>,
     /// The tasks started and the notifications heard: a turn's `cause`.
     causes: super::background_cause::Causes,
+    /// When the last one ended (Unix ms): the chat is idle since then, not since its last acpmux
+    /// turn ended before it (the summary's `backgroundTurnEndedAt`, the lane's `since`).
+    last_ended_at: Option<u64>,
 }
 
 /// Whether a reply is quiet: at most one short line, with no question and no link.
@@ -170,6 +173,7 @@ impl BackgroundTurns {
     fn end(&mut self, reason: &str) -> Option<Value> {
         self.pending = None;
         let r = self.running.take()?;
+        self.last_ended_at = Some(now_ms());
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
             "quiet": !r.attention && !r.long && is_quiet(&r.text), "reason": reason,
@@ -181,11 +185,21 @@ impl BackgroundTurns {
     /// `working` (manaflow-ai/cmux#42447: a chat Claude Code woke on a finished background
     /// command worked 18 minutes with no spinner on its sidebar row). Only the dot: such a turn
     /// still never marks the chat unread nor posts a notice.
-    fn summary(&self) -> Value {
-        self.running.as_ref().map_or(
+    ///
+    /// `harness_live`: the harness's own turn runs (`Session::harness_turn`, from Claude Code's
+    /// `system/init` to its `result`). A bracket another harness's stray update opened ends only
+    /// at the next prompt or exit (no `claude.result` closes it), so it shows no work; a verified
+    /// trigger's bracket (`bg-trigger-`) is acpmux's own and shows while it runs.
+    fn summary(&self, harness_live: bool) -> Value {
+        self.running.as_ref().filter(|r| harness_live || r.id.starts_with("bg-trigger-")).map_or(
             Value::Null,
             |r| json!({"id": r.id, "trigger": r.trigger, "startedAt": r.started_at}),
         )
+    }
+
+    /// When the last one ended (Unix ms), if one ran since this daemon started.
+    fn last_ended_at(&self) -> Option<u64> {
+        self.last_ended_at
     }
 
     /// Whether a reply message is a background turn's.
@@ -302,8 +316,11 @@ impl Hub {
     }
 
     /// The session summary's `backgroundTurn`: the running background turn, or null.
-    pub(super) fn background_turn_summary(&self, session: &Session) -> Value {
-        session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).summary()
+    /// Also the summary's `backgroundTurnEndedAt`: when the last one ended, or null.
+    pub(super) fn background_turn_summary(&self, session: &Session) -> (Value, Option<u64>) {
+        let harness_live = session.harness_turn.load(Ordering::SeqCst);
+        let state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
+        (state.summary(harness_live), state.last_ended_at())
     }
 
     /// Whether an `agent_message_chunk` is a background turn's: its words stay off the preview.
@@ -447,18 +464,22 @@ mod tests {
     #[test]
     fn the_summary_names_the_running_one_until_it_ends() {
         let mut b = BackgroundTurns::default();
-        assert_eq!(b.summary(), Value::Null);
+        assert_eq!(b.summary(true), Value::Null);
         b.on_line("claude.system.task_notification", &json!({}), false, 1);
         b.on_line("claude.system.init", &json!({}), false, 2);
         // A system/init alone is no turn yet.
-        assert_eq!(b.summary(), Value::Null);
+        assert_eq!(b.summary(true), Value::Null);
         b.on_update(&json!({"sessionUpdate": "tool_call"}), false, 0).unwrap();
-        let running = b.summary();
+        let running = b.summary(true);
         assert_eq!(running["id"], "bg-2");
         assert_eq!(running["trigger"], "task_notification");
         assert!(running["startedAt"].as_u64().is_some_and(|at| at > 0));
+        // With no harness turn live (a stray update of another harness), it shows no work.
+        assert_eq!(b.summary(false), Value::Null);
+        assert_eq!(b.last_ended_at(), None);
         b.on_line("claude.result.success", &json!({}), false, 5);
-        assert_eq!(b.summary(), Value::Null);
+        assert_eq!(b.summary(true), Value::Null);
+        assert!(b.last_ended_at().is_some_and(|at| at >= running["startedAt"].as_u64().unwrap()));
     }
 
     #[test]

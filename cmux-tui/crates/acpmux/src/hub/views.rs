@@ -281,7 +281,8 @@ pub fn lane(summary: &Value) -> Value {
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
-        _ => ("idle", ended),
+        // Idle since its last turn ended, or since a later turn Claude Code ran on its own did.
+        _ => ("idle", ended.max(summary["backgroundTurnEndedAt"].as_u64())),
     };
     let error = match state {
         "failed" => summary["lastTurn"]["errorText"].clone(),
@@ -789,7 +790,9 @@ impl Hub {
         }
         // A turn Claude Code runs on its own, while it runs (`background_turn.rs`): `decide`
         // reads it as working.
-        summary.set("backgroundTurn", self.background_turn_summary(session));
+        let (background, background_ended) = self.background_turn_summary(session);
+        summary.set("backgroundTurn", background);
+        summary.set("backgroundTurnEndedAt", json!(background_ended));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
