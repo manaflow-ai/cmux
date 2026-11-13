@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43355008326",
+  "recorded_at": "2026-11-13T03:00:04Z",
+  "reason": "cmux-tui 0be5fa61122c changes the image's cmux-tui (pinned f0c33946d21d)",
+  "dry_run": false,
+  "cmux_tui": "0be5fa61122c4756f80d9c1cc0ab465d614a24d3",
+  "fixes": [
+    {
+      "sha": "0be5fa61122c4756f80d9c1cc0ab465d614a24d3",
+      "mergedAt": "2026-11-12T18:25:10-08:00",
+      "subject": "acpmux: the session list is a row log with a cursor; watches and peer links follow from afterSeq (W4) (#41865)"
+    },
+    {
+      "sha": "2858f8000bf3b2257b948fe3908c88cebffb95de",
+      "mergedAt": "2026-11-13T02:24:13Z",
+      "subject": "bundle size: fat LTO for cmux-mobile-host and cmux-agent-screen-detection (#42300)"
+    },
+    {
+      "sha": "306ccd01a08a7b0ca9628e31861ee3ddc5318260",
+      "mergedAt": "2026-11-13T02:20:26Z",
+      "subject": "acpmux: cmux-source-scan's smoke rows run in the lib tests; the timing check's known miss is ratcheted (#41567)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T03:00:04Z",
+    "snapshot_id": "sh-871f6d4250924e058aa0a0a93f4de298",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43355008326): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e46d2322faa1605bc3e17e49470569544140dcc0",
+    "image": "cloud-native-auto-0be5fa61-43355008326-1",
+    "revision": "ci-43355008326-1",
+    "at": "2026-11-13T03:00:04Z"
+  },
+  "rolled_back": false
+}
