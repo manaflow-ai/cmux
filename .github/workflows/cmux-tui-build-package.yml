@@ -490,7 +490,7 @@ jobs:
           # slow leg says where its time went.
           profile=""
           if [[ "$LTO" == thin ]]; then
-            export CARGO_PROFILE_RELEASE_LTO=off
+            export CARGO_PROFILE_RELEASE_LTO=false
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
