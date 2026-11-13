@@ -400,8 +400,12 @@ fn agent_start_context_refused_list_is_not_known_and_never_no_other_agent() {
     drop(held);
 }
 
-/// A barrier for a terminal: it reads this FIFO to its end, and the end
+/// A barrier for ONE terminal: it reads this FIFO to its end, and the end
 /// comes when the test closes its own end.
+///
+/// One reader for each gate. A gate with a group of readers let each of them
+/// through on Linux only: on macOS 27 the end reached 5 of 48 readers and 3
+/// of 24 in 60 seconds, and the other terminals never went on.
 struct Gate {
     writer: fs::File,
 }
@@ -427,16 +431,22 @@ impl Gate {
 
 /// The program of a terminal that holds one long connection: the session's
 /// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
-/// It waits behind `gate` first, so the daemon knows the terminal before the
-/// terminal's first connection (the accept loop then counts the connection
-/// in the terminals' lane; see `Holders`).
-fn long_holder_script(dir: &Path, index: usize, gate: &str) -> String {
+/// It waits behind its own gate first (`holder_gate`), so the daemon knows
+/// the terminal before the terminal's first connection (the accept loop then
+/// counts the connection in the terminals' lane; see `Holders`).
+fn long_holder_script(dir: &Path, index: usize) -> String {
     format!(
         "exec 3<'{dir}/held/{gate}'; : >'{dir}/held/{index}.ready'; /bin/cat <&3 >/dev/null; \
          exec '{tui}' --jsonl session current events >/dev/null 2>'{dir}/held/{index}.err'",
         tui = env!("CARGO_BIN_EXE_cmux-tui"),
         dir = dir.display(),
+        gate = holder_gate(index),
     )
+}
+
+/// The name of the gate of holder `index`, in the folder `held`.
+fn holder_gate(index: usize) -> String {
+    format!("gate-{index}")
 }
 
 /// Terminals that each hold one long connection.
@@ -445,11 +455,11 @@ fn long_holder_script(dir: &Path, index: usize, gate: &str) -> String {
 /// it knows the peer's terminal, and it never waits for the state lock to
 /// learn a new terminal. A holder that connects while the daemon still makes
 /// the other terminals can thus be counted as an outside connection, and the
-/// test would then not fill the lane. So each group of holders first waits
-/// behind one gate until each of its terminals runs and the daemon is idle;
-/// then one connection of the test makes the accept loop read the terminals
-/// (a peer that it does not know makes it read them again), and the gate
-/// opens.
+/// test would then not fill the lane. So each holder of a group first waits
+/// behind its own gate until each terminal of the group runs and the daemon
+/// is idle; then one connection of the test makes the accept loop read the
+/// terminals (a peer that it does not know makes it read them again), and
+/// the gates open.
 struct Holders;
 
 impl Holders {
@@ -459,10 +469,10 @@ impl Holders {
     /// daemon opened in all.
     fn start(daemon: &Daemon, control: &mut Control, first: usize, last: usize) -> u64 {
         let held = daemon.dir.join("held");
-        let gate_name = format!("gate-{first}");
-        let gate = Gate::new(&held, &gate_name);
+        let gates: Vec<Gate> =
+            (first..last).map(|index| Gate::new(&held, &holder_gate(index))).collect();
         for index in first..last {
-            let script = long_holder_script(&daemon.dir, index, &gate_name);
+            let script = long_holder_script(&daemon.dir, index);
             control.run_in_terminal(&format!("h{index}"), &script);
         }
         let ready = wait_until(test_timeout(Duration::from_secs(60)), || {
@@ -472,7 +482,7 @@ impl Holders {
         let read = Control::admitted(&daemon.socket);
         assert!(read.is_some(), "setup: the daemon refused the test's connection");
         drop(read);
-        gate.open();
+        gates.into_iter().for_each(Gate::open);
         let wanted = u64::try_from(last).unwrap();
         wait_until(test_timeout(Duration::from_secs(60)), || {
             control.handled("session.events") >= wanted
