@@ -77,7 +77,9 @@ async fn client_and_daemon_resume_after_a_disconnect() {
     assert_eq!(value.pointer("/params/cursor"), Some(&Value::from(1_u64)));
     send_bytes(&mut stream, request).await;
     let first = read_frame(&mut stream).await;
-    assert!(matches!(first.kind, FrameKind::Window | FrameKind::Delta));
+    let first_bytes = first.encode();
+    assert_eq!(client.received(&first_bytes), first_bytes.len());
+    assert!(client.next_change().is_some());
     drop(stream);
     task.await.unwrap().unwrap();
 }
@@ -96,7 +98,7 @@ async fn client_reconnect_before_first_window_keeps_anchor() {
     client.disconnected();
     let (mut stream, task) = pair(hub);
     hello(&mut client, &mut stream).await;
-    let request = client.take_send().unwrap_or(request);
+    let request = client.take_send().expect("reconnect must resend the initial subscription");
     let frame = Frame::from_encoded(&request).unwrap();
     let value: Value = frame.decode_json().unwrap();
     assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
