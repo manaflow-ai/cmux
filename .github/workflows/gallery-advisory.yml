@@ -103,19 +103,35 @@ jobs:
           The full gallery PR matrix remains the authoritative visual check.
           EOF
 
-      # Full history for the merge base, but blobless: a full clone spent about
-      # 188 s of this job's 4.7 min (six runs, 2026-10-19). Git fetches the
-      # head's and the base worktree's files on checkout.
+      # The head only, and only what a gallery build reads (gallery-health.yml's list, which
+      # tests/test_ci_gallery_health_merge_ref.py keeps in step with the build) plus scripts/
+      # and .github/ for this job's tools. `fetch-depth: 0` fetched every branch of the
+      # repository (~30,000 refs) and the whole tree: 89-109 s of each run on #41952
+      # (2026-11-12). The capture step fetches the base branch's commits, no trees or blobs,
+      # for the merge base.
       - name: Checkout the PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /*
-            !/cmux-next-ios/verify/
+            /webviews/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
           persist-credentials: false
 
       - name: Setup Bun
@@ -147,7 +163,17 @@ jobs:
         run: |
           set -euo pipefail
           evidence="$RUNNER_TEMP/gallery-advisory"
-          base_sha=$(git merge-base "origin/$BASE_REF" HEAD)
+          # The merge base needs commits only: the head's and the base branch's, with no trees or
+          # blobs, fetched into a scratch repository so the checkout stays one commit deep. Then
+          # the base commit alone comes in one pack with its trees (a tree:0 history in the
+          # checkout itself would fetch each tree `git diff` and the base checkout open, one round
+          # trip apiece). The repository is public, so neither fetch needs credentials.
+          origin_url=$(git remote get-url origin)
+          git init -q --bare "$RUNNER_TEMP/history"
+          git -C "$RUNNER_TEMP/history" fetch -q --no-tags --filter=tree:0 "$origin_url" \
+            "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base_sha=$(git -C "$RUNNER_TEMP/history" merge-base "origin/$BASE_REF" "$HEAD_SHA")
+          git fetch -q --no-tags --depth=1 --filter=blob:none origin "$base_sha"
           git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
 
           cd webviews
@@ -167,17 +193,53 @@ jobs:
           # below picks the 16 most relevant.
           bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
             --frame component --out "$RUNNER_TEMP/head-all.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
 
-          git worktree add --detach "$RUNNER_TEMP/base" "$base_sha"
-          if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
-            cd "$RUNNER_TEMP/base/webviews"
+          # The head build, the base build and the browser setup share nothing, so they run at
+          # once on the runner's 8 CPUs instead of one after another: in series they were ~2.4,
+          # ~1.7 and ~0.4 minutes of a 7-minute job (#41952, 2026-11-12). Each logs to its own
+          # file, printed in a group when it ends; the step waits for all three before it goes on.
+          head_build() {
+            cd "$GITHUB_WORKSPACE/webviews"
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
+          }
+          base_build() {
+            # Only what a gallery build reads, as the checkout above: the whole tree was ~47,000
+            # files to write for one build.
+            git worktree add -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
+            git sparse-checkout list | git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin
+            git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
+            if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
+              cd "$RUNNER_TEMP/base/webviews"
+              bun install --frozen-lockfile
+              bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
+                --frame component --out "$RUNNER_TEMP/base-all.json"
+              CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+            else
+              echo '[]' > "$RUNNER_TEMP/base-all.json"
+            fi
+          }
+          browser_setup() {
+            cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
             bun install --frozen-lockfile
-            bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
-              --frame component --out "$RUNNER_TEMP/base-all.json"
-            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
-          else
-            echo '[]' > "$RUNNER_TEMP/base-all.json"
+            "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+          }
+          for part in head_build base_build browser_setup; do
+            ( set -euo pipefail; "$part" ) > "$RUNNER_TEMP/$part.log" 2>&1 &
+            eval "pid_$part=\$!"
+          done
+          failed=
+          for part in head_build base_build browser_setup; do
+            rc=0
+            pid_var="pid_$part"
+            wait "${!pid_var}" || rc=$?
+            echo "::group::$part (exit $rc)"
+            cat "$RUNNER_TEMP/$part.log"
+            echo "::endgroup::"
+            [ "$rc" = 0 ] || failed="$failed $part"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::gallery advisory:$failed failed; see its group above" >&2
+            exit 1
           fi
 
           # The sample: touched.ts's ranking (the changed component's own states,
@@ -190,19 +252,17 @@ jobs:
           cp "$RUNNER_TEMP/selection.json" "$evidence/selection.json"
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
-          bun install --frozen-lockfile
-          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # Each stage renders its own states: a state the PR adds has no base
           # variant to render (the base reports it not ready), and one it removes
-          # has no head variant.
-          for stage in base head; do
-            gallery="$RUNNER_TEMP/gallery-$stage"
-            out="$evidence/$stage"
+          # has no head variant. Both stages render at once, four cases each: one
+          # at a time they were ~1 s a case, 64 cases in a row (#41952).
+          render_stage() {
+            local stage=$1 gallery="$RUNNER_TEMP/gallery-$1" out="$evidence/$1"
             mkdir -p "$out"
             if [ "$(jq length "$RUNNER_TEMP/$stage.json")" = 0 ]; then
               # Every sampled state is new: nothing to render before.
               echo '[]' > "$out/results.json"
-              continue
+              return 0
             fi
             if [ -d "$gallery" ]; then
               # The runner exits 1 when a state's play check fails (a base state
@@ -210,12 +270,33 @@ jobs:
               # images and results.json are still written and pr.ts reports the
               # failure, so only a missing results.json ends the receipt.
               bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
-                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 \
+                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 --concurrency 4 \
                 || echo "::warning::the $stage render exited $? (a failed play check or an unready state); see results.json"
             else
               echo "Missing $stage gallery build; advisory capture failed." >&2
-              exit 1
+              return 1
             fi
+          }
+          for stage in base head; do
+            ( set -euo pipefail; render_stage "$stage" ) > "$RUNNER_TEMP/render-$stage.log" 2>&1 &
+            eval "pid_$stage=\$!"
+          done
+          failed=
+          for stage in base head; do
+            rc=0
+            pid_var="pid_$stage"
+            wait "${!pid_var}" || rc=$?
+            echo "::group::render $stage (exit $rc)"
+            cat "$RUNNER_TEMP/render-$stage.log"
+            echo "::endgroup::"
+            [ "$rc" = 0 ] || failed="$failed $stage"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::gallery advisory: the$failed render failed; see its group above" >&2
+            exit 1
+          fi
+          for stage in base head; do
+            out="$evidence/$stage"
             test -f "$out/results.json"
             expected_sha="$HEAD_SHA"
             if [ "$stage" = base ]; then expected_sha="$base_sha"; fi
