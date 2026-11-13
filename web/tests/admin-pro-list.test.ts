@@ -16,6 +16,7 @@ import {
   resolveStripeTeamNames,
   scanManualTeamGrants,
   scanManualUserGrants,
+  scanTeamDeals,
   type ProListDb,
   type ProListStackApp,
 } from "../services/admin/proList";
@@ -163,6 +164,29 @@ describe("Pro roster", () => {
     ] });
     const page = await scanManualTeamGrants(null, { app });
     expect(page.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "team"]]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  test("scans teams for custom deals: limits, or only a label and price", async () => {
+    const app = fakeApp({ teams: [
+      {
+        id: "t1",
+        displayName: "Tecorien",
+        clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxEntitlementOverride: { maxActiveVms: 40, poolVcpus: 320 } },
+        serverMetadata: { cmuxEntitlementDealTerms: { planLabel: "Enterprise", monthlyPriceCents: 80_000 } },
+      },
+      { id: "t2", displayName: "Plain", clientReadOnlyMetadata: { cmuxVmPlan: "team" }, serverMetadata: {} },
+      {
+        id: "t3",
+        displayName: "Terms only",
+        clientReadOnlyMetadata: {},
+        serverMetadata: { cmuxEntitlementDealTerms: { planLabel: "Pilot", monthlyPriceCents: null } },
+      },
+    ] });
+    const page = await scanTeamDeals(null, { app });
+    expect(page.scanned).toBe(3);
+    expect(page.rows.map((row) => [row.team.id, row.override?.maxActiveVms, row.override?.planLabel, row.override?.monthlyPriceCents]))
+      .toEqual([["t1", 40, "Enterprise", 80_000], ["t3", null, "Pilot", null]]);
     expect(page.nextCursor).toBeNull();
   });
 

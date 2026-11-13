@@ -17,6 +17,18 @@ A workflow that has a reason to run every dispatch goes in ALLOWLIST with that
 reason. This is warn-level: it prints GitHub ::warning annotations and exits 0.
 --strict exits 1 on any finding.
 
+A second rule fails (::error, exit 1) on its own: a job that waits for a
+person (an environment in APPROVAL_ENVIRONMENTS, which have required reviewers)
+must not sit in a concurrency group with cancel-in-progress false unless the
+group is keyed per run. A run waiting for an approval never times out
+(timeout-minutes counts from the job's start), so it holds the group for as
+long as nobody answers, and GitHub keeps one pending run per group, cancelling
+the one before. cmux-next-cua-helper-dev-sign.yml's run 42677635673 sat at its
+cef-publish approval from 2026-11-09 and held every later dispatch (43374466637
+was cancelled behind it). Serialize the jobs before the approval in job-level
+groups and leave the approval job out of any group. Such a job is also exempt
+from the flood rule above: each of its runs waits for a person.
+
   python3 scripts/ci/check_workflow_concurrency.py [--strict] [--root DIR]
 """
 
@@ -51,6 +63,81 @@ ALLOWLIST: dict[str, str] = {
     # waited, so nothing newer ever signed (Nightly freshness, 2026-10-26).
     "cmux-next-dev-daily.yml": "one dispatch per finished DEV source run; a group evicted newer handoffs",
 }
+
+
+# Environments with required reviewers (repository settings, read 2026-11-13 with
+# `gh api repos/manaflow-ai/cmux/environments`). Add one here when you add reviewers.
+APPROVAL_ENVIRONMENTS = frozenset((
+    "cef-publish", "crates-bootstrap", "crates-io", "npm", "npm-bootstrap", "npm-coderouter",
+    "pypi", "pypi-bootstrap", "pypi-coderouter", "pypi-tui", "release-surface-ack", "sdk-release",
+))
+
+# Workflow file name -> why its approval job may wait inside a shared, non-cancelling group.
+APPROVAL_ALLOWLIST: dict[str, str] = {
+    # Registry releases: one release at a time per key is the point. KNOWN GAP: an unanswered
+    # approval holds the next release of the same key until someone answers or cancels it.
+    "sdk-bootstrap-crates.yml": "one crates.io bootstrap at a time; a held approval holds the next",
+    "sdk-bootstrap-npm.yml": "one npm bootstrap at a time; a held approval holds the next",
+    "sdk-bootstrap-pypi.yml": "one PyPI bootstrap at a time; a held approval holds the next",
+    "sdk-release-cut.yml": "one SDK release cut at a time; a held approval holds the next",
+    "tui-publish-pypi.yml": "one PyPI publish per ref; a held approval holds that ref's next",
+    "coderouter-publish-npm.yml": "one npm publish per version; a held approval holds that version only",
+    "coderouter-publish-pypi.yml": "one PyPI publish per version; a held approval holds that version only",
+}
+
+PER_RUN_ONLY = re.compile(r"(?i)\b(?:run_id|run_number|run_attempt)\b")
+
+
+def waits_for_approval(job: dict) -> list[str]:
+    """The approval environments a job may wait in (a name, a {name:} map or an expression)."""
+    environment = job.get("environment")
+    if isinstance(environment, dict):
+        environment = environment.get("name")
+    if environment is None:
+        return []
+    text = str(environment)
+    if text in APPROVAL_ENVIRONMENTS:
+        return [text]
+    quoted = set(re.findall(r"'([^']+)'", text))
+    return sorted(quoted & APPROVAL_ENVIRONMENTS)
+
+
+def cancels_in_progress(concurrency) -> bool:
+    return isinstance(concurrency, dict) and concurrency.get("cancel-in-progress") is True
+
+
+def check_approval(path: Path) -> list[str]:
+    """Approval jobs holding a shared non-cancelling concurrency group (the run-42677635673 shape)."""
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        return [f"cannot read {path.name}: {error}"]
+    if not isinstance(doc, dict) or path.name in APPROVAL_ALLOWLIST:
+        return []
+    findings = []
+    for name, job in (doc.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        environments = waits_for_approval(job)
+        if not environments:
+            continue
+        for level, concurrency in (("job", job.get("concurrency")), ("workflow", doc.get("concurrency"))):
+            group = group_of(concurrency)
+            if group is None:
+                continue
+            if not cancels_in_progress(concurrency) and not any(
+                PER_RUN_ONLY.search(expression) for expression in EXPRESSION.findall(group)
+            ):
+                findings.append(
+                    f"{path.name}: job {name} waits for a reviewer in {', '.join(environments)} inside "
+                    f"{level}-level concurrency group {' '.join(group.split())} (cancel-in-progress false). "
+                    "An unanswered approval never times out and holds that group, so every later run waits "
+                    "and each newer one cancels the pending one (run 42677635673). Move the group to the "
+                    "jobs before the approval and give the approval job none, or allowlist the file in "
+                    "APPROVAL_ALLOWLIST with a reason."
+                )
+            break  # a job-level group replaces the workflow-level one
+    return findings
 
 
 def triggers(doc: dict) -> set[str]:
@@ -111,6 +198,8 @@ def check(path: Path) -> list[str]:
     for name, job in (doc.get("jobs") or {}).items():
         if not isinstance(job, dict) or "uses" in job:
             continue  # a reusable workflow call is checked in its own file
+        if waits_for_approval(job):
+            continue  # each run waits for a person; it cannot flood the queue
         reasons = []
         if runs_on_macos(job):
             reasons.append("macOS")
@@ -153,10 +242,16 @@ def main(argv: list[str] | None = None) -> int:
     for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
         for finding in check(path):
             findings.append((path, finding))
+    errors = []
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        for finding in check_approval(path):
+            errors.append((path, finding))
     for path, finding in findings:
         print(f"::warning file=.github/workflows/{path.name},title=workflow concurrency::{finding}")
-    print(f"{len(findings)} workflow concurrency warning(s).", file=sys.stderr)
-    return 1 if findings and args.strict else 0
+    for path, finding in errors:
+        print(f"::error file=.github/workflows/{path.name},title=approval holds a concurrency group::{finding}")
+    print(f"{len(findings)} workflow concurrency warning(s), {len(errors)} approval-hold error(s).", file=sys.stderr)
+    return 1 if errors or (findings and args.strict) else 0
 
 
 if __name__ == "__main__":
