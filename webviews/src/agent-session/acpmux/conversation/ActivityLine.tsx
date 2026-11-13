@@ -11,7 +11,7 @@ import { BackgroundHint } from "./BackgroundHint";
 import { Envelope, TerminalSquare } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { formatDuration } from "./turns";
-import { useTicking } from "./WorkingFor";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { StatusVerb } from "./StatusVerb";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";

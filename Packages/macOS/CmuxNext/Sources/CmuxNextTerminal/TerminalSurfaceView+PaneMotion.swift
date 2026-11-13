@@ -23,7 +23,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         // A drag's release spring (cmux-ad m14): no hold at the final size; the surface keeps following its pane, and the
         // grid goes once, when the release lands (``followResizeGesture(_:)``).
         guard !isFollowingResizeGesture else { return .top }
-        return restAt(restSize(sizeChange: sizeChange), growing: sizeChange.height > 0.5)
+        return restAt(restSize(sizeChange: sizeChange))
     }
 
     /// The view joined a pane already on a layout spring (a split's new pane gets its terminal from the
@@ -31,7 +31,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// will rest at. Returns whether it did (never for a drag's release spring: its grid goes at the landing).
     func joinPaneMotion() -> Bool {
         guard !isFollowingResizeGesture, superview is TerminalHostView, let change = enclosingRestSizeChange else { return false }
-        _ = restAt(restSize(sizeChange: change), growing: change.height > 0.5)
+        _ = restAt(restSize(sizeChange: change))
         return true
     }
 
@@ -58,9 +58,9 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// (`updateSurfaceSize`), ending at the landing's grid. A hold an earlier spring or a join set goes now (review of
     /// #35470 at 447f784c3cf, G1).
     ///
-    /// When it holds, a pane that grows down with the prompt in its lower half (`motionAnchor` answers `.bottom`) keeps
-    /// the surface on the moving bottom edge, so the prompt on the final grid's last row stays in view.
-    private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
+    /// When it holds, the surface rides the edge its text keeps in Ghostty's reflow to the final grid (`motionAnchor`), so
+    /// each row moves from where it shows now straight to where it rests, never away from it.
+    private func restAt(_ size: NSSize) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let host = superview as? TerminalHostView
         // A tab shown mid-hold joins before its area hands it the follow: it follows from its first frame too, so its
@@ -76,22 +76,37 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         guard pixels.width >= 1, pixels.height >= 1,
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
+        // Read before the report: the owner's resize to the final grid can land in this call, and the edge is the one
+        // the text keeps from the rows it shows now.
+        let anchor = motionAnchor(finalRows: Int(rows))
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
-        let anchor = motionAnchor(growing: growing)
         host?.holdSurface(size: size, anchor: anchor)
         return anchor
     }
 
-    /// The edge the terminal rides in a pane that grows down: the bottom while the cursor is in the
-    /// lower half of a normal screen, because the owner pulls scrollback down as the grid grows and a
-    /// prompt on the last row would be cut off for the whole spring; the top for a full-screen
-    /// program (the alternate screen keeps its top-left origin) or a cursor near the top.
-    private func motionAnchor(growing: Bool) -> PaneMotionAnchor {
-        guard growing, let surface else { return .top }
+    /// The edge the terminal's text keeps when Ghostty resizes its grid to `finalRows` (`PageList.resizeWithoutReflow`), the
+    /// edge the held surface rides so no row moves away from its rest (Leo 2026-11-06: a close "goes all the way down and
+    /// then back up ... if it's at the top, it doesn't").
+    /// - More rows: Ghostty pulls scrollback down only when the cursor is on the last row; otherwise the new rows are blank
+    ///   ones under the text, which keeps its top. Before, any cursor in the lower half
+    ///   rode the bottom edge: a prompt above the last row with no history to pull showed its text a whole growth above its
+    ///   place at the spring's first frame, then slid back down.
+    /// - Fewer rows: Ghostty trims the blank rows under the cursor first; only the rest go into the history, moving the
+    ///   text up with the bottom edge.
+    /// The bottom when the rows that move are at least half the change, else the top. The alternate screen keeps its top.
+    private func motionAnchor(finalRows: Int) -> PaneMotionAnchor {
+        guard let surface else { return .top }
         var metrics = ghostty_surface_grid_metrics_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport, !metrics.alternate_screen,
               metrics.rows > 0 else { return .top }
-        return Int(metrics.cursor_row) * 2 >= Int(metrics.rows) ? .bottom : .top
+        let rows = Int(metrics.rows), cursor = Int(metrics.cursor_row)
+        let change = abs(finalRows - rows)
+        guard change > 0 else { return .top }
+        // A cursor on the last row has scrolled output into the history, which Ghostty pulls down (the scrollbar report
+        // that would count it lags the output, so it is not read here).
+        if finalRows > rows { return cursor >= rows - 1 ? .bottom : .top }
+        let moved = max(0, change - max(0, rows - 1 - cursor))
+        return moved * 2 >= change ? .bottom : .top
     }
 }
 
@@ -100,8 +115,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that frame's pane size,
 /// never frozen or anchored. The surface takes its pane's size in every frame through the placement
 /// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
-/// re-wraps its text at that size. The program gets its size while it moves, coalesced as Ghostty.app does (cmux-ad m29:
-/// ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
+/// re-wraps its text at that size. The program gets its size while it moves, at most once per refresh (cmux-ad m29,
+/// RESIZE P0 6: ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
 /// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
 /// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
 /// 150 pt off its pane).

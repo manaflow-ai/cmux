@@ -193,14 +193,9 @@ import Testing
     }
 
     @Test func aRefusalThatMadeNoMachineGivesTheRetryANewKey() {
-        for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
-                     "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired",
-                     "cmux.cloud.secrets_unavailable", "cloud.environment.secrets_unavailable", "cmux.cloud.no_snapshot_configured", "cmux.cloud.not_found"] {
-            #expect(CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
-        }
-        for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {
-            #expect(!CloudMachineCreateRetry().isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "an uncertain outcome lost its key: \(code)")
-        }
+        // Each code's reading is cmux-cloud-start-core's (`machine_create`, with its cases); the app asks it.
+        #expect(CloudStartCore().isDefinitiveRefusal(CloudAppOpFailure(code: CloudAppOpFailure.planRequired, message: "")))
+        #expect(!CloudStartCore().isDefinitiveRefusal(CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "")))
         let creation = CloudMachineCreation(windowID: nil)
         let key = creation.request.idempotencyKey
         creation.markRequestSent(team: "team_a")

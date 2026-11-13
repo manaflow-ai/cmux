@@ -33,6 +33,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     /// The hairline between a placed rail and the list.
     var railDivider: NSBox?
     var lastCheckedRail: String?
+    /// The columns layout's parts (NativePopupContent+Columns): each column's scroll view, the
+    /// search row's accessory, the hairlines, and the tallest the columns' band has been since the
+    /// popup opened (it never shrinks while open).
+    var columnViews: [NativePopupColumnView] = []
+    var searchAccessoryTab: NativePopupRailTab?
+    var columnsLines: [NSBox] = []
+    var columnsBandFloor: CGFloat = 0
     private var typeahead = ""
     private var typeaheadTime: TimeInterval = 0
     private(set) var contentHeight: CGFloat = 0
@@ -54,6 +61,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         fields = [:]; editableControls = [:]; rowViews = []; targets = []
         search = nil; title = nil
         railStrip = nil; railDivider = nil; lastCheckedRail = nil
+        columnViews = []; searchAccessoryTab = nil; columnsLines = []; columnsBandFloor = 0
     }
 
     func update(_ incoming: NativePopupModel) {
@@ -68,7 +76,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             if focused?.value === search {
                 keepsField = next.search?.id == focusedID && next.search?.disabled != true
             } else {
-                keepsField = ((next.rail ?? []) + next.rows + (next.footer ?? [])).contains {
+                keepsField = next.allRows.contains {
                     $0.id == focusedID && $0.kind == .textField && $0.disabled != true
                 }
             }
@@ -89,7 +97,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
         let retainedSliders = retainSliders(updating: next)
-        if retireComposition || !retainedSliders && (next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer) || next.railPlacement != model?.railPlacement || next.title != model?.title || next.search?.id != model?.search?.id {
+        if retireComposition || !retainedSliders && (next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer ||
+            next.columns != model?.columns || next.searchAccessory != model?.searchAccessory) || next.railPlacement != model?.railPlacement || next.title != model?.title || next.search?.id != model?.search?.id {
             if !retireComposition, isTrackingSlider { pendingInteractionModel = next; return }
             pendingInteractionModel = nil
             rebuild(next)
@@ -116,7 +125,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if next.highlighted == nil, selectionReason == "none", !auto { selected = nil }
         if selected != priorSelection { selectionReason = "none" }
         if !(enabledRows + enabledRailRows).contains(where: { $0.0.id == selected }) {
-            selected = auto ? enabledRows.first?.0.id : nil
+            selected = auto ? defaultRowID : nil
             selectionReason = "none"
         }
         paintSelection()
@@ -162,6 +171,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         railStrip = nil
         railDivider = nil
+        columnViews = []
+        searchAccessoryTab = nil
+        columnsLines = []
+        if model.hasColumns {
+            addColumns(model)
+            return
+        }
         if let placement = model.railPlacement, let rail = model.rail, !rail.isEmpty {
             let rows = model.rows + (model.footer ?? [])
             let hasIcons = rows.contains { $0.icon != nil }
@@ -175,7 +191,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         rowViews.forEach { addSubview($0.1) }
     }
 
-    private func makeRow(_ row: NativePopupRow, hasIconColumn: Bool) -> NSView {
+    func makeRow(_ row: NativePopupRow, hasIconColumn: Bool) -> NSView {
         if row.kind == .separator { return NSBox.separator() }
         if row.kind == .textField {
             let field = NSTextField(string: row.value ?? "")
@@ -338,6 +354,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     private func layoutRows() {
+        if model?.hasColumns == true {
+            contentHeight = layoutColumns(title: title, search: search)
+            if frame.height != contentHeight { setFrameSize(NSSize(width: frame.width, height: contentHeight)) }
+            return
+        }
         if let placement = model?.railPlacement, model?.rail?.isEmpty == false {
             contentHeight = layoutPlacedRail(placement, title: title, search: search)
             if frame.height != contentHeight { setFrameSize(NSSize(width: frame.width, height: contentHeight)) }

@@ -6,6 +6,7 @@
 // effects run before paint); a render React throws away is never drawn.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -27,17 +28,13 @@ const React = await import("react");
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useTurnCheckpoints } = await import("../src/agent-session/acpmux/changes/useTurnCheckpoints");
-const { useWorktree } = await import("../src/agent-session/acpmux/header/WorktreePill");
-const { isNewChat } = await import("../src/agent-session/acpmux/EmptyState");
+const { useWorktree } = await import("../src/agent-session/acpmux/header/worktreePillModel");
+const { isNewChat } = await import("../src/agent-session/acpmux/emptyStateModel");
 
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));

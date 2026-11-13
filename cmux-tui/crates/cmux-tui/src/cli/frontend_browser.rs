@@ -153,8 +153,7 @@ pub(super) fn open_in_app(
     // The caller's session: no session named, by the server's options or
     // by the call (a named session is in `global.session` or the plan).
     let named = plan.params.get("session").and_then(Value::as_str);
-    let caller_route = global.socket.is_none()
-        && global.session.is_none()
+    let caller_route = super::wire::routes_to_caller_session(global)
         && named.is_none_or(|session| session == "current");
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(open(reader, &mut app, plan, caller_route, key))
@@ -463,7 +462,10 @@ fn mutate(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), None)
+                .unwrap_or(error),
+        )),
     }
 }
 

@@ -58,6 +58,12 @@ pub(crate) struct ResourceMutationPlan {
     /// The state step changes no column, dock flag, column membership or
     /// pane tab list (see [`Self::keeping_dock_columns`]).
     keeps_dock_columns: bool,
+    /// The deltas restate every live topology resource (a full projection):
+    /// the commit may seed the registry's public fold with them.
+    pub(crate) restates_all: bool,
+    /// The deltas are a topology projection's: the commit drops the upserts
+    /// the journal already states (the registry's public fold).
+    pub(crate) prunes_stated: bool,
     state_step: StateStep,
 }
 
@@ -77,6 +83,8 @@ impl ResourceMutationPlan {
             state_write: None,
             layout_op: None,
             keeps_dock_columns: false,
+            restates_all: false,
+            prunes_stated: false,
             state_step: StateStep::Apply(Box::new(apply)),
         }
     }
@@ -189,6 +197,19 @@ impl ResourceMutationPlan {
             return Err(error);
         }
         Ok(Some(before))
+    }
+
+    /// Declare that the deltas are a topology projection's
+    /// (`ResourceEffectProjection::changes`): the commit drops the upserts
+    /// the journal already states, and a full projection's (`restates_all`),
+    /// unpruned, may seed the registry's public fold. Every plan built from
+    /// a projection declares it: one that did not journaled an upsert of
+    /// every live resource on each commit (2.5 MB for one `tab.update` in a
+    /// session of 826 workspaces).
+    pub(crate) fn projected(mut self, restates_all: bool) -> Self {
+        self.restates_all = restates_all;
+        self.prunes_stated = true;
+        self
     }
 
     /// Write state rows in the patch's transaction.

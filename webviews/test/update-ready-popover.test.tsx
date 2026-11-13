@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the popup names the full build, lists the highlights and has See all changes once", async () => {
@@ -64,7 +62,7 @@ test("the popup names the full build, lists the highlights and has See all chang
   const text = host.textContent ?? "";
   // A short, quiet title (Leo 2026-10-19), with no tooltip (2026-10-31, Lawrence on the Updated
   // card's: "seems excessive"): a click on the version copies the full build instead.
-  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050");
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 3801702 → nightly 3845050");
   expect(host.querySelector(".wn-pop [title]")).toBeNull();
   const copied: string[] = [];
   Object.defineProperty(window.navigator, "clipboard", {
@@ -83,7 +81,7 @@ test("the popup names the full build, lists the highlights and has See all chang
   });
   expect(copied).toEqual(["1.0.0-nightly.3845050428001"]);
   // "Copied" in the heading's own line, after the version: nothing pops over the list.
-  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3845050 · Copied");
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 3801702 → nightly 3845050 · Copied");
   expect(host.querySelector(".wn-pop [title]")).toBeNull();
   delete (window.navigator as { clipboard?: unknown }).clipboard;
   expect(text).toContain("Workspace groups you can see at a glance");
@@ -126,8 +124,9 @@ test("the Updated card says what it updated to, What's new in this build and has
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The title's version is the copy button (CopyVersion), then the card's own two.
-  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
+  // The title's version is the copy button (CopyVersion), then the x. The title line is "Updated to …"
+  // alone; What's New leads the open preview (8d5626228).
+  expect(buttons).toEqual(["Nightly", "Close"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
@@ -178,7 +177,7 @@ test("the popup and the card read notes published before the readable rules as t
   );
   const items = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.textContent);
   // The perf-fanout line and the export-backdrop-art tool line are internal work.
-  expect(items).toEqual(["1Keep the Mac awake while agents work"]);
+  expect(items).toEqual(["Keep the Mac awake while agents work"]);
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
@@ -314,7 +313,7 @@ test("a change's picture shows inline and a click on it opens the notes", async 
       />,
     ),
   );
-  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3932981");
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 3917159 → nightly 3932981");
   const pictures = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.querySelectorAll("img").length);
   expect(pictures).toEqual([1, 0]);
   expect(host.querySelectorAll(".wn-pop-media").length).toBe(1);
@@ -358,7 +357,9 @@ test("the update card's hover card says which version it updates from", async ()
       />,
     ),
   );
-  expect(host.querySelector(".wn-pop-from")?.textContent).toBe("Updating from nightly 3801702");
+  // One heading line, version to version (Leo 2026-11-05: "this is too big"); no second from line.
+  expect(host.querySelector(".wn-pop-title")?.textContent).toBe("nightly 3801702 → nightly 3845050");
+  expect(host.querySelector(".wn-pop-from")).toBeNull();
   expect(host.textContent).toContain("Workspace groups");
   expect(host.textContent).toContain("See all changes");
 });

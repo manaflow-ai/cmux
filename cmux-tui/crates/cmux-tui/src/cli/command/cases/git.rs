@@ -5,6 +5,33 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
 
     vec![
         (vec!["git", "status", "--path", "/repo"], "git.status"),
+        (vec!["git", "comments", "list", "--root", "/repo"], "diff.comments.list"),
+        (
+            vec![
+                "git",
+                "comments",
+                "save",
+                "--root",
+                "/repo",
+                "--comment",
+                r#"{"filePath":"src/a.rs","side":"new","startLine":3,"endLine":3,"message":"Rename"}"#,
+            ],
+            "diff.comments.save",
+        ),
+        (
+            vec![
+                "git",
+                "comments",
+                "delete",
+                "--root",
+                "/repo",
+                "dc_1",
+                "dc_2",
+                "--versions-json",
+                r#"{"dc_1":"2026-11-08T00:00:00Z"}"#,
+            ],
+            "diff.comments.delete",
+        ),
         (vec!["git", "branches", "--path", "/repo", "--limit", "50"], "git.branches"),
         (
             vec![
@@ -54,6 +81,10 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
         ),
         (vec!["git", "worktree", "apply", "--path", "/repo"], "git.worktree.apply"),
         (vec!["git", "worktree", "remove", "--path", "/repo", "--discard"], "git.worktree.remove"),
+        (
+            vec!["git", "worktree", "setup", "--path", "/repo", "--since", "10"],
+            "git.worktree.setup",
+        ),
         (
             vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
             "git.files.search",

@@ -3,6 +3,7 @@ public import CmuxHomeCore
 public import CmuxNextActions
 public import CmuxNextCloud
 import CmuxNextHome
+import CmuxNextHomeModel
 
 /// `home.inviteToTeam`'s one run: the active team's email invite, always through
 /// ``HomeTeamInviteSheet``.

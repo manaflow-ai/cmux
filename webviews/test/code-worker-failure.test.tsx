@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { WatchedWorker } from "../src/agent-session/acpmux/conversation/highlightWatchdog";
+import { teardownDom } from "./support/domTeardown";
 
 let creates = 0;
 let renders = 0;
@@ -82,13 +83,9 @@ afterEach(async () => {
   creates = renders = cleanups = 0;
   poolWorks = true;
 });
-afterAll(() => {
+afterAll(async () => {
   mock.restore();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 async function draw(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
@@ -138,7 +135,7 @@ test("a mounted highlighted card drops Pierre on worker failure and can recover 
 
 test("a streaming handoff stays readable when its eager worker fails after mount", async () => {
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
   await loadHighlightedCode();
   document.documentElement.dataset.agentMotion = "off";
   await draw(<Markdown streaming>{"```ts\nconst value = 3;\n```\n\nStill arriving"}</Markdown>);

@@ -154,6 +154,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine tunnel",
+        &[(
+            "Ask to put this Mac in its team's peer map; a shell is refused, the cmux app does it",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel attach",
+        )],
+    ),
+    (
+        "machine tunnel attach",
+        &[(
+            "Ask to put this Mac in its team's peer map; a shell is refused, the cmux app does it",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel attach --network team_01",
+        )],
+    ),
+    (
+        "machine tunnel detach",
+        &[(
+            "Ask to take this Mac out of its team's peer map; a shell is refused",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel detach",
+        )],
+    ),
+    (
+        "machine tunnel rekey",
+        &[(
+            "Ask for a new WireGuard key for this Mac; a shell is refused",
+            "printf '%s\\n' \"$TOKEN\" | acpmux machine tunnel rekey",
+        )],
+    ),
+    (
         "machine leave",
         &[
             ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
@@ -313,6 +341,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List tailnet machines that could be added", "acpmux machine candidates"),
             ("Also try key-only ssh to each online machine", "acpmux machine candidates --probe"),
+        ],
+    ),
+    (
+        "machine key",
+        &[
+            ("Print the line a new machine adds to authorized_keys", "acpmux machine key"),
+            ("Make an ed25519 key when this machine has none", "acpmux machine key --create"),
+        ],
+    ),
+    (
+        "machine agents",
+        &[
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
+            ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
         ],
     ),
     (

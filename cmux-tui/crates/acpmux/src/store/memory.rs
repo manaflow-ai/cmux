@@ -2,6 +2,15 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: every append on this thread is refused, as a journal whose backlog is full refuses.
+    pub(crate) static REFUSE_APPENDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: this store reads as one that cannot write a fork's history, so a fork copies the
+    /// chat's records (`hub/fork.rs`) instead of referencing them.
+    pub(crate) static COPY_FORKS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Default)]
 pub struct MemoryStore {
     inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
@@ -22,6 +31,10 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
+        #[cfg(test)]
+        if REFUSE_APPENDS.with(std::cell::Cell::get) {
+            anyhow::bail!("refused (test)");
+        }
         let mut g = self.inner.lock_or_recover();
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
@@ -32,6 +45,13 @@ impl Store for MemoryStore {
             }
         }
         Ok(())
+    }
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let mut g = self.inner.lock_or_recover();
+        if let Some((_, events)) = g.get_mut(id) {
+            events.retain(|e| e.seq <= after);
+        }
+        Ok(true)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let g = self.inner.lock_or_recover();
@@ -82,8 +102,41 @@ impl Store for MemoryStore {
             before = lowest;
         }
     }
+    fn writes_history(&self) -> bool {
+        #[cfg(test)]
+        if COPY_FORKS.with(std::cell::Cell::get) {
+            return false;
+        }
+        true
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Ok(Some(Box::new(MemoryHistory { store: self, id: id.to_owned(), records: Vec::new() })))
+    }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
+        Ok(())
+    }
+}
+
+/// [`MemoryStore::history_writer`]: the records go in front of the log at `commit`.
+struct MemoryHistory<'a> {
+    store: &'a MemoryStore,
+    id: String,
+    records: Vec<EventRecord>,
+}
+
+impl HistoryWriter for MemoryHistory<'_> {
+    fn write(&mut self, record: &EventRecord) -> Result<()> {
+        self.records.push(record.clone());
+        Ok(())
+    }
+    fn commit(self: Box<Self>) -> Result<()> {
+        let mut g = self.store.inner.lock_or_recover();
+        if let Some((_, events)) = g.get_mut(&self.id) {
+            let mut records = self.records;
+            records.append(events);
+            *events = records;
+        }
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 /// A participant mentioned in a message: a range of the message text, in
 /// UTF-16 code units (the unit of `NSString`, `NSRange` and JavaScript
 /// strings, so ranges travel unchanged between the wire and the text views).
-public struct ConversationMention: Sendable, Hashable {
+public struct ConversationMention: Sendable, Hashable, Codable {
     public var participantID: String
     public var location: Int
     public var length: Int

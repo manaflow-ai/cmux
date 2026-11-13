@@ -115,7 +115,7 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &peer, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer, &args, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
@@ -128,6 +128,8 @@ pub async fn serve(
             crate::machine::serve(&sender, &name, &grants).await
         }
         "needs-you" => crate::needs_you::serve(&sender, receiver).await,
+        "appearance" => crate::appearance::serve(&sender, receiver).await,
+        "appearance-wallpaper" => crate::appearance::serve_wallpaper(&sender, &args).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
@@ -202,13 +204,16 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
 /// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
-pub const CAPABILITIES: [&str; 6] = [
+/// `appearance-v1`: the `appearance` and `appearance-wallpaper` services (the Mac's theme and
+/// wallpaper, `appearance.rs`).
+pub const CAPABILITIES: [&str; 7] = [
     "removal-v1",
     "file-preview-v1",
     "localhost-forward-v1",
     "cloud-directory-v1",
     "cloud-acpmux-v1",
     "needs-you-v1",
+    "appearance-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
@@ -376,32 +381,39 @@ async fn cloud_acpmux(
     let mut phone_message = MessageAssembler::default();
     let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
-        tokio::select! {
-            event = receiver.recv() => match event {
-                Some(ChannelEvent::Data(bytes)) => {
-                    let Some(message) = phone_message.push(&bytes)? else { continue; };
-                    let request: Value = serde_json::from_str(message.as_str())
-                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
-                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+    let served = async {
+        loop {
+            tokio::select! {
+                event = receiver.recv() => match event {
+                    Some(ChannelEvent::Data(bytes)) => {
+                        let Some(message) = phone_message.push(&bytes)? else { continue; };
+                        let request: Value = serde_json::from_str(message.as_str())
+                            .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                        let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                        if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                    }
+                    Some(ChannelEvent::Closed(_)) | None => break,
+                },
+                native = read_cloud_line(&mut read, &mut native_line) => {
+                    let line = native?;
+                    let response: Value = serde_json::from_slice(&line)
+                        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                    let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
                     if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
                 }
-                Some(ChannelEvent::Closed(_)) | None => break,
-            },
-            native = read_cloud_line(&mut read, &mut native_line) => {
-                let line = native?;
-                let response: Value = serde_json::from_slice(&line)
-                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
-                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
-            }
-            _ = tick.tick() => {
-                let effects = adapter.expire();
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                _ = tick.tick() => {
+                    let effects = adapter.expire();
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                }
             }
         }
+        Ok::<(), Refusal>(())
     }
-    Ok(())
+    .await;
+    // However the channel ended, a start still in flight closes its empty tab on the machine
+    // (best effort: the carrier may be gone too).
+    let _ = apply_cloud_effects(&mut write, sender, adapter.abandon()).await;
+    served
 }
 
 const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
@@ -1124,6 +1136,7 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
 async fn acpmux(
     config: &ServiceConfig,
     peer: &Peer,
+    args: &Value,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
@@ -1143,6 +1156,8 @@ async fn acpmux(
         None => connect_dashboard(&config.acpmux).await?,
     };
     let (mut ws_sink, mut ws_source) = socket.split();
+    // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
+    let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
     let mut exposure = peer.session_exposure.clone();
     let mut bound_sessions = HashSet::<String>::new();
@@ -1252,7 +1267,7 @@ async fn acpmux(
                             }
                         }
                     }
-                    if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
+                    if sender.send(crate::link_deflate::frame(deflate, &text).await).await.is_err() {
                         break;
                     }
                 }
@@ -2170,7 +2185,8 @@ mod tests {
                 "localhost-forward-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
-                "needs-you-v1"
+                "needs-you-v1",
+                "appearance-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2186,6 +2202,7 @@ mod tests {
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
+                "appearance-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

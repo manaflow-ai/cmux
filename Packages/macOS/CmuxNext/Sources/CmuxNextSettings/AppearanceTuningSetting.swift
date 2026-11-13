@@ -6,15 +6,11 @@ public import CmuxNextDesign
 /// (`appearance.experimentalControls`): the gate decides whether the app
 /// applies them to the window tint, while these keys hold the values.
 public struct AppearanceTuningSetting: Sendable {
-    public static let glassTransparencyPath = ["appearance", "glassTransparency"]
-    public static let huePath = ["appearance", "hue"]
-    public static let saturationPath = ["appearance", "saturation"]
+    // Each axis's path, range and default are generated from schemas/settings/source/appearance.json.
 
-    public static let glassTransparencyRange: ClosedRange<Double> = 0...1
-    public static let hueRange: ClosedRange<Double> = 0...1
-    public static let saturationRange: ClosedRange<Double> = 0...2
-
-    public static let fallback = AppearanceTuning.identity
+    /// The values when no axis is set.
+    public static let fallback = AppearanceTuning(glassTransparency: glassTransparencyDefault, hue: hueDefault,
+                                                  saturation: saturationDefault)
 
     public init() {}
 

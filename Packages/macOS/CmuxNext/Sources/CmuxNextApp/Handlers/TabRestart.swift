@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextWindowRules
 
 /// `tab.restart` (ownership.md 3.2, cx-7e7b): an ended shell restarts under its terminal id (`restart-tab`);
 /// a failed host link is Recover (the daemon rehosts the same running shell). The overlay button, tab menu,
@@ -8,10 +9,13 @@ import CmuxNextTerminal
 enum TabRestart {
     static let action: ActionID = "tab.restart"
 
-    /// A daemon terminal tab whose shell ended, or whose host link failed.
-    static func isRestartable(_ tab: TabModel) -> Bool {
-        tab.kind == .pty && (tab.dead || tab.terminalState == .failed)
+    /// Why `tab` cannot restart (Rust's `tabs::restart_refusal`: a daemon terminal tab whose shell ended,
+    /// or whose host link failed, can), nil when it can; `answered` false when the FFI does not answer.
+    static func refusal(_ tab: TabModel) -> (refusal: String?, answered: Bool) {
+        WindowRules().restartRefusal(pty: tab.kind == .pty, dead: tab.dead, failed: tab.terminalState == .failed)
     }
+
+    static func isRestartable(_ tab: TabModel) -> Bool { refusal(tab) == (nil, true) }
 
     /// The tab menu's rows to hide: Restart unless the tab can restart.
     static func hiddenMenuItems(_ tab: TabModel?) -> Set<ActionID> {
@@ -33,8 +37,11 @@ enum TabRestart {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind(action, unavailable: ctx.needs(DaemonCapability.tabRestart.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
-            guard isRestartable(tab) else { return ctx.refuse(RefusalStrings.tabNotDead) }
+            switch refusal(tab) {
+            case (nil, true): break
+            case ("notATerminal"?, _): return ctx.refuse(RefusalStrings.notATerminal)
+            default: return ctx.refuse(RefusalStrings.tabNotDead)
+            }
             let surface = tab.surface
             ctx.send("restart-tab") { _ = try await $0.request(RestartTabRequest(surface: surface)) }
         })
@@ -53,6 +60,10 @@ enum TerminalTabContent {
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
+        // A pane that still starts offers Close in its label: Close Tab on this tab, the one path of
+        // its shortcut on the focused pane and of the tab's close button (the tab keeps its id at the confirm).
+        let close = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        entry.session.view.onCloseStarting = { [weak registry = services.registry] in _ = registry?.perform("closeTab", invocation: close) }
         return .terminal(entry)
     }
 }

@@ -39,7 +39,8 @@ import Testing
 
     /// Runs the page's terminal pick and reports whether it asked where links go (a pick routed
     /// through ``LinkOpener`` reads `layout.linkPlacement` to find the pane on the right or split).
-    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, followsLinks: Bool? = nil) throws -> Bool {
+    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, followsLinks: Bool? = nil,
+                                                  request: AgentPaneOpenTab = AgentPaneOpenTab(kind: .terminal, text: "", run: false)) throws -> Bool {
         let (services, pane, page) = try Self.pane(withTerminal: withTerminal, followsLinks: followsLinks)
         defer {
             pane.teardown()
@@ -50,7 +51,7 @@ import Testing
             consulted = true
             return placement
         }
-        NewTabPage.replace(page, with: AgentPaneOpenTab(kind: .terminal, text: "", run: false), cwd: nil, in: pane)
+        NewTabPage.replace(page, with: request, cwd: nil, in: pane)
         return consulted
     }
 
@@ -68,6 +69,39 @@ import Testing
                 "the page's pick went to the pane on the right or a new split instead of the page's tab")
         #expect(try !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true, followsLinks: false),
                 "the page's pick went to a new column instead of the page's tab")
+    }
+
+    /// The page's New terminal and New browser tab buttons (`inPlace`) take the page's tab, never a
+    /// split, also beside another tab with picks following links (Lucas 2026-11-07).
+    @Test(arguments: [AgentPaneOpenTab(kind: .terminal, text: "", run: false, inPlace: true),
+                      AgentPaneOpenTab(kind: .browser, text: "", inPlace: true)])
+    func theCreateButtonsTakeThePagesPlace(request: AgentPaneOpenTab) throws {
+        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, request: request),
+                "a New Tab page create button opened in the pane on the right or a new split instead of the page's tab")
+    }
+
+    /// Lawrence 2026-11-11: "when there is new tab and i type url and press enter, it opens to the right, but we
+    /// should instead just open it as replacement of current page, so a navigation". A typed address, a web search,
+    /// or a visited page navigates the page's own tab, as Return in a browser's new tab does, also
+    /// beside another tab with picks following links.
+    @Test(arguments: [AgentPaneOpenTab(kind: .browser, text: "example.com"),
+                      AgentPaneOpenTab(kind: .browser, text: "https://example.com/path?q=1"),
+                      AgentPaneOpenTab(kind: .browser, text: "how do tides work", search: true)])
+    func aBrowserNavigationTakesThePagesPlace(request: AgentPaneOpenTab) throws {
+        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, request: request),
+                "Return on a typed address or search opened to the right instead of navigating the New Tab page's tab")
+        #expect(try !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true, request: request),
+                "Return on a typed address or search opened a new column instead of navigating the New Tab page's tab")
+    }
+
+    /// The native New Tab page's Return on an address navigates its tab too.
+    @Test func aNativeBrowserNavigationBesideAnotherTabTakesThePagesPlace() throws {
+        let (services, pane, page) = try Self.pane(withTerminal: true)
+        defer { pane.teardown() }
+        var consultedPlacement = false
+        services.linkOpener.placement = { consultedPlacement = true; return .splitRight }
+        _ = NewTabPage.submitNative("example.com", kind: .browser, search: false, cwd: "/project", in: pane, page: page)
+        #expect(!consultedPlacement, "the native page's typed address opened to the right instead of navigating its tab")
     }
 
     /// Nothing else in the pane: the page becomes what it opened, as it always did.

@@ -14,7 +14,7 @@ import { ChevronRight } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { AgentCard } from "./AgentCard";
-import { elapsed, running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, useNow } from "./SubagentGroup";
+import { elapsed, running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, useNow } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { SubsessionContext, useSenderChat, type SubsessionState } from "./subsessions";
 
@@ -55,6 +55,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       // lines too"): the model and the machine beside the name, its reply and Raw in the panel.
       model={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
       disclosure
+      disclosureChevron={false}
       disclosureKey={`agent-run:${agent.id}`}
       state={cardState(agent)}
       time={formatDuration(elapsed(agent, now))}

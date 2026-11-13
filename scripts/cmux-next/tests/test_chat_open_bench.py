@@ -38,6 +38,29 @@ def load_bench(*args):
     return module
 
 
+def subagent_turn(sid, count, drop=None):
+    """A subagents turn as acpmux stores it (`{"seq","at","dir","kind","msg"}` lines): each child's spawn,
+    its thought and calls under its own session id, its completion, then the chat's reply. A `drop` child
+    has no spawn line."""
+    def update(session, body):
+        return {"seq": 0, "at": 0, "dir": "in", "kind": "notification",
+                "msg": {"method": "session/update", "params": {"sessionId": session, "update": body}}}
+
+    lines = [update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Splitting."}})]
+    for k in range(count):
+        child = f"{sid}-sub-{k}"
+        if k != drop:
+            lines.append(update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": child, "name": f"Auditor {k}"}))
+        lines.append(update(child, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"Reading area {k} first."}}))
+        lines.append(update(child, {"sessionUpdate": "tool_call", "toolCallId": f"{child}-c0", "status": "completed"}))
+    for k in range(count):
+        lines.append(update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": f"{sid}-sub-{k}", "state": "completed"}))
+    lines.append(update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Every subagent reported."}}))
+    for seq, line in enumerate(lines, 1):
+        line["seq"] = seq
+    return lines
+
+
 class FakeApp:
     def __init__(self, replies):
         self.replies = replies
@@ -45,7 +68,9 @@ class FakeApp:
 
     def action(self, action, *, focus=False, **args):
         self.calls.append((action, focus, args))
-        return self.replies.get(action, {})
+        reply = self.replies.get(action, {})
+        # A list answers each call in turn (the last answer repeats).
+        return (reply.pop(0) if len(reply) > 1 else reply[0]) if isinstance(reply, list) else reply
 
 
 def open_(first, empty=0.0, **extra):
@@ -56,18 +81,18 @@ def open_(first, empty=0.0, **extra):
 class SubagentClickTests(unittest.TestCase):
     class Run:
         """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` or `selector` names
-        the element; one the page does not show answers "no visible element matches". `hover` answers the same way
-        and `chat_state` with an empty state."""
+        the element; one the page does not show answers "no visible element matches". `chat_state` answers with an
+        empty state. (`hover` takes a point, never a selector, so the bench never asks it by selector.)"""
         def __init__(self, shown):
-            self.shown, self.clicked, self.probed = shown, [], []
+            self.shown, self.clicked = shown, []
 
         def rpc(self, method, params=None, timeout=40):
             assert method == "debug.agent_pane"
             if params["action"] == "chat_state":
                 return {"pane": "p"}
             target = params.get("text") or params.get("selector")
-            assert target and params["action"] in ("click", "hover")
-            (self.clicked if params["action"] == "click" else self.probed).append(target)
+            assert target and params["action"] == "click"
+            self.clicked.append(target)
             if target not in self.shown:
                 return {"pane": "p", "error": "no visible element matches"}
             return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
@@ -107,10 +132,27 @@ class SubagentClickTests(unittest.TestCase):
         run = self.Run({".cv-tool"})
         reply = bench.click_subagent(run)
         self.assertEqual(reply["error"], "no visible element matches")
-        self.assertEqual(run.probed, list(bench.PROBE_SELECTORS))
-        self.assertEqual(reply["probe"][".cv-tool"], "shown")
-        self.assertEqual(reply["probe"]["button.cv-subagent-done"], "no visible element matches")
-        self.assertIn("chat_state", reply["probe"])
+        self.assertEqual(set(reply["probe"]), {"chat_state"})
+
+    def test_a_finished_turns_closed_group_opens_before_the_click(self):
+        # The seeded chat's subagents all ended, so their group starts closed and none of their lines is in the page.
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.GROUP_TOGGLE})
+        answer = run.rpc
+
+        def rpc(method, params=None, timeout=40):
+            reply = answer(method, params, timeout)
+            if params.get("selector") == bench.GROUP_TOGGLE and reply.get("clicked"):
+                run.shown.discard(bench.GROUP_TOGGLE)
+                run.shown.add(bench.SUBAGENT_LINES[0])
+            return reply
+
+        run.rpc = rpc
+        with mock.patch.object(bench.time, "sleep"):
+            self.assertEqual(bench.open_subagent_groups(run), 1)
+        reply = bench.click_subagent(run)
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINES[0])
+        self.assertIs(reply["clicked"], True)
 
 
 class SummaryTests(unittest.TestCase):
@@ -184,35 +226,39 @@ class OpenTests(unittest.TestCase):
     def setUp(self):
         self.bench = load_bench()
 
-    def test_open_shows_the_workspace_it_created(self):
-        # By its ref: selectLast read the sidebar's order, which can lag the open on a loaded host,
+    def test_open_shows_the_workspace_by_the_key_it_named(self):
+        # By its own key: selectLast read the sidebar's order, which can lag the open on a loaded host,
         # and showed the previous workspace (a loaded fleet Mac: every open after the first).
         app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
+        key = reply["key"]
         self.assertEqual([(c[0], c[1], c[2]) for c in app.calls],
-                         [("agent.openSessionWorkspace", True, {"session": "s1"}),
-                          ("goToWorkspace", True, {"workspace": "ws_1"})])
+                         [("agent.openSessionWorkspace", True, {"wait": False, "session": "s1", "key": key}),
+                          ("goToWorkspace", True, {"workspace": key})])
         self.assertEqual(reply["created"], ["ws_1"])
-        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}})
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}, "show_tries": 1})
+        self.assertEqual(list(reply["wall"]), ["open_sent", "open_replied", "show_replied"])
 
-    def test_open_with_no_created_ref_falls_back_to_the_last_workspace(self):
-        app = FakeApp({"agent.openSessionWorkspace": {}, "workspace.selectLast": {}})
+    def test_the_show_asks_again_until_the_app_knows_the_workspace(self):
+        # The open answers once its handler ran; the app lists the workspace a moment later.
+        app = FakeApp({"goToWorkspace": [{"error": {"code": "not_found"}}, {"error": {"code": "not_found"}}, {}]})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
-        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply["shown"]["via"], "workspace.selectLast")
+        self.assertEqual([c[0] for c in app.calls],
+                         ["agent.openSessionWorkspace", "goToWorkspace", "goToWorkspace", "goToWorkspace"])
+        self.assertEqual(reply["shown"], {"via": "goToWorkspace", "reply": {}, "show_tries": 3})
 
-    def test_a_refused_switch_falls_back_and_says_so(self):
-        app = FakeApp({"agent.openSessionWorkspace": {"created": ["ws_1"]},
-                       "goToWorkspace": {"error": "No workspace ws_1."}})
+    def test_a_refused_show_is_asked_once_and_said(self):
+        app = FakeApp({"goToWorkspace": {"error": "focus refused"}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
-        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace", "workspace.selectLast"])
-        self.assertEqual(reply["shown"]["refused"], {"error": "No workspace ws_1."})
+        self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace", "goToWorkspace"])
+        self.assertEqual(reply["shown"]["reply"], {"error": "focus refused"})
 
     def test_a_refused_open_shows_nothing(self):
         app = FakeApp({"agent.openSessionWorkspace": {"error": "daemon offline"}})
         reply = self.bench.open_workspace(types.SimpleNamespace(app=app), "s1")
         self.assertEqual([c[0] for c in app.calls], ["agent.openSessionWorkspace"])
-        self.assertEqual(reply, {"error": "daemon offline"})
+        self.assertEqual(reply["error"], "daemon offline")
+        self.assertNotIn("shown", reply)
 
     def test_new_workspaces_go_last(self):
         # selectLast shows the open's workspace only when new ones go to the bottom (default: top).
@@ -246,6 +292,17 @@ class TableTests(unittest.TestCase):
         self.assertNotIn("FAILED:", table)
         self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
 
+
+    def test_the_table_says_what_each_open_found_in_the_spare_pool(self):
+        # Every subagent open was refused the prewarmed page ("touched by featureTips") and made a
+        # cold one; the table said only that the open was slow.
+        bench = load_bench("--conditions", "idle", "--cases", "subagent")
+        refused = {**open_(600, 300), "marks_ms": {"action": 0, "spare_refused": 250}, "note": "touched by featureTips"}
+        adopted = {**open_(200, 50), "marks_ms": {"action": 0, "spare_adopted": 5}}
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
+                                "raw": {"idle": {"subagent": [refused, refused, adopted]}}})
+        self.assertIn("spare pool, subagent idle: adopted 1/3, refused 2/3 (touched by featureTips)", table)
+        self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
 
 
 class ClickRowTests(unittest.TestCase):
@@ -303,10 +360,21 @@ class SeedCacheTests(unittest.TestCase):
         def new_chat(self, text):
             return self._chat([text])
 
+        # How the seeding daemon writes a subagents turn: what chat_open_agent.py's `subagents` sends, one stored
+        # line each. `drop` names a child whose spawn the log lacks, as the bad 328 KB template of 2026-11-05 did
+        # (its children's work drew as the chat's own); `bad` says how many turns write it so.
+        bad = 0
+
         def acpmux(self, *args, timeout=None):
             type(self).sends += 1
             chat = self.chats[args[1]]
-            chat["events"]["000000.ndjson"] += f'{{"sid": "{args[1]}", "t": "{args[2]}"}}\n'.encode()
+            text = args[2]
+            if text.startswith("subagents:"):
+                lines = subagent_turn(args[1], int(text[10:]), drop=0 if type(self).bad > 0 else None)
+                type(self).bad -= 1
+            else:
+                lines = [{"sid": args[1], "t": text}]
+            chat["events"]["000000.ndjson"] += "".join(json.dumps(line) + "\n" for line in lines).encode()
             return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
         def templates(self):
@@ -344,7 +412,7 @@ class SeedCacheTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.Peer.started = self.Peer.sends = 0
+        self.Peer.started = self.Peer.sends = self.Peer.bad = 0
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -373,6 +441,37 @@ class SeedCacheTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "cache")))
         self.run_seed("--no-seed-cache")
         self.assertEqual(self.Peer.started, 2)
+
+    def test_a_subagent_template_whose_child_has_no_spawn_is_seeded_again(self):
+        self.Peer.bad = 1
+        _home, _per, seeded = self.run_seed("--no-seed-cache")
+        self.assertEqual(self.Peer.bad, -1)  # the subagents turn ran twice, the second one good
+        self.assertIn("seeded again", seeded["subagent_template"])
+        self.assertIn("before its spawn", seeded["subagent_template"])
+
+    def test_a_subagent_template_bad_on_every_seed_stops_the_bench_as_seed_invalid(self):
+        self.Peer.bad = 99
+        with self.assertRaises(SystemExit) as stopped:
+            self.run_seed("--no-seed-cache")
+        self.assertIn("seed invalid", str(stopped.exception))
+
+    def test_a_bad_cached_subagent_template_is_never_used(self):
+        self.Peer.bad = 99
+        with self.assertRaises(SystemExit):
+            self.run_seed()  # the bad seeds are never cached
+        self.Peer.bad = 0
+        _home, _per, seeded = self.run_seed()
+        self.assertEqual(seeded["seed_cache"]["subagent"], "miss")
+        self.assertEqual(seeded["subagent_template"], "ok")
+
+    def test_a_good_subagent_template_passes(self):
+        bench = load_bench("--runs", "5")
+        sid = "chat-1"
+        events = "".join(json.dumps(line) + "\n" for line in subagent_turn(sid, 6)).encode()
+        self.assertIsNone(bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+        events = "".join(json.dumps(line) + "\n" for line in subagent_turn(sid, 6, drop=3)).encode()
+        self.assertIn("before its spawn", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
+        self.assertIn("spawned 5 of 6", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
 
     def test_a_new_turn_count_seeds_only_the_big_chat(self):
         self.run_seed()

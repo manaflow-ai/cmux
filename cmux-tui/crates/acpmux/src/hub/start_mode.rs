@@ -92,8 +92,8 @@
 //! under a starter that asks). A mode the start names is held by
 //! `start_gate.rs` (a mode that does not ask needs the starter's exact mode
 //! or the person), and a sub-session by `subsession_guard.rs`. A policy the
-//! start names is not held to the starter (`hub/person.rs`: open to the unix
-//! socket since before this).
+//! start names is held to the starter unless the starter runs in full access
+//! (`full_access_children.rs`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -110,6 +110,11 @@ pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
 
 /// Mode ids that are a temporary toggle, never inherited by a sub-session.
 const TOGGLE_MODES: [&str; 1] = ["plan"];
+
+/// Whether `mode` is a temporary toggle ([`TOGGLE_MODES`]), which a sub-session never inherits.
+pub(crate) fn is_toggle(mode: &str) -> bool {
+    TOGGLE_MODES.contains(&mode)
+}
 
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -436,6 +441,11 @@ fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<S
 /// `--ask-for-approval`, `-a`, a full-auto or bypass flag, or `-c
 /// approval_policy=` / `sandbox_mode=`). Then no start mode is set over it.
 pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
+    argv_sets_mode(&profile.argv)
+}
+
+/// `profile_sets_mode` of an argv (a session's recorded `harness_argv`).
+pub(super) fn argv_sets_mode(argv: &[String]) -> bool {
     const FLAGS: [&str; 9] = [
         "--permission-mode",
         "--dangerously-skip-permissions",
@@ -447,7 +457,6 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
         "--ask-for-approval",
         "-a",
     ];
-    let argv = &profile.argv;
     argv.iter().enumerate().any(|(i, a)| {
         FLAGS.iter().any(|f| a == f || a.starts_with(&format!("{f}=")))
             || ((a == "-c" || a == "--config")
@@ -531,6 +540,39 @@ impl Hub {
             && self.full_access_allowed()
             && full_access_mode(&available(meta)).as_deref() == Some(mode)
             && self.start_level(&meta.harness).await.0 == DefaultMode::FullAccess
+    }
+
+    /// Whether a plain new chat of profile `agent` (no folder profile, a profile that does not
+    /// pin its mode) would start in `mode` now (module docs): the start level is full access, full
+    /// access is allowed here, and `mode` is the full-access mode the harness offers as its chats
+    /// report it (`known_modes`). The start gate grants a request that names it
+    /// (`start_gate.rs` `names_start_level`); the started session is checked again with
+    /// `is_start_full_access`.
+    pub(super) async fn plain_start_is(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        folder: bool,
+        mode: &str,
+    ) -> bool {
+        let ids: Vec<String> =
+            self.known_modes(agent, profile).into_iter().map(|(id, _)| id).collect();
+        !folder
+            && !profile_sets_mode(profile)
+            && self.full_access_allowed()
+            && full_access_mode(&ids).as_deref() == Some(mode)
+            && self.start_level(agent).await.0 == DefaultMode::FullAccess
+    }
+
+    /// `plain_start_is` for a chat that started: the mode is the full-access one it offers and
+    /// its profile's chats start in (`is_start_full_access`), and the argv it started with does
+    /// not pin its mode.
+    pub(super) async fn plain_session_is(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        !argv_sets_mode(&meta.harness_argv) && self.is_start_full_access(meta, mode).await
     }
 
     /// Whether a running chat may move to `mode` without the person (module docs): the
@@ -742,8 +784,13 @@ impl Hub {
             self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
-        // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
-        self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
+        // A narrower policy holds over a pinned mode too (`policy_mode.rs`). An agent that cannot
+        // keep it is stopped and the start fails.
+        if let Err(e) = self.hold_policy_mode(session, child, profile_sets_mode(profile)).await {
+            let record = super::policy_mode::refusal_record(&e);
+            self.stop_started_agent(session, false, "policy_refused", record).await;
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -751,6 +798,18 @@ impl Hub {
     /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
     /// off stops it (now, or one that held as the agent started).
     pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        self.stop_started_agent(session, managed, "full_access_refused", json!({})).await;
+    }
+
+    /// `stop_full_access_agent` for any refused start or run: logs `event` with `record` once the
+    /// agent ended.
+    pub(super) async fn stop_started_agent(
+        &self,
+        session: &Arc<Session>,
+        managed: bool,
+        event: &str,
+        record: Value,
+    ) {
         // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
         // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
         // or option report it still has queued is not applied to the agent after it, and none it
@@ -781,7 +840,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         self.set_status(session, SessionStatus::Idle);
-        self.append(session, "mux", "full_access_refused", json!({}));
+        self.append(session, "mux", event, record);
     }
 
     /// The level new chats on profile `harness` start at now, and what chose it.

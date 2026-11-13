@@ -203,21 +203,35 @@ chief ui, im still scrolled there"; "make cmd + i open the chief dock from now o
 generalizable, such that you can just drag panes in there, but have same mode as home chief, such that there can make
 it have no tabbar, ensure cmd shift p actions for it too".
 
-- The window dock is this design's dock (F): a workspace held at a window edge. The Chief window dock is the
-  window's Home docked there. Nothing new in the daemon: `WindowRecord.docks` gains `hide_tab_bar`.
-- Open Chief Dock (`home.openChiefDock`, Cmd-I, rebindable, in the palette; New Agent Chat keeps Cmd-J S) docks
-  Home at `home.chiefDock.edge` (left by default; right, top, bottom in Settings > Chief > Chief Dock and
-  cmux-next.json) and focuses its message box; run again it only focuses it.
-- A workspace, tab, agent link or subagent pill clicked in the Chief while Home fills the window arms the dock
-  (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefDock`): the show that follows docks Home first, so Home's content
-  controller and view stay mounted (same instance: draft, selection, scroll kept) and the target goes on the stage.
-  The arm lapses after 10 s, so a later sidebar pick never docks Home. `home.chiefDock.openBeside` (on) turns it off.
+- The window dock is this design's dock (F): a workspace held at a window edge. Nothing new in the daemon:
+  `WindowRecord.docks` gains `hide_tab_bar`.
+- The Chief panel (user 2026-11-06: "docked Chief is a separate mode that never appears in Home"; "maybe we should
+  have windowed chief instead, where chief floats in the window"): Home never docks as a workspace. The panel is the
+  Chief chat only (Home's Chief tab view, borrowed while the panel shows and given back to Home's pane after: same
+  instance, so draft and scroll are kept), with none of Home's other panes. It is `ChiefPanel` in
+  `WindowState.chiefPanel`, saved as `WindowRecord.chief_panel`.
+  - Floating (the default): over the stage, dragged by its bar, resized at its rim, its place kept as fractions of
+    the content area. Esc (while the Chief is not working) and Cmd-I hide it.
+  - Docked: the Dock button in its bar, or Dock Workspace Left/Right/Top/Bottom run on Home, docks it at that edge as
+    a Chief-only pane; the stage takes the rest. Float (the same button), Undock Chief
+    (`home.undockChief`: palette, the Chief pane's more menu, `cmux home undock-chief`) or Undock Workspace on Home
+    floats it again.
+  - It never shows over Home, floating or docked (`ChiefPanel.isShown(stage:home:)`).
+- It opens only on purpose: a workspace, tab, agent link or subagent pill clicked in the Chief while Home shows
+  (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefPanel`), whose next show in this window opens the
+  panel floating, also when the person docked it before (cmux#37372: no link click docks the Chief) (the arm lapses after 10 s, so a later sidebar pick shows no Chief; `home.chiefDock.openBeside` turns it
+  off), or Show/Hide Chief (`home.openChiefDock`, Cmd-I, rebindable; on Home it focuses the message box). A workspace
+  opened any other way (sidebar, Cmd-P, switch, restore, launch, new window) shows no Chief. A relaunch never
+  reopens it, and a Home dock an older build saved (by a link or by Cmd-I) is dropped (cmux#37365: the Chief is
+  never pinned on screen at launch).
+- Pane focus moves (Cmd-Ctrl-H/J/K/L, Cmd-Option-arrows) go from the stage's edge into the panel when it lies that
+  way, and from the panel back to the stage (`moveFocusIntoChiefPanel`, `moveFocusFromChiefPanel`).
 - A stage switch never touches a dock: the docked view is not hidden, moved or re-mapped (W8 extended to switches).
 - Per dock, the Home Chief pane's no-tab-bar mode: a pane of the dock showing one tab draws no tab bar; a second tab
   dragged in brings it back (`WindowDocks.Dock.hidesTabBar`, read in `PaneController.structure`).
 - Panes move in with Move Pane to Dock (or a new docked workspace when the window has none) and drag in and out
   as between any two workspaces on screen (DD1).
-- Palette: Open Chief Dock, Move Pane to Dock, Move Dock to Left/Right/Top/Bottom, Show or Hide Dock, Show or Hide
+- Palette: Show/Hide Chief, Move Pane to Dock, Move Dock to Left/Right/Top/Bottom, Show or Hide Dock, Show or Hide
   Dock Tab Bar, Focus Dock (CLI `home open-chief-dock`, `pane move-to-dock`, `window dock-edge-*`,
   `window toggle-dock`, `window toggle-dock-tab-bar`, `window focus-dock`).
 - Code: the frame operations (`WindowDockFrame+Operations`) and every dock action (`WindowDockActions`) are

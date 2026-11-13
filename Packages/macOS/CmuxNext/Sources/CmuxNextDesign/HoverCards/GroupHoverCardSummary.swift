@@ -45,9 +45,11 @@ public nonisolated struct GroupHoverCardSummary: Sendable, Hashable {
             case .status:
                 blocks.append(status(members))
             case .members:
-                let shown = members.prefix(max(1, options.maxMembers)).map(\.title)
+                // A member with no title has nothing to list: it counts, but draws no empty bullet line.
+                let titled = members.map(\.title).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                let shown = titled.prefix(max(1, options.maxMembers))
                 var lines = [GroupHoverCardStrings.count(kind, members.count)] + shown.map { "\u{2022} " + $0 }
-                if members.count > shown.count { lines.append(GroupHoverCardStrings.more(members.count - shown.count)) }
+                if titled.count > shown.count { lines.append(GroupHoverCardStrings.more(titled.count - shown.count)) }
                 blocks.append(Block(section: .members, lines: lines, tone: .secondary))
             case .activity:
                 let latest = members.compactMap { member in member.lastActivity.map { (member, $0) } }.max { $0.1 < $1.1 }

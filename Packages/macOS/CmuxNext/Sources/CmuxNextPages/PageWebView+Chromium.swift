@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -46,7 +47,7 @@ extension PageWebView {
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
-        PageChromiumDocumentScripts.pageDropHandler,
+        PageChromiumDocumentScripts.pageDropHandler, PageTitleRowPress.handlerName,
     ]
 
     /// How long after a drag of files entered the page its drop may still open one in the host.
@@ -88,8 +89,12 @@ extension PageWebView {
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
-    var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
+    /// The page zoom both engines show: `uiScale` (unless ``followsUIScale`` is off) times
+    /// ``additionalZoom``, times Agent Chat Zoom for a page that ``followsChatZoom``.
+    public var pageZoom: Double {
+        (followsUIScale ? Double(DesignSettings.shared.uiScale) : 1) * additionalZoom
+            * (followsChatZoom ? Double(DesignSettings.shared.agentPaneZoom) : 1)
+    }
 
     // MARK: Engine-neutral document calls
 
@@ -161,7 +166,18 @@ extension PageWebView {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
+        if healthFeed != nil {
+            let hang = ObservationStream { [weak session] in session?.page.isUnresponsive ?? false }
+            // task-owner: the session (`end`); event driven (Observation on the hang monitor's state).
+            session.hangWatch = Task { [weak self] in
+                for await unresponsive in hang {
+                    guard let self else { return }
+                    healthFeed?.pageRenderer(self, unresponsive: unresponsive)
+                }
+            }
+        }
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
+        page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
                                                                        documentScripts: scripts.sources) {
@@ -246,7 +262,9 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
-        if ended, !reloadsAfterCrash {
+        let repaired = rendererRestartPending
+        rendererRestartPending = false
+        if ended, !reloadsAfterCrash, !repaired {
             lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true
@@ -318,6 +336,8 @@ extension PageWebView {
         switch name {
         case PagePaintProbe.handlerName:
             notePainted()
+        case PageTitleRowPress.handlerName:
+            if let report = PageTitleRowPress.Report(body) { titleRowPressed(report) }
         case PageInputReadiness.handlerName:
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:
@@ -428,10 +448,26 @@ extension PageWebView {
         return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
     }
 
-    /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has
-    /// no page host (a browser tab at a `cmux-page://` address). A dynamic path is a 404 there.
-    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL) async -> PageChromiumResponse {
+    /// The page's answer to `url` at once, when its dynamic source has one ready
+    /// (``PageReadyResourceSource``); nil asks ``chromiumResource(_:range:)``.
+    func readyChromiumResource(_ url: URL) -> PageChromiumResponse? {
+        guard let ready = dynamicResources as? any PageReadyResourceSource,
+              let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else { return nil }
+        return PageSchemeHandler.readyResponse(to: request, source: ready)
+    }
+
+    /// `url`'s file of `page` at `root` for a Chromium page, including a browser tab without a
+    /// page host. A dynamic path is a 404 here.
+    /// `bundledOnly` keeps imports beside a document served directly by the shim, outside the live loop.
+    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL,
+                                           bundledOnly: Bool = false) async -> PageChromiumResponse {
         guard PageSchemeHandler.dynamicRequest(for: url, page: page) == nil else { return .notFound }
+        if bundledOnly {
+            guard let file = PageSchemeHandler.fileURL(for: url, page: page, root: root),
+                  let body = await PageSchemeHandler.read(file) else { return .notFound }
+            return PageSchemeHandler.chromiumResponse(PageSchemeHandler.reply(url: url, csp: page.csp,
+                status: 200, mimeType: PageSchemeHandler.mimeType(forExtension: file.pathExtension), body: body))
+        }
         return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: page, root: root, dynamicSource: nil)
     }
 

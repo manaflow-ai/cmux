@@ -71,14 +71,14 @@ struct ClosingPanesCorpusTests {
     // MARK: Calls
 
     enum Op {
-        case begin(pane: UInt64, shown: ClosingPanesRules.Edges, maxGap: CGFloat, viewShift: CGFloat?,
+        case begin(pane: UInt64, shown: ClosingPanesRules.Edges, maxGap: CGFloat, viewShift: CGFloat?, stripShift: CGFloat,
                    panes: [ClosingPanesRules.PaneFact], handles: [ClosingPanesRules.HandleFact])
         case settle(frames: [ClosingPanesRules.FrameFact], rows: [ClosingPanesRules.RowTravel])
-        case rects(frames: [ClosingPanesRules.FrameFact], rows: [ClosingPanesRules.RowTravel])
+        case rects(frames: [ClosingPanesRules.FrameFact], rows: [ClosingPanesRules.RowTravel], strip: CGFloat, restStrip: CGFloat)
         case carry(drift: CGFloat, viewShift: CGFloat?)
         case settleCarried(shift: CGFloat)
         case shiftY(column: UInt64, delta: CGFloat)
-        case remove(pane: UInt64, frames: [ClosingPanesRules.FrameFact])
+        case remove(pane: UInt64, frames: [ClosingPanesRules.FrameFact], strip: CGFloat)
         case drop(pane: UInt64)
     }
 
@@ -86,8 +86,8 @@ struct ClosingPanesCorpusTests {
     static func line(_ op: Op, _ rules: inout ClosingPanesRules) -> String {
         let inputs: [String], answer: String
         switch op {
-        case let .begin(pane, shown, maxGap, viewShift, panes, handles):
-            inputs = ["B", "\(pane)"] + edges(shown) + [dec(maxGap), viewShift.map(dec) ?? "-", "\(panes.count)"]
+        case let .begin(pane, shown, maxGap, viewShift, stripShift, panes, handles):
+            inputs = ["B", "\(pane)"] + edges(shown) + [dec(maxGap), viewShift.map(dec) ?? "-", dec(stripShift), "\(panes.count)"]
                 + panes.flatMap { ["\($0.id)"] + edges($0.edges) + [flag($0.scrolls), "\($0.area)", "\($0.rowColumn)"] }
                 + ["\(handles.count)"]
                 + handles.flatMap { handle -> [String] in
@@ -95,14 +95,15 @@ struct ClosingPanesCorpusTests {
                         + [dec(handle.midX), dec(handle.midY), flag(handle.kept), flag(handle.fixedSplit), "\(handle.area)",
                            flag(handle.docked), "\(handle.column)"]
                 }
-            answer = flag(rules.begin(pane, shown: shown, panes: panes, handles: handles, maxGap: maxGap, viewShift: viewShift))
+            answer = flag(rules.begin(pane, shown: shown, panes: panes, handles: handles, maxGap: maxGap, viewShift: viewShift,
+                                      stripShift: stripShift))
         case let .settle(frames, rows):
             inputs = ["T"] + Self.frames(frames) + Self.rows(rows)
             let still = rules.settle(frames: frames, rows: rows).sorted()
             answer = still.isEmpty ? "-" : still.map(String.init).joined(separator: ",")
-        case let .rects(frames, rows):
-            inputs = ["R"] + Self.frames(frames) + Self.rows(rows)
-            let placed = rules.rects(frames: frames, rows: rows)
+        case let .rects(frames, rows, strip, restStrip):
+            inputs = ["R"] + Self.frames(frames) + Self.rows(rows) + [dec(strip), dec(restStrip)]
+            let placed = rules.rects(frames: frames, rows: rows, strip: strip, restStrip: restStrip)
             answer = placed.isEmpty ? "-" : placed.map { "\($0.0):" + rect($0.1) }.joined(separator: ";")
         case let .carry(drift, viewShift):
             inputs = ["C", dec(drift), viewShift.map(dec) ?? "-"]
@@ -116,9 +117,9 @@ struct ClosingPanesCorpusTests {
             inputs = ["Y", "\(column)", dec(delta)]
             rules.shiftY(inRowColumn: column, by: delta)
             answer = "-"
-        case let .remove(pane, frames):
-            inputs = ["X", "\(pane)"] + Self.frames(frames)
-            answer = rules.remove(pane, frames: frames).map {
+        case let .remove(pane, frames, strip):
+            inputs = ["X", "\(pane)"] + Self.frames(frames) + [dec(strip)]
+            answer = rules.remove(pane, frames: frames, strip: strip).map {
                 rect($0.rect) + "," + [$0.vx, $0.vw, $0.vy, $0.vh].map(hex).joined(separator: ",")
             } ?? "-"
         case let .drop(pane):
@@ -197,7 +198,7 @@ struct ClosingPanesCorpusTests {
         mutating func frames() throws -> [ClosingPanesRules.FrameFact] {
             try (0 ..< count()).map { _ in
                 ClosingPanesRules.FrameFact(id: try id(), now: try edges(), target: try edges(), moving: try bool(), vx: try double(),
-                                            vy: try double(), vw: try double(), vh: try double())
+                                            vy: try double(), vw: try double(), vh: try double(), scrolls: try bool())
             }
         }
 
@@ -209,7 +210,7 @@ struct ClosingPanesCorpusTests {
     static func read(_ f: inout Fields) throws -> Op {
         switch try f.word() {
         case "B":
-            let pane = try f.id(), shown = try f.edges(), maxGap = try f.double(), viewShift = try f.optional()
+            let pane = try f.id(), shown = try f.edges(), maxGap = try f.double(), viewShift = try f.optional(), stripShift = try f.double()
             let panes = try (0 ..< f.count()).map { _ in
                 ClosingPanesRules.PaneFact(id: try f.id(), edges: try f.edges(), scrolls: try f.bool(), area: try f.id(), rowColumn: try f.id())
             }
@@ -219,13 +220,13 @@ struct ClosingPanesCorpusTests {
                                                     midY: try f.double(), kept: try f.bool(), fixedSplit: try f.bool(), area: try f.id(),
                                                     docked: try f.bool(), column: try f.id())
             }
-            return .begin(pane: pane, shown: shown, maxGap: maxGap, viewShift: viewShift, panes: panes, handles: handles)
+            return .begin(pane: pane, shown: shown, maxGap: maxGap, viewShift: viewShift, stripShift: stripShift, panes: panes, handles: handles)
         case "T": return .settle(frames: try f.frames(), rows: try f.rows())
-        case "R": return .rects(frames: try f.frames(), rows: try f.rows())
+        case "R": return .rects(frames: try f.frames(), rows: try f.rows(), strip: try f.double(), restStrip: try f.double())
         case "C": return .carry(drift: try f.double(), viewShift: try f.optional())
         case "K": return .settleCarried(shift: try f.double())
         case "Y": return .shiftY(column: try f.id(), delta: try f.double())
-        case "X": return .remove(pane: try f.id(), frames: try f.frames())
+        case "X": return .remove(pane: try f.id(), frames: try f.frames(), strip: try f.double())
         case "D": return .drop(pane: try f.id())
         case let other:
             Issue.record("unknown call \(other)")
@@ -245,7 +246,7 @@ struct ClosingPanesCorpusTests {
 
     static func frames(_ frames: [ClosingPanesRules.FrameFact]) -> [String] {
         ["\(frames.count)"] + frames.flatMap { f -> [String] in
-            ["\(f.id)"] + edges(f.now) + edges(f.target) + [flag(f.moving), dec(f.vx), dec(f.vy), dec(f.vw), dec(f.vh)]
+            ["\(f.id)"] + edges(f.now) + edges(f.target) + [flag(f.moving), dec(f.vx), dec(f.vy), dec(f.vw), dec(f.vh), flag(f.scrolls)]
         }
     }
 
@@ -261,6 +262,8 @@ struct ClosingPanesCorpusTests {
         var handles: [ClosingPanesRules.HandleFact] = []
         var rowColumns: [UInt64] = []
         var maxGap: CGFloat = 0
+        /// The strip's view shift at the close's camera: a docked column's x is in view coordinates, the strip's plus it.
+        var stripShift: CGFloat = 0
     }
 
     /// A screen of strip columns (each a stack of panes, some split side by side, some a row column, some in a scroll
@@ -338,6 +341,9 @@ struct ClosingPanesCorpusTests {
             }
         }
         if r.chance(0.35) {
+            // Docked beside the strip's last column on screen: in view coordinates, at the strip's x plus its view shift.
+            layout.stripShift = r.chance(0.3) ? 0 : r.q(-300 ... 300, step: 0.25)
+            x += layout.stripShift
             let gap = r.q(0 ... 12, step: 0.5)
             handle(.columnEdge, horizontal: true, hitX(x + gap / 2, y0: top, y1: top + height), docked: true)
             let width = r.q(120 ... 400, step: 0.25)
@@ -357,6 +363,7 @@ struct ClosingPanesCorpusTests {
     /// A live pane's frame: where it shows and where it springs to.
     struct Live {
         var id: UInt64
+        var scrolls: Bool
         var start: ClosingPanesRules.Edges
         var target: ClosingPanesRules.Edges
         var velocity: (CGFloat, CGFloat, CGFloat, CGFloat)
@@ -381,16 +388,18 @@ struct ClosingPanesCorpusTests {
             let shown = ClosingPanesRules.Edges(minX: pane.edges.minX + drift, maxX: pane.edges.maxX + drift, minY: pane.edges.minY,
                                                 maxY: pane.edges.maxY)
             ops.append(.begin(pane: pane.id, shown: shown, maxGap: layout.maxGap,
-                              viewShift: r.chance(0.5) ? nil : r.q(-100 ... 100, step: 0.25), panes: layout.panes, handles: layout.handles))
+                              viewShift: r.chance(0.5) ? nil : r.q(-100 ... 100, step: 0.25), stripShift: layout.stripShift, panes: layout.panes,
+                              handles: layout.handles))
             closing.append(pane.id)
             layout.panes.removeAll { $0.id == pane.id }
         }
         if r.chance(0.1) {
-            ops.append(.begin(pane: 9999, shown: first.edges, maxGap: layout.maxGap, viewShift: nil, panes: layout.panes, handles: layout.handles))
+            ops.append(.begin(pane: 9999, shown: first.edges, maxGap: layout.maxGap, viewShift: nil, stripShift: layout.stripShift,
+                              panes: layout.panes, handles: layout.handles))
         }
         begin(first)
         var lives = layout.panes.map { pane in
-            Live(id: pane.id, start: pane.edges, target: moved(pane.edges, &r),
+            Live(id: pane.id, scrolls: pane.scrolls, start: pane.edges, target: moved(pane.edges, &r),
                  velocity: r.chance(0.5) ? (0, 0, 0, 0)
                      : (r.q(-50 ... 50, step: 0.5), r.q(-50 ... 50, step: 0.5), r.q(-50 ... 50, step: 0.5), r.q(-50 ... 50, step: 0.5)))
         }
@@ -399,6 +408,9 @@ struct ClosingPanesCorpusTests {
         }
         let steps = Int(r.pick([2, 4, 8] as [UInt64]))
         var t: CGFloat = 0
+        // The strip's view shift during the close: still, or springing to a rest.
+        let restStrip = layout.stripShift + (r.chance(0.6) ? 0 : r.q(-80 ... 80, step: 0.25))
+        func strip() -> CGFloat { lerp(layout.stripShift, restStrip, t) }
         func frames() -> [ClosingPanesRules.FrameFact] {
             lives.filter { !closing.contains($0.id) }.map { live in
                 let now = ClosingPanesRules.Edges(minX: lerp(live.start.minX, live.target.minX, t), maxX: lerp(live.start.maxX, live.target.maxX, t),
@@ -406,7 +418,7 @@ struct ClosingPanesCorpusTests {
                 let still: CGFloat = t >= 1 ? 0 : 1
                 let v = (live.velocity.0 * still, live.velocity.1 * still, live.velocity.2 * still, live.velocity.3 * still)
                 let moving = now != live.target || v.0 != 0 || v.1 != 0 || v.2 != 0 || v.3 != 0
-                return .init(id: live.id, now: now, target: live.target, moving: moving, vx: v.0, vy: v.1, vw: v.2, vh: v.3)
+                return .init(id: live.id, now: now, target: live.target, moving: moving, vx: v.0, vy: v.1, vw: v.2, vh: v.3, scrolls: live.scrolls)
             }
         }
         func rows() -> [ClosingPanesRules.RowTravel] {
@@ -434,9 +446,9 @@ struct ClosingPanesCorpusTests {
                 begin(next)
                 ops.append(.settle(frames: frames(), rows: rows()))
             }
-            ops.append(.rects(frames: frames(), rows: rows()))
+            ops.append(.rects(frames: frames(), rows: rows(), strip: strip(), restStrip: restStrip))
             if r.chance(0.06), let pane = closing.randomElement(using: &r) {
-                ops.append(.remove(pane: pane, frames: frames()))
+                ops.append(.remove(pane: pane, frames: frames(), strip: strip()))
                 closing.removeAll { $0 == pane }
             } else if r.chance(0.04), let pane = closing.randomElement(using: &r) {
                 ops.append(.drop(pane: pane))
@@ -444,7 +456,7 @@ struct ClosingPanesCorpusTests {
             }
         }
         if let pane = closing.randomElement(using: &r), r.chance(0.5) {
-            ops.append(.remove(pane: pane, frames: frames()))
+            ops.append(.remove(pane: pane, frames: frames(), strip: strip()))
         } else if r.chance(0.3) {
             ops.append(.drop(pane: closing.first ?? 9999))
         }

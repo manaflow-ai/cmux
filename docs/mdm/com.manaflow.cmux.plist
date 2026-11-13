@@ -231,7 +231,7 @@
 			<key>pfm_default</key>
 			<string>afterCurrent</string>
 			<key>pfm_description</key>
-			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
+			<string>Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabPosition</string>
 			<key>pfm_range_list</key>
@@ -241,7 +241,25 @@
 				<string>start</string>
 			</array>
 			<key>pfm_title</key>
-			<string>New Tab Position</string>
+			<string>New Tab Position (Cmd-T)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>end</string>
+			<key>pfm_description</key>
+			<string>Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabButtonPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>afterCurrent</string>
+				<string>end</string>
+				<string>start</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Position (+ Button)</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -258,7 +276,7 @@
 				<string>always</string>
 			</array>
 			<key>pfm_title</key>
-			<string>New Tab Button</string>
+			<string>+ Button Visibility</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -458,18 +476,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.</string>
-			<key>pfm_name</key>
-			<string>tabs.cmdWClosesPinnedTabs</string>
-			<key>pfm_title</key>
-			<string>Cmd-W Closes Pinned Tabs</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.</string>
@@ -538,14 +544,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>ask</string>
+			<string>keep</string>
 			<key>pfm_description</key>
 			<string>Terminals run in cmux-tui and keep running after cmux quits unless you end them.</string>
 			<key>pfm_name</key>
 			<string>app.quitBehavior</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>ask</string>
 				<string>keep</string>
 				<string>end-keep-layout</string>
 				<string>end-everything</string>
@@ -554,6 +559,18 @@
 			<string>When Quitting</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.</string>
+			<key>pfm_name</key>
+			<string>app.confirmQuit</string>
+			<key>pfm_title</key>
+			<string>Ask Before Quitting Ends Agents or Terminals</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -608,7 +625,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>previousNeighbor</string>
+			<string>mostRecent</string>
 			<key>pfm_description</key>
 			<string>Which pane gets focus when the focused pane closes.</string>
 			<key>pfm_name</key>
@@ -754,11 +771,11 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.</string>
+			<string>The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs &gt; Live Code).</string>
 			<key>pfm_name</key>
 			<string>updates.liveWebReload</string>
 			<key>pfm_title</key>
-			<string>Live Web Reload</string>
+			<string>cmux Live</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -958,6 +975,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.</string>
+			<key>pfm_name</key>
+			<string>sessions.keepAwakeForCommands</string>
+			<key>pfm_title</key>
+			<string>Also While Terminal Commands Run</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Terminal agents reopen their session after a crash or restart.</string>
@@ -989,6 +1018,18 @@
 			<string>sessions.promptSuggestions</string>
 			<key>pfm_title</key>
 			<string>Suggest Follow-Up Tasks</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.</string>
+			<key>pfm_name</key>
+			<string>agents.promptSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest Next Prompt</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1074,7 +1115,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.</string>
 			<key>pfm_name</key>
 			<string>ssh.linkAllowedHosts</string>
 			<key>pfm_subkeys</key>
@@ -1153,6 +1194,18 @@
 			<string>cloud.agentsStartWithoutAsking</string>
 			<key>pfm_title</key>
 			<string>Let Agents Use Cloud Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved.</string>
+			<key>pfm_name</key>
+			<string>cloud.turnCheckpoints</string>
+			<key>pfm_title</key>
+			<string>Save a Checkpoint Before Each Cloud Chat Turn</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1317,6 +1370,34 @@
 			<real>1</real>
 			<key>pfm_title</key>
 			<string>Retries per Error</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.</string>
+			<key>pfm_name</key>
+			<string>agents.cacheCompact.enabled</string>
+			<key>pfm_title</key>
+			<string>Compact Before the Cache Expires</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>50</integer>
+			<key>pfm_description</key>
+			<string>Chats using less of their context window than this are left as they are.</string>
+			<key>pfm_name</key>
+			<string>agents.cacheCompact.minContextPercent</string>
+			<key>pfm_range_max</key>
+			<real>95</real>
+			<key>pfm_range_min</key>
+			<real>10</real>
+			<key>pfm_title</key>
+			<string>Only Above Context Used (%)</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -1980,6 +2061,46 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldArchive</string>
+			<key>pfm_title</key>
+			<string>Compress Old Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>30</integer>
+			<key>pfm_description</key>
+			<string>How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldArchiveAfterDays</string>
+			<key>pfm_range_max</key>
+			<real>3650</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Compress Chats Idle For</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.</string>
+			<key>pfm_name</key>
+			<string>chat.on</string>
+			<key>pfm_title</key>
+			<string>Default Chat Target</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.</string>
@@ -2171,6 +2292,34 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.</string>
+			<key>pfm_name</key>
+			<string>agents.hiddenChats.discard</string>
+			<key>pfm_title</key>
+			<string>Release Hidden Agent Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>15</integer>
+			<key>pfm_description</key>
+			<string>How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.</string>
+			<key>pfm_name</key>
+			<string>agents.hiddenChats.discardAfterMinutes</string>
+			<key>pfm_range_max</key>
+			<real>1440</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Release Hidden Chats After</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>inbox</string>
 			<key>pfm_description</key>
 			<string>Inbox lists what needs you first, with the task beside it. Changes apply at once.</string>
@@ -2184,6 +2333,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Tasks Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>default</string>
+			<key>pfm_description</key>
+			<string>The icon drawings used by cmux.</string>
+			<key>pfm_name</key>
+			<string>appearance.iconTheme</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>neko</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Icon Theme</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -2818,9 +2984,9 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>compact</string>
+			<string>cozy</string>
 			<key>pfm_description</key>
-			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
+			<string>Row height, padding, corners, icons and text size together.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
@@ -2857,20 +3023,22 @@
 		<dict>
 			<key>pfm_default</key>
 			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.</string>
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>
-			<real>1.5</real>
+			<real>5</real>
 			<key>pfm_range_min</key>
-			<real>0.84999999999999998</real>
+			<real>0.25</real>
 			<key>pfm_title</key>
-			<string>Interface Scale</string>
+			<string>App Zoom</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<string>Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.</string>
 			<key>pfm_name</key>
 			<string>appearance.metrics.chromeFontSize</string>
 			<key>pfm_range_max</key>
@@ -2878,7 +3046,7 @@
 			<key>pfm_range_min</key>
 			<real>10</real>
 			<key>pfm_title</key>
-			<string>Interface Size</string>
+			<string>Text Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -2957,6 +3125,18 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowHeight</string>
+			<key>pfm_range_max</key>
+			<real>48</real>
+			<key>pfm_range_min</key>
+			<real>20</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -3028,7 +3208,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>flat-sidebar-line</string>
+			<string>flat</string>
 			<key>pfm_description</key>
 			<string>The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.</string>
 			<key>pfm_name</key>
@@ -3044,6 +3224,7 @@
 				<string>panes</string>
 				<string>two-tone</string>
 				<string>floating</string>
+				<string>blocks</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
@@ -3052,9 +3233,42 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>oneColor</string>
+			<key>pfm_description</key>
+			<string>One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.</string>
+			<key>pfm_name</key>
+			<string>appearance.titleAreaTone</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>oneColor</string>
+				<string>subtleTone</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Title Area</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.</string>
+			<key>pfm_name</key>
+			<string>appearance.titleAreaContrast</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Title Area Contrast</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.</string>
+			<string>Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once.</string>
 			<key>pfm_name</key>
 			<string>ui.paneAnimations</string>
 			<key>pfm_title</key>
@@ -3085,23 +3299,6 @@
 			<string>Animate New Workspaces</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>none</string>
-			<key>pfm_description</key>
-			<string>None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.</string>
-			<key>pfm_name</key>
-			<string>ui.animations.bounce</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>none</string>
-				<string>subtle</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Animation Bounce</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -4189,6 +4386,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.finishSound</string>
+			<key>pfm_title</key>
+			<string>Play Sound When Work Finishes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.trayTucked</string>
@@ -4217,6 +4426,78 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.unreadBanner</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>expanded</string>
+				<string>collapsed</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Unread Banner</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>family</string>
+			<key>pfm_description</key>
+			<string>Which is big in a sender's icon: the model family's mark, or the session's own colored badge.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.senderIcon.lead</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>family</string>
+				<string>session</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sender Icon Emphasis</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>diamond</string>
+			<key>pfm_description</key>
+			<string>The small colored glyph on a sender's icon that tells sessions of one model family apart.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.senderIcon.badge</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>diamond</string>
+				<string>robot</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sender Badge</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bottom-right</string>
+			<key>pfm_description</key>
+			<string>Where the small glyph sits on a sender's icon.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.senderIcon.corner</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bottom-right</string>
+				<string>bottom-left</string>
+				<string>top-right</string>
+				<string>top-left</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sender Badge Corner</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>markdown</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.preset</string>
@@ -4234,13 +4515,15 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>inter-tuned</string>
+			<string>system-ui</string>
 			<key>pfm_description</key>
 			<string>The font of the whole chat: replies, the composer, cards and menus.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.ui</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>system-ui</string>
+				<string>system-ui-tight</string>
 				<string>inter-tuned</string>
 				<string>inter</string>
 				<string>verdana</string>
@@ -4251,8 +4534,6 @@
 				<string>cmux-sans</string>
 				<string>hanken</string>
 				<string>atkinson</string>
-				<string>system-ui</string>
-				<string>system-ui-tight</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Chat Interface Font</string>
@@ -4396,6 +4677,18 @@
 			<string>Chat Presentation</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After a chat that took several corrections, shows how its first prompt could have said it all at once.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.promptCoach</string>
+			<key>pfm_title</key>
+			<string>Prompt Coach</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5407,6 +5700,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.</string>
+			<key>pfm_name</key>
+			<string>sidebar.floatOnHover</string>
+			<key>pfm_title</key>
+			<string>Float Hidden Sidebar on Hover</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
@@ -5508,7 +5813,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>dot</string>
+			<string>leftRail</string>
 			<key>pfm_description</key>
 			<string>How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.</string>
 			<key>pfm_name</key>
@@ -5564,7 +5869,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.</string>
+			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color. Sections draws each group as a plain section heading instead, with no background and no line beside its workspaces.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.background</string>
 			<key>pfm_range_list</key>
@@ -5572,9 +5877,51 @@
 				<string>auto</string>
 				<string>glass</string>
 				<string>solid</string>
+				<string>sections</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Group Background</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>glass</string>
+			<key>pfm_description</key>
+			<string>Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupPalette</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>glass</string>
+				<string>theme</string>
+				<string>wallpaper</string>
+				<string>grayscale</string>
+				<string>vibrant</string>
+				<string>gradient</string>
+				<string>pictorial</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Colors</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>sunset</string>
+			<key>pfm_description</key>
+			<string>The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupGradient</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>sunset</string>
+				<string>aurora</string>
+				<string>lagoon</string>
+				<string>twoTone</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Gradient</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -6069,181 +6416,6 @@
 			<string>Picture in Picture</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A headline over the composer that asks what to work on, with the project as a picker.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.greeting</string>
-			<key>pfm_title</key>
-			<string>Ask What to Work On on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A card of this Mac and its recent projects over the composer.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.projects</string>
-			<key>pfm_title</key>
-			<string>Show Projects on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Chats that need you, and New Terminal, New Browser Tab and New Chat.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.actions</string>
-			<key>pfm_title</key>
-			<string>Show Quick Actions on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Your recent chats under the composer. The palette finds any chat.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.chats</string>
-			<key>pfm_title</key>
-			<string>Show Recent Chats on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Dots under the page that switch its template.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.styleDots</string>
-			<key>pfm_title</key>
-			<string>Show Template Dots on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>The current weather and today's high and low, for the city below or your time zone's city.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.weather</string>
-			<key>pfm_title</key>
-			<string>Show Weather on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string></string>
-			<key>pfm_description</key>
-			<string>A city for the weather widget. Empty uses your time zone's city.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.weatherCity</string>
-			<key>pfm_title</key>
-			<string>Weather City</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Your machines and whether each is online.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.machines</string>
-			<key>pfm_title</key>
-			<string>Show Machines on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A quiet local time display beside the composer.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.clock</string>
-			<key>pfm_title</key>
-			<string>Show Clock on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A small elapsed-time stopwatch beside the composer.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.timer</string>
-			<key>pfm_title</key>
-			<string>Show Stopwatch on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A time-of-day greeting such as Good afternoon.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.warmGreeting</string>
-			<key>pfm_title</key>
-			<string>Show Warm Greeting on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>A bundled public-domain quote, changing daily.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.quote</string>
-			<key>pfm_title</key>
-			<string>Show Quote of the Day on New Tab</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<array>
-				<string>projects</string>
-				<string>actions</string>
-				<string>chats</string>
-			</array>
-			<key>pfm_description</key>
-			<string>The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.</string>
-			<key>pfm_name</key>
-			<string>tabs.newTabWidgets.order</string>
-			<key>pfm_subkeys</key>
-			<array>
-				<dict>
-					<key>pfm_name</key>
-					<string>Item</string>
-					<key>pfm_range_list</key>
-					<array>
-						<string>projects</string>
-						<string>actions</string>
-						<string>chats</string>
-					</array>
-					<key>pfm_type</key>
-					<string>string</string>
-				</dict>
-			</array>
-			<key>pfm_title</key>
-			<string>New Tab Widget Order</string>
-			<key>pfm_type</key>
-			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -7173,6 +7345,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A thin progress line under the address bar while a page loads. The Stop button shows either way.</string>
+			<key>pfm_name</key>
+			<string>browser.showLoadingBar</string>
+			<key>pfm_title</key>
+			<string>Show Loading Bar</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>chromium</string>
 			<key>pfm_description</key>
 			<string>Browser tabs and cmux pages, such as History and Apps, open in this engine.</string>
@@ -7264,6 +7448,18 @@
 			<string>browser.import.cookieBanner</string>
 			<key>pfm_title</key>
 			<string>Offer to Import Cookies</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.</string>
+			<key>pfm_name</key>
+			<string>browser.import.cookieSync</string>
+			<key>pfm_title</key>
+			<string>Keep Imported Cookies in Sync</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -7769,6 +7965,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.</string>
+			<key>pfm_name</key>
+			<string>browser.vimKeys</string>
+			<key>pfm_title</key>
+			<string>Vim Keys in Pages</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When off, cmux opens no browser tabs for web pages and every link opens in your default browser.</string>
 			<key>pfm_name</key>
 			<string>browser.enabled</string>
@@ -7798,6 +8006,18 @@
 			<string>browser.openSignInPagesInCmux</string>
 			<key>pfm_title</key>
 			<string>Open Sign-In Pages in cmux Browser</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.</string>
+			<key>pfm_name</key>
+			<string>browser.openPullRequestsInGitHubPage</string>
+			<key>pfm_title</key>
+			<string>Open Pull Requests in cmux GitHub Page</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8070,7 +8290,7 @@
 			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
-			<string>The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.</string>
+			<string>The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.</string>
 			<key>pfm_name</key>
 			<string>home.chiefDock.edge</string>
 			<key>pfm_range_list</key>
@@ -8087,13 +8307,47 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>composeBar</string>
+			<key>pfm_description</key>
+			<string>How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.</string>
+			<key>pfm_name</key>
+			<string>home.chiefPanel.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>composeBar</string>
+				<string>pill</string>
+				<string>card</string>
+				<string>panel</string>
+				<string>bubble</string>
+				<string>seeThrough</string>
+				<string>seeThroughBar</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Floating Chief Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.</string>
+			<string>Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.</string>
+			<key>pfm_name</key>
+			<string>home.chiefPanel.seesScreen</string>
+			<key>pfm_title</key>
+			<string>Chief Sees Your Screen When It Opens</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.</string>
 			<key>pfm_name</key>
 			<string>home.chiefDock.openBeside</string>
 			<key>pfm_title</key>
-			<string>Keep Chief Docked When Opening Workspaces</string>
+			<string>Show Chief When Opening Workspaces</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8165,6 +8419,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>bypassPermissions</string>
+			<key>pfm_description</key>
+			<string>How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.</string>
+			<key>pfm_name</key>
+			<string>chief.permissionMode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bypassPermissions</string>
+				<string>auto</string>
+				<string>default</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chief Permission Mode</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.</string>
@@ -8179,7 +8451,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.</string>
+			<string>Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there.</string>
 			<key>pfm_name</key>
 			<string>chief.subagentSidebar</string>
 			<key>pfm_range_list</key>
@@ -8189,7 +8461,7 @@
 				<string>never</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Subagents in the Sidebar</string>
+			<string>Subagent Workspaces</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -8197,7 +8469,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.</string>
+			<string>Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.</string>
 			<key>pfm_name</key>
 			<string>chief.subagentSidebarShowWords</string>
 			<key>pfm_subkeys</key>
@@ -8210,7 +8482,7 @@
 				</dict>
 			</array>
 			<key>pfm_title</key>
-			<string>Show Tasks That Mention</string>
+			<string>Sidebar for Tasks That Mention</string>
 			<key>pfm_type</key>
 			<string>array</string>
 		</dict>
@@ -8218,7 +8490,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.</string>
+			<string>Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins.</string>
 			<key>pfm_name</key>
 			<string>chief.subagentSidebarHideWords</string>
 			<key>pfm_subkeys</key>
@@ -8231,7 +8503,7 @@
 				</dict>
 			</array>
 			<key>pfm_title</key>
-			<string>Hide Tasks That Mention</string>
+			<string>Chief's Workspaces for Tasks That Mention</string>
 			<key>pfm_type</key>
 			<string>array</string>
 		</dict>
@@ -8239,7 +8511,7 @@
 			<key>pfm_default</key>
 			<integer>50</integer>
 			<key>pfm_description</key>
-			<string>A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.</string>
+			<string>A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter.</string>
 			<key>pfm_name</key>
 			<string>chief.subagentSidebarMinWords</string>
 			<key>pfm_range_max</key>
@@ -8247,7 +8519,7 @@
 			<key>pfm_range_min</key>
 			<real>0.0</real>
 			<key>pfm_title</key>
-			<string>Show Tasks Longer Than</string>
+			<string>Sidebar for Tasks Longer Than</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -8704,7 +8976,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
 			<key>pfm_name</key>
@@ -9027,7 +9299,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>5</integer>
+			<integer>3</integer>
 			<key>pfm_name</key>
 			<string>agentPane.editedFiles.maxRows</string>
 			<key>pfm_range_max</key>
@@ -9094,6 +9366,40 @@
 			<string>Show Dictation Button</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>cmux</string>
+			<key>pfm_description</key>
+			<string>What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.</string>
+			<key>pfm_name</key>
+			<string>agentPane.dictationSource</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>cmux</string>
+				<string>macos</string>
+				<string>chatgpt</string>
+				<string>claude</string>
+				<string>gemini</string>
+				<string>wisprFlow</string>
+				<string>superwhisper</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dictate With</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.</string>
+			<key>pfm_name</key>
+			<string>agentPane.dictationShortcut</string>
+			<key>pfm_title</key>
+			<string>Dictation App Shortcut</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -9252,6 +9558,42 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.</string>
+			<key>pfm_name</key>
+			<string>diagnostics.usagePatterns</string>
+			<key>pfm_title</key>
+			<string>Record Usage Patterns</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.</string>
+			<key>pfm_name</key>
+			<string>developerTools.appPages</string>
+			<key>pfm_title</key>
+			<string>Developer Tools for cmux Pages</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as "Debug: …" rows. There is no Debug menu.</string>
+			<key>pfm_name</key>
+			<string>app.internalDeveloperMode</string>
+			<key>pfm_title</key>
+			<string>Internal Developer Mode</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.</string>
 			<key>pfm_name</key>
 			<string>macScreen.systemShortcuts</string>
@@ -9281,6 +9623,18 @@
 			<string>remote.endSharingOnQuit</string>
 			<key>pfm_title</key>
 			<string>End Sharing When cmux Quits</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.</string>
+			<key>pfm_name</key>
+			<string>remote.ultraMode</string>
+			<key>pfm_title</key>
+			<string>Ultra Connection Mode</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

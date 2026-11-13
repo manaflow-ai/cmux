@@ -32,7 +32,7 @@ struct Link {
     /// The ready deadline of a connecting link; dropped (cancelled) when
     /// the link is up or ended.
     deadline: Option<Timer>,
-    /// The typed `link.dial` refusal that ended this generation, if any.
+    /// The typed carrier refusal that ended this generation, if any.
     refused: Option<DialCode>,
 }
 
@@ -45,7 +45,7 @@ pub enum LinkFailure {
         reason: String,
     },
     Spawn(String),
-    /// `cmux link dial` refused the machine's host (super::dial).
+    /// The Mac app's carrier refused the machine (super::dial).
     Dial(DialCode),
 }
 
@@ -377,9 +377,9 @@ impl LinkSupervisor {
         let reason = match (&code, detail) {
             (DialCode::Unavailable(why), _) => why.clone(),
             (other, Some(detail)) => {
-                format!("cmux link refused the dial: {} ({detail})", other.as_str())
+                format!("the carrier refused the stream: {} ({detail})", other.as_str())
             }
-            (other, None) => format!("cmux link refused the dial: {}", other.as_str()),
+            (other, None) => format!("the carrier refused the stream: {}", other.as_str()),
         };
         let revokes = code.revokes();
         let Some(link) = self.links.get_mut(&tag.machine) else { return };

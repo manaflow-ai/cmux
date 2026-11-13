@@ -7,6 +7,7 @@ import type { SessionUsageStats } from "../src/agent-session/acpmux/usageStats";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { connectorsSection } from "../src/agent-session/acpmux/session-info/native/connectors";
 import { IMESSAGE_INITIAL, type IMessageView } from "../src/agent-session/acpmux/session-info/imessage";
+import { settleReact } from "./support/domTeardown";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 const stats = (overrides: Partial<SessionUsageStats> = {}): SessionUsageStats => ({
@@ -134,7 +135,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
       new NativeInfoActions(),
       t,
     )!;
-    expect(connected.meta).toBe(t("rail.connected", { count: 1 }));
+    expect(connected.meta).toBe(t("sessionInfo.connectors.loaded", { count: 1 }));
     const failed = connectorsSection(
       {
         servers: [
@@ -153,7 +154,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
       new NativeInfoActions(),
       t,
     )!;
-    expect(pending.meta).toBe(t("rail.connected", { count: 0 }));
+    expect(pending.meta).toBe(t("sessionInfo.connectors.connecting", { count: 1 }));
   }
   expect(
     connectorsSection({ servers: [], open: false, imessage: imessageView() }, new NativeInfoActions(), t)!.meta,
@@ -241,6 +242,7 @@ test("native iMessage reveals Connect once and keeps the person's fold across re
     setNativeSessionInfoHost(false);
     resetSessionInfoState();
     frames.clear();
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

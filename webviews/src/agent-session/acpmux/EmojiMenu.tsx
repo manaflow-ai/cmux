@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
-import { useComposerListBox } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import type { EmojiMatch } from "./emojiShortcodes";
 import type { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { useT } from "./i18n";

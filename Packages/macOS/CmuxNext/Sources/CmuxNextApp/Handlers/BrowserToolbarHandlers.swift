@@ -76,7 +76,7 @@ enum BrowserToolbarHandlers {
                 services?.cache.pageRequests.downloads.toolbarSummary(forTab: key) ?? BrowserToolbarDownloads()
             }
             buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
-            buttons.pins = { [weak services] in (services?.settings.map(BrowserToolbarButtonsSetting.current) ?? .fallback).pinned }
+            buttons.pins = { [weak services] in services?.settings.map(BrowserToolbarButtonsSetting.current)?.pinned ?? BrowserToolbarButtonsSetting.fallback }
         }
         entry.state.profileName = profileName(forTab: key, services: services)
         // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).

@@ -222,13 +222,18 @@ struct DividerHandleViewDrawsItsLineCentered {
         let cases: [(DividerHandleView.Kind, SplitAxis, CGRect, CGFloat)] = [
             (.split("s"), .horizontal, CGRect(x: 100, y: 0, width: 7, height: 300), 1),
             (.split("s"), .vertical, CGRect(x: 0, y: 200, width: 300, height: 9), 1),
-            (.columnEdge("c"), .horizontal, CGRect(x: 40, y: 0, width: 8, height: 300), 2),
+            // A column edge at rest draws a split's line; hovered (below), its 2 pt edge line.
+            (.columnEdge("c"), .horizontal, CGRect(x: 40, y: 0, width: 8, height: 300), 1),
             (.rowEdge("c", "r"), .vertical, CGRect(x: 0, y: 60, width: 300, height: 7), 1),
         ]
-        for (kind, axis, frame, drawn) in cases {
+        let hovered: [(DividerHandleView.Kind, SplitAxis, CGRect, CGFloat)] = [
+            (.columnEdge("c"), .horizontal, CGRect(x: 40, y: 0, width: 8, height: 300), 2),
+        ]
+        for (index, (kind, axis, frame, drawn)) in (cases + hovered).enumerated() {
             let view = DividerHandleView(kind: kind, axis: axis)
             view.lineThickness = 1
             view.frame = frame
+            if index >= cases.count { view.setHovered(true) }
             view.layout()
             // The line layer, in the view's own coordinates.
             guard let line = view.layer?.sublayers?.first?.frame else {

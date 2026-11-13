@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxAgentBrands
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -81,12 +82,21 @@ public struct TabItemMapping {
         item.hover = hover.facts
         if isConversation { item.subtitle = hover.folder }
         if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
-            if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
+            if item.icon == .terminalDead { item.icon = .terminal }
             if item.status == .failure { item.status = .none }
             if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
         }
         applyUserIcon(tab, to: &item, asset: asset)
         return item
+    }
+
+    /// A subagent pane's tab icon (`SubagentTabTitles.icon(ofTab:)`): the subagent mark (`task.ai`),
+    /// or the brand mark of `harness`, the harness its row draws (the subagent mark when cmux lists
+    /// no such brand).
+    public static func subagentIcon(harness: String?) -> TabIcon {
+        // A listed brand with no mark (AgentBrandCatalog.spec nil) draws the subagent mark, as the row's fallback does.
+        guard let brand = harness.flatMap({ AgentBrandCatalog.brand(for: $0) }), AgentBrandCatalog.spec(for: brand) != nil else { return .icon(.taskAi) }
+        return .agentMark(brand.rawValue)
     }
 
     /// The icon the user set on the tab record replaces every derived icon (kind, agent
@@ -106,10 +116,10 @@ public struct TabItemMapping {
             return harnessIcons.tabIcon(for: tab.agentSession?.harness)
                 ?? tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
-        if isBrowser { return .icon(.browser) }
-        if tab.dead { return .icon(.terminalDead) }
+        if isBrowser { return .browser }
+        if tab.dead { return .terminalDead }
         if let brand = tab.agentBrand { return .agentMark(brand) }
-        return .icon(.terminal)
+        return .terminal
     }
 
     /// A browser tab whose page was never shown keeps the record the daemon
@@ -130,7 +140,7 @@ public struct TabItemMapping {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty
-            || (!isBrowser && !isConversation && (tab.name?.isEmpty ?? true) && TerminalTitle.isBareShell(tab.title))
+            || (!isBrowser && !isConversation && (tab.name?.isEmpty ?? true) && TerminalTitle.isBareShell(tab.titleText))
             || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
         // A terminal its shell has not titled yet shows its folder, which the
         // shell's first title usually is, so the label does not change a

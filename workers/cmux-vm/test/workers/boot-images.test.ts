@@ -33,7 +33,7 @@ describe("approved service boot images", () => {
     const key = await service(t);
     const response = await t.request("/v1/vm-images", headers(key));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ items: [{ ...IMAGE, displayName: "Cloud standard" }] });
+    expect(await response.json()).toEqual({ order: "configured", items: [{ ...IMAGE, displayName: "Cloud standard" }] });
     expect(t.upstreamRequests).toHaveLength(0);
   });
 
@@ -44,9 +44,20 @@ describe("approved service boot images", () => {
     const key = await service(t);
     const response = await t.request("/v1/vm-images", headers(key));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ items: [
+    expect(await response.json()).toEqual({ order: "configured", items: [
       { id: "cloud-native-a6d444a", revision: "r2", displayName: "Newer" },
       { id: "cloud-native-91d3ea0", revision: "r1", displayName: "Rollback" },
+    ] });
+  });
+
+  it("keeps an appended image last even when its id sorts first", async () => {
+    const older = { id: "cloud-native-auto-f00d-9", revision: "r1", displayName: "Older", snapshotId: SNAPSHOT, services: ["cloud-driver"] };
+    const appended = { id: "cloud-native-auto-0abc-12", revision: "r2", displayName: "Appended", snapshotId: SNAPSHOT, services: ["cloud-driver"] };
+    const t = await harness({ bootImages: JSON.stringify([older, appended]) });
+    const key = await service(t);
+    expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ order: "configured", items: [
+      { id: "cloud-native-auto-f00d-9", revision: "r1", displayName: "Older" },
+      { id: "cloud-native-auto-0abc-12", revision: "r2", displayName: "Appended" },
     ] });
   });
 
@@ -84,7 +95,7 @@ describe("approved image boundaries and retries", () => {
     const ordinary = await t.addKey("team_alpha", ["vm:read", "vm:write"]);
     const other = await t.addServiceKey({ id: "other-service", scopes: ["vm:read", "vm:write"], labels: { role: "cloud" } });
     for (const key of [ordinary, other]) {
-      expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ items: [] });
+      expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ order: "configured", items: [] });
       expect((await create(t, key)).status).toBe(404);
     }
     expect(t.upstreamRequests).toHaveLength(0);
@@ -166,7 +177,7 @@ describe("approved image boundaries and retries", () => {
   ])("disables malformed operator configuration while preserving ordinary create", async (bootImages) => {
     const t = await harness({ bootImages });
     const key = await service(t);
-    expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ items: [] });
+    expect(await (await t.request("/v1/vm-images", headers(key))).json()).toEqual({ order: "configured", items: [] });
     expect((await create(t, key)).status).toBe(404);
     expect(t.upstreamRequests).toHaveLength(0);
     expect((await t.request("/v1/vms", headers(key), { method: "POST", body: { labels: { role: "cloud" } } })).status).toBe(201);

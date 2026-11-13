@@ -115,6 +115,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
     /// default is nil: the chrome keeps the tab's own zoom.
     var siteZoomLevels: SiteZoomLevels? { get }
+
+    /// The shown page's own background, as the engine read it from the document (`pageBackdropARGB`): the ground its
+    /// pane shows when it closes (``BrowserChromeView`` as `PaneGroundReporting`). The default is nil: the chrome's.
+    var pageGround: CGColor? { get }
 }
 
 extension BrowserTab {
@@ -132,6 +136,7 @@ extension BrowserTab {
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
+    public var pageGround: CGColor? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }

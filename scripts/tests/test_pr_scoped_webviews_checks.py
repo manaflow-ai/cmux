@@ -2,6 +2,14 @@
 (webviews/test/support/prScope.ts): a finding already on the base branch is
 printed as a warning, but only the PR that adds it, touches its file or
 changes its list line goes red."""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import os
 import shutil
 import subprocess
@@ -12,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web', 'Packages/Shared')
+OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'

@@ -22,11 +22,22 @@ const SYNC: Duration = Duration::from_millis(400);
 
 /// A hub on a journal store with two chats.
 fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
+    hub_and_durability(home, journal, cmux_journal::Config::default().kept_sync_quiet).0
+}
+
+/// [`hub`] whose journal syncs kept records after `kept_sync_quiet` of idle time, and the store's
+/// durability as the outbound gate reads it.
+fn hub_and_durability(
+    home: &Path,
+    journal: &SimStorage,
+    kept_sync_quiet: Duration,
+) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Local;
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
+        kept_sync_quiet,
         ..cmux_journal::Config::default()
     };
     let store = crate::store::open_with_journal(
@@ -44,7 +55,8 @@ fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
         .unwrap_or_else(|e| panic!("meta: {e}"));
         store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
     }
-    crate::hub::Hub::new(config, store)
+    let durability = store.durability().unwrap_or_else(|| panic!("a journal store has one"));
+    (crate::hub::Hub::new(config, store), durability)
 }
 
 /// A local connection, initialized, and its outgoing lines.
@@ -109,7 +121,10 @@ async fn an_acked_change_is_answered_once_its_record_is_durable() {
 async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
-    let hub = hub(home.path(), &journal);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let (input, mut outgoing) = connect(&hub).await;
     // The full sync that follows the chats' saves within the journal's 1 s interval is over: no
     // sync of the setup is under way when the slow syncs start.
@@ -155,6 +170,47 @@ async fn a_draft_and_a_name_are_answered_before_their_sync_and_survive_a_kill() 
     assert_eq!(meta.name, "kept-name", "the name after the kill");
 }
 
+/// Kept changes are synced in the journal's idle time soon after they are written, so the next
+/// acknowledged change (a prompt) syncs only its own records. Before, they waited for that change
+/// or the stream sync delay (1 s): after the perf bench's 200 drafts and names, the first prompt's
+/// sync carried 316 records, 1.17 MB, and took 7.3 ms against 2.2-2.5 ms for its own 319 bytes
+/// (job 01189fd6, aws-m4pro-8: `light.op.prompt_accepted` p95 2.0 -> 3.2 ms, max 3.6 -> 7.4 ms).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn kept_changes_are_synced_in_idle_time_before_the_next_acked_change() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(64);
+    let quiet = cmux_journal::Config::default().kept_sync_quiet;
+    let (hub, durability) = hub_and_durability(home.path(), &journal, quiet);
+    let (input, mut outgoing) = connect(&hub).await;
+    // The setup's syncs (and the full sync that follows them within 1 s) are over.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    for id in 0..20u64 {
+        let draft = json!({"sessionId": CHAT, "text": format!("typing {id}")});
+        send(&input, Message::request(10 + id, method::MUX_DRAFT_SET, draft)).await;
+        let drafted = until(&mut outgoing, |line| line["id"] == 10 + id).await;
+        assert!(drafted.get("error").is_none(), "draft_set: {drafted}");
+    }
+    let rename = json!({"sessionId": CHAT, "newName": "idle-synced"});
+    send(&input, Message::request(40, method::MUX_RENAME, rename)).await;
+    let renamed = until(&mut outgoing, |line| line["id"] == 40).await;
+    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    let kept = durability.kept.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(kept > 0, "the drafts and the name appended no kept record");
+    // No acknowledged change comes. Within 300 ms of idle time (well inside the 1 s stream sync
+    // delay) the kept records are synced on their own.
+    let mut durable = durability.durable.clone();
+    let synced =
+        tokio::time::timeout(Duration::from_millis(300), durable.wait_for(|lsn| *lsn >= kept))
+            .await
+            .is_ok();
+    let at = *durable.borrow();
+    assert!(
+        synced,
+        "kept records up to LSN {kept} were not synced in 300 ms of idle time (durable: {at}): \
+         the next acked change would sync them in its own turn"
+    );
+}
+
 /// Agent output (a `Stream` record) to a connection attached to its chat goes at once, while
 /// another chat's acknowledged change, which this connection does not hear, waits for its sync.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -194,11 +250,37 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
 
-/// F2: a journal that makes nothing durable (a hung or failing disk; the writer retries without
-/// end) must not hold every reply without a limit: past the stall limit, the store asks the
-/// daemon to stop for a restart.
+/// huge-blue, 2026-11-08: a saturated disk (35-50% iowait, a 10.4 s fdatasync) made a reply wait
+/// past the stall limit, and the daemon stopped for a restart 8 times in 3 hours; every session
+/// start meanwhile failed with "acpmux is shutting down". A journal that is only slow (each sync
+/// takes ten stall limits, and none fails) must not ask the daemon to stop: the reply waits and
+/// then goes out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
+async fn a_slow_journal_delays_the_reply_and_never_asks_the_daemon_to_stop() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(100, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let hub = hub(home.path(), &journal);
+    let (input, mut outgoing) = connect(&hub).await;
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    journal.set_sync_delay(Duration::from_millis(1000));
+    let started = Instant::now();
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    let took = started.elapsed();
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    assert!(took >= Duration::from_millis(900), "the reply did not wait for its sync: {took:?}");
+    assert!(stop.borrow().is_none(), "a slow disk asked the daemon to stop: {:?}", *stop.borrow());
+}
+
+/// F2: a journal whose writer fails (a failing disk: every sync returns an error and the writer
+/// retries without end) must not hold every reply without a limit: past the stall limit, the
+/// store asks the daemon to stop for a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failing_journal_asks_the_daemon_to_stop() {
     use std::sync::atomic::Ordering;
     super::TEST_STALL_MS.store(300, Ordering::SeqCst);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -206,17 +288,20 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     let hub = hub(home.path(), &journal);
     let (input, mut outgoing) = connect(&hub).await;
     let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
-    // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
-    // (a sync under way keeps its delay, and the store's drop waits for it).
-    journal.set_sync_delay(Duration::from_secs(3));
+    journal.fail_all_syncs(Some(std::io::ErrorKind::Other));
     let unread = json!({"sessionId": CHAT});
     send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
     let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
         .await
         .is_ok();
-    journal.set_sync_delay(Duration::ZERO);
+    journal.fail_all_syncs(None);
     let _ = until(&mut outgoing, |line| line["id"] == 2).await;
-    assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
+    assert!(
+        asked,
+        "a reply waited past the stall limit on a failing journal and the store did not ask to stop"
+    );
+    let why = stop.borrow().clone().unwrap_or_default();
+    assert!(why.contains("failing"), "{why}");
 }
 
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it
@@ -227,7 +312,10 @@ async fn a_replay_never_sends_a_line_before_its_record() {
     use crate::store::pause_next_log_write_on_this_thread;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
-    let hub = hub(home.path(), &journal);
+    // No idle-time sync of the draft's record between the two requests: on a loaded machine the
+    // pause between them can pass the 10 ms quiet time, and the rename's write would then wait
+    // behind that (simulated 400 ms) sync. Review of #37174, finding 1.
+    let (hub, _) = hub_and_durability(home.path(), &journal, Duration::from_secs(60));
     let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     let first = hub.append(&session, "mux", "note", json!({"n": 1}));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
@@ -429,4 +517,52 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
         vec![1, 2, 3],
         "a replay during another catch-up left out the tail (it {stopped} while the first catch-up counted)"
     );
+}
+
+/// `daemon status` counts what the gate holds for the journal and what the transport past it has
+/// not read (`queue_gauge.rs`, `Outbound::gauge`): one count from queue to reader.
+#[tokio::test]
+async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_read() {
+    use std::sync::atomic::AtomicU64;
+    let (durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (_written_tx, written) = tokio::sync::watch::channel(0);
+    let durability = crate::store::Durability {
+        acked: Arc::new(AtomicU64::new(1)),
+        durable,
+        kept: Arc::new(AtomicU64::new(0)),
+        written,
+        stalled: Arc::new(|_: Duration| false),
+    };
+    let scope = cmux_scope::Scope::new("durable-gate-test");
+    let (transport, mut reader) = mpsc::channel(8);
+    let (out, gate) = super::super::outbound::start(&scope, Some(durability), transport);
+    let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
+    let backlog = |want: (usize, usize)| {
+        let out = Arc::clone(&out);
+        async move {
+            let now = || {
+                let gauge = out.gauge();
+                (gauge.lines, gauge.bytes)
+            };
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while now() != want {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("backlog {:?}, want {want:?}", now()))
+        }
+    };
+    // Both lines may show LSN 1, not durable yet: the gate holds them.
+    gate.raise();
+    for line in ["one", "three"] {
+        assert!(out.push(line.to_owned()));
+    }
+    backlog((2, 8)).await;
+    // Durable: they move to the transport, still unread.
+    durable_tx.send(1).unwrap_or_else(|e| panic!("durable: {e}"));
+    assert_eq!(reader.recv().await.as_deref(), Some("one"));
+    backlog((1, 5)).await;
+    assert_eq!(reader.recv().await.as_deref(), Some("three"));
+    backlog((0, 0)).await;
 }

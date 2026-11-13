@@ -90,18 +90,45 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
       return page.__composerBars ?? [];
     });
 
+  /// Waits for every finite animation on the page (the prompt's growth to fit a paste, the Send
+  /// button's and the thread's moves) to finish, then two painted frames, so the probe measures the
+  /// box and captures its lane at the same settled place. Mid-growth the prompt's top moves between
+  /// the measure and the capture, so the capture's top rows miss the track (Chromium, run
+  /// 43363927828). Looping animations (a spinner) never end and never move the prompt.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document.getAnimations().filter((animation) => {
+          const end = animation.effect?.getComputedTiming().endTime;
+          return animation.playState === "running" && typeof end === "number" && Number.isFinite(end);
+        });
+      const deadline = performance.now() + 10_000;
+      for (let running = finite(); running.length > 0; running = finite()) {
+        if (performance.now() > deadline)
+          throw new Error(
+            `composer still moving after 10 s: ${running.map((animation) => animation.id || animation.constructor.name).join(", ")}`,
+          );
+        await Promise.all(running.map((animation) => animation.finished.catch(() => undefined)));
+      }
+      for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
+    });
+
   /// Whether the prompt's scrollbar lane shows a thumb as the page draws it: some rows of the lane
   /// differ from the field's padding beside it (a thumb), and some do not (no track). Since #24498
   /// the prompt runs to the box's right edge, so only the lane's rows below the box's rounded top
   /// corner (its rim) and above the mic and Send (where the track stops) can show a thumb.
   async function thumb(page: Page) {
+    await settled(page);
     const box = await page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
       const rect = field.getBoundingClientRect();
       const style = getComputedStyle(field);
       const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
       const actions = document.querySelector(".acpmux-composer-actions")?.getBoundingClientRect();
-      const bottom = actions && actions.height > 0 ? Math.min(rect.bottom, actions.top) : rect.bottom;
+      const track = getComputedStyle(field, "::-webkit-scrollbar-track");
+      // Codex reserves space after its track before the footer; those empty rows are not track ink.
+      const trackBottom = rect.bottom - (parseFloat(track.marginBottom) || 0);
+      const bottom = actions && actions.height > 0 ? Math.min(trackBottom, actions.top) : trackBottom;
       // The nearest rounded box around the prompt: its corner's rows are the rim, not the lane.
       let corner = 0;
       for (let node = field.parentElement; node && !corner; node = node.parentElement) {
@@ -126,10 +153,13 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
       const index = (y * png.width + x) * 4;
       return [png.data[index]!, png.data[index + 1]!, png.data[index + 2]!];
     };
+    // Codex's field reaches the glass card edge: its outermost CSS pixel is the card's rim,
+    // not the scrollbar track. Keep the lane's interior, at the capture's device scale.
+    const end = png.width - Math.ceil(png.width / (box.bar + 4));
     let drawn = 0;
     for (let y = 0; y < png.height; y++) {
       const beside = at(1, y);
-      for (let x = 4; x < png.width; x++) {
+      for (let x = 4; x < end; x++) {
         const pixel = at(x, y);
         if (
           Math.abs(pixel[0]! - beside[0]!) + Math.abs(pixel[1]! - beside[1]!) + Math.abs(pixel[2]! - beside[2]!) >
@@ -143,8 +173,8 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
     return { bar: box.bar, thumb: drawn >= 8, track: drawn > png.height - 8 };
   }
 
-  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 750 words and
-  /// 10,000 characters, so it lands as text, not a Pasted text chip, pastedText.ts).
+  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 3,500 words and
+  /// 20,000 characters, so it lands as text, not a Pasted text chip, pastedText.ts).
   async function paste(page: Page, lines: number) {
     await page.locator(EDITABLE).click();
     await page.evaluate(
@@ -170,6 +200,35 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
 
   for (const [name] of launchers) {
     describe(name, () => {
+      test("the thumb probe ignores the card rim and rejects an opaque track in both looks", async () => {
+        current = browsers.get(name);
+        // The opaque track is in place before the page draws its first scrollbar: neither engine
+        // restyles a custom scrollbar that is already drawn when a sheet or an attribute changes it
+        // (WebKit kept the clear track in 8 of 10 runs on Linux, Chromium in 3 of 10, run 43366591995),
+        // so a page that adds the rule late tests the engine's repaint, not the probe.
+        const OPAQUE =
+          ":root .acpmux-composer-prompt::-webkit-scrollbar-track { background: rgb(255, 0, 255) !important; }";
+        for (const look of ["codex", "claude"])
+          for (const opaque of [false, true]) {
+            const page = await pane!.open(undefined, async (page) => {
+              await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), look);
+              if (opaque)
+                await page.addInitScript((css) => {
+                  const sheet = new CSSStyleSheet();
+                  sheet.replaceSync(css);
+                  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+                }, OPAQUE);
+            });
+            try {
+              await paste(page, 20);
+              const probed = await thumb(page);
+              expect({ look, ...probed }).toEqual({ look, bar: probed.bar, thumb: true, track: opaque });
+            } finally {
+              await page.close();
+            }
+          }
+      });
+
       // With the agent pane's scrollbar fade on too (its default, `data-cmux-scroller-fade`): it fades
       // the transcript's thumb at rest, never the composer's (Leo 2026-10-21, ask-c8936f0e52).
       for (const fade of [false, true])

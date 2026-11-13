@@ -46,12 +46,19 @@ public final class CloudMachineStatePush {
     /// queued on an old socket can never match a new one.
     private var lastSocket = 0
 
-    /// The first reconnect waits this long; each failure doubles it up to ``maxBackoff``.
-    static let firstBackoff: Duration = .milliseconds(500)
-    static let maxBackoff: Duration = .seconds(30)
-    /// An open socket sends the protocol's `ping` this often, so no proxy closes it for being quiet; the platform's
-    /// runtime answers `pong` without waking the object.
-    static let keepalive: Duration = .seconds(30)
+    /// The reconnect waits and the keepalive (cmux-cloud-machine `push::backoff`): the first reconnect waits 500 ms, each
+    /// failure doubles it up to 30 s, and an open socket sends the protocol's `ping` every 30 s so no proxy closes it.
+    private struct Backoff: Decodable {
+        var waitMs = 500, nextMs = 500, keepaliveMs = 30000
+        var ping = #"{"v":1,"t":"ping"}"#
+
+        init() {}
+
+        init(current: Int?, opened: Bool) {
+            struct Request: Encodable { var currentMs: Int?, opened: Bool }
+            self = CloudMachineRules().call("cloud_machine_push_backoff", Request(currentMs: current, opened: opened), as: Backoff.self) ?? Backoff()
+        }
+    }
 
     /// `session` must refuse redirects (``CloudOwnerAPIClient/transport`` does): one would carry the bearer elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
@@ -69,11 +76,9 @@ public final class CloudMachineStatePush {
     public func watch(_ machines: [CloudMachine]) {
         let shown = Set(machines.map(\.id))
         for id in Array(watches.keys) where !shown.contains(id) { end(id) }
-        for machine in machines where Self.validID(machine.id) {
+        for machine in machines where url(machine.id) != nil {
             let id = machine.id
-            if last[id].map({ !CloudMachineChanges.newerRevision($0.serverRevision, than: machine.serverRevision) }) ?? true {
-                last[id] = machine
-            }
+            if keeps(last[id], machine) { last[id] = machine }
             guard watches[id] == nil else { continue }
             watches[id] = Watch()
             watches[id]?.runner = Task { [weak self] in await self?.run(id) }
@@ -95,19 +100,23 @@ public final class CloudMachineStatePush {
         watch.task?.cancel(with: .normalClosure, reason: nil)
     }
 
-    static func validID(_ id: String) -> Bool {
-        id.hasPrefix("vm_") && id.count == 23 && id.dropFirst(3).allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
+    /// `machine`'s state socket; nil for an id that is not a machine's.
+    func url(_ machine: String) -> URL? {
+        struct Request: Encodable { var base: String, machine: String }
+        struct Reply: Decodable { var url: String? }
+        let reply = CloudMachineRules().call("cloud_machine_push_url", Request(base: baseURL.absoluteString, machine: machine), as: Reply.self)
+        return reply?.url.flatMap(URL.init(string:))
     }
 
-    func url(_ machine: String) -> URL? {
-        guard var parts = URLComponents(url: baseURL.appendingPathComponent("v1/cloud/machines/\(machine)/state"),
-                                        resolvingAgainstBaseURL: false) else { return nil }
-        parts.scheme = parts.scheme == "http" ? "ws" : "wss"
-        return parts.url
+    /// Whether a listed `incoming` record replaces the last one known: unless the known one is newer.
+    private func keeps(_ last: CloudMachine?, _ incoming: CloudMachine) -> Bool {
+        struct Request: Encodable { var last: CloudMachine?, incoming: CloudMachine }
+        struct Reply: Decodable { var keeps: Bool }
+        return CloudMachineRules().call("cloud_machine_push_keeps", Request(last: last, incoming: incoming), as: Reply.self)?.keeps ?? true
     }
 
     private func run(_ machine: String) async {
-        var backoff = Self.firstBackoff
+        var backoff = Backoff()
         // wakeup-allow: one pass per socket, each awaiting the socket's life and then a capped backoff; ends when unwatched
         while !Task.isCancelled, watches[machine] != nil {
             let opened = await connect(machine)
@@ -119,10 +128,9 @@ public final class CloudMachineStatePush {
             if wasLive { onLost(machine) }
             // A socket that delivered frames closed (a token expiry, a deploy): the next waits the first backoff;
             // one that never delivered doubles it. Every close waits, so a socket that opens and closes cannot spin.
-            if opened { backoff = Self.firstBackoff }
+            backoff = Backoff(current: backoff.nextMs, opened: opened)
             // wakeup-allow: capped reconnect backoff of a closed push socket, cancelled when the machine is no longer shown
-            do { try await ContinuousClock().sleep(for: backoff) } catch { return }
-            backoff = min(backoff * 2, Self.maxBackoff)
+            do { try await ContinuousClock().sleep(for: .milliseconds(backoff.waitMs)) } catch { return }
         }
     }
 
@@ -137,10 +145,11 @@ public final class CloudMachineStatePush {
         watches[machine]?.task = task
         watches[machine]?.socket = nextSocket()
         task.resume()
+        let keepalive = Backoff(current: nil, opened: true)
         let ping = Task {
             // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
-            while (try? await ContinuousClock().sleep(for: Self.keepalive)) != nil {
-                guard (try? await task.send(.string(#"{"v":1,"t":"ping"}"#))) != nil else { return }
+            while (try? await ContinuousClock().sleep(for: .milliseconds(keepalive.keepaliveMs))) != nil {
+                guard (try? await task.send(.string(keepalive.ping))) != nil else { return }
             }
         }
         defer { ping.cancel() }
@@ -160,28 +169,29 @@ public final class CloudMachineStatePush {
         return delivered
     }
 
+    /// What one frame means (cmux-cloud-machine `push::frame`).
+    private struct Frame: Decodable {
+        var action: String
+        var forward: JSONValue?
+        var record: CloudMachine?
+    }
+
     /// One frame: to the app server first (so an op waiting on the machine runs as the record shows), then its record.
     func received(_ machine: String, _ frame: Data) {
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: frame), value["machine"]?.stringValue == machine
-        else { return }
-        switch value["t"]?.stringValue {
+        struct Request: Encodable { var machine: String, text: String, last: CloudMachine? }
+        let request = Request(machine: machine, text: String(decoding: frame, as: UTF8.self), last: last[machine])
+        guard let read = CloudMachineRules().call("cloud_machine_push_frame", request, as: Frame.self), let value = read.forward else { return }
+        switch read.action {
         case "state":
-            guard let record = value["state"]?["record"], let shown = CloudMachine(next: record) else { return }
-            // A record older than one already shown (a read that answered first) is not shown again.
-            if let known = last[machine], CloudMachineChanges.newerRevision(known.serverRevision, than: shown.serverRevision) {
-                return
-            }
+            guard let shown = read.record else { return }
             forward(machine, value)
             last[machine] = shown
             onRecord(shown)
         case "removed":
             forward(machine, value)
-            let gone = last[machine]
             // The machine is gone for good: its socket closes now, not at the next list.
             end(machine)
-            guard var gone else { return }
-            gone.status = .destroyed
-            onRecord(gone)
+            if let gone = read.record { onRecord(gone) }
         default:
             return
         }
@@ -216,8 +226,9 @@ public final class CloudMachineStatePush {
     /// Whether `apps-team-event` answered that a Cloud app server took the frame (`{servers: N}`, N > 0). A reply
     /// with no server (none running, or none holding the Cloud scope) is not a hand-off: the machine stays on reads.
     static func handedOff(_ reply: JSONValue?) -> Bool {
-        guard let servers = reply?["servers"]?.doubleValue else { return false }
-        return servers > 0
+        struct Request: Encodable { var reply: JSONValue? }
+        struct Reply: Decodable { var handedOff: Bool }
+        return CloudMachineRules().call("cloud_machine_push_handed_off", Request(reply: reply), as: Reply.self)?.handedOff ?? false
     }
 
     private func delivered(_ machine: String, socket: Int?, _ ok: Bool) {
@@ -231,7 +242,7 @@ public final class CloudMachineStatePush {
 extension CloudAPIClient {
     /// The machine state sockets at `baseURL` (``CloudConfiguration/relayAPIBaseURL(environment:)``, the platform
     /// origin), as this client's person and team; nil for the classic client, whose Stack session the platform does
-    /// not take (as ``relayChat(baseURL:)``).
+    /// not take.
     @MainActor
     public func statePush(baseURL: URL) -> CloudMachineStatePush? {
         guard !sendsStackSession else { return nil }

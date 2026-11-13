@@ -7,6 +7,10 @@ import CoreGraphics
 // answers for seeded scripts of closes; `ClosingPanesCorpusTests` (Swift) and `closing_panes_corpus` (Rust) both check
 // against it, so the Rust port is proven equal before the app calls it (RUST MIGRATION, swift-logic owner, step A).
 //
+// A strip pane's x is in strip coordinates and a fixed (docked) pane's in the view's (`ScreenGeometry`): a pane beside one
+// of the other kind reads its edges moved by the strip's view shift (``across(_:_:strip:)``), so a docked pane borders the
+// strip panes beside it and closes on their spring as a strip pane does (CLOSE MOTION 2 case E).
+//
 // Each body is the former ``ClosingPanes`` body with the geometry reads replaced by inputs, in the same order of
 // operations: a rect's sides are the ones CoreGraphics read from it (``Edges``), and a rect this file makes is
 // `(x, y, max(0, maxX - x), max(0, maxY - y))`, whose sides are `x` and `x + width`.
@@ -68,7 +72,8 @@ nonisolated struct ClosingPanesRules {
         var column: UInt64
     }
 
-    /// A live pane's frame this frame: its presented sides, its target sides, whether its spring moves and its velocities.
+    /// A live pane's frame this frame: its presented sides, its target sides, whether its spring moves, its velocities and
+    /// whether it scrolls with the strip (its x is in strip coordinates; a fixed pane's in the view's).
     struct FrameFact: Equatable {
         var id: UInt64
         var now: Edges
@@ -78,6 +83,7 @@ nonisolated struct ClosingPanesRules {
         var vy: CGFloat
         var vw: CGFloat
         var vh: CGFloat
+        var scrolls: Bool = true
     }
 
     /// Where a row column's scroll is and where it rests.
@@ -162,19 +168,28 @@ nonisolated struct ClosingPanesRules {
         return result
     }
 
+    /// What to add to the x of a pane that scrolls as `other` does to place it in the coordinates of one that scrolls as
+    /// `own` does: 0 for the same kind, else the strip's view shift `strip`, added to a strip x seen from a fixed pane and
+    /// taken from a fixed x seen from a strip pane.
+    static func across(_ own: Bool, _ other: Bool, strip: CGFloat) -> CGFloat {
+        own == other ? 0 : other ? strip : -strip
+    }
+
     // MARK: The rules
 
-    /// ``ClosingPanes/begin(_:shown:before:kept:maxGap:rank:viewShift:)``: `panes` are the layout it left, in ascending
-    /// pane order; `handles` its handles. Returns whether the pane was in that layout (it starts closing).
+    /// ``ClosingPanes/begin(_:shown:before:kept:maxGap:rank:viewShift:stripShift:)``: `panes` are the layout it left, in
+    /// ascending pane order; `handles` its handles; `stripShift` that layout's view shift at the camera of the close (a
+    /// pane of the other scroll kind is read moved by it). Returns whether the pane was in that layout (it starts closing).
     @discardableResult
     mutating func begin(_ pane: UInt64, shown: Edges, panes: [PaneFact], handles: [HandleFact], maxGap: CGFloat,
-                        viewShift: CGFloat?) -> Bool {
+                        viewShift: CGFloat?, stripShift: CGFloat) -> Bool {
         guard let own = panes.first(where: { $0.id == pane }) else { return false }
         let rest = own.edges
         var lead: [(UInt64, CGFloat)] = [], trail: [(UInt64, CGFloat)] = [], top: [(UInt64, CGFloat)] = [], bottom: [(UInt64, CGFloat)] = []
         let scrolls = own.scrolls, area = own.area, rowColumn = own.rowColumn
-        for other in panes where other.id != pane && other.scrolls == scrolls {
-            let was = other.edges
+        for other in panes where other.id != pane {
+            let dx = Self.across(scrolls, other.scrolls, strip: stripShift)
+            let was = Edges(minX: other.edges.minX + dx, maxX: other.edges.maxX + dx, minY: other.edges.minY, maxY: other.edges.maxY)
             if Self.minimum(was.maxY, rest.maxY) - Self.maximum(was.minY, rest.minY) > 1, other.area == area {
                 let gapBefore = rest.minX - was.maxX, gapAfter = was.minX - rest.maxX
                 if gapBefore >= -0.5, gapBefore <= maxGap { lead.append((other.id, Self.maximum(0, gapBefore))) }
@@ -235,21 +250,33 @@ nonisolated struct ClosingPanesRules {
         return still(awaiting, frames: frames)
     }
 
-    /// ``ClosingPanes/rects(frames:row:)``: each closing pane's frame, in the order they were placed.
-    mutating func rects(frames: [FrameFact], rows: [RowTravel]) -> [(UInt64, Placed)] {
+    /// ``ClosingPanes/rects(frames:row:strip:restStrip:)``: each closing pane's frame, in the order they were placed.
+    /// `strip`: the strip's view shift now; `restStrip`: where it rests (a neighbour of the other scroll kind is read moved
+    /// by them, its presented sides by `strip` and its target sides by `restStrip`).
+    mutating func rects(frames: [FrameFact], rows: [RowTravel], strip: CGFloat, restStrip: CGFloat) -> [(UInt64, Placed)] {
         var shown: [UInt64: Placed] = [:], rests: [UInt64: Placed] = [:], placed: [(UInt64, Placed)] = []
         for pane in order.reversed() {
             guard var entry = entries[pane] else { continue }
-            func facing(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat) -> CGFloat? {
-                Self.frame(neighbour, frames).map { edge($0.now) } ?? shown[neighbour].map { edge(Edges($0)) }
+            let scrolls = entry.scrolls
+            /// A neighbour's x side in this pane's coordinates (`dx` 0 for a y side).
+            func facing(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat, x: Bool) -> CGFloat? {
+                if let frame = Self.frame(neighbour, frames) {
+                    return edge(frame.now) + (x ? Self.across(scrolls, frame.scrolls, strip: strip) : 0)
+                }
+                guard let rect = shown[neighbour], let other = entries[neighbour] else { return nil }
+                return edge(Edges(rect)) + (x ? Self.across(scrolls, other.scrolls, strip: strip) : 0)
             }
-            func restingEdge(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat) -> CGFloat? {
-                Self.frame(neighbour, frames).map { edge($0.target) } ?? rests[neighbour].map { edge(Edges($0)) }
+            func restingEdge(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat, x: Bool) -> CGFloat? {
+                if let frame = Self.frame(neighbour, frames) {
+                    return edge(frame.target) + (x ? Self.across(scrolls, frame.scrolls, strip: restStrip) : 0)
+                }
+                guard let rect = rests[neighbour], let other = entries[neighbour] else { return nil }
+                return edge(Edges(rect)) + (x ? Self.across(scrolls, other.scrolls, strip: restStrip) : 0)
             }
-            func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (Edges) -> CGFloat, sign: CGFloat) -> CGFloat? {
-                if let value = slowest(side.neighbours.compactMap({ facing($0, edge) })) { side.fixed = value + sign * side.gap }
+            func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (Edges) -> CGFloat, x: Bool, sign: CGFloat) -> CGFloat? {
+                if let value = slowest(side.neighbours.compactMap({ facing($0, edge, x: x) })) { side.fixed = value + sign * side.gap }
                 if side.start == nil { side.start = side.fixed }
-                return slowest(side.neighbours.compactMap { restingEdge($0, edge) }).map { $0 + sign * side.gap }
+                return slowest(side.neighbours.compactMap { restingEdge($0, edge, x: x) }).map { $0 + sign * side.gap }
             }
             func collapse(_ free: inout Side, toward rider: inout Side, rest: CGFloat?, travel: inout Travel?, scroll: RowTravel?) {
                 guard free.neighbours.isEmpty, !rider.neighbours.isEmpty else { return }
@@ -274,10 +301,10 @@ nonisolated struct ClosingPanesRules {
             func resting(_ side: Side, _ own: CGFloat?, opposite: Side, _ other: CGFloat?) -> CGFloat {
                 own ?? (side.neighbours.isEmpty && !opposite.neighbours.isEmpty ? other ?? opposite.fixed : side.fixed)
             }
-            let restMinX = place(&entry.minX, slowest: Self.least, edge: \.maxX, sign: 1)
-            let restMaxX = place(&entry.maxX, slowest: Self.most, edge: \.minX, sign: -1)
-            let restMinY = place(&entry.minY, slowest: Self.least, edge: \.maxY, sign: 1)
-            let restMaxY = place(&entry.maxY, slowest: Self.most, edge: \.minY, sign: -1)
+            let restMinX = place(&entry.minX, slowest: Self.least, edge: \.maxX, x: true, sign: 1)
+            let restMaxX = place(&entry.maxX, slowest: Self.most, edge: \.minX, x: true, sign: -1)
+            let restMinY = place(&entry.minY, slowest: Self.least, edge: \.maxY, x: false, sign: 1)
+            let restMaxY = place(&entry.maxY, slowest: Self.most, edge: \.minY, x: false, sign: -1)
             let scroll = entry.rowColumn != 0 ? Self.row(entry.rowColumn, rows) : nil
             var none: Travel?
             collapse(&entry.maxX, toward: &entry.minX, rest: restMinX, travel: &none, scroll: nil)
@@ -332,24 +359,28 @@ nonisolated struct ClosingPanesRules {
         }
     }
 
-    /// ``ClosingPanes/remove(_:frames:)``.
-    mutating func remove(_ pane: UInt64, frames: [FrameFact]) -> Taken? {
+    /// ``ClosingPanes/remove(_:frames:strip:)``: `strip`, the strip's view shift now (a neighbour of the other scroll kind
+    /// is read moved by it).
+    mutating func remove(_ pane: UInt64, frames: [FrameFact], strip: CGFloat) -> Taken? {
         guard let entry = entries.removeValue(forKey: pane) else { return nil }
         order.removeAll { $0 == pane }
         awaiting.remove(pane)
         let rect = Placed(x: entry.minX.fixed, y: entry.minY.fixed, width: Self.maximum(0, entry.maxX.fixed - entry.minX.fixed),
                           height: Self.maximum(0, entry.maxY.fixed - entry.minY.fixed))
         let edges = Edges(rect)
-        func speed(_ side: Side, at value: CGFloat, edge: (Edges) -> CGFloat, _ velocity: (FrameFact) -> CGFloat) -> CGFloat {
+        func speed(_ side: Side, at value: CGFloat, edge: (Edges) -> CGFloat, x: Bool, _ velocity: (FrameFact) -> CGFloat) -> CGFloat {
             let live = side.neighbours.compactMap { Self.frame($0, frames) }
+            func distance(_ frame: FrameFact) -> CGFloat {
+                abs(edge(frame.now) + (x ? Self.across(entry.scrolls, frame.scrolls, strip: strip) : 0) - value)
+            }
             guard var best = live.first else { return 0 }
-            for frame in live.dropFirst() where abs(edge(frame.now) - value) < abs(edge(best.now) - value) { best = frame }
+            for frame in live.dropFirst() where distance(frame) < distance(best) { best = frame }
             return velocity(best)
         }
-        let vMinX = speed(entry.minX, at: edges.minX - entry.minX.gap, edge: \.maxX) { $0.vx + $0.vw }
-        let vMaxX = speed(entry.maxX, at: edges.maxX + entry.maxX.gap, edge: \.minX) { $0.vx }
-        let vMinY = speed(entry.minY, at: edges.minY - entry.minY.gap, edge: \.maxY) { $0.vy + $0.vh }
-        let vMaxY = speed(entry.maxY, at: edges.maxY + entry.maxY.gap, edge: \.minY) { $0.vy }
+        let vMinX = speed(entry.minX, at: edges.minX - entry.minX.gap, edge: \.maxX, x: true) { $0.vx + $0.vw }
+        let vMaxX = speed(entry.maxX, at: edges.maxX + entry.maxX.gap, edge: \.minX, x: true) { $0.vx }
+        let vMinY = speed(entry.minY, at: edges.minY - entry.minY.gap, edge: \.maxY, x: false) { $0.vy + $0.vh }
+        let vMaxY = speed(entry.maxY, at: edges.maxY + entry.maxY.gap, edge: \.minY, x: false) { $0.vy }
         return Taken(rect: rect, vx: vMinX, vw: vMaxX - vMinX, vy: vMinY, vh: vMaxY - vMinY)
     }
 

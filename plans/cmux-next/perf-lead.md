@@ -265,6 +265,7 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-24 | PL-cef-tab-2 (extension mirror) | this push | 1, 26: new tab, Cmd-W and move in STRESS | PL-burst (session cmux-1c, STRESS): each read of a profile's Chromium extension mirror refreshed it, a synchronous `cmux_ext_list` + `cmux_ext_commands` fork call on the main thread; the browser host read it per Chromium tab on every tab-list change (about 40 calls, a 99.6 ms main-thread hang on new tab, Cmd-W and move). CEFExtensionStoreReadTests at the red commit: 50 reads took 50 snapshots (fleet step 797fbd2ba31c, aws-m4pro-3, macOS 27) | a mirror is filled once when it is made; Chromium's extension and action events and each new window keep it current; a read asks Chromium nothing. CEFExtensionStoreReadTests and CEFQuitCreationTests green (step d5df39f951f5, aws-m4pro-3); `cmux-ci compile-check --app` passed (job 69572ce031b8); the package tests compiled in the suite step. Not re-benched in STRESS here (the hang is from PL-burst's trace); macOS 14/15 not run (no AppKit/WebKit path changed) |
 | 2026-10-24 | PL-memory (Part 1: Memory Saver parity) | this push | 15, 17: a hidden page with audio, capture, form input, a running download or a beforeunload that asks is never discarded, at any memory pressure (lead rule) | red on aws minis (Xcode 26.6, macOS 27): MemorySaverKeepRulesLiveTests 5 of 7 fail at ef999ed6859 (beforeunload x3, Web Audio taken at critical pressure, live WebRTC call); HibernationWakeCoverTests at 2e715102d98: no picture over the recreated page before it paints (theme color until first paint, tab-lifecycle.md wake mounted 57 / loaded 161 ms p50 WebKit) | Web Audio kept at every pressure; new keep reasons before_unload, web_rtc, connected_device (USB/HID/serial/Bluetooth, Chrome kConnectedToUSB/Bluetooth), unreadable_frame (input in a cross-origin frame with no recorder), notifications (timeout only, Chrome kNotificationsEnabled); a page that stops answering keeps what it last said; WebKit wake keeps the last frame until first contentful paint (500 ms cap). Planner, probe and neighbor policy moved to package CmuxNextHibernation. Renderer sharing baseline: bench_renderer_sharing.py lands here, runs on the reviewed measure path after landing |
 | 2026-10-24 | PL-cef-tab-2 (new browser tab, file input, memory pressure) | this push | 1, 25, F7: Cmd-Shift-L / new browser tab from every entrypoint; WebKitEngine.fileInput; the spare pools' memory pressure | light, cmux13s (macOS 27, 120 Hz virtual display), base 6cf02be19c3 plus only the bench (step 886b507cef6a, 6 rounds), key to the new tab visible on its pane, p50/p95: cold pane 80.5/132.0 ms (9 frames p95), warm pane 89.2/178.8 ms, second pane 139.1/229.6, third pane 153.1/346.6 (20 frames), link in a new tab 64.0/156.5, WebKit new tab 88.8/119.8; page painted p95 217-402 ms. The tab waited for the daemon's new-frontend-browser-tab reply, then the key's turn built the page, its chrome and (first tab of a pane) a Chromium window. STRESS before: not measured (the bench refused: 60 workspaces already open; fixed in this push) | a stand-in browser tab is in the pane's store in the key's turn (NewBrowserTabCommand, PaneBrowserTabOpener.openStandIn: every person's foreground new tab: Cmd-Shift-L, palette, context menu, CLI, New Tab page, link in a new tab, New WebKit Tab); its page and chrome come after the key's frame commits (AfterFrameCommit on MainRunLoopObserver) and move to the daemon's tab on the reply (TabContentCache.moveBrowser: no rebuild); a shown Chromium tab's browser is made after the frame commits; a spare Chromium window is remade at idle after each take (event-driven: waits for TabContentCache.onPagesSettled, no idle re-poll); Chromium starts at idle after launch while it is the default engine; the walk of every tab for Chromium likelihood runs only while WebKit is the default. WebKitEngine(fileInput:) is required, passed from AppServices.openPanel through TabContentCache (the AppDelegate line is gone). NewTabSparePool and PageHostPool use AppServices.memoryPressure (one kernel source with the hibernation). Tests (fleet, aws-m4pro-5, macOS 27): 16 suites green at d1a62e5542e (step 5cbbb30bafc6); red commit b3cc9f8e0ea fails as expected (step f1fd726cffa0); with the after-frame deferral removed ChromiumNewTabFirstFrameTests fails 4 expectations (step 56f60de40e5c); PageHostPoolMemoryPressureTests is new. After numbers: the same-base A/B on cmux13s (steps 7ac34c9eb8c4 before, 4ab457c128d7 after, light and STRESS) is queued, not in this row yet. macOS 14/15: not run |
+| 2026-11-12 | New Tab omnibar (notice to PL-typing) | 98338c5..e7defd5, and this push | 5: `KeyRouter.interceptKeyDown` (perf-hot) gained one check, `menuPickKeys.capture(event)` (MenuPickKeyHold, CmuxNextCompat): it holds keys typed while a menu tracks (a picked item's blink) and replays them after the item's action, so File > New Tab then typing at once reaches the new field. No menu tracking: one Int comparison. This push: the type-ahead focus settle keeps queued text when the same page gets its store id (TypeAheadWait); it runs at a focus settle, not per key | 98338c5, cmux-lawrence-2 (macOS 27, light, terminal at a prompt, HID keys, TypingLatencyProbe), 3 alternating rounds x 60 keys, median / p95 ms: key to dispatch 1.00 / 2.75, dispatch own work 0.42 / 0.47, key to io_write 1.42 / 3.18, key to frame 5.61 / 8.72 | e7defd5, same runs: 1.08 / 2.77, 0.43 / 0.47, 1.48 / 3.14, 4.06 / 5.80: no measurable cost. STRESS not run; CuaDriver had no Accessibility grant, so bench-typing.py did not run (a HID harness did) |
 | | | | | | |
 
 ## Notice to PL-daemon: JSON writes use cmux-json JsonSet (2026-10-29)
@@ -287,3 +288,55 @@ since 915bab1 a PostToolUse/PostToolUseFailure of a working agent changed no sta
 fold returned before posting the notification, so "Claude reported an error" never reached the
 feed (`command_activity::an_error_notification_carries_the_error_text_for_the_feed`). The
 notification is posted now with no new state; the 915bab1 state rule is unchanged.
+
+## Notice to PL-daemon: indeterminate effects log their cause (2026-11-08)
+
+PR https://github.com/manaflow-ai/cmux/pull/39053 (port of main #39021). `resource_api.rs`
+(`session.open`), `mux/notifications.rs`, `mux/resource_effects.rs` and
+`mux/resource_topology/{effectful_operation,creation_settlement,unpublished_creation}.rs` now log one
+daemon-log line when an effect becomes `mutation.indeterminate`:
+`resource effect OP (idempotency key KEY) is indeterminate: CAUSE`, through
+`Mux::report_resource_effect_indeterminate`. Request hot path: no new cost. The format and the
+log write run only in the Err / Indeterminate arms; a success or committed-failure reply allocates
+nothing new. The replay cause is the constant `resource_api::EARLIER_ATTEMPT_CAUSE`. No reply
+shape changed.
+
+## Notice to PL-daemon: terminal.close if_unplaced (2026-11-08)
+
+W5-O follow-up, PR #39092. The resource `terminal.close` takes an optional `if_unplaced`
+(capability `terminal-close-if-unplaced-v1`, static). With it the daemon ends the terminal only
+when it has no view, no `keep` mark and no attach stream: the reaper's rule without the grace. A
+refusal is a stored known failure (`operation.failed`, `extra.terminal_retained: true`).
+- Lock note: the view and keep check runs inside the close commit
+  (`commit_resource_close_with`'s slot closure, `close_effects.rs`), under the registry and state
+  locks that the close already holds. The closure now also gets the `&WorkspaceRegistry`; no new
+  lock and no lock order change. The keep read is one indexed SQLite read in the same registry.
+  The reaper's guarded close (`commit_legacy_terminal_close`) uses the same helper
+  (`terminal_placed_or_kept`); its behavior is unchanged.
+- The attach check (`control_clients.attach_observation`) runs before the commit, as in the
+  reaper.
+- No work on the request hot path: a `terminal.close` without the field, and every other
+  operation, run the same code as before. Only `workspace <ws> close --remove-worktree` sends the
+  field, once for each terminal it ends.
+- The CLI sends the field to the daemon that receives the close (the same route, also with
+  `--machine`). Only an older daemon's refusal of the unknown parameter (`validation.invalid`,
+  before the request is keyed) makes it send the plain close; any other failure leaves the
+  terminal to the reaper. The CLI does not call `identify` for this.
+
+## Notice to PL-daemon: terminal children say TERM_PROGRAM=cmux (2026-11-12)
+
+User ask: `echo $TERM_PROGRAM` in a cmux terminal said `ghostty`; make it say `cmux`.
+
+- `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` is gone. `cmux_pty::TERMINAL_IDENTITY`
+  (`TERM_PROGRAM=cmux`, `TERM_PROGRAM_VERSION=<workspace version>`) and
+  `PtyCommand::terminal_identity()` replace it. Every terminal child path sets it after the
+  launch's own env: `surface/construct.rs`, `surface/holder_spawn.rs` (spelled-out map),
+  `terminal_host_runtime.rs` (Unix and Windows), `cmux-remote` `workspace/process.rs`.
+  `shell_integration::keys_to_unset_in_child` now returns only the incognito markers.
+- `cmux-pty` takes the workspace version (was 0.1.0), so the version is cmux's.
+- `TERM`, `COLORTERM=truecolor`, `GHOSTTY_RESOURCES_DIR` and the XTVERSION reply are unchanged.
+- cmux#22585 still holds: the `claude`/`codex` wrappers (`cmux-tui/src/agent_terminal_identity.rs`)
+  start those agents with `TERM_PROGRAM=ghostty` and no version.
+- Cloud: `cmux-host::daemon_spec` and `cmux-devbox-boot` start the session daemon with
+  `TERM_PROGRAM=cmux` and no version; cmux-host no longer reads `/etc/cmux/ghostty-version`.
+- A new terminal-child path must call `terminal_identity()` (or insert `TERMINAL_IDENTITY`).

@@ -137,11 +137,11 @@ mod mobile_chat;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -160,6 +160,9 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+mod line_value;
+pub(crate) mod tree_reply_flight;
+pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -178,6 +181,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
+mod bookmarks_routed;
 mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
@@ -199,17 +203,23 @@ mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
+mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
-pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
+#[cfg(unix)]
+mod carrier_role;
 #[cfg(unix)]
 mod native_owner;
 mod new_screen;
 mod personal;
+#[cfg(unix)]
+mod phone_carrier;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
@@ -318,6 +328,7 @@ mod chief_registry_resource;
 mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
+mod shell_wire;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -411,6 +422,12 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+/// A client that declares this in `set-client-info` gets the public ids
+/// (`terminal_resource_id`, `tab_id`, `pane_id`, `screen_id`,
+/// `workspace_id`) in the replies that create or find a terminal or view
+/// (`run`, `create-terminal`, `new-tab`, `split`, ...). Other clients get the
+/// old reply: released SDKs reject unknown fields in those results.
+pub const TERMINAL_PUBLIC_IDS_CAPABILITY: &str = "terminal-public-ids-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
@@ -425,6 +442,10 @@ pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-n
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// A client that sends this in `set-client-info` gets `restart` on the
+/// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
+/// get the bare event, which strict older SDK decoders accept.
+pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -447,6 +468,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `set-terminal-tail-pin`: a pinned terminal's last output line
+/// shows under its workspace as the status entry `tail:<term id>`.
+pub const TERMINAL_TAIL_PIN_CAPABILITY: &str = "terminal-tail-pin-v1";
 /// Advertises `terminal-last-command`: the newest command a live shell
 /// finished, for Run Last Command Again.
 pub const TERMINAL_LAST_COMMAND_CAPABILITY: &str = "terminal-last-command-v1";
@@ -459,6 +483,12 @@ pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// client that closes a tab should end the terminal (`close-terminal`)
 /// instead of only detaching it (`close-surface`).
 pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
+/// Advertises `if_unplaced` on the resource `terminal.close`: end the
+/// terminal only when it has no view, no `keep` mark and no attach stream.
+/// An older daemon refuses the field as an unknown parameter
+/// (`validation.invalid`, before the request is keyed), so a client sends
+/// it and falls back to the plain close on that refusal.
+pub const TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY: &str = "terminal-close-if-unplaced-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
 /// owner shows the same screens, splits and tabs, each dead until a
@@ -523,6 +553,20 @@ pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// `workspaces.newPlacement` setting; and `workspace.move {index}` moves the
 /// workspace in the sidebar document's order too (#29875).
 pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-placement-v1";
+/// `workspace.create` takes `created_by` (`kind` person, agent or script, the
+/// creator `workspace`, the agent `session`): an agent or script workspace
+/// goes below its creator; workspaces carry it as `extra.created_by`.
+pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
+/// lines) and `lines` (the last N lines of scrollback and screen), and
+/// `terminal.copy` takes `unwrap`.
+pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
+/// `terminal.wait` takes `new`: only text printed below the cursor's line as
+/// the wait starts can match, so a typed command's echo and older output never do.
+pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
+/// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
+/// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -561,6 +605,12 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
 /// restatement on `session.events` (state/placement_shift.rs).
 pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+/// `session-live-cursor-v1`: a connection that sends it in `set-client-info`
+/// gets `live` in each `session.events` cursor, the position of the live
+/// terminal facts it has. A resume from such a cursor sends only the
+/// terminals whose live facts changed after it
+/// (server/session_event_stream.rs).
+pub const SESSION_LIVE_CURSOR_CAPABILITY: &str = "session-live-cursor-v1";
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -851,6 +901,7 @@ enum Command {
         upload_id: String,
         op: String,
         mime: Option<String>,
+        filename: Option<String>,
         size: Option<usize>,
         offset: Option<usize>,
         data: Option<String>,
@@ -881,6 +932,12 @@ enum Command {
         /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
         #[serde(default)]
         keep_layout: bool,
+        /// Whether a replacement daemon follows (`server restart`: true) or
+        /// the session stops (`server stop`: false). Repeated as `restart`
+        /// on the [`DAEMON_SHUTDOWN_EVENT`] so an attached TUI reconnects or
+        /// exits. Absent from older callers, which leave it unknown.
+        #[serde(default)]
+        restart: Option<bool>,
     },
     Ping,
     SetClientInfo {
@@ -1062,6 +1119,11 @@ enum Command {
     },
     /// `send`: write input to a terminal.
     Send(cmd_terminal_io::SendParams),
+    /// `cancel-creating-input` (`creating-input-cancel-v1`): the creator of a terminal that is
+    /// still being created drops the input queued for it; the creation goes on.
+    CancelCreatingInput {
+        terminal_id: String,
+    },
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1089,6 +1151,11 @@ enum Command {
         #[serde(alias = "timeout_ms")]
         timeout_ms: u64,
     },
+    /// Shell mode's command on this machine (`shell-runs-v1`, `shell_wire.rs`).
+    ShellRun(shell_wire::RunParams),
+    /// Its output, a long poll answered off the dispatcher (`shell_wire::read`).
+    ShellRead(shell_wire::ReadParams),
+    ShellStop(shell_wire::StopParams),
     Run {
         #[serde(default)]
         argv: Option<Vec<String>>,
@@ -1206,6 +1273,16 @@ enum Command {
         #[serde(default)]
         terminal_id: Option<String>,
         keep: bool,
+    },
+    /// Pin (`pinned: true`) or unpin one terminal's last output line under
+    /// its workspace in the sidebar (`terminal-tail-pin-v1`), named by
+    /// exactly one of a PTY `surface` or a public `terminal` (`term_`) id.
+    SetTerminalTailPin {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal: Option<String>,
+        pinned: bool,
     },
     /// Read, set (a string) or clear (null) the resume command of one hosted
     /// terminal, named by exactly one of a PTY `surface` or a stable
@@ -1392,6 +1469,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// `workspace-first-tab-v1`: the workspace's first tab, made in the
+        /// same request (`{kind: "browser", url, engine, ...}`).
+        #[serde(default)]
+        first_tab: Option<frontend_browser_history::FirstTabParams>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1430,6 +1511,13 @@ enum Command {
         /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
+        /// `create-terminal-workspace-v1`: with `key` and a mutation id,
+        /// make the workspace first when no workspace has that key.
+        #[serde(default)]
+        create_workspace: bool,
+        /// The name of the workspace `create_workspace` makes.
+        #[serde(default)]
+        workspace_name: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1555,6 +1643,15 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `split-divider-visibility-v1`: hide (`visible` false) or show the
+    /// divider of split `split`. The screen's layout lists hidden dividers
+    /// as `hidden_dividers`.
+    SetDividerVisible {
+        split: SplitId,
+        visible: bool,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -2580,11 +2677,49 @@ struct Response {
     error_delivery: Option<ResponseErrorDelivery>,
 }
 
+impl Response {
+    /// The reply as a JSON value, the value `serde_json::to_value` makes,
+    /// with `data` moved in: `to_value` copies it, and `data` can be the
+    /// whole tree (`list-workspaces`).
+    fn into_value(self) -> Value {
+        let Self { id, ok, data, error, error_code, error_delivery } = self;
+        let mut object = serde_json::Map::new();
+        if let Some(id) = id {
+            object.insert("id".into(), id);
+        }
+        object.insert("ok".into(), Value::Bool(ok));
+        if let Some(data) = data {
+            object.insert("data".into(), data);
+        }
+        if let Some(error) = error {
+            object.insert("error".into(), Value::String(error));
+        }
+        if let Some(error_code) = error_code {
+            object.insert("error_code".into(), Value::String(error_code));
+        }
+        if let Some(error_delivery) = error_delivery {
+            object
+                .insert("error_delivery".into(), Value::String(error_delivery.wire_name().into()));
+        }
+        Value::Object(object)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum ResponseErrorDelivery {
     KnownNotDelivered,
     Ambiguous,
+}
+
+impl ResponseErrorDelivery {
+    /// Its wire spelling (the serde name).
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::KnownNotDelivered => "known-not-delivered",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
 }
 
 impl From<ClearHistoryDelivery> for ResponseErrorDelivery {
@@ -2691,6 +2826,10 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
+/// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
+const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;
+const EVENT_SUBSCRIPTIONS_SERVER_CAPACITY: usize = 1024;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2744,10 +2883,13 @@ mod client_registry_views;
 mod listen;
 pub use listen::{
     BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,
+    serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
+#[cfg(all(test, unix))]
+use listen::still_at_path;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
@@ -2781,6 +2923,7 @@ use journal_stream::run_session_journal_stream;
 #[cfg(test)]
 use session_event_stream::run_session_event_stream;
 
+mod git_lane;
 mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
@@ -2836,7 +2979,7 @@ fn node_json(
 ) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => {
+        Node::Split { id, dir, ratio, a, b, .. } => {
             let mut value = json!({
                 "type": "split",
                 "split": id,
@@ -2886,15 +3029,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
-#[cfg(test)]
-pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::selection_changed_json;
-#[cfg(test)]
-pub(crate) use tree_json::set_entity_check_hook_for_test;
+#[cfg(all(test, unix))]
+pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+#[cfg(test)]
+pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
@@ -2959,6 +3102,21 @@ use command_dispatch::handle_command_with_cancellation;
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    // Concurrent readers share one build that starts after each arrived.
+    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
+}
+
+/// [`list_workspaces_reply`] as the tree's text, which the concurrent
+/// readers of its build share (tree_reply_text.rs).
+fn list_workspaces_reply_text(
+    mux: &Mux,
+    render: &RenderService,
+) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
+    mux.tree_reply_flight
+        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
+}
+
+fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
@@ -2980,6 +3138,14 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_start_phone_tests.rs"]
+mod agent_session_start_phone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/cloud_mobile_capability_tests.rs"]
+mod cloud_mobile_capability_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
@@ -3027,6 +3193,9 @@ mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
+#[cfg(test)]
+#[path = "server/split_before_tests.rs"]
+mod split_before_tests;
 
 #[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]
@@ -3045,7 +3214,18 @@ mod browser_profile_tests;
 mod creation_burst_tests;
 
 #[cfg(test)]
+#[path = "server/run_public_ids_tests.rs"]
+mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
+
+#[cfg(test)]
 mod tests;
 
+mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

@@ -28,20 +28,16 @@ public nonisolated enum ChromeTunables {
     public static let sidebarMaxWidth = points("sidebarMaxWidth", .sidebar, "Sidebar max width", help: "Widest sidebar resize.", 360, range: 200...800, step: 1)
     public static let tabBackgroundInset = points("tabBackgroundInset", .tabs, "Tab background inset",
                                                   help: "Inset of a tab's rounded background inside its slot.", 1, range: 0...8)
-    public static let tabContentLeadingInset = points("tabContentLeadingInset", .tabs, "Tab content inset",
-                                                      help: "Inset of a tab's icon from its slot's leading edge (the pane content line).", 8, range: 0...24)
+    public static let tabContentLeadingInset = DerivedTunable<CGFloat>.number(
+        "chrome.tabContentLeadingInset", .tabs, "Tab content inset",
+        help: "Inset of a tab's icon from its pill's leading edge. Default: the icon's ink as far from the edge as from the pill's top and bottom (6 at compact density).",
+        range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.tabContentLeadingInset") { Metrics.tabIconEvenLeadingInset }
     // @intent familiar first (Lawrence 2026-10-14): the cx-ag5.12 tight strip (26 pt strip, 22 pt
-    // tabs, icon 6 pt in and 4 pt from its title) is opt-in, off by default; it moves to Labs.
+    // tabs, icon 4 pt from its title) is opt-in, off by default; it moves to Labs.
     public static let compactTabs = Tunable<Bool>.toggle(
         "chrome.tabs.compact", .tabs, "Compact tabs",
-        help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
+        help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 4 pt from its title. Off: 28, 24 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
-    // @intent no top bar (Leo 2026-10-14; on by default 2026-10-20, "I thought we moved that all the way up
-    // to the top right"): a chat's header tools sit in its pane's tab row, not a second row under it.
-    public static let tabRowTools = Tunable<Bool>.toggle(
-        "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
-        help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
-        default: true, code: "ChromeTunables.tabRowTools")
     /// Native content-supplied controls in the shared tab row; off while the migration series lands.
     public static let nativeRowTools = Tunable<Bool>.toggle(
         "chrome.tabs.nativeRowTools", .tabs, "Native chat tools in the tab row",
@@ -52,8 +48,10 @@ public nonisolated enum ChromeTunables {
         "chrome.interfaceSize", .shape, "Interface size",
         help: "Scale chrome type, spacing and control heights together by appearance.interfaceScale (90, 100, 110 or 125%). Off: 100%.",
         default: false, code: "ChromeTunables.interfaceSize")
-    public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
-                                                             help: "Tab content inset under Compact tabs.", 6, range: 0...24)
+    public static let compactTabContentLeadingInset = DerivedTunable<CGFloat>.number(
+        "chrome.compactTabContentLeadingInset", .tabs, "Compact tab content inset",
+        help: "Tab content inset under Compact tabs. Default: the icon's ink as far from the edge as from the pill's top and bottom.",
+        range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.compactTabContentLeadingInset") { Metrics.tabIconEvenLeadingInset }
     public static let panePadding = DerivedTunable<CGFloat>.number(
         "chrome.panePadding", .panes, "Pane padding", help: "Inset around every pane's tab strip and content (0 is edge to edge). Default: layout.panePadding, else 2 compact, 4 comfortable.",
         range: 0...24, step: 0.5, unit: .points, code: "ChromeTunables.panePadding") { Metrics.codePanePadding }
@@ -77,9 +75,8 @@ public nonisolated enum ChromeTunables {
         default: 0.4, range: 0...0.5, step: 0.01, unit: .fraction, code: "ChromeTunables.scrollFadeMaxFraction")
 
     static var fixed: [TunableDescriptor] {
-        [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
-         tabContentLeadingInset].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
+        [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset].map(\.descriptor)
+            + [tabContentLeadingInset.descriptor, compactTabs.descriptor, compactTabContentLeadingInset.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }
@@ -89,9 +86,10 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + ChromeTunables.mainPane + TerminalDragTunables.all + frameOwnerTunables
-            + ThemeDecorations.tunables
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor,
+               CornerFlush.tunable.descriptor, TabCornerCurve.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + ChromeTunables.mainPane + [ChromeTunables.dividerStrength.descriptor] + TerminalDragTunables.all + frameOwnerTunables
+            + ThemeDecorations.tunables + CmuxToastTunables.all
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

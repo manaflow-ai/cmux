@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -47,6 +48,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var isTornDown = false
     /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
     private(set) var machineConfig: CloudMachineBootstrap.Outcome?
+    /// The progress page a window shows this creation on, while it shows it: the create asks there.
+    @ObservationIgnored weak var progressHost: CloudProgressHost?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
     /// What opens the ready machine's workspace instead of the flow's own (the Cloud toggle's,
@@ -418,7 +421,7 @@ struct CloudCreationFlow {
 
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
         let store = session.daemon.store
-        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
+        for await known in ObservationStream({ store.workspace(id: id) != nil }) where known { return true } // O(1), the index
         return false
     }
 }

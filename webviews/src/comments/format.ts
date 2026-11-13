@@ -36,3 +36,15 @@ export function commentSubmissionText(
   sections.push(comment.message);
   return `${sections.join("\n\n")}\n`;
 }
+
+/**
+ * The one prompt "Send to agent" delivers: every comment's submission block, by file and line, so
+ * the agent reads the review top to bottom.
+ */
+export function commentsPromptText(comments: readonly DiffCommentRecord[]): string {
+  const ordered = [...comments].sort(
+    (a, b) => a.filePath.localeCompare(b.filePath) || a.startLine - b.startLine || a.endLine - b.endLine,
+  );
+  const blocks = ordered.map((comment) => (comment.submissionText ?? commentSubmissionText(comment, null)).trimEnd());
+  return `${blocks.join("\n\n")}\n`;
+}

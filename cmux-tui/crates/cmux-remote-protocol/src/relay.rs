@@ -111,6 +111,18 @@ pub enum RelayControl {
         ticket: String,
         lane: LaneToken,
         generation: u64,
+        /// The client understands `Parked`. A relay sends `Parked` only when
+        /// this is set, because an older client fails on a control type it
+        /// does not know. Absent on the wire when false.
+        #[serde(default, skip_serializing_if = "is_false")]
+        accepts_parked: bool,
+    },
+    /// The relay holds this Connect until the slot's daemon registers, then
+    /// answers it with `Allocated`. Sent only to a client that set
+    /// `accepts_parked`.
+    Parked {
+        lane: LaneToken,
+        generation: u64,
     },
     Allocated {
         circuit: CircuitId,
@@ -151,6 +163,10 @@ pub enum RelayControl {
     },
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl fmt::Debug for RelayControl {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -163,11 +179,17 @@ impl fmt::Debug for RelayControl {
             Self::Registered { lease_seconds } => {
                 formatter.debug_struct("Registered").field("lease_seconds", lease_seconds).finish()
             }
-            Self::Connect { protocol, slot, lane, generation, .. } => formatter
+            Self::Connect { protocol, slot, lane, generation, accepts_parked, .. } => formatter
                 .debug_struct("Connect")
                 .field("protocol", protocol)
                 .field("slot", slot)
                 .field("ticket", &"[REDACTED]")
+                .field("lane", lane)
+                .field("generation", generation)
+                .field("accepts_parked", accepts_parked)
+                .finish(),
+            Self::Parked { lane, generation } => formatter
+                .debug_struct("Parked")
                 .field("lane", lane)
                 .field("generation", generation)
                 .finish(),

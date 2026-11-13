@@ -30,6 +30,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// Reads one byte range of a video on the attached chat's host, as
+    /// `{offset, size, identity, data, mimeType?, handle?}` (``AgentPaneRemoteMedia``).
+    func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data
     /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
@@ -40,12 +43,26 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func setModel(_ modelId: String) async throws -> Data
     func setMode(_ modeId: String) async throws -> Data
     func setConfig(id configId: String, value: String) async throws -> Data
+    /// The attached session's context inventory and saved cmux-added overrides.
+    func context() async throws -> Data
+    /// Saves or resets a cmux-added user/project override on the attached session's machine.
+    func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data
     /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
     func servesLogin() async -> Bool
     /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
     /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
     /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
     func login(_ op: String, _ fields: [String: String]) async throws -> Data
+    /// The composer's `/btw <question>` on that machine (`agent-session-btw-v1`): acpmux's inline
+    /// side question about the chat, `{text}` or `{refused: {reason}}`.
+    func btw(_ question: String) async throws -> Data
+    /// Whether that machine's daemon opens a side chat of this chat there (`agent-session-side-v1`).
+    func servesSide() async -> Bool
+    /// New side chat and `/side [prompt]` (`agent-session-side-v1`): that machine's acpmux forks
+    /// this chat (`throughSeq` nil: as it is now), tags the fork its side chat and sends it
+    /// `prompt`. Answers `{sessionId, prompted, notSent?}`: the side chat's id on that machine, and
+    /// why acpmux did not take `prompt` when it did not.
+    func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -66,18 +83,40 @@ extension AgentSessionRemoteClient {
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func context() async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?) async throws -> Data {
+        try await setContextOverride(scope: scope, text: text, partId: nil)
+    }
+    nonisolated static var contextUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.context_unsupported",
+                                message: "Update cmux on that machine to view or edit this chat's context.")
+    }
     nonisolated static var settingsUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.settings_unsupported",
                                 message: "update cmux on that machine to change this chat's model, mode or options from here")
     }
     /// A daemon without `agent-session-login-v1` offers no sign-in.
     public func servesLogin() async -> Bool { false }
+    /// A daemon without `agent-session-side-v1` opens no side chat there.
+    public func servesSide() async -> Bool { false }
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.fork_unsupported", message: "Update cmux on that machine to open a side chat there.")
+    }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
         Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+    }
+    /// A daemon without `agent-session-btw-v1` asks no side question.
+    public func btw(_ question: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.btw_unsupported", message: "Update cmux on that machine to ask a side question here.")
     }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
+    /// Older daemons read no video ranges; the pane then says the video can't play here.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve video ranges")
     }
 }
 
@@ -87,12 +126,17 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
+    /// gets its records. Never sent to the daemon.
+    public var listing: Bool
 
-    public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil) {
+    public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
+                listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.listing = listing
     }
 }
 

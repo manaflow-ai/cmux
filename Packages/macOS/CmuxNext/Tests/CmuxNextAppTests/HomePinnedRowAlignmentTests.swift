@@ -84,8 +84,8 @@ import Testing
         list.convert(NSPoint(x: value, y: 0), from: view).x
     }
 
-    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts, centered
-    /// on its column (`SidebarIconColumnTests` checks the centers; Leo 2026-10-28: "the alignment").
+    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts (Leo
+    /// 2026-10-28: "the alignment").
     @Test(arguments: cases)
     func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -94,13 +94,46 @@ import Testing
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let loose = try Self.row(list, Self.loose)
             let textX = Self.x(list, loose.title.frame.minX, in: loose)
-            let slot = textX...(textX + SidebarStyle.iconBox)
+            // The slot every leading glyph's ink fills (`SidebarStyle.rowGlyphOpticalSide`, Lawrence 2026-11-09: one size).
+            let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide)
+            // The glyph's frame snaps its origin and its size to whole pixels (a crisp bitmap): up to half a 1x pixel each.
+            let snapped = Self.tolerance + 0.5
             let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph"), pinInk = try #require(pin.pinInkFrame, "the pinned row drew no pin")
             for (name, ink, row) in [("Home's glyph", homeInk, home), ("the pin", pinInk, pin)] {
                 let minX = Self.x(list, ink.minX, in: row), maxX = Self.x(list, ink.maxX, in: row)
-                #expect(minX >= slot.lowerBound - Self.tolerance && maxX <= slot.upperBound + Self.tolerance,
+                #expect(minX >= slot.lowerBound - snapped && maxX <= slot.upperBound + snapped,
                         "\(c.testDescription): \(name) spans \(minX)...\(maxX), the icon slot \(slot)")
             }
+        }
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
+    /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
+    /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
+    /// aligned with 'Fix…'"); the narrow pin centers under it (#42431), at every density, minimal mode, width and text size.
+    @Test(arguments: cases)
+    func homesGlyphAndThePinStartOnOneEdge(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
+            let (list, window) = Self.list(width: c.width)
+            defer { window.close() }
+            let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
+            let homeColumn = list.convert(home.leadingColumnFrame, from: home)
+            let pinColumn = list.convert(pin.leadingColumnFrame, from: pin)
+            try #require(homeColumn.width > 0 && pinColumn.width > 0, "\(c.testDescription): a row has no icon column")
+            #expect(abs(homeColumn.minX - pinColumn.minX) <= Self.tolerance && abs(homeColumn.width - pinColumn.width) <= Self.tolerance,
+                    "\(c.testDescription): Home's icon column \(homeColumn.minX) + \(homeColumn.width), the pinned row's \(pinColumn.minX) + \(pinColumn.width)")
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
+            let loose = try Self.row(list, Self.loose)
+            let titleX = Self.x(list, loose.title.frame.minX, in: loose)
+            // Home's house fills the column's width, so its ink starts on the column's edge, where a text-only title starts.
+            #expect(abs(homeInk.minX - homeColumn.minX) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
+            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
+            // The pin is a narrow mark: it centers under the house (https://github.com/manaflow-ai/cmux/issues/42431).
+            #expect(abs(pinInk.midX - homeInk.midX) <= Self.tolerance,
+                    "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph at \(homeInk.midX)")
         }
     }
 

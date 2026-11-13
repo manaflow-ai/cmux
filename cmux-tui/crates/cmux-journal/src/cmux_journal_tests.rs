@@ -224,6 +224,44 @@ fn written_listeners_hear_a_stream_record_before_its_sync_and_a_waiter_syncs_it_
     assert!(took < Duration::from_secs(5), "the waiter waited out the stream delay: {took:?}");
 }
 
+/// Kept records are synced in idle time: none during a burst of them, all once the journal is
+/// quiet for `Config::kept_sync_quiet`, long before the stream sync delay; so the next acked
+/// batch syncs only its own records (probe job 01189fd6: a prompt's sync carried 316 kept
+/// records, 1.17 MB, 7.3 ms).
+#[test]
+fn kept_records_are_synced_once_the_journal_is_quiet() {
+    let storage = SimStorage::new(71);
+    let config = Config {
+        stream_sync_delay: Duration::from_secs(60),
+        // No full sync of its own covers the stream record at the end.
+        full_sync_interval: Duration::from_secs(60),
+        kept_sync_quiet: Duration::from_millis(300),
+        ..quick()
+    };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    let mut last = 0;
+    for index in 0..200u64 {
+        last = journal.append_kept(4, &payload(index)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert!(eventually(|| journal.stats().written_lsn >= last), "{:?}", journal.stats());
+    let stats = journal.stats();
+    assert_eq!(stats.durable_lsn, 0, "a burst of kept records was synced before it paused");
+    assert_eq!(stats.barrier_syncs + stats.full_syncs, 0, "{stats:?}");
+    // Quiet now: synced on their own, with no acked record and well before the 60 s delay.
+    assert!(eventually(|| journal.durable_lsn() >= last), "{:?}", journal.stats());
+    // Nothing is left unsynced, so the next acked record's sync carries only itself.
+    let before = journal.stats();
+    assert_eq!(before.durable_lsn, last, "{before:?}");
+    assert_eq!(before.written_lsn, last, "{before:?}");
+    let ack = journal.append(1, Class::Ack, b"prompt").unwrap_or_else(|e| panic!("{e}"));
+    journal.wait_durable(ack, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    // A plain `Stream` record keeps the stream sync delay.
+    let stream = journal.append(9, Class::Stream, b"output").unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.stats().written_lsn >= stream), "{:?}", journal.stats());
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(journal.durable_lsn() < stream, "a stream record was synced as a kept one");
+}
+
 #[test]
 fn an_idle_journal_touches_no_storage() {
     let storage = SimStorage::new(7);
