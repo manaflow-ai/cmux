@@ -386,3 +386,7 @@ pub struct HistoryDigest {
     pub rows: u64,
     pub digest: Vec<u8>,
 }
+
+#[cfg(test)]
+#[path = "mirror_fuzz_tests.rs"]
+mod mirror_fuzz_tests;
