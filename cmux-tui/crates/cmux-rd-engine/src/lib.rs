@@ -365,6 +365,15 @@ impl MediaEngine {
         Ok(())
     }
 
+    /// Changes the in-flight bound for every live display stream. New streams use the same bound.
+    pub fn set_frames_in_flight(&mut self, frames_in_flight: u32) {
+        let frames_in_flight = frames_in_flight.max(1);
+        self.cfg.frames_in_flight = frames_in_flight;
+        for state in self.streams.values_mut() {
+            state.gate.set_max_in_flight(frames_in_flight);
+        }
+    }
+
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
     /// the source encodes tile top-offs of static regions into its requests'
     /// access units; every frame carries `flags::TILE` and the surface
