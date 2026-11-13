@@ -211,6 +211,8 @@ pub mod op_names {
     pub const TEAM_INTEGRATION_RELEASE_LOCK: &str = "team.integration.release_lock";
     pub const TEAM_MEMBERS_LIST: &str = "team.members.list";
     pub const TEAM_MEMBERS_REMOVE: &str = "team.members.remove";
+    pub const TEAM_MODELS_POLICY_GET: &str = "team.models_policy.get";
+    pub const TEAM_MODELS_POLICY_SET: &str = "team.models_policy.set";
     pub const TEAM_POLICY_GET: &str = "team.policy.get";
     pub const TEAM_POLICY_HISTORY: &str = "team.policy.history";
     pub const TEAM_POLICY_ROLLBACK: &str = "team.policy.rollback";
@@ -454,6 +456,8 @@ pub mod op_names {
         TEAM_INTEGRATION_RELEASE_LOCK,
         TEAM_MEMBERS_LIST,
         TEAM_MEMBERS_REMOVE,
+        TEAM_MODELS_POLICY_GET,
+        TEAM_MODELS_POLICY_SET,
         TEAM_POLICY_GET,
         TEAM_POLICY_HISTORY,
         TEAM_POLICY_ROLLBACK,
@@ -700,6 +704,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team.integration.release_lock" => visitor.visit::<TeamIntegrationReleaseLockOp>(),
         "team.members.list" => visitor.visit::<TeamMembersListOp>(),
         "team.members.remove" => visitor.visit::<TeamMembersRemoveOp>(),
+        "team.models_policy.get" => visitor.visit::<TeamModelsPolicyGetOp>(),
+        "team.models_policy.set" => visitor.visit::<TeamModelsPolicySetOp>(),
         "team.policy.get" => visitor.visit::<TeamPolicyGetOp>(),
         "team.policy.history" => visitor.visit::<TeamPolicyHistoryOp>(),
         "team.policy.rollback" => visitor.visit::<TeamPolicyRollbackOp>(),

@@ -1381,6 +1381,16 @@ export type TeamMember = {
   readonly display_name: string
 }
 
+export type TeamModelsPolicyState = {
+  readonly team: TeamId
+  readonly can_edit: boolean
+  readonly own_connections: boolean
+  readonly choose_runout: boolean
+  readonly revision: number
+  readonly updated_at: number | null
+  readonly updated_by: UserId | null
+}
+
 export type TeamPolicy = {
   readonly version: number
   readonly values: TeamPolicyValues
@@ -4224,6 +4234,21 @@ export interface CloudOps {
       readonly removed: boolean
     }
   }
+  /** The team's members policy for model connections (members): whether members' own connections serve their Cloud threads, and whether they choose what happens when one runs out. */
+  readonly "team.models_policy.get": {
+    readonly params: {
+      readonly team?: TeamId
+    }
+    readonly result: TeamModelsPolicyState
+  }
+  /** Change the team's members policy for model connections (owners and admins, in a person's session). A field left out keeps its value. */
+  readonly "team.models_policy.set": {
+    readonly params: {
+      readonly own_connections?: boolean
+      readonly choose_runout?: boolean
+    }
+    readonly result: TeamModelsPolicyState
+  }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
   readonly "team.policy.get": {
     readonly params: {
@@ -4616,6 +4641,8 @@ export const cloudOpMeta = {
   "team.integration.release_lock": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.members.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.members.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.models_policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.models_policy.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
