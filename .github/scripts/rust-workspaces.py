@@ -88,7 +88,15 @@ class Tree:
                 return key
         return None
 
+    def workspace_named(self, directory: str) -> str | None:
+        """The workspace the package's own `package.workspace` names (cmux-rd-ffi: "../cmux-app-ffi"), which cargo
+        takes over the nearest one above it (cmux#42082 review F1)."""
+        named = self.manifests.get(directory, {}).get("package", {}).get("workspace")
+        return os.path.normpath(str(PurePosixPath(directory) / named)) if isinstance(named, str) else None
+
     def excluded(self, root: str, directory: str) -> bool:
+        if not under(directory, root):
+            return False  # a member beside the root ("../x") is outside every `exclude` entry
         relative = str(PurePosixPath(directory).relative_to(root))
         return any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/")
                    for path in self.manifests[root]["workspace"].get("exclude", []))
@@ -100,6 +108,8 @@ class Tree:
             if "workspace" in manifest:
                 found.add(directory)
             elif "package" in manifest:
+                if isinstance(manifest["package"].get("workspace"), str):
+                    continue  # a member of the workspace it names (cmux-rd-ffi names ../cmux-app-ffi)
                 above = self.workspace_above(directory)
                 if above is None or self.excluded(above, directory):
                     found.add(directory)
@@ -112,7 +122,8 @@ class Tree:
         found = {root} if "package" in manifest else set()
         if table is None:
             return found
-        patterns = [str(PurePosixPath(root) / member) for member in table.get("members", [])]
+        # Normalized: a member may sit beside the root (cmux-app-ffi's members are "../cmux-rd-ffi" and its siblings).
+        patterns = [os.path.normpath(str(PurePosixPath(root) / member)) for member in table.get("members", [])]
         for directory, other in self.manifests.items():
             if "package" in other and any(fnmatch(directory, pattern) for pattern in patterns) \
                     and not self.excluded(root, directory):
@@ -133,7 +144,8 @@ class Tree:
                 base = directory
                 if spec.get("workspace") is True:
                     # Inherited from the package's workspace: its own manifest when it is the root.
-                    base = directory if "workspace" in manifest else (self.workspace_above(directory) or directory)
+                    base = directory if "workspace" in manifest else (self.workspace_named(directory)
+                                                                      or self.workspace_above(directory) or directory)
                     spec = self.manifests.get(base, {}).get("workspace", {}).get("dependencies", {}).get(name, {})
                     if not isinstance(spec, dict):
                         continue
@@ -146,11 +158,16 @@ class Tree:
         members = self.members(root)
         seen = members | {root}
         manifest = self.manifests[root]
+        queue = [(member, DEPENDENCY_TABLES) for member in members]
         for spec in manifest.get("patch", {}).values():
             for patched in spec.values():
                 if isinstance(patched, dict) and "path" in patched:
-                    seen.add(os.path.normpath(str(PurePosixPath(root) / patched["path"])))
-        queue = [(member, DEPENDENCY_TABLES) for member in members]
+                    # A patched crate builds like a dependency: its own path and `{ workspace = true }` dependencies
+                    # are this workspace's too (cmux#41767 review class: cmux-next-ios/rust patches smoltcp).
+                    directory = os.path.normpath(str(PurePosixPath(root) / patched["path"]))
+                    if directory not in seen:
+                        seen.add(directory)
+                        queue.append((directory, ("dependencies", "build-dependencies")))
         while queue:
             directory, kinds = queue.pop()
             for dependency in self.path_dependencies(directory, kinds):
@@ -160,11 +177,13 @@ class Tree:
         return seen
 
     def read_paths(self, directories: set[str]) -> set[str]:
-        """Repository paths outside `directories` that their Rust sources read by literal path."""
+        """Repository paths outside `directories`' own trees that their Rust sources read by literal path. A file
+        inside a nested workspace below one of them is outside its own tree, so it counts (cmux#41767 review F2:
+        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace)."""
         found = set()
         for directory in directories:
             for source in self.sources:
-                if not under(source, directory) or not (self.repo / source).is_file():
+                if not self.owns(directory, source) or not (self.repo / source).is_file():
                     continue
                 text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
                 # A concat! prefix may stop inside a file name: watch its directory.
@@ -178,9 +197,19 @@ class Tree:
                         if path in self.tracked:
                             paths.add(path)
                 for path in paths:
-                    if not path.startswith("..") and not any(under(path, d) for d in directories):
+                    if not path.startswith("..") and not any(self.owns(d, path) for d in directories):
                         found.add(path)
         return found
+
+    def owns(self, directory: str, path: str) -> bool:
+        """`path` is in `directory`'s tree with no other workspace root in between: a Cargo.toml below it with a
+        [workspace] of its own, or in a workspace's `exclude`, starts another workspace with its own lock, and a
+        change there is that one's (the cmux#41742 review's F1 class)."""
+        if not under(path, directory):
+            return False
+        if not hasattr(self, "_roots"):
+            self._roots = self.roots()
+        return not any(root != directory and under(root, directory) and under(path, root) for root in self._roots)
 
     def uses_package(self, directories: set[str], name: str) -> bool:
         return any(self.manifests.get(d, {}).get("package", {}).get("name") == name for d in directories)
@@ -248,8 +277,11 @@ def plan(repo: Path, base: str) -> list[dict]:
         if paths is not None:
             # A dependency outside the workspace may inherit from its own workspace's manifest.
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
-            watched |= tree.read_paths(reach) | set(entry.get("inputs", []))
-            if not any(under(path, directory) for path in paths for directory in watched):
+            # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
+            # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
+            explicit = tree.read_paths(reach) | set(entry.get("inputs", []))
+            if not any(tree.owns(directory, path) for path in paths for directory in watched) \
+                    and not any(under(path, named) for path in paths for named in explicit):
                 continue
         jobs.append({
             "root": root,

@@ -24,6 +24,9 @@ pub const SESSION_MESSAGES: &str = "session-messages-v1";
 /// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
 /// submit idempotent ensure/send/status operations over fd0.
 pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
+/// `_acpmux/attach` with `settled: true` answers the chat's settled view first, then the records
+/// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
+pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -90,6 +93,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
+    // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
+    // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
+    Capability {
+        id: crate::hub::row_log::CAPABILITY,
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
@@ -106,6 +116,7 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[
@@ -148,6 +159,11 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
     Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
+    // A chat's transcript as rows folded in the daemon, paged and patched (`rows/`, hq#9655).
+    Capability {
+        id: "transcript-rows-v1",
+        wire: &[method::MUX_ROWS, method::MUX_ROWS_PATCH, method::MUX_ROWS_LAGGED],
+    },
     // The owner reads a queued prompt whole, its blocks and revision (`hub/queue_approve.rs`).
     Capability { id: "queue-get-v1", wire: &[method::MUX_QUEUE_GET] },
     // One answer for a group of permission asks, and revoking a chat's grants.
@@ -213,6 +229,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
     // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
     Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry` with `subagentId` also resumes a stopped Claude subagent, or one lost with
+    // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
+    // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
+    Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

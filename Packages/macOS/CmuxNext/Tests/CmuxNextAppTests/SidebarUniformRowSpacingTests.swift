@@ -260,8 +260,16 @@ struct SidebarUniformRowSpacingTests {
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
         let header = try #require(h.list.displayed.row(for: .group(Self.group)), "no group header")
-        #expect(abs(header.y - lastPin.maxY - spacing) < 0.5,
-                "under the pins: \(header.y - lastPin.maxY) pt, the row spacing is \(spacing) pt")
+        // The row under the pins: the list's "Workspaces" heading, on by default since #39984 (`sidebar.listHeading`,
+        // https://github.com/manaflow-ai/cmux/issues/39956), else the group's header. Each gap is the row spacing.
+        let heading = h.list.displayed.row(for: .listHeader(.workspaces))
+        let underPins = heading?.y ?? header.y
+        #expect(abs(underPins - lastPin.maxY - spacing) < 0.5,
+                "under the pins: \(underPins - lastPin.maxY) pt, the row spacing is \(spacing) pt")
+        if let heading {
+            #expect(abs(header.y - heading.maxY - spacing) < 0.5,
+                    "under the Workspaces heading: \(header.y - heading.maxY) pt, the row spacing is \(spacing) pt")
+        }
         let (w2, w3, w4) = try (h.inList(h.workspaceRow("w2")), h.inList(h.workspaceRow("w3")), h.inList(h.workspaceRow("w4")))
         #expect(abs(w3.minY - w2.maxY - spacing) < 0.5, "under the group: \(w3.minY - w2.maxY) pt, the row spacing is \(spacing) pt")
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)

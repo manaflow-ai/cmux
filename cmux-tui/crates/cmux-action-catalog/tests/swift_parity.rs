@@ -74,7 +74,9 @@ fn english_catalog_equals_the_swift_dump() {
     // Swift's `ActionEnumCase` also has `subtitle` and `symbol`: run-time list data (a team
     // row's kind and plan, from the cloud team rows) that the app's decoder never reads from
     // the catalog. The dump reflects them as null; only a null is dropped, so a case that
-    // carries one still differs.
+    // carries one still differs. A case without them is not a Swift dump's (a hand-written
+    // row): it fails here, not in the app's ActionCatalogDumpTests after the re-pin.
+    let mut missing = Vec::new();
     let arguments = swift
         .get_mut("actions")
         .and_then(Value::as_array_mut)
@@ -93,14 +95,23 @@ fn english_catalog_equals_the_swift_dump() {
             for case in cases.and_then(Value::as_array_mut).into_iter().flatten() {
                 if let Some(case) = case.as_object_mut() {
                     for field in ["subtitle", "symbol"] {
-                        if case.get(field).is_some_and(Value::is_null) {
-                            case.remove(field);
+                        match case.get(field) {
+                            Some(Value::Null) => {
+                                case.remove(field);
+                            }
+                            Some(_) => {}
+                            None => missing
+                                .push(format!("{key} case {:?} has no {field}", case.get("value"))),
                         }
                     }
                 }
             }
         }
     }
+    assert!(
+        missing.is_empty(),
+        "enum cases the Swift dump writes with null subtitle and symbol: {missing:?}"
+    );
     // A set in Swift: compare it in one order.
     let sort = |v: &mut Value| {
         if let Some(keys) = v["key_binding_defaults"]["text_input_keys"].as_array_mut() {
@@ -116,8 +127,56 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    awaiting_family_repin(&mut rust, &swift);
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
+    }
+}
+
+/// Palette family members the crate has and the pinned app's dump does not yet: the app reads
+/// the crate through the pinned FFI, so its dump gains them only with the next re-pin. Each
+/// leaves the Rust side here until then, and fails once the dump has it.
+const FAMILY_AWAITING_REPIN: &[(&str, &[&str])] = &[(
+    "browserProfile",
+    &["browserProfile.move", "browserProfile.setProxy", "browserProfile.clearProxy"],
+)];
+
+fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
+    let members = |catalog: &Value, family: &str| {
+        catalog["palette"]["families"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|f| f["id"] == family)
+            .and_then(|f| f["members"].as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    for (family, ids) in FAMILY_AWAITING_REPIN {
+        for id in *ids {
+            assert!(
+                !members(swift, family).iter().any(|m| m == id),
+                "action-catalog.json's {family} family has {id}: the re-pin landed, so take it off FAMILY_AWAITING_REPIN"
+            );
+        }
+        let families = rust["palette"]["families"].as_array_mut().into_iter().flatten();
+        for f in families.filter(|f| f["id"] == *family) {
+            if let Some(list) = f["members"].as_array_mut() {
+                list.retain(|m| !m.as_str().is_some_and(|m| ids.contains(&m)));
+            }
+        }
+        // A member's row derives its family and its tier (a family member is niche) from the
+        // list: those two take the dump's values, every other field is still compared.
+        let dump = |id: &str| {
+            swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
+        };
+        let actions = rust["actions"].as_array_mut().into_iter().flatten();
+        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| ids.contains(&id))) {
+            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            for field in ["palette_family", "palette_tier"] {
+                action["computed"][field] = dumped["computed"][field].clone();
+            }
+        }
     }
 }
 

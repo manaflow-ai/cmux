@@ -772,7 +772,7 @@ fn start_attempt(d: &mut Delivery, attempt: u32) {
 
 /// Deletes a settled delivery's kept attachments.
 async fn forget_attachments(path: std::path::PathBuf) {
-    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+    let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
 }
 
 /// The session a kept send is delivered as (`Delivery::caller`, `Delivery::unproven_caller`): one

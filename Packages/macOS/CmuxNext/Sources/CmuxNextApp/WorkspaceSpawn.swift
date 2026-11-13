@@ -58,6 +58,8 @@ struct WorkspaceSpawner {
         let (row, rule) = spawn.placement(setting: NewWorkspacePlacements.rule(for: windowID, in: windows), opening: key.rawValue, in: windowID, tells: windows.registry.closeSelection) // one read of the rows; the rule hears of a person's create before the window can show it
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
+        // In its room from the press: in `default` until its pin's refetch, its window fell back to the space it left.
+        services.machines.local.expectPinBeforeCreate(session: daemon.store.registryID, key: key, room: spawn.profile ?? profile)
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.rowName(inWindow: windowID != nil) {
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
@@ -116,9 +118,7 @@ struct WorkspaceSpawner {
                 }, settle: { await daemon.settledCheck() }) {
                     // One late-reply budget for the pin, the create and the first tab.
                     let giveUp = DaemonConnection.lateReplyDeadline()
-                    if try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id, until: giveUp) == true {
-                        BenchSpans.mark("cmdN.pinWorkspace.returned")
-                    }
+                    if try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id, until: giveUp) == true { BenchSpans.mark("cmdN.pinWorkspace.returned") }
                     return try await shown.confirm(giveUp)
                 }
             } catch {
@@ -153,9 +153,7 @@ struct WorkspaceSpawner {
         // room's terminal defaults (data-model.md 3.2, 3.3).
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
-        if try await home.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id) == true {
-            BenchSpans.mark("cmdN.pinWorkspace.returned")
-        }
+        if try await home.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: room?.id) == true { BenchSpans.mark("cmdN.pinWorkspace.returned") }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
             try services.browserProfiles.setWorkspaceDefault(browserProfile, for: qualified)

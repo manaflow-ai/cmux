@@ -13,7 +13,16 @@ final class PaneTypeMenuButton: NSView {
     private let glyph = TitlebarBandButton(symbol: "chevron.down")
     private let fillLayer = CALayer()
     private let chevronLayer = CAShapeLayer()
-    private lazy var pointer = PointerHover(self) { [weak self] _ in self?.updateColors() }
+    private lazy var pointer = PointerHover(self) { [weak self] hovering in
+        self?.updateColors()
+        self?.onHoverChange?(hovering)
+    }
+    /// The pointer came onto (true) or left (false) the ⌄.
+    var onHoverChange: ((Bool) -> Void)?
+    /// The + beside it is under the pointer (the split look's shared hover).
+    var siblingHovered = false {
+        didSet { if oldValue != siblingHovered { updateColors() } }
+    }
     var onPress: (() -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) the chooser.
     var onAccessibilityFocus: ((Bool) -> Void)?
@@ -76,11 +85,22 @@ final class PaneTypeMenuButton: NSView {
         let scale = window?.backingScaleFactor ?? 2
         chevronLayer.contentsScale = scale
         chevronLayer.frame = bounds
-        // Circles: one diameter for the +, the ⌄ and the ⋮ (the +'s square side), centered on the glyph.
+        // Circles: one diameter for the +, the ⌄ and the ⋮ (the +'s square side), centered on the glyph. Split: the
+        // whole segment, with the group's trailing corners rounded (the + rounds the leading ones).
         let side = min(bounds.width, bounds.height)
-        fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        fillLayer.cornerRadius = side / 2
-        let center = CGPoint(x: (bounds.midX * scale).rounded() / scale, y: (bounds.midY * scale).rounded() / scale)
+        if style == .split {
+            fillLayer.frame = bounds
+            fillLayer.cornerRadius = NewTabButtonView.splitCornerRadius
+            fillLayer.cornerCurve = Metrics.tabCornerCurve
+            fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        } else {
+            fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+            fillLayer.cornerRadius = side / 2
+            fillLayer.maskedCorners = NewTabButtonView.allCorners
+        }
+        // The split look's ⌄ leans half a step toward its + (NewTabButtonView leans the + back).
+        let lean = style == .split ? Metrics.space1 / 2 : 0
+        let center = CGPoint(x: ((bounds.midX - lean) * scale).rounded() / scale, y: (bounds.midY * scale).rounded() / scale)
         let half = NewTabButtonView.chevronHalfWidth, rise = NewTabButtonView.chevronRise
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - half, y: center.y - rise / 2))
@@ -108,9 +128,12 @@ final class PaneTypeMenuButton: NSView {
         performWithTheme {
             chevronLayer.strokeColor = NewTabButtonView.glyphInk(hovering: hovering, pressed: pressed).cgColor
             chevronLayer.lineWidth = NewTabButtonView.glyphLineWidth(pressed: pressed)
-            fillLayer.backgroundColor = style == .circles
-                ? ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
-                : nil
+            switch style {
+            case .circles: fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
+            case .split:
+                fillLayer.backgroundColor = NewTabButtonView.splitFill(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered)?.cgColor
+            case .plates, .glyphs, .merged: fillLayer.backgroundColor = nil
+            }
         }
         CATransaction.commit()
     }

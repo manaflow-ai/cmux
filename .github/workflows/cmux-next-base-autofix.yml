@@ -82,7 +82,6 @@ on:
       - scripts/cmux-next/regenerate-settings-exports.sh
       - scripts/cmux-next/settings-exports.txt
       - scripts/cmux-next/check-settings-exports.sh
-      - schemas/settings-export/**
       - docs/mdm/**
       - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
