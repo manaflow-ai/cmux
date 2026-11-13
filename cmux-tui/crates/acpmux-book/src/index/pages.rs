@@ -1,4 +1,4 @@
-use super::{SortKey, Summary, SummaryIndex};
+use super::{FolderKey, RowKey, SortKey, Summary, SummaryIndex};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::sync::Arc;
@@ -11,9 +11,23 @@ pub struct ListFilter {
     pub origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// Return the hot family rooted at this row key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<RowKey>,
+    /// Return hot rows in one origin/folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<FolderKey>,
 }
 
 impl ListFilter {
+    pub fn family(root: RowKey) -> Self {
+        Self { family: Some(root), ..Self::default() }
+    }
+
+    pub fn folder(folder: FolderKey) -> Self {
+        Self { folder: Some(folder), ..Self::default() }
+    }
+
     fn matches(&self, summary: &Summary) -> bool {
         self.workspace.as_ref().is_none_or(|value| summary.workspace.as_ref() == Some(value))
             && self.origin.as_ref().is_none_or(|value| &summary.origin == value)
@@ -38,6 +52,182 @@ pub struct IndexPage {
 }
 
 impl SummaryIndex {
+    /// Read a bounded family page directly from the kin table. The table walk
+    /// never inspects unrelated summaries; only selected hot rows are cloned.
+    #[allow(clippy::too_many_arguments)]
+    fn read_family_page(
+        &self,
+        root: &RowKey,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        anchor: Option<&SortKey>,
+        filter: &ListFilter,
+    ) -> io::Result<IndexPage> {
+        let items = self.kin().family(root);
+        let mut bytes_read = 0;
+        let mut cold_before = false;
+        let mut cold_after = false;
+        if let Some(disk) = self.disk()
+            && !disk.is_empty()
+        {
+            let piece = disk.read_piece(anchor, side, inclusive, limit, max_bytes)?;
+            bytes_read = piece.bytes_read;
+            cold_before = piece.has_before;
+            cold_after = piece.has_after;
+            // The snapshot piece supplies bounded progress flags; the hot
+            // answer remains sourced exclusively from the kin table.
+        }
+        let mut rows = Vec::new();
+        let mut start = 0;
+        let mut end = items.len();
+        if let Some(anchor) = anchor
+            && let Some(position) = items.iter().position(|item| {
+                self.get_row(&item.key).is_some_and(|row| SortKey::of(&row) == *anchor)
+            })
+        {
+            match side {
+                ReadSide::After => start = position + usize::from(!inclusive),
+                ReadSide::Before => end = position + usize::from(inclusive),
+                ReadSide::Around => {
+                    start = position;
+                    end = (position + limit).min(items.len());
+                }
+            }
+        }
+        let mut bytes: usize = 0;
+        let mut selected = 0;
+        let positions: Box<dyn Iterator<Item = usize>> = match side {
+            ReadSide::Before => Box::new((start..end).rev()),
+            _ => Box::new(start..end),
+        };
+        for position in positions {
+            let item = &items[position];
+            let Some(row) = self.get_row(&item.key) else { continue };
+            if !filter.matches(&row) {
+                continue;
+            }
+            let mut row = row.as_ref().clone();
+            row.depth = Some(item.depth);
+            let size = row.encoded_len() + 1;
+            if selected == limit || bytes.saturating_add(size) > max_bytes {
+                break;
+            }
+            bytes += size;
+            selected += 1;
+            rows.push(Arc::new(row));
+        }
+        let truncated = selected < items.len().saturating_sub(start.min(items.len()));
+        let before = start > 0 || cold_before;
+        let after = truncated || cold_after;
+        Ok(IndexPage {
+            before_key: rows.first().map(|row| SortKey::of(row)),
+            after_key: rows.last().map(|row| SortKey::of(row)),
+            rows,
+            has_before: before,
+            has_after: after,
+            bytes_read: bytes.max(bytes_read),
+        })
+    }
+
+    /// Read a bounded folder page from the folder tree. Folder rows use the
+    /// same activity key as `all`, so existing list anchors remain stable.
+    #[allow(clippy::too_many_arguments)]
+    fn read_folder_page(
+        &self,
+        folder: &FolderKey,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        anchor: Option<&SortKey>,
+        filter: &ListFilter,
+    ) -> io::Result<IndexPage> {
+        let indexed = self.kin().folder_rows(folder);
+        let mut rows = Vec::new();
+        let before = false;
+        let mut after = false;
+        let mut bytes_read = 0;
+        let mut cold_before = false;
+        let mut cold_after = false;
+        if let Some(disk) = self.disk()
+            && !disk.is_empty()
+        {
+            let piece = disk.read_piece(anchor, side, inclusive, limit, max_bytes)?;
+            bytes_read = piece.bytes_read;
+            cold_before = piece.has_before;
+            cold_after = piece.has_after;
+            for row in piece.rows {
+                let key = row.key();
+                if self.get_row(&key).is_none()
+                    && FolderKey::of(&row).as_ref() == Some(folder)
+                    && filter.matches(&row)
+                {
+                    rows.push(row);
+                }
+            }
+        }
+        let mut hot_rows = Vec::new();
+        let mut bytes: usize = 0;
+        if let Some(indexed) = indexed {
+            for (key, row_key) in indexed {
+                let Some(row) = self.get_row(row_key) else { continue };
+                if !filter.matches(&row) {
+                    continue;
+                }
+                hot_rows.push((key.clone(), row));
+            }
+        }
+        rows.extend(hot_rows.into_iter().map(|(_, row)| row));
+        rows.sort_by_key(|row| SortKey::of(row));
+        rows.dedup_by_key(|row| row.key());
+        let mut start = 0;
+        let mut end = rows.len();
+        if let Some(anchor) = anchor
+            && let Some(position) = rows.iter().position(|row| SortKey::of(row) == *anchor)
+        {
+            match side {
+                ReadSide::After => start = position + usize::from(!inclusive),
+                ReadSide::Before => end = position + usize::from(inclusive),
+                ReadSide::Around => {
+                    start = position;
+                    end = (position + limit).min(rows.len());
+                }
+            }
+        }
+        let positions: Box<dyn Iterator<Item = usize>> = match side {
+            ReadSide::Before => Box::new((start..end).rev()),
+            _ => Box::new(start..end),
+        };
+        let mut selected_positions = Vec::new();
+        for position in positions {
+            let row = &rows[position];
+            let size = row.encoded_len() + 1;
+            if selected_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
+                after = true;
+                break;
+            }
+            bytes += size;
+            selected_positions.push(position);
+        }
+        let mut selected_rows = selected_positions
+            .into_iter()
+            .map(|position| rows[position].clone())
+            .collect::<Vec<_>>();
+        if side == ReadSide::Before {
+            selected_rows.reverse();
+        }
+        Ok(IndexPage {
+            before_key: selected_rows.first().map(|row| SortKey::of(row)),
+            after_key: selected_rows.last().map(|row| SortKey::of(row)),
+            rows: selected_rows,
+            has_before: before || start > 0 || cold_before,
+            has_after: after || end < rows.len() || cold_after,
+            bytes_read: bytes.max(bytes_read),
+        })
+    }
+
     /// One physical piece. Flags and continuation name remaining candidates,
     /// including rows a filter or a newer summary will hide (decision 93).
     pub fn read_page(
@@ -51,6 +241,17 @@ impl SummaryIndex {
     ) -> io::Result<IndexPage> {
         if limit == 0 || limit > 400 || max_bytes == 0 || max_bytes > super::snapshot::PAGE_BYTES {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid index page bound"));
+        }
+        if let Some(filter) = filter
+            && let Some(root) = filter.family.as_ref()
+        {
+            return self.read_family_page(root, side, inclusive, limit, max_bytes, anchor, filter);
+        }
+        if let Some(filter) = filter
+            && let Some(folder) = filter.folder.as_ref()
+        {
+            return self
+                .read_folder_page(folder, side, inclusive, limit, max_bytes, anchor, filter);
         }
         let inclusive = inclusive || side == ReadSide::Around;
         let side = if anchor.is_none() { ReadSide::After } else { side };
@@ -216,5 +417,67 @@ impl SummaryIndex {
             after_key: last,
             bytes_read,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: &str, at: u64) -> Summary {
+        let mut row = Summary::new(id);
+        row.last_activity = at;
+        row
+    }
+
+    #[test]
+    fn family_page_is_breadth_first_and_sets_depth() {
+        let root = row("root", 5);
+        let mut child = row("child", 4);
+        child.parent = Some(root.key());
+        let mut grandchild = row("grandchild", 3);
+        grandchild.parent = Some(child.key());
+        let index = SummaryIndex::new().apply(1, root.clone()).apply(2, child).apply(3, grandchild);
+        let page = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                10,
+                64 * 1024,
+                Some(&ListFilter::family(root.key())),
+            )
+            .unwrap();
+        assert_eq!(
+            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+            ["child", "grandchild"]
+        );
+        assert_eq!(page.rows[0].depth, Some(1));
+        assert_eq!(page.rows[1].depth, Some(2));
+    }
+
+    #[test]
+    fn folder_page_is_newest_first_and_does_not_read_other_folders() {
+        let mut first = row("first", 1);
+        first.folder = Some("one".to_owned());
+        let mut newest = row("newest", 3);
+        newest.folder = Some("one".to_owned());
+        let mut other = row("other", 4);
+        other.folder = Some("two".to_owned());
+        let index = SummaryIndex::new().apply(1, first).apply(2, newest).apply(3, other);
+        let page = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                10,
+                64 * 1024,
+                Some(&ListFilter::folder(FolderKey::new("local", "one"))),
+            )
+            .unwrap();
+        assert_eq!(
+            page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+            ["newest", "first"]
+        );
     }
 }
