@@ -46,6 +46,7 @@ import {
 } from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
+import { useNativePinchReport } from "./pinch";
 import { panelAction } from "./panelActions";
 import { usageSection } from "./usage";
 import type { AccessGrant } from "../EnvironmentSection";
@@ -571,6 +572,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);
+  // The page's trackpad pinch: the App's panel zooms and pans with it (pinch.ts).
+  useNativePinchReport(info.open);
   usePostSessionInfo(info, actions, () => {
     if (props.revealed) props.onRevealed?.();
     else setLocalReveal(undefined);

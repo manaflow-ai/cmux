@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cmux_git::Repository;
 use cmux_git::diff::{comparison, diff_args};
+use cmux_git::head::Checkout;
 
 /// A fresh folder for one test, removed when dropped.
 struct Scratch(PathBuf);
@@ -176,6 +177,35 @@ fn hostile_repository_filter_driver_name_with_equals_sign_runs_no_clean_command(
     read_changes(&root, "uncommitted");
 
     assert_no_marker(&scratch);
+}
+
+/// What HEAD is on is read from the refs, and for a detached HEAD from a
+/// status run that is limited to no tracked file. Neither hashes a file that
+/// looks changed, so neither runs its clean filter.
+#[test]
+fn hostile_repository_head_read_runs_no_clean_command() {
+    for detached in [false, true] {
+        let scratch = Scratch::new(if detached { "head-detached" } else { "head-branch" });
+        let root = scratch.0.join("repository");
+        new_repository(&root);
+        std::fs::write(root.join(".gitattributes"), "* filter=x\n").expect("write attributes");
+        std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "--quiet", "-m", "one"]);
+        if detached {
+            git(&root, &["checkout", "--quiet", "--detach"]);
+        }
+        let clean = format!("{}; cat", scratch.touch_marker());
+        git(&root, &["config", "filter.x.clean", clean.as_str()]);
+        make_stat_dirty(&root.join("file.txt"));
+
+        let head = Checkout::open(&root).expect("open the checkout").head().expect("read HEAD");
+
+        assert_no_marker(&scratch);
+        let branch = (!detached).then_some("main");
+        assert_eq!(head.branch.as_deref(), branch, "detached {detached}: {head:?}");
+        assert_eq!(head.head.as_deref(), Some(git(&root, &["rev-parse", "HEAD"]).as_str()));
+    }
 }
 
 /// A partial clone fetches a missing object on demand, through the

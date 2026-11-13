@@ -17,7 +17,8 @@
 // The sidebar is native (Swift) and draws nothing in this page, so it has no row here.
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Page } from "playwright";
 import { warmViteServer } from "../test/support/warmDevServer";
 
 const argv = process.argv.slice(2);
