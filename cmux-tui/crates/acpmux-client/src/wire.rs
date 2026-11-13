@@ -9,6 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
+pub use acpmux_book::index::ListFilter;
+
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_PAGE_BYTES: usize = 256 * 1024;
@@ -102,6 +104,7 @@ pub enum Anchor {
 pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
+    pub origin: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -184,6 +187,8 @@ pub struct Sub {
     pub window: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ListFilter>,
 }
 
 /// Descriptive aliases used by clients that model requests explicitly.
@@ -203,6 +208,7 @@ impl Sub {
             anchor: None,
             window: default_window(),
             view: None,
+            filter: None,
         }
     }
 
@@ -340,6 +346,8 @@ pub struct Page {
     pub after: Option<Position>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ListFilter>,
 }
 
 /// Descriptive alias used by request routers.
@@ -362,6 +370,7 @@ impl Page {
             before: (side == PageSide::Before).then_some(Position::Row(row_id)),
             after: (side == PageSide::After).then_some(Position::Row(row_id)),
             max_bytes: default_page_bytes(),
+            filter: None,
         }
     }
 
@@ -384,6 +393,7 @@ impl Page {
             before: (side == PageSide::Before).then_some(Position::List(key.clone())),
             after: (side == PageSide::After).then_some(Position::List(key)),
             max_bytes: default_page_bytes(),
+            filter: None,
         }
     }
 
@@ -409,6 +419,21 @@ pub struct Window<T> {
     pub edition: u32,
     #[serde(default)]
     pub origins: Vec<Origin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_key: Option<ListKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<ListKey>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageResult<T> {
+    pub sid: String,
+    pub rows: Vec<T>,
+    pub has_before: bool,
+    pub has_after: bool,
+    pub before_key: Option<ListKey>,
+    pub after_key: Option<ListKey>,
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
@@ -431,6 +456,7 @@ pub enum DeltaOp<T> {
     },
     Gone {
         seq: u64,
+        origin: String,
         chat_id: String,
     },
     Queue {
@@ -456,6 +482,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             seq: u64,
             summary: Option<T>,
             chat_id: Option<String>,
+            origin: Option<String>,
             bytes: Option<u64>,
             id: Option<String>,
             state: Option<OriginState>,
@@ -470,6 +497,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             }),
             "gone" => Ok(Self::Gone {
                 seq: fields.seq,
+                origin: fields.origin.ok_or_else(|| D::Error::missing_field("origin"))?,
                 chat_id: fields.chat_id.ok_or_else(|| D::Error::missing_field("chatId"))?,
             }),
             "queue" => Ok(Self::Queue {
@@ -763,7 +791,11 @@ mod other_delta_tests {
     #[test]
     fn every_delta_op_has_one_round_tripping_shape() {
         let ops = vec![
-            DeltaOp::<serde_json::Value>::Gone { seq: 1, chat_id: "gone".into() },
+            DeltaOp::<serde_json::Value>::Gone {
+                seq: 1,
+                origin: "local".into(),
+                chat_id: "gone".into(),
+            },
             DeltaOp::Queue { seq: 2, bytes: 3 },
             DeltaOp::Origin {
                 seq: 3,

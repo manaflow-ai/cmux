@@ -108,6 +108,10 @@ UNWIRED: set[str] = {
     # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
     # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
     "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
+    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
+    # by hand after changing nightly-next-one or a step it shares with the split jobs.
+    "tests/test_nightly_next_one_job.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",

@@ -45,10 +45,10 @@ import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
-  type CarriedChat,
   harnessBlock,
   type HarnessBlock,
   isTrustRefusal,
+  type CarriedChat,
 } from "./direct";
 import { readHostTail } from "./tailCache";
 import { watchRestoredTail } from "./restoredTail";
@@ -307,13 +307,13 @@ import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
-  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
+  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -625,9 +625,9 @@ import {
   foldsToHold,
   linedCallOf,
   oneKeyPerMessageRun,
+  rowsToHold,
   withHeldFolds,
   withoutHeldCalls,
-  rowsToHold,
   withoutHeldRows,
   lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
@@ -810,6 +810,7 @@ import { declineReply, isPending, reply as questionReply, replyParams, selection
 
 import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
+import { oneRecap } from "./conversation/oneRecap";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
 import { ReadOnlyPresetApprovalRow } from "./rows/PresetApprovalRow";
 import { MEMORY_OFFER } from "./conversation/memoryInbox";
@@ -2877,8 +2878,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : individualPermission
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
-    // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
-    return withoutQuietThoughts(rows, snapshot.isWorking);
+    // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts);
+    // one "While you were away" card, the newest (conversation/oneRecap.ts).
+    return withoutQuietThoughts(oneRecap(rows), snapshot.isWorking);
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
@@ -11559,6 +11561,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     sinceKey={childRows ? undefined : sinceKey}
                                                                     promptAuthor={directClient.current?.presence.selfId}
                                                                     onJumpToSince={jumpToSince}
+                                                                    clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                     coldOpen={
                                                                       !childRows && opened.cold
                                                                         ? opened.open
