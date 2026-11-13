@@ -88,7 +88,7 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
     return kbps, fps, sampled_fps, encode, decode
 
 
-OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
+OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image", "comparison_ready", "crops"]
 
 
 def video_error(request, media, phase) -> str | None:
@@ -126,7 +126,7 @@ def empty_target(errors: list[str]) -> dict:
         "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
         "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
         "sampled_fps": dict.fromkeys(WINDOW_PHASES),
-        "ocr": dict.fromkeys(OCR_FIELDS),
+        "ocr": {**dict.fromkeys(OCR_FIELDS), "comparison_ready": False},
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
         "extra": {"first_frame_ms": None, "cpu_pct": None, "video_requested": None, "video_complete": False},
@@ -205,12 +205,21 @@ def target(name: str, folder: Path, out: Path) -> None:
         measured = [o for o in ocrs if isinstance(o.get("cer"), (int, float))] or ocrs
         middle = sorted(measured, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 0)[(len(measured) - 1) // 2]
         for k in OCR_FIELDS:
+            if k == "comparison_ready":
+                continue
             if any(isinstance(o.get(k), (int, float)) for o in ocrs):
                 result["ocr"][k] = median_of(o.get(k) for o in ocrs)
             else:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
+    # Missing calibration metadata is unknown, never a successful common-content comparison.
+    result["ocr"]["comparison_ready"] = bool(per_rep) and all(
+        r["ocr"].get("comparison_ready") is True
+        and isinstance(r["ocr"].get("crops"), dict)
+        and type(r["ocr"].get("cer")) in (int, float)
+        and math.isfinite(r["ocr"]["cer"])
+        for r in per_rep)
     first_extra = extras[0] if extras else {}
     metadata = {k: v for k, v in first_extra.items() if k not in {"first_frame_ms", "cpu_pct", "process_cpu_pct"}}
     cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float)) else None
@@ -257,6 +266,8 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
     lines.append(f"Host {run.get('host', '?')} ({run.get('cpu', '?')}, macOS {run.get('macos', '?')}), display {run.get('display', '?')}, "
                  f"link {run.get('link', '?')}, rev `{str(run.get('rev', '?'))[:12]}`"
                  + (", rd host `--input-frame-now 1`" if run.get("rd_input_frame_now") == "1" else "") + ".")
+    lines += ["", "Latency uses each target's recorded endpoint (see method below); "
+              "a decoded-frame or display-capture endpoint does not establish physical glass-to-glass latency."]
     if previous:
         prev_run = previous.get("run", {})
         lines.append(f"Changes in brackets are against {prev_run.get('at', '?')} (rev `{str(prev_run.get('rev', '?'))[:12]}`).")
@@ -279,12 +290,14 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         lines += ["", f"## {name}" + ("" if t.get("ok") else " (incomplete)"), ""]
         lines += ["| Measure | Value |", "| --- | --- |"]
         for kind, label in (("key", "Key"), ("pointer", "Pointer (click)")):
-            lines.append(f"| {label} glass-to-glass p50 / p95 | {cell('latency', kind, 'p50_ms')} / {cell('latency', kind, 'p95_ms')}"
+            lines.append(f"| {label} latency p50 / p95 (target endpoint) | {cell('latency', kind, 'p50_ms')} / {cell('latency', kind, 'p95_ms')}"
                          f" (n {get(t, 'latency', kind, 'n') or 0}, lost {get(t, 'latency', kind, 'lost') or 0}) |")
         for phase, label in (("idle", "idle 30 s"), ("typing", "typing burst"), ("scroll", "scrolling 5k lines"), ("video", "pinned video 20 s")):
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
+        lines.append("| OCR content calibration verified in every repeat | "
+                     + ("yes" if get(t, "ocr", "comparison_ready") is True else "no / unavailable") + " |")
         lines.append(f"| First decoded frame / viewer CPU / capture CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit=' %', digits=1)} / {cell('extra', 'process_cpu_pct', unit=' %', digits=1)} |")
         if any(v is not None for v in (t.get('sampled_fps') or {}).values()):
             lines.append(f"| Apple sampled screenshot changes (not decoded FPS) | "
