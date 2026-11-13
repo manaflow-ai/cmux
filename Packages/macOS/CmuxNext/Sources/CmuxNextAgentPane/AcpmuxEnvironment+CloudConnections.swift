@@ -1,5 +1,5 @@
 public import CmuxNextCloud
-import Foundation
+public import Foundation
 
 extension AcpmuxEnvironment {
     /// This Mac's connections in order (`_acpmux/connections`, cmux-tui/docs/model-connections.md), for
