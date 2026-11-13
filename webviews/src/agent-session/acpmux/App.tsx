@@ -2959,7 +2959,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
-  const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
+  const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
+    undefined,
+  );
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(() => {
@@ -2973,7 +2975,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The tray takes the running groups out of the rows, so the live line's wait is counted first.
     const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
-      const last = lastTurns.current;
+      const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
       if (heldCalls.current.session !== shownSessionId)
         heldCalls.current = { session: shownSessionId, keys: new Set() };
       // Null while the view follows the latest row: what was held out goes back in there. The view
@@ -3063,7 +3065,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // for turn boundaries, retries and queue actions; this is a display-only projection.
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
       const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
-      lastTurns.current = { turns, subagents };
+      lastTurns.current = { sessionId: shownSessionId, turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
@@ -3092,12 +3094,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
-    () =>
-      childRows || chatPresentation === "messages" || !lastTurns.current
-        ? NO_ROWS
-        : waitingAsks(lastTurns.current.turns),
+    () => {
+      const last = lastTurns.current;
+      if (childRows || chatPresentation === "messages" || !last || last.sessionId !== shownSessionId) return NO_ROWS;
+      return waitingAsks(last.turns);
+    },
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the view turnRowsShown shaped, read from its ref
-    [turnRowsShown, childRows, chatPresentation],
+    [turnRowsShown, childRows, chatPresentation, shownSessionId],
   );
   const [askDismissals, setAskDismissals] = useState(() => ({
     sessionId: shownSessionId,
@@ -3163,8 +3166,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [planInHat, earlierPlanRow],
   );
   const transcriptRows = useMemo(() => {
-    const steers =
-      childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
+    const last = lastTurns.current;
+    let steers: readonly AcpmuxRow[] = NO_ROWS;
+    if (!childRows && chatPresentation !== "messages" && last && last.sessionId === shownSessionId)
+      steers = last.turns.pending ?? NO_ROWS;
     // A guest's prompt is a person's, never another session's message: it draws on its own, held
     // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
     // the group.
@@ -3187,6 +3192,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     btwNotes,
     btwSnapshot,
     snapshot.sessionId,
+    shownSessionId,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's

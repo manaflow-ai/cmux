@@ -34,6 +34,34 @@ test("a completed turn has no live timer row", () => {
   expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
 });
 
+test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 1, at: 2_000, kind: "assistant", text: "The answer is still on screen." },
+      { id: "tool", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  // A refresh can publish the activity row before the reply body is present. The old visible
+  // message must stay mounted until the replacement snapshot is complete.
+  const refreshed = turnViewFrom(
+    [user(1_000), { id: "tool", version: 2, at: 3_000, kind: "activity", items: [], toolCount: 1 }],
+    folds,
+    {},
+    previous,
+  );
+
+  expect(refreshed.rows.some((row) => row.kind === "activity")).toBe(true);
+  expect(refreshed.rows.some((row) => row.kind === "assistant" && row.text === "The answer is still on screen.")).toBe(
+    true,
+  );
+  const visibleItems = (rows: readonly AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "user" || row.kind === "assistant" || row.kind === "activity").length;
+  expect(visibleItems(refreshed.rows)).toBeGreaterThanOrEqual(visibleItems(previous.rows));
+});
+
 test("the line under a streaming answer keeps the live turn start", () => {
   const shown = turnView(
     [

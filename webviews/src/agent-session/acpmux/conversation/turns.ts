@@ -422,6 +422,70 @@ const NO_PENDING: readonly AcpmuxRow[] = [];
 const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((id) => b.has(id));
 
+/// A refresh can publish a tool row before the assistant body that was already on screen. Keep
+/// that settled body in the source until a later snapshot carries it again, so shaping cannot turn
+/// a visible reply into a tool-only "Worked for" line during the gap.
+const retainVisibleReplies = (
+  rows: readonly AcpmuxRow[],
+  previous: readonly AcpmuxRow[] | undefined,
+): readonly AcpmuxRow[] => {
+  if (!previous || !rows.some((row) => row.kind === "activity")) return rows;
+  const currentIds = new Set(rows.map((row) => row.id));
+  const previousById = new Map(previous.map((row) => [row.id, row]));
+  const previousVisible = previous.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).length;
+  const currentVisible = rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).length;
+  const hasEmptyReplacement = rows.some(
+    (row) =>
+      row.kind === "assistant" &&
+      isVisiblyEmptyMessage(row) &&
+      previousById.get(row.id)?.kind === "assistant" &&
+      !isVisiblyEmptyMessage(previousById.get(row.id)!),
+  );
+  if (currentVisible >= previousVisible && !hasEmptyReplacement) return rows;
+  const retainIds = new Set<string>();
+  let segmentStart = 0;
+  let anchored = false;
+  const finishSegment = (end: number) => {
+    if (anchored)
+      for (let index = segmentStart; index < end; index += 1) {
+        const row = previous[index]!;
+        if (row.kind === "assistant" && !isVisiblyEmptyMessage(row) && !currentIds.has(row.id)) retainIds.add(row.id);
+      }
+  };
+  for (let index = 0; index <= previous.length; index += 1) {
+    const row = previous[index];
+    if (index === previous.length || (row?.kind === "user" && index !== segmentStart)) {
+      finishSegment(index);
+      segmentStart = index;
+      anchored = false;
+    }
+    if (row && row.kind !== "assistant" && currentIds.has(row.id)) anchored = true;
+  }
+  let changed = false;
+  const next = rows.map((row) => {
+    const prior = previousById.get(row.id);
+    if (
+      row.kind === "assistant" &&
+      prior?.kind === "assistant" &&
+      !isVisiblyEmptyMessage(prior) &&
+      isVisiblyEmptyMessage(row) &&
+      retainIds.has(row.id)
+    ) {
+      changed = true;
+      return prior;
+    }
+    return row;
+  });
+  for (const row of previous) {
+    if (row.kind === "assistant" && retainIds.has(row.id)) {
+      next.push(row);
+      changed = true;
+    }
+  }
+  if (!changed) return rows;
+  return next.sort((a, b) => a.at - b.at);
+};
+
 const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
@@ -472,6 +536,24 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
+  const retainedRows = retainVisibleReplies(rows, previous?.source);
+  if (retainedRows !== rows)
+    return turnViewFrom(
+      retainedRows,
+      expanded,
+      {
+        now,
+        working,
+        clockOffset,
+        turnStartedAtMs,
+        sessionStatus,
+        agentFamily,
+        waitingSteers,
+        messageBreaks,
+        trayAgents,
+      },
+      previous,
+    );
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   const reuseFoldedBackground = previous?.source === rows && previous.expanded === expanded;
