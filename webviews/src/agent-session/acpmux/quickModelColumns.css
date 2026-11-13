@@ -48,11 +48,11 @@
   padding-right: var(--ds-space-3);
 }
 .acpmux-cols-search > svg {
-  width: var(--ds-icon-16);
-  height: var(--ds-icon-16);
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
   align-self: center;
   flex: 0 0 auto;
-  margin: 0 8px 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
+  margin: 0 var(--ds-space-2);
   /* The same ink as the field's placeholder (standup 2026-11-12: "make the colors consistent"). */
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
 }

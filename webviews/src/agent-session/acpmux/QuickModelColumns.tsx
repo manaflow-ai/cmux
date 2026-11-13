@@ -1506,7 +1506,7 @@ function Columns({
                 )}
                 {card}
               </span>
-              <SearchIcon size={16} />
+              <SearchIcon size={14} />
               <input
                 ref={fieldRef}
                 type="search"
