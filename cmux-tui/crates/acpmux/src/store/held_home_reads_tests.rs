@@ -1429,6 +1429,104 @@ fn the_lint_reports_a_call_it_cannot_resolve() {
     );
 }
 
+/// #42352 review F1: "a type alias is treated as the item's own path. With `type Path =
+/// std::path::Path`, `Path::exists(p)` settles as Own and gives no row." The class: a name bound
+/// to another path (a type alias, a `const` or `static` bound to a function, `Self` in an impl, a
+/// `<T>::` qualified path) is followed to what it names, never settled as this crate's own item.
+/// An alias of this crate's own type gives no row.
+#[test]
+fn the_lint_follows_type_aliases_and_other_names_for_a_path() {
+    let rows = rows_of(
+        r#"
+        mod aliased {
+            type Path = std::path::Path;
+            fn a(p: &Path) -> bool { Path::exists(p) }
+        }
+        mod relative {
+            use std::path;
+            pub type P = path::PathBuf;
+        }
+        mod through_import {
+            use crate::relative::P;
+            fn a(p: &std::path::Path) -> bool { P::try_exists(p).unwrap_or(false) }
+        }
+        mod fn_const {
+            const PROBE: fn(&std::path::Path) -> std::io::Result<std::fs::Metadata> =
+                std::fs::metadata;
+            fn a(p: &std::path::Path) -> bool { PROBE(p).is_ok() }
+        }
+        mod self_type {
+            trait Probe { fn probe(&self) -> bool; }
+            impl Probe for std::path::Path {
+                fn probe(&self) -> bool { Self::exists(self) }
+            }
+        }
+        mod qualified {
+            type P = std::path::Path;
+            fn a(p: &std::path::Path) -> bool { <P>::exists(p) }
+        }
+        mod own_alias {
+            struct LocalStore;
+            impl LocalStore { fn exists(_: &str) -> bool { true } }
+            type Store = LocalStore;
+            fn a() -> bool { Store::exists("x") && Self_::ok() }
+            struct Self_;
+            impl Self_ { fn ok() -> bool { Self::exists_here() } fn exists_here() -> bool { true } }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "Path::exists(..)",
+            "P::try_exists(..)",
+            "PROBE(..) (std::fs::metadata)",
+            "Self::exists(..)",
+            "<P>::exists(..)",
+        ],
+    );
+}
+
+/// #42352 review F2: "nested glob re-exports aren't followed. `mod a { pub use std::fs::metadata
+/// as probe; } mod b { pub use crate::a::*; } use b::*;` then `probe(p)` gives no row." A glob is
+/// followed through the globs it reaches, an `as` rename too; a glob into a module the lint
+/// cannot read brings in any name, so the call is unresolved; a cycle of globs ends.
+#[test]
+fn the_lint_follows_nested_glob_re_exports() {
+    let rows = rows_of(
+        r#"
+        mod a { pub use std::fs::metadata as probe; }
+        mod b { pub use crate::a::*; }
+        use b::*;
+        fn review(p: &Path) -> bool { probe(p).is_ok() }
+        mod c { pub use super::b::*; }
+        mod deeper {
+            use crate::c::*;
+            fn f(p: &Path) -> bool { probe(p).is_ok() }
+        }
+        mod gone;
+        mod into_unreadable {
+            use crate::gone::*;
+            fn f(p: &Path) -> bool { look(p) }
+        }
+        mod x { pub use super::y::*; }
+        mod y { pub use super::x::*; }
+        mod cycle {
+            use crate::x::*;
+            fn f(p: &Path) -> Result<bool, ()> { Ok(p.is_absolute()) }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "probe(..) (std::fs::metadata)",
+            "probe(..) (std::fs::metadata)",
+            "look(..) (unresolved: crate::gone::look)",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
