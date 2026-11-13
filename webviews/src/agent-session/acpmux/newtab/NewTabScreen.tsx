@@ -28,7 +28,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -40,7 +40,7 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -91,6 +91,8 @@ import {
   shortHost,
   type CreateKind,
   type ScreenRow,
+  arrowStep,
+  stripStep,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { fitCreateStrip } from "./createStripFit";
@@ -395,7 +397,7 @@ export function NewTabScreen(props: Props) {
   // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
   // the person typed; until then it is the prompt's (projectNameFrom).
   const [newProject, setNewProject] = useState<{ name?: string }>();
-  const [newProjectError, setNewProjectError] = useState<string>();
+  const [newProjectError, setNewProjectError] = useState<{ reason?: string }>();
   const newProjectPending = useRef(false);
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
@@ -619,6 +621,8 @@ export function NewTabScreen(props: Props) {
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
+  /// The create strip action last selected (by ←, →, Tab or the arrows): ↓ and ↑ enter the strip there.
+  const stripKind = useRef<CreateKind | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -1654,6 +1658,14 @@ export function NewTabScreen(props: Props) {
     wholeSelection.current =
       state.value !== "" && state.selectionStart === 0 && state.selectionEnd === state.value.length;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    // On a create strip action (one line under the rows), ← and → step along the strip.
+    const sideways = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : undefined;
+    const along = plain && sideways ? stripStep(rows, current, sideways) : undefined;
+    if (along !== undefined) {
+      event.preventDefault();
+      pick(along);
+      return;
+    }
     const completion =
       plain && state.selectionStart === state.value.length && state.selectionEnd === state.value.length
         ? inlineCompletion(typed, rows)
@@ -1681,11 +1693,15 @@ export function NewTabScreen(props: Props) {
     // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
     // lines, wrapped ones too, keeps ↑ and ↓ for the caret, as in the chat's composer: the rows
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
-    // the rows.
+    // the rows, and the create strip as one line under them (arrowStep).
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      pick(stepSelection(current, step, rows.length));
+      const leaving = rows[current];
+      if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
+      const strip = rows.filter(inStrip);
+      const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
+      pick(arrowStep(rows, current, step, Math.max(0, column)));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -1789,7 +1805,9 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
-  const [worktreeError, setWorktreeError] = useState<string>();
+  /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
+  /// environment's send goes again from the field, where its prompt stays).
+  const [worktreeError, setWorktreeError] = useState<{ retry?: () => void }>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
@@ -1824,7 +1842,8 @@ export function NewTabScreen(props: Props) {
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Worktree failed", error);
+        setWorktreeError({});
       },
     );
   }
@@ -1857,13 +1876,15 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         newProjectPending.current = false;
         created.current = false;
-        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Project failed", error);
+        const reason = error instanceof NewProjectUnsupported ? error.message : knownRefusalText(error);
+        if (current()) setNewProjectError(reason ? { reason } : {});
       },
     );
   }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
-      ? (cwd: string) => {
+      ? function newWorktreeHere(cwd: string) {
           setWorktreeError(undefined);
           const choice = ++projectChoice.current;
           void props.onNewWorktree!(cwd).then(
@@ -1871,8 +1892,8 @@ export function NewTabScreen(props: Props) {
               if (folder && choice === projectChoice.current) pickProject(folder);
             },
             (error: unknown) => {
-              if (choice === projectChoice.current)
-                setWorktreeError((error instanceof Error && error.message) || String(error));
+              console.warn("agent pane: New Worktree failed", error);
+              if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
             },
           );
         }
@@ -2213,9 +2234,17 @@ export function NewTabScreen(props: Props) {
             onDismiss={() => setStartError(undefined)}
           />
         )}
-        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {worktreeError && (
+          <WorktreeFailure
+            {...(worktreeError.retry ? { onRetry: worktreeError.retry } : {})}
+            onDismiss={() => setWorktreeError(undefined)}
+          />
+        )}
         {newProjectError && (
-          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+          <NewProjectFailure
+            {...(newProjectError.reason ? { reason: newProjectError.reason } : {})}
+            onDismiss={() => setNewProjectError(undefined)}
+          />
         )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
@@ -2610,7 +2639,7 @@ export function NewTabScreen(props: Props) {
             )}
             {rows.some(inStrip) && (
               // The create actions the rows don't list (screenModel.ts): options still, so the arrow
-              // keys and the native popup reach them, drawn as one quiet line.
+              // keys (↓ to the line, ← and → along it) and the native popup reach them, drawn as one quiet line.
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               <div ref={stripRef} className="nt-create-strip" role="group" aria-label={nt("create.label")}>
                 {rows.map((row, index) =>

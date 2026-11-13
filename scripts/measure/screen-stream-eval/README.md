@@ -85,6 +85,19 @@ Today's targets:
 - `webrtc`: `CmuxVNCWebRTC` `ScreenStreamHost` (the iPhone's path). `cmux-vnc-host --capture`
   runs with the default device hub signaling. The viewers are `RdMarkerClickLatencyTests`
   (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`.
+- `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
+  `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
+  stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
+  `data:` URL. The target is host and viewer at once, so it has window rows only: no latency and no
+  host. Its cost is a floor, because the app also copies each frame into the helper's ring, rounds
+  the corners, evaluates JavaScript and decodes the PNG in the webview.
+- `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
+  --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
+  `rd-window-30` runs it at 30 fps. Both have window rows only.
+
+The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
+over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
+(hq#9837, fix 2).
 
 Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writing
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then

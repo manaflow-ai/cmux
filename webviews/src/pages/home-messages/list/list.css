@@ -442,11 +442,15 @@
   padding: var(--ds-space-5) var(--ds-space-3);
   text-align: center;
 }
-.hm-empty p {
+.hm-empty > p {
   margin: 0;
   color: var(--page-text-2);
   font-size: var(--text-heading);
   font-weight: var(--weight-emphasis);
+}
+/* The no-results state (ui/EmptyState): the list already pads the slot. */
+.hm-empty .ui-illustrated-empty {
+  padding: 0;
 }
 .hm-show-all,
 .hm-requests {

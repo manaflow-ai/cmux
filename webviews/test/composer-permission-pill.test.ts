@@ -1,7 +1,8 @@
 // Both composer looks use Codex's permission capsule; its padding belongs to the control,
 // independent of the surrounding row's spacing. Claude's look draws it in the quiet row under the
 // box (#26551), its shield under the + glyph; Codex's draws it inside the box, on +'s row after
-// it (#32682, #34709). Measure the real gallery composer in Chromium.
+// it (#32682, #34709). Its corner is the button radius, `--ds-radius-control`: every button rounds
+// as a tab (Lawrence 2026-11-12, a660569b1c62). Measure the real gallery composer in Chromium.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -58,13 +59,16 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
             paddingStart: Number.parseFloat(css.paddingInlineStart),
             paddingEnd: Number.parseFloat(css.paddingInlineEnd),
             radius: Number.parseFloat(css.borderTopLeftRadius),
+            // The button radius that the page resolves (desktop.css), not a number of this test.
+            control: Number.parseFloat(css.getPropertyValue("--ds-radius-control")),
           };
         });
       const normal = await measure();
       expect(normal.height).toBe(28);
       expect(normal.paddingStart).toBe(8);
       expect(normal.paddingEnd).toBe(8);
-      expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
+      expect(normal.control).toBeGreaterThan(0);
+      expect(normal.radius).toBe(normal.control);
       // Claude's look pins the shield under the + glyph (composer-alignment-centers.test.ts); Codex's
       // draws the mode inside the box, on +'s row (composerLook.css).
       if (look === "claude") expect(normal.shieldUnderPlus).toBe(true);

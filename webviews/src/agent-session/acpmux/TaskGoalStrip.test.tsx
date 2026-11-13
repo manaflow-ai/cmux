@@ -35,10 +35,12 @@ test("a self-wake loop shows only when it checks back, never its wake prompt", (
   expect(html).toContain('data-kind="loop"');
   expect(visible).toBe("Checking back in 15 min.");
   expect(visible).not.toContain("b2mqa7gwr");
-  // One button: it opens the prompt on demand. Claude Code has no way to stop or pause a loop from
-  // outside its turn, so no button pretends to.
+  // The line itself is its one button: it opens the prompt on demand, with no icon of its own
+  // (Leo, 2026-11-12: "idk what the point of it is rn quite"). Claude Code has no way to stop or
+  // pause a loop from outside its turn, so no button pretends to.
   expect(html.match(/<button/g)?.length).toBe(1);
-  expect(html).toContain('aria-label="Loop prompt"');
+  expect(html).toContain('class="acpmux-goal-copy acpmux-goal-loop-toggle"');
+  expect(html).not.toContain("acpmux-goal-action");
   expect(html).toContain('aria-expanded="false"');
 });
 

@@ -122,7 +122,7 @@ try:
     report["streaming_state"] = state()
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "mac-screen.png")})
     if opts.hold > 0:
-        print(f"holding {opts.hold:.0f} s for interaction (pid {app.pid})", flush=True)
+        safe_print(f"holding {opts.hold:.0f} s for interaction (pid {app.pid})", flush=True)
         time.sleep(opts.hold)  # intentional: keeps the app up for the interaction agent
 finally:
     report["final_state"] = state()

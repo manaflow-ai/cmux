@@ -1891,11 +1891,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -1922,6 +1923,8 @@ impl Hub {
             drop(state);
         }
         self.save_meta(session);
+        // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
+        self.settle_view_at_turn_end(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
@@ -2012,6 +2015,7 @@ impl Hub {
                 self.set_status(session, status);
             }
             self.save_meta(session);
+            self.settle_view_at_turn_end(session);
             self.lane_turn_ended(session, false, turn);
             self.inbox_turn_ended(session, turn_id, turn, false);
             return;
@@ -2038,6 +2042,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        self.settle_view_at_turn_end(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
@@ -2062,21 +2067,10 @@ impl Hub {
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
-        let mut last = serde_json::Map::new();
-        for k in super::views::LAST_TURN_KEYS {
-            if let Some(v) = turn_result.get(k) {
-                last.insert(k.to_owned(), v.clone());
-            }
-        }
-        last.insert("endedAt".into(), json!(now_ms()));
-        for key in ["turnCount", "turnSeq"] {
-            if let Some(value) = turn_result.get(key) {
-                last.insert(key.into(), value.clone());
-            }
-        }
+        let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+            session.meta.lock().unwrap().last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
@@ -2428,7 +2422,7 @@ impl Hub {
             .lock()
             .unwrap()
             .values()
-            .any(|s| s.id != session.id && s.meta().name == name)
+            .any(|s| s.id != session.id && s.read_meta(|m| m.name == name))
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
@@ -2545,7 +2539,12 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
-            session.purged.store(true, Ordering::SeqCst);
+            {
+                // Under the breakdown's lock: a time breakdown save running now lands before the
+                // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
+                let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                session.purged.store(true, Ordering::SeqCst);
+            }
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2616,8 +2615,11 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }
@@ -2685,6 +2687,23 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The `lastTurn` a turn's `turn_result` message leaves on the session, ended at `ended_at`.
+pub(super) fn last_turn_of(turn_result: &Value, ended_at: u64) -> Value {
+    let mut last = serde_json::Map::new();
+    for k in super::views::LAST_TURN_KEYS {
+        if let Some(v) = turn_result.get(k) {
+            last.insert(k.to_owned(), v.clone());
+        }
+    }
+    last.insert("endedAt".into(), json!(ended_at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = turn_result.get(key) {
+            last.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(last)
 }
 
 /// The chat's transcript as a rehydrated agent's first prompt gets it, under the note its session

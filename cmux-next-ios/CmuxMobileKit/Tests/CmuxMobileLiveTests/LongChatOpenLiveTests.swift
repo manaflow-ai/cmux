@@ -45,9 +45,22 @@ import Testing
     /// ones exist. `maxBytes` is honoured as acpmux does (whole records, at least one).
     /// `pageLimit`: the most records any page holds, whatever the request's `limit` (pages that
     /// start inside a turn).
+    /// What the fake does with a read of older history (`_acpmux/events` with a `beforeSeq`).
+    enum OlderReads: Sendable {
+        /// Answers it.
+        case answer
+        /// The first is an empty page with `hasMore` (a failed read), the rest are answered.
+        case emptyOnce
+        /// Every one is an empty page with `hasMore`: each read fails.
+        case alwaysEmpty
+        /// None is answered (a Mac that went quiet): the read stays on the wire.
+        case never
+    }
+
     nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
-                                   emptyOlderPageOnce: Bool = false) -> MockMacLink {
-        MockMacLink { _, data in
+                                   emptyOlderPageOnce: Bool = false, older: OlderReads = .answer) -> MockMacLink {
+        let older: OlderReads = emptyOlderPageOnce ? .emptyOnce : older
+        return MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
             let id = object["id"].map { "\($0)" } ?? "null"
@@ -79,9 +92,14 @@ import Testing
                 return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
-                if emptyOlderPageOnce, requests.count("_acpmux/events") == 1,
-                   params["beforeSeq"] != nil {
-                    return [reply(#"{"events":[],"hasMore":true}"#)]
+                if params["beforeSeq"] != nil {
+                    switch older {
+                    case .answer: break
+                    case .emptyOnce where requests.count("_acpmux/events") == 1, .alwaysEmpty:
+                        return [reply(#"{"events":[],"hasMore":true}"#)]
+                    case .emptyOnce: break
+                    case .never: return []
+                    }
                 }
                 return [reply("{\(page())}")]
             default:
@@ -100,10 +118,10 @@ import Testing
     }
 
     static func open(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
-                     emptyOlderPageOnce: Bool = false) async throws -> (AcpmuxHub, AgentChatStore) {
+                     emptyOlderPageOnce: Bool = false, older: OlderReads = .answer) async throws -> (AcpmuxHub, AgentChatStore) {
         let hub = AcpmuxHub()
-        await hub.bind(try await fakeAcpmux(log, requests, pageLimit: pageLimit,
-                                            emptyOlderPageOnce: emptyOlderPageOnce).openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await fakeAcpmux(log, requests, pageLimit: pageLimit, emptyOlderPageOnce: emptyOlderPageOnce,
+                                            older: older).openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: summary))
         return (hub, store)
     }
@@ -187,10 +205,40 @@ import Testing
         #expect(store.isReplayed("t842"))
         #expect(store.hasEarlierHistory)
         #expect(!store.isLoadingEarlier)
-        let older = requests.all.last
-        #expect(older?.method == "_acpmux/events")
+        // The first older read (the next one, read ahead, may be on the wire already).
+        let older = requests.all.first { $0.method == "_acpmux/events" }
         #expect((older?.params["maxBytes"] as? NSNumber)?.intValue == 256 * 1024)
         #expect((older?.params["beforeSeq"] as? NSNumber)?.intValue == 921 * 5 + 1)
+    }
+
+    /// After a page shows, the one before it is read ahead and held: the next scroll up shows
+    /// it at once, with no read of its own, and the records of the turn above a page that were
+    /// read with it are not read again.
+    @Test func theNextOlderPageIsReadAheadAndShownAtOnce() async throws {
+        let requests = Requests()
+        let log = (0..<1000).flatMap(Self.turnRecords)
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t999" }
+        store.loadEarlier()
+        await Self.waitUntil { store.turns.first?.id == "t842" }
+        // The read ahead goes out after the page shows, from the oldest record read (the end of
+        // turn 841, carried), and lands while the reader is still below.
+        await Self.waitUntil { requests.count("_acpmux/events") == 2 }
+        let ahead = requests.all.filter { $0.method == "_acpmux/events" }.last
+        #expect((ahead?.params["beforeSeq"] as? NSNumber)?.intValue == 842 * 5 + 1 - 3)
+        try await Task.sleep(for: .milliseconds(100)) // test: lets the read ahead land
+
+        store.loadEarlier()
+        await Self.waitUntil { !store.isLoadingEarlier && store.turns.first?.id != "t842" }
+        let ids = store.turns.map(\.id)
+        #expect(ids == (1000 - ids.count..<1000).map { "t\($0)" }, "turns missing, repeated or out of order: \(ids.prefix(4))")
+        // The held page showed with no read of its own: the only new read is the next one ahead.
+        await Self.waitUntil { requests.count("_acpmux/events") == 3 }
+        try await Task.sleep(for: .milliseconds(100)) // test: no further read goes out
+        #expect(requests.count("_acpmux/events") == 3)
+        let split = store.turns.first { $0.id == "t841" }
+        #expect(split?.status == .completed, "the carried end of turn 841 was lost")
     }
 
     /// A malformed or transient empty _acpmux/events page with hasMore:true
@@ -215,6 +263,52 @@ import Testing
         #expect(store.turns.map(\.id) == (0..<100).map { "t\($0)" })
         #expect(!store.hasEarlierHistory)
         #expect(requests.count("_acpmux/events") >= 2)
+    }
+
+    /// A failed older read is not tried again at once: each next read waits 250 ms after the
+    /// last failure, doubling, so a reader resting near the top of a chat whose reads fail (the
+    /// list asks on every scroll step and reload) does not send a read per frame. Before, every
+    /// ask after a failure read again at once.
+    @Test func aFailedOlderReadWaitsBeforeTheNext() async throws {
+        let requests = Requests()
+        let log = (0..<100).flatMap(Self.turnRecords)
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398, older: .alwaysEmpty)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t99" }
+        store.loadEarlier()
+        await Self.waitUntil { requests.count("_acpmux/events") == 1 && !store.isLoadingEarlier }
+        #expect(store.hasEarlierHistory, "a failed read ended older history")
+        // A second of asks, one every 5 ms (a scroll step or reload each): reads go out 250 ms
+        // and 750 ms after the first failure at the soonest, so at most three in all; with no
+        // delay it was one per ask. A busy run only spaces them further.
+        let start = ContinuousClock.now
+        while start.duration(to: .now) < .seconds(1) {
+            store.loadEarlier()
+            try await Task.sleep(for: .milliseconds(5)) // test: a scroll step's spacing
+        }
+        let reads = requests.count("_acpmux/events")
+        #expect(reads >= 2, "an ask after the delay never read again")
+        #expect(reads <= 3, "\(reads) older reads in a second after a failure")
+    }
+
+    /// A chat that closes while an older read is on the wire (a slow link, a quiet Mac) stops
+    /// the read: its request is cancelled and nothing is held for a chat nobody reads. Before,
+    /// the read ran on to its 30 s timeout.
+    @Test func closingTheChatCancelsTheOlderRead() async throws {
+        let requests = Requests()
+        let log = (0..<100).flatMap(Self.turnRecords)
+        let hub = AcpmuxHub()
+        await hub.bind(try await Self.fakeAcpmux(log, requests, pageLimit: 398, older: .never)
+            .openChannel(service: "acpmux", args: [:]))
+        let source = hub.source(sessionID: "s1", summary: Self.summary)
+        var store: AgentChatStore? = AgentChatStore(source: source)
+        await Self.waitUntil { store?.turns.last?.id == "t99" }
+        store?.loadEarlier()
+        await Self.waitUntil { requests.count("_acpmux/events") == 1 }
+        #expect(source.isReadingEarlier)
+        store = nil
+        await Self.waitUntil { !source.isReadingEarlier }
+        #expect(!source.isReadingEarlier, "the older read outlived its chat")
     }
 
     /// Scrolling to the start: the last page says nothing older remains.
