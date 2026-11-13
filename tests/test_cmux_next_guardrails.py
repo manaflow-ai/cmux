@@ -110,6 +110,10 @@ CASES = {
     "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
                         "@MainActor func watch(_ store: Store) -> Task<Void, Never> {\n"
                         "    Task { for await _ in ObservationStream({ ObservationTrigger(store.tab.title) }) { print(1) } }\n}\n"),
+    "main-actor-url-append": ("import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appendingPathComponent(\"acpmux\")\n}\n",
+                               "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appending(path: \"acpmux\", directoryHint: .notDirectory)\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -207,6 +211,20 @@ class RuleTests(Fixture):
         self.commit("a wrapper's own tracking")
         refusals, _ = self.check()
         self.assertNotIn("raw-observation", [r.id for r, _ in refusals])
+
+    def test_main_actor_url_append_allows_nonisolated_and_multiline_hints(self):
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\nnonisolated func locate(_ root: URL) -> URL {\n"
+                   "    root.appendingPathComponent(\"acpmux\")\n}\n")
+        self.commit("a nonisolated URL append")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                   "    return root.appending(path: \"acpmux\",\n"
+                   "                           directoryHint: .notDirectory)\n}\n")
+        self.commit("a wrapped URL hint")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
 
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():

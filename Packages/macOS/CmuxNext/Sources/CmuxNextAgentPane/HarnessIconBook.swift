@@ -17,14 +17,14 @@ public final class HarnessIconBook {
     /// The icons of the last reply; ``HarnessIcons/none`` until acpmux answered.
     public private(set) var icons: HarnessIcons = .none
 
-    @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
+    @ObservationIgnored private let environment: @MainActor () async -> AcpmuxEnvironment?
     @ObservationIgnored private let clock: any Clock<Duration>
     @ObservationIgnored private var loop: Task<Void, Never>?
 
     /// - Parameters:
     ///   - environment: This Mac's acpmux, or nil while it is not known yet.
     ///   - clock: The reconnect delay's clock (tests pass their own).
-    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, clock: any Clock<Duration> = ContinuousClock()) {
+    public init(environment: @escaping @MainActor () async -> AcpmuxEnvironment?, clock: any Clock<Duration> = ContinuousClock()) {
         self.environment = environment
         self.clock = clock
     }
@@ -52,7 +52,7 @@ public final class HarnessIconBook {
         var delay: Duration = .seconds(1)
         // wakeup-allow: each pass awaits the daemon's watch (event-driven) or the bounded reconnect delay below
         while !Task.isCancelled {
-            if let environment = environment(), await refresh(environment) {
+            if let environment = await environment(), await refresh(environment) {
                 delay = .seconds(1)
                 for await _ in Self.changes(environment) {
                     _ = await refresh(environment)
