@@ -33,6 +33,10 @@ jobs:
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
+    # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       db: ${{ steps.scope.outputs.db }}
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
@@ -75,13 +79,27 @@ jobs:
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-durations-
 
+      # A pull request's shards also get the names red on the base's newest recorded push (base-reds.json): a head
+      # file whose every first-run red is one of them skips its alone retry (run-webviews-tests.sh,
+      # CMUX_WEB_TEST_BASE_REDS) and react-apps-base-check judges it as before. Read once here for the whole run (the
+      # history's list and download, two requests), and best effort: without the file every red file is retried.
       - name: Hand the duration manifest to the shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           manifest="$RUNNER_TEMP/webviews-durations/manifest.json"
           mkdir -p "$(dirname "$manifest")"
           [ -s "$manifest" ] || printf '{}\n' > "$manifest"
           echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            history="$RUNNER_TEMP/webviews-base-history.json"
+            { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read &&
+              python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
+                --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
+              { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
+          fi
 
       - name: Upload the duration manifest
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
@@ -90,7 +108,9 @@ jobs:
           name: webviews-test-durations
           # A re-run of the whole run uploads it again; the run's attempts share artifact names.
           overwrite: true
-          path: ${{ runner.temp }}/webviews-durations/manifest.json
+          path: |
+            ${{ runner.temp }}/webviews-durations/manifest.json
+            ${{ runner.temp }}/webviews-durations/base-reds.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -530,6 +550,8 @@ jobs:
           CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
+          # From web-subarea-scope's handoff (pull requests only): a file red on the base's push gets no alone retry.
+          CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
