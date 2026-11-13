@@ -194,6 +194,18 @@ fn read_bytes(pid: u32) -> u64 {
     }
 }
 
+fn thread_reads(pid: u32) -> std::collections::BTreeMap<String, (String, u64)> {
+    let mut out = std::collections::BTreeMap::new();
+    for e in std::fs::read_dir(format!("/proc/{pid}/task")).unwrap().flatten() {
+        let tid = e.file_name().to_string_lossy().into_owned();
+        let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default().trim().to_owned();
+        let Ok(io) = std::fs::read_to_string(e.path().join("io")) else { continue };
+        let r = io.lines().find(|l| l.starts_with("rchar:")).and_then(|l| l.split_whitespace().nth(1)).and_then(|v| v.parse().ok()).unwrap_or(0);
+        out.insert(tid, (comm, r));
+    }
+    out
+}
+
 fn env_or(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
@@ -206,6 +218,7 @@ fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
     let mut child = daemon_env::acpmux(scratch)
         .args(["daemon", "run", "--ready-fd", "1", "--log", "info"])
         .env("ACPMUX_HOME", home)
+        .envs(std::env::var_os("ACPMUX_DIAG_NO_SEED").map(|v| ("ACPMUX_DIAG_NO_SEED", v)))
         .env("ACPMUX_SOCKET", &socket)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -285,6 +298,7 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     rpc.call("_acpmux/info", json!({"sessionId": id}));
 
     // The pane's open: the newest page, then the open turn's prompt when the page starts mid-turn.
+    let diag0 = thread_reads(pid);
     let before_open = read_bytes(pid);
     let page = rpc.call(
         "_acpmux/attach",
@@ -297,6 +311,17 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
         json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}),
     );
     let open_read = read_bytes(pid) - before_open;
+    let diag1 = thread_reads(pid);
+    for (tid, (comm, r)) in &diag1 {
+        let was = diag0.get(tid).map_or(0, |(_, r)| *r);
+        if r - was > 50_000 { println!("DIAG thread {tid} {comm}: {} bytes (new: {})", r - was, !diag0.contains_key(tid)); }
+    }
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let diag2 = thread_reads(pid);
+    for (tid, (comm, r)) in &diag2 {
+        let was = diag1.get(tid).map_or(0, |(_, r)| *r);
+        if r - was > 50_000 { println!("DIAG after 3s thread {tid} {comm}: {} bytes", r - was); }
+    }
     assert_eq!(
         page["session"]["availableCommands"], commands,
         "the session does not name its commands"
@@ -356,6 +381,8 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     );
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+    panic!("DIAG run");
+    #[allow(unreachable_code)]
     if cfg!(target_os = "linux") {
         assert!(
             open_read <= open_budget,
