@@ -369,7 +369,9 @@ workspaces, frame, selected tab per pane, focused pane). Its key is
 `(install_id, window_id)` and its `owner` is the install that hosts the
 window, its only writer. `window_record.put` and `window_record.delete`
 compare `expected_revision` with the record's own revision (`0` = absent), so
-windows and Macs never contend on one shared document. The daemon trusts the
+windows and Macs never contend on one shared document. A put whose `record`
+equals the stored one writes nothing: it answers the stored record at its
+revision, and no event follows. The daemon trusts the
 `install_id` a request names until connections carry an authenticated install
 identity. At the first open of a registry with these tables, the rows of the
 `windows` frontend projection (frontend `cmux-next`, scope `personal`) become

@@ -229,7 +229,7 @@ try:
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{broken}"}, "focus": True})
         failed = wait_for(lambda: (r := row(broken)) and r.get("status") not in (None, "inProgress") and r, f"{engine}: the broken download ends", 60)
         if not failed:
-            print("note: broken row", row(broken), "prompts", rpc("debug.browser.prompts"), "requests", requests[-8:], flush=True)
+            safe_print("note: broken row", row(broken), "prompts", rpc("debug.browser.prompts"), "requests", requests[-8:], flush=True)
         if failed:
             check(failed.get("status") == "failed", f"{engine}: the broken download fails ({failed})")
             check(failed.get("canRetry") is True, f"{engine}: a failed download offers Retry ({failed})")

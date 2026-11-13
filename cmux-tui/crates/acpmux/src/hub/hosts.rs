@@ -8,7 +8,7 @@ use super::full_access_bound::FullAccessEnd;
 use super::full_access_bound::OffLatch;
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
-use crate::agent::Attached;
+use crate::agent::{Attached, HostKind, LateHostKind};
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
 use cmux_json::JsonSet as _;
@@ -297,18 +297,52 @@ impl Hub {
     /// Ctrl-B of a chat whose agent runs in a host this daemon adopted or reached again
     /// (`processes.rs`): what the host runs, whatever the config says now. A host that does not
     /// answer goes by `kind`, its profile's; with no profile the chat keeps what it had.
+    ///
+    /// A host that answers after the budget (its answer sits behind the replay the inbound loop
+    /// drains, slow on a loaded Mac) decides it when the answer comes: until then the profile
+    /// does. Before, the late answer was dropped and a Claude Code chat whose profile no longer
+    /// says Claude Code hid Ctrl-B until its next prompt.
     pub(super) async fn note_host_kind(
-        &self,
-        session: &Session,
-        child: &ChildAgent,
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
         kind: Option<crate::config::HarnessKind>,
     ) {
-        let moves = match (child.runs_claude().await, kind) {
-            (Some(claude), _) => claude,
-            (None, Some(kind)) => super::processes::backgrounds_work(kind),
-            (None, None) => return,
+        let moves = match child.host_kind().await {
+            HostKind::Known(claude) => claude,
+            HostKind::Late(late) => {
+                self.learn_host_kind_late(session, child, late);
+                match kind {
+                    Some(kind) => super::processes::backgrounds_work(kind),
+                    None => return,
+                }
+            }
+            HostKind::Unknown => match kind {
+                Some(kind) => super::processes::backgrounds_work(kind),
+                None => return,
+            },
         };
         session.backgrounds_work.store(moves, Ordering::SeqCst);
+    }
+
+    /// [`Hub::note_host_kind`] for a host that answered after the budget: the answer, when it
+    /// comes, decides Ctrl-B while `child` is still the session's agent. Weak handles: a host
+    /// that never answers keeps neither alive, and its link's end drops the wait.
+    fn learn_host_kind_late(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        late: LateHostKind,
+    ) {
+        let (session, child) = (Arc::downgrade(session), Arc::downgrade(child));
+        self.scope.spawn_named("host-kind-late", async move {
+            let Some(claude) = late.answer().await else { return };
+            let Some(session) = session.upgrade() else { return };
+            let current = session.child.lock().await.clone();
+            if current.is_some_and(|c| std::ptr::eq(Arc::as_ptr(&c), child.as_ptr())) {
+                session.backgrounds_work.store(claude, Ordering::SeqCst);
+            }
+        });
     }
 
     /// A reattached `child` under MDM's off (#23322, review 63): what its host kept while the link
