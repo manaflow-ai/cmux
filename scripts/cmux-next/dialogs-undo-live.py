@@ -138,7 +138,7 @@ launched = []
 app = launch()
 try:
     # forget ------------------------------------------------------------------
-    print("connect:", json.dumps(rpc("action.run", {"id": "remote.connect", "args": {"destination": "dlgproof@192.0.2.1"}}))[:300])
+    safe_print("connect:", json.dumps(rpc("action.run", {"id": "remote.connect", "args": {"destination": "dlgproof@192.0.2.1"}}))[:300])
     machine = wait(lambda: next(iter(machines()), None), 20)
     check("forget-setup-machine", machine, machines())
     if machine:
@@ -153,7 +153,7 @@ try:
         rpc("action.run", {"id": "remote.forget", "target": "machine:%s" % machine, "args": {"confirm": True}})
 
     # group -------------------------------------------------------------------
-    print("workspace create:", cli("workspace", "create", "--name", "dlg-g", "--json")[:300])
+    safe_print("workspace create:", cli("workspace", "create", "--name", "dlg-g", "--json")[:300])
     row = wait(lambda: next((r for r in rows() if r.get("title") == "dlg-g"), None), 15)
     check("group-setup-row", row, [r.get("title") for r in rows()])
     if row:
@@ -194,7 +194,7 @@ try:
 
     # quit ----------------------------------------------------------------------
     created = cli("workspace", "create", "--name", "dlg-q", "--json")
-    print("quit workspace:", created[:300])
+    safe_print("quit workspace:", created[:300])
     terminal = (json.loads(created).get("value") or {}).get("terminal_id") if created.startswith("{") else None
     check("quit-setup-terminal", terminal, created)
     loop_pid = None
@@ -204,7 +204,7 @@ try:
         loop_pid = wait(lambda: os.path.exists(os.path.join(OUT, "loop.pid")) and int(open(os.path.join(OUT, "loop.pid")).read().strip() or 0), 15)
         check("quit-setup-program", loop_pid, loop_pid)
     reply = rpc("debug.quit", {"open": True})
-    print("quit open:", json.dumps(reply)[:200])
+    safe_print("quit open:", json.dumps(reply)[:200])
     # Cmd-Q never asks (Leo 2026-11-05): it quits at once and keeps the program running.
     deadline = time.time() + 20
     while app.poll() is None and time.time() < deadline:
@@ -233,9 +233,9 @@ finally:
     time.sleep(3)  # test harness: let daemons exit before the leftover check
     ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
     left = [line for line in ps.splitlines() if (APP + "/") in line and "dialogs-undo-live" not in line]
-    print("leftovers of this bundle: %d" % len(left), flush=True)
+    safe_print("leftovers of this bundle: %d" % len(left), flush=True)
     for line in left:
-        print("  " + line[:200], flush=True)
+        safe_print("  " + line[:200], flush=True)
 failed = [name for name, ok in results if not ok]
 print("RESULT pass=%d fail=%d %s" % (len(results) - len(failed), len(failed), " ".join(failed)), flush=True)
 sys.exit(1 if failed else 0)

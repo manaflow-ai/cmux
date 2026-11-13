@@ -388,6 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
+        services.cloud.machineWire.onSpareReady = { [weak services] machine in if let services { CloudStartChat.warmSpare(services, ready: machine) } } // login onto a spare the moment it is ready, before any claim
         services.configActions.start(settings: settings)
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
@@ -585,16 +586,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
+    /// A Dock click or an open of the running app (a launcher, Finder, `open -a`, a second launch), with or without a window
+    /// on screen (`reopenOrCreateWindow`): a window it has comes forward; only with none does one come back or open.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        // A Dock click in an update relaunch's startup: the user chose cmux.
-        services?.input.endRelaunchBehind("dock click", activating: true)
-        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
-        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.endRelaunchBehind("dock click", activating: true) // in an update relaunch's startup: the user chose cmux
+        // Under CMUX_NEXT_NO_ACTIVATE=1 too the user chose cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
         services?.input.noteReopenRequested()
-        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
-        services.windows.reopenOrCreateWindow()
+        services?.windows.reopenOrCreateWindow()
         return false
     }
 }

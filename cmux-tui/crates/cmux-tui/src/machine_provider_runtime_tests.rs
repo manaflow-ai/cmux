@@ -1736,7 +1736,7 @@ fn capability_revocation_fails_the_presented_provider_route_closed() {
             &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
         );
         serve_runtime_refresh(&mut stream, &mut reader, &revoked, None);
-        stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(250)).unwrap();
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
@@ -1890,7 +1890,7 @@ fn ambiguous_external_connect_does_not_fall_back_after_capability_revocation() {
 
         let (stream, mut reader) =
             serve_initial_snapshot_with_capabilities(&listener, revoked, &[]);
-        stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(250)).unwrap();
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
@@ -1935,7 +1935,7 @@ fn unnegotiated_external_connect_preserves_client_local_validation() {
     let server_catalog = catalog;
     let server = thread::spawn(move || {
         let (stream, mut reader) = serve_initial_snapshot(&listener, server_catalog);
-        stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(250)).unwrap();
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
