@@ -797,3 +797,88 @@ fn zero_edition_is_only_opened_and_written_in_staging_mode() {
     assert_eq!(recovered.edition, 3);
     assert!(log.write_checkpoint_in_edition(&[], &[], 0).is_err());
 }
+
+#[test]
+fn lost_undo_head_or_entry_never_exposes_a_cut_patch_in_either_segment() {
+    for later_segment in [false, true] {
+        for corrupt_head in [false, true] {
+            let home = tempfile::tempdir().unwrap();
+            let options = Options { segment_bytes: if later_segment { 100 } else { 10_000 } };
+            let (mut log, _) = Log::open(home.path(), options).unwrap();
+            log.append_settled(1, 1, RawRange::NONE, &[b'a'; 50]).unwrap();
+            log.write_checkpoint(&[], &[]).unwrap();
+            let mark = fs::metadata(segment(home.path())).unwrap().len();
+            log.patch(1, 2, RawRange::NONE, &[b'b'; 50]).unwrap();
+            drop(log);
+            let undo = home.path().join("rows.undo");
+            let mut bytes = fs::read(&undo).unwrap();
+            bytes[if corrupt_head { 0 } else { 20 }] ^= 1;
+            fs::write(undo, bytes).unwrap();
+            if later_segment {
+                fs::remove_file(home.path().join("rows/000002.seg")).unwrap();
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .open(segment(home.path()))
+                    .unwrap()
+                    .set_len(mark)
+                    .unwrap();
+            }
+            let (mut log, _) = Log::open(home.path(), options).unwrap();
+            let row = log.row(1).unwrap();
+            assert!(matches!(
+                log.fill(&[row], &mut Vec::new(), &mut Vec::new()),
+                Err(Error::CorruptRow { .. })
+            ));
+            assert!(matches!(
+                log.patch(1, 2, RawRange::NONE, b"replay"),
+                Err(Error::CorruptRow { .. })
+            ));
+        }
+    }
+}
+
+#[test]
+fn every_torn_undo_append_keeps_a_whole_replayed_patch() {
+    for cut in 0..44 {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = open(home.path());
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, b"new revision").unwrap();
+        drop(log);
+        OpenOptions::new()
+            .write(true)
+            .open(home.path().join("rows.undo"))
+            .unwrap()
+            .set_len(cut)
+            .unwrap();
+        let (mut log, _) = open(home.path());
+        let row = log.row(1).unwrap();
+        assert_eq!(row.rev, 2, "undo cut at byte {cut}");
+        assert_eq!(texts(&mut log, &[row]).0[0], b"new revision");
+    }
+}
+
+#[test]
+fn stale_undo_interval_cannot_restore_a_revision_older_than_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    settle(&mut log, 1, 1);
+    log.write_checkpoint(&[], &[]).unwrap();
+    log.patch(1, 2, RawRange::NONE, b"checkpoint revision").unwrap();
+    let stale = fs::read(home.path().join("rows.undo")).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
+    let mark = fs::metadata(segment(home.path())).unwrap().len();
+    log.patch(1, 3, RawRange::NONE, b"cut revision").unwrap();
+    drop(log);
+    fs::write(home.path().join("rows.undo"), stale).unwrap();
+    OpenOptions::new().write(true).open(segment(home.path())).unwrap().set_len(mark).unwrap();
+    let (mut log, _) = open(home.path());
+    let row = log.row(1).unwrap();
+    assert_ne!(row.rev, 1);
+    assert!(matches!(
+        log.fill(&[row], &mut Vec::new(), &mut Vec::new()),
+        Err(Error::CorruptRow { .. })
+    ));
+}
