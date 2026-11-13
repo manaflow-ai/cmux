@@ -112,7 +112,7 @@ where
             let id = self.next_id;
             self.next_id += 1;
             let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/v2","params":{"protocol":2,"surfaces":self.surfaces}});
-            self.send.push_back(format!("{}\n", request).into_bytes());
+            self.send.push_back(format!("{request}\n").into_bytes());
         }
     }
 
@@ -134,22 +134,20 @@ where
     }
     pub fn next_change(&mut self) -> Option<Change<T>> {
         let queued = self.changes.pop_front()?;
-        if queued.charge {
-            if let Some(sid) = queued.sid.as_deref() {
-                let mut credit = None;
-                if let Some(sub) = self.subscriptions.get_mut(sid) {
-                    sub.consumed = sub.consumed.saturating_add(queued.bytes);
-                    if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
-                        sub.credited = sub.consumed;
-                        credit = Some(sub.consumed);
-                    }
+        if queued.charge
+            && let Some(sid) = queued.sid.as_deref()
+        {
+            let mut credit = None;
+            if let Some(sub) = self.subscriptions.get_mut(sid) {
+                sub.consumed = sub.consumed.saturating_add(queued.bytes);
+                if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
+                    sub.credited = sub.consumed;
+                    credit = Some(sub.consumed);
                 }
-                if let Some(consumed) = credit {
-                    let _ = self.queue_request(Request::Credit(wire::Credit {
-                        sid: sid.to_owned(),
-                        consumed,
-                    }));
-                }
+            }
+            if let Some(consumed) = credit {
+                let _ = self
+                    .queue_request(Request::Credit(wire::Credit { sid: sid.to_owned(), consumed }));
             }
         }
         Some(queued.change)
@@ -510,10 +508,10 @@ where
     }
 
     fn advance(&mut self, sid: &str, seq: u64) {
-        if let Some(sub) = self.subscriptions.get_mut(sid) {
-            if seq > sub.cursor.0 {
-                sub.cursor = Cursor(seq);
-            }
+        if let Some(sub) = self.subscriptions.get_mut(sid)
+            && seq > sub.cursor.0
+        {
+            sub.cursor = Cursor(seq);
         }
     }
 
