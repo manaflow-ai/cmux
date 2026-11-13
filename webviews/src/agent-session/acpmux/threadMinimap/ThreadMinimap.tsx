@@ -329,10 +329,6 @@ export function ThreadMinimap({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
-  /// Native rail scrolling can deliver several events before one paint. Keep one pre-paint commit
-  /// for that burst so the thumb and its visible ticks advance together without forcing a React tree
-  /// commit for every event.
-  const listScrollFrame = useRef<number | undefined>(undefined);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -518,12 +514,6 @@ export function ThreadMinimap({
           );
   });
   useEffect(() => () => wave?.leave(), [wave]);
-  useEffect(
-    () => () => {
-      if (listScrollFrame.current !== undefined) cancelAnimationFrame(listScrollFrame.current);
-    },
-    [],
-  );
 
   // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
   // (only the rows whose state changed draw again); one that does not renders nothing.
@@ -1045,18 +1035,6 @@ export function ThreadMinimap({
     },
     [rowPitch],
   );
-  const commitListScroll = useCallback(
-    (node: HTMLElement) => {
-      listScrollFrame.current = undefined;
-      flushSync(() => {
-        setListTop(listOffset.current);
-        followPointer(node);
-      });
-      // The ticks moved under a still pointer: the wave follows them to the row now under it.
-      if (pointerY.current !== undefined) wave?.follow(pointerY.current);
-    },
-    [followPointer, wave],
-  );
   useLayoutEffect(() => {
     const node = list.current;
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
@@ -1413,12 +1391,19 @@ export function ThreadMinimap({
             }}
             onScroll={(event) => {
               listOffset.current = event.currentTarget.scrollTop;
+              // Committed in the scroll event, before the frame paints: a scroll is a continuous
+              // event, whose update React renders in a task after the frame, so the frame showed the
+              // list at its new offset with the rows of the old one (blank at the edge it scrolled
+              // toward on a fast wheel, Leo 2026-10-31: "it can flicker and disapper at the edges").
+              // The row under a still pointer (and so the card's row) moves in the same commit, so the
+              // card never shows its old row at the list's new offset.
               const node = event.currentTarget;
-              // Scroll events are continuous: one pre-paint commit is enough for the latest offset,
-              // and avoids making the React tree do synchronous work once per native event.
-              if (listScrollFrame.current === undefined) {
-                listScrollFrame.current = requestAnimationFrame(() => commitListScroll(node));
-              }
+              flushSync(() => {
+                setListTop(listOffset.current);
+                followPointer(node);
+              });
+              // The ticks moved under a still pointer: the wave follows them to the row now under it.
+              if (pointerY.current !== undefined) wave?.follow(pointerY.current);
             }}
             onPointerOver={(event) => {
               pointerY.current = event.clientY;
