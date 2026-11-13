@@ -154,7 +154,7 @@
 }
 .ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button {
   height: var(--ds-control-compact);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
 }
 .ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button:hover:not([data-disabled], [data-pressed]) {
   background: transparent;
