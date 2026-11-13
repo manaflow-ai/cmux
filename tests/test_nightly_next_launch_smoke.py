@@ -87,6 +87,28 @@ DAEMON_DOWN = {"verdict": "fail", "pid": 4242, "exit": None, "crash_reports": []
                "daemon_down": "the app's daemon (cmux-tui) was not connected when the watch ended (disconnected) "
                               "and at the next read (disconnected)"}
 DAEMON_DOWN["failures"] = [DAEMON_DOWN["daemon_down"]]
+# The harness's reports when both homes are asked (--arms empty,seeded; fresh_home_launch_smoke.py run_seeded).
+# The app ended from the seeded home: the report describes that launch (`arm`), the empty home's pass stays in `arms`.
+SEEDED_CRASH = {"verdict": "fail", "pid": 4343, "exit": -11, "arm": "seeded", "crash_reports": ["cmux NIGHTLY.ips"],
+                "failures": ["seeded home: the app exited (signal 11) 2.6s after launch"],
+                "arms": {"empty": {"verdict": "pass", "exit": None},
+                         "seeded": {"verdict": "fail", "exit": -11, "pid": 4343}}}
+# The app stayed up in the seeded home and never showed Home: a failed run, with no end of the app in it.
+SEEDED_NO_HOME = {"verdict": "fail", "pid": 4343, "exit": None, "arm": "seeded", "crash_reports": [],
+                  "run_exceptions": [], "failures": ["seeded home: Home did not render within 45s"],
+                  "arms": {"empty": {"verdict": "pass", "exit": None}, "seeded": {"verdict": "fail", "exit": None}}}
+BOTH_HOMES = {**PASSED, "arm": "empty", "arms": {"empty": {"verdict": "pass"}, "seeded": {"verdict": "pass"}}}
+
+
+def seeded_unchecked(verdict: str, reason: str) -> dict:
+    """A pass of the empty home whose seeded home has no verdict of its own (not-run or cannot-run)."""
+    return {**PASSED, "arm": "empty",
+            "arms": {"empty": {"verdict": "pass"}, "seeded": {"verdict": verdict, "reason": reason}}}
+
+
+# A fault of the seed tool, as run_seeded keeps it: the exception's type and text, and no launch.
+SEED_FAULT = seeded_unchecked("cannot-run", "PermissionError: [Errno 13] Permission denied: '/tmp/cmux-fresh-x/seeded/h'")
+SEED_NOT_READ = seeded_unchecked("not-run", "its cookie sync did not read\nthe seeded store")
 
 
 class VerdictTests(unittest.TestCase):
@@ -939,6 +961,162 @@ class GateScriptTests(unittest.TestCase):
         status, output, _ = self.run_gate(["stubborn"], attempt_seconds="1")
         self.assertEqual(status, 0, output)
         self.assertIn("::warning", output)
+
+
+class PostPublishSeededHomeTests(unittest.TestCase):
+    """The post-publish smoke launches the build from a seeded home too. Nightly 4294166855401 crashed at launch
+    only from a home with imported cookies; the smoke launched it from an empty home, passed it and saved its
+    marker."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.steps = {step.get("name"): step for step in yaml.safe_load(cls.text)["jobs"]["smoke"]["steps"]}
+
+    def test_the_smoke_asks_the_harness_for_both_homes_in_its_one_call_and_never_for_the_daemon(self) -> None:
+        launch = self.steps["Launch the app from a fresh home"]["run"]
+        self.assertEqual(self.text.count("fresh_home_launch_smoke.py\" \\\n"), 1)  # one call: no second launch step
+        self.assertIn('--dmg "$RUNNER_TEMP/smoke.dmg" --out "$out" --arms empty,seeded || status=$?\n', launch)
+        self.assertNotIn("--daemon", self.text)
+
+    def test_a_crash_from_the_seeded_home_on_both_attempts_is_a_crash(self) -> None:
+        # The rule of the empty home: the app's own end in both attempts, with the launched pid. It is the crash
+        # that reached a person, so the feed rolls back for it as for any launch crash.
+        self.assertEqual(smoke.attempt_result(1, SEEDED_CRASH), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, SEEDED_CRASH), (1, SEEDED_CRASH)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (1, SEEDED_CRASH)]), smoke.CRASH)
+        self.assertEqual(smoke.decide(feed(3, 2), 3, smoke.verdict([(1, SEEDED_CRASH)] * 2))["action"], "rollback")
+        # One crash holds nothing, and a live app with no Home in the seeded home is no crash.
+        self.assertEqual(smoke.verdict([(1, SEEDED_CRASH), (0, BOTH_HOMES)]), smoke.PASS)
+        self.assertEqual(smoke.verdict([(1, SEEDED_CRASH)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, SEEDED_NO_HOME), (1, SEEDED_NO_HOME)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, SEEDED_CRASH), (1, SEEDED_NO_HOME)]), smoke.CANNOT_RUN)
+
+    def test_a_fault_of_the_seed_tool_is_never_a_crash(self) -> None:
+        # The guard against a wrong rollback: a seed that cannot be made, a folder that is not writable or a launch
+        # that cannot start leaves the arm cannot-run and the empty home's pass (the harness's own tests have the
+        # faults). Whatever the 2 attempts were, the verdict is a pass, with the note.
+        for attempts in ([(0, SEED_FAULT)], [(0, SEED_FAULT), (0, SEED_FAULT)], [(1, SEEDED_CRASH), (0, SEED_FAULT)],
+                         [(1, RAN), (0, SEED_NOT_READ)]):
+            self.assertEqual(smoke.verdict(attempts), smoke.PASS, attempts)
+            self.assertEqual(smoke.decide(feed(3, 2), 3, smoke.verdict(attempts))["action"], "none", attempts)
+            self.assertIn("the seeded home (imported-cookie sync on) was not checked (", smoke.seeded_note(attempts))
+        # The harness never says it so, but a seed fault with a failed exit is still no crash: it has no pid.
+        fault = {"verdict": "cannot-run", "arm": "seeded", "exit": 1, "failures": ["PermissionError: the seed"]}
+        self.assertEqual(smoke.verdict([(1, fault), (1, fault)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(3, fault), (3, fault)]), smoke.CANNOT_RUN)
+
+    def test_the_note_is_one_line_about_the_attempt_that_passed(self) -> None:
+        self.assertEqual(
+            smoke.seeded_note([(0, SEED_FAULT)]),
+            "the seeded home (imported-cookie sync on) was not checked (cannot-run: PermissionError: [Errno 13] "
+            "Permission denied: '/tmp/cmux-fresh-x/seeded/h'); the empty home passed and the build stays on the feed")
+        self.assertEqual(
+            smoke.seeded_note([(1, SEEDED_CRASH), (0, SEED_NOT_READ)]),
+            "the seeded home (imported-cookie sync on) was not checked (not-run: its cookie sync did not read the "
+            "seeded store); the empty home passed and the build stays on the feed")
+        # A harness that was not asked for the second home, or wrote no `arms`, did not check it either.
+        for report in (PASSED, {**PASSED, "arms": None}, {**PASSED, "arms": {"seeded": "pass"}}, {**PASSED, "arms": []}):
+            self.assertIn("(not-run: the harness gave no reason)", smoke.seeded_note([(0, report)]), report)
+        # A reason of many lines or of any length stays one bounded line: the workflow puts it in a `::warning`.
+        long = smoke.seeded_note([(0, seeded_unchecked("cannot-run", "RuntimeError: a\r\n::error::b\n\x1b[31m\x00"
+                                                       + "x" * 5000))])
+        self.assertTrue(long.isprintable(), long)
+        self.assertIn("(cannot-run: RuntimeError: a ::error::b [31m xxx", long)
+        self.assertLess(len(long), 500)
+        self.assertTrue(long.endswith("; the empty home passed and the build stays on the feed"), long)
+        # Nothing to say: both homes passed, or the verdict is no pass.
+        for attempts in ([(0, BOTH_HOMES)], [(1, SEEDED_CRASH), (0, BOTH_HOMES)], [(1, SEEDED_CRASH)] * 2,
+                         [(1, SEEDED_CRASH)], [(3, NO_LAUNCH)], [(1, SEEDED_NO_HOME)], []):
+            self.assertEqual(smoke.seeded_note(attempts), "", attempts)
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class RecordTheVerdictStepTests(unittest.TestCase):
+    """The smoke job's step 'Record the verdict', run as the runner runs it, on attempts that a harness left."""
+
+    def run_step(self, attempts: list[tuple[int, dict]], judge: str | None = None) -> tuple[int, str, str, str]:
+        """(exit, output, GITHUB_OUTPUT, summary). JUDGE: the text of another nightly_next_launch_smoke.py."""
+        step = next(s for s in yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["smoke"]["steps"]
+                    if s.get("name") == "Record the verdict")
+        self.assertNotIn("${{", step["run"])  # nothing for the runner to expand: the text below is what runs
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts" / "ci").mkdir(parents=True)
+            source = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
+            (root / "scripts" / "ci" / source.name).write_text(judge if judge is not None else source.read_text())
+            for n, (status, report) in enumerate(attempts, 1):
+                out = root / "temp" / "launch-smoke" / f"attempt-{n}"
+                out.mkdir(parents=True)
+                (out / "report.json").write_text(json.dumps(report))
+                (root / "temp" / "launch-smoke" / f"status-{n}").write_text(f"{status}\n")
+            (root / "temp").mkdir(exist_ok=True)
+            env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "temp"), "BUILD": "77",
+                   "TOOLING_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(root / "output"),
+                   "GITHUB_STEP_SUMMARY": str(root / "summary")}
+            for name in ("output", "summary"):
+                (root / name).write_text("")
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", step["run"]],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=60)
+            return (result.returncode, result.stdout + result.stderr, (root / "output").read_text(),
+                    (root / "summary").read_text())
+
+    def test_a_pass_of_both_homes_says_nothing_more(self) -> None:
+        status, output, outputs, summary = self.run_step([(0, BOTH_HOMES)])
+        self.assertEqual((status, outputs), (0, "verdict=pass\n"), output)
+        self.assertNotIn("::", output)
+        self.assertIn("### cmux NEXT build 77: launch smoke pass", summary)
+
+    def test_a_pass_with_a_seeded_home_that_was_not_checked_warns_and_stays_a_pass(self) -> None:
+        said = "::warning title=nightly-next launch smoke::build 77: the seeded home (imported-cookie sync on) was not checked"
+        for attempts, why in (([(0, SEED_FAULT)], "(cannot-run: PermissionError: [Errno 13] Permission denied: "
+                                                   "'/tmp/cmux-fresh-x/seeded/h')"),
+                              ([(1, SEEDED_CRASH), (0, SEED_NOT_READ)],
+                               "(not-run: its cookie sync did not read the seeded store)"),
+                              ([(0, PASSED)], "(not-run: the harness gave no reason)")):
+            status, output, outputs, _ = self.run_step(attempts)
+            self.assertEqual((status, outputs), (0, "verdict=pass\n"), output)
+            self.assertEqual([line for line in output.splitlines() if "::" in line],
+                             [f"{said} {why}; the empty home passed and the build stays on the feed"], attempts)
+
+    def test_a_reason_of_many_lines_is_one_warning_and_no_other_command(self) -> None:
+        report = seeded_unchecked("cannot-run", "RuntimeError: a\n::error title=x::b\n::set-output name=verdict::crash")
+        status, output, outputs, _ = self.run_step([(0, report)])
+        self.assertEqual((status, outputs), (0, "verdict=pass\n"), output)
+        commands = [line for line in output.splitlines() if line.startswith("::")]
+        self.assertEqual(len(commands), 1, output)
+        self.assertTrue(commands[0].startswith("::warning title=nightly-next launch smoke::build 77: the seeded home"))
+
+    def test_a_crash_from_the_seeded_home_on_both_attempts_is_the_crash_verdict(self) -> None:
+        status, output, outputs, summary = self.run_step([(1, SEEDED_CRASH), (1, SEEDED_CRASH)])
+        self.assertEqual((status, outputs), (0, "verdict=crash\n"), output)
+        self.assertIn("::error title=nightly-next launch smoke::build 77 crashed at launch on every attempt", output)
+        self.assertNotIn("::warning", output)
+        # The issue's evidence names the home: the harness's own failure line.
+        self.assertIn("- seeded home: the app exited (signal 11) 2.6s after launch", summary)
+        # One seeded crash, or a live app with no Home there, rolls nothing back.
+        for attempts in ([(1, SEEDED_CRASH)], [(1, SEEDED_NO_HOME), (1, SEEDED_NO_HOME)]):
+            status, output, outputs, _ = self.run_step(attempts)
+            self.assertEqual((status, outputs), (0, "verdict=cannot-run\n"), output)
+            self.assertNotIn("::warning", output)
+
+    def test_a_judge_from_before_the_note_still_records_the_pass(self) -> None:
+        # The workflow file and its tooling come from 2 refs (the schedule runs the default branch's copy of the
+        # workflow with feat-cmux-next's tooling), so this step can meet a judge from before `seeded-note`: the
+        # pass and its marker must not depend on the note.
+        old = ("import sys\nif sys.argv[1] == 'verdict':\n    print('pass')\nelif sys.argv[1] == 'evidence':\n"
+               "    open(sys.argv[sys.argv.index('--out') + 1], 'w').write('ok\\n')\nelse:\n"
+               "    sys.stderr.write('invalid choice\\n')\n    sys.exit(2)\n")
+        status, output, outputs, _ = self.run_step([(0, SEED_FAULT)], judge=old)
+        self.assertEqual((status, outputs), (0, "verdict=pass\n"), output)
+        self.assertNotIn("::warning", output)
+        # Only that case is silent (exit 2, argparse's word for a subcommand it does not know). A judge that has
+        # the subcommand and fails says so; the pass stays.
+        status, output, outputs, _ = self.run_step([(0, SEED_FAULT)], judge=old.replace("sys.exit(2)", "sys.exit(1)"))
+        self.assertEqual((status, outputs), (0, "verdict=pass\n"), output)
+        self.assertIn("::warning title=nightly-next launch smoke::build 77: the note on the seeded home could not "
+                      "be read\n", output)
+
 
 if __name__ == "__main__":
     unittest.main()
