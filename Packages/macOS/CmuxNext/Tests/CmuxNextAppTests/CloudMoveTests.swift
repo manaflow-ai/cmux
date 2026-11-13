@@ -146,7 +146,7 @@ struct CloudMoveTests {
                 let synced = try #require(calls.first?.last)
                 #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced && shown.key == "tr-1")
                 // Retry, once the machine's daemon knows the chat landed: only the tab opens.
-                try move.land()
+                try await move.land()
                 if let again = await move.run() { Issue.record("Retry failed: \(again.code) \(again.message)") }
                 let moved = try await move.read()
                 #expect(moved.calls.count == 2, "Retry synced or moved the chat again: \(moved.calls)")
@@ -206,7 +206,7 @@ struct CloudMoveTests {
                 return
             }
             #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced)
-            try move.land()
+            try await move.land()
             if let again = await move.run() { Issue.record("Retry after the relaunch failed: \(again.code) \(again.message)") }
             let moved = try await move.read()
             #expect(moved.calls.count == 2, "Retry after the relaunch synced or moved the chat again: \(moved.calls)")
@@ -478,14 +478,24 @@ struct CloudMoveTests {
         let vmSocket: String
         var tabID = ""
 
-        /// Leaves the landed chat's record a `tabFailed` move left out (``standInCLI(in:log:mode:vmState:)``): the machine's
-        /// daemon then takes a `registry:` tab naming the chat.
-        func land() throws {
+        /// The machine's daemon, which ``land()`` restarts.
+        var machineLauncher: DaemonLauncher?
+
+        /// Leaves the landed chat's record a `tabFailed` move left out (``standInCLI(in:log:mode:vmState:)``), then
+        /// restarts the machine's daemon, which reads its landed chats once, and relaunches the app on it: the
+        /// machine's daemon then takes a `registry:` tab naming the chat.
+        func land() async throws {
             let state = log.deletingLastPathComponent().appendingPathComponent("vm-state")
             let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
             let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" }, "the machine's daemon has no registry")
             let landed: [[String: Any]] = [["session": "chat-on-vm", "landed_at_ms": Int(Date().timeIntervalSince1970 * 1000)]]
             try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+            let launcher = try #require(machineLauncher)
+            await CloudMoveTests.end(machine.daemon)
+            let gone = ContinuousClock.now + .seconds(5)
+            while FileManager.default.fileExists(atPath: vmSocket), ContinuousClock.now < gone { try? await Task.sleep(for: .milliseconds(100)) }
+            _ = try await launcher.endpointProvider()
+            try await relaunch()
         }
         /// The chat tab's id on this Mac, as the app keys it.
         var key = ""
@@ -690,6 +700,7 @@ struct CloudMoveTests {
 
         let move = Move(services: services, machine: machine, project: project, workRoot: workRoot, log: log, vmSocket: vmSocket)
         move.relaunched = app
+        move.machineLauncher = vm
         let result: Result<Void, any Error>
         do {
             try await openChat(move)
