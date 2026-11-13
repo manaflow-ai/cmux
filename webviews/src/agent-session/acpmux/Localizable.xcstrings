@@ -53093,127 +53093,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حدث خطأ، فلم يتم ذلك. حاول مرة أخرى."
+            "value": "حدث خطأ، فلم يتم ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nešto je pošlo po zlu, pa to nije uspjelo. Pokušajte ponovo."
+            "value": "Nešto je pošlo po zlu, pa to nije uspjelo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noget gik galt, så det blev ikke gennemført. Prøv igen."
+            "value": "Noget gik galt, så det blev ikke gennemført."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Etwas ist schiefgelaufen, daher hat das nicht geklappt. Versuche es erneut."
+            "value": "Etwas ist schiefgelaufen, daher hat das nicht geklappt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Something went wrong, so that didn’t go through. Try again."
+            "value": "Something went wrong, so that didn’t go through."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Algo salió mal y no se completó. Inténtalo de nuevo."
+            "value": "Algo salió mal y no se completó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un problème est survenu, l’action n’a pas abouti. Réessayez."
+            "value": "Un problème est survenu, l’action n’a pas abouti."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Qualcosa è andato storto e l’azione non è riuscita. Riprova."
+            "value": "Qualcosa è andato storto e l’azione non è riuscita."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問題が発生したため、完了できませんでした。もう一度お試しください。"
+            "value": "問題が発生したため、完了できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មានបញ្ហាកើតឡើង ដូច្នេះវាមិនបានសម្រេចទេ។ សូមព្យាយាមម្តងទៀត។"
+            "value": "មានបញ្ហាកើតឡើង ដូច្នេះវាមិនបានសម្រេចទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "문제가 발생해 완료되지 않았습니다. 다시 시도하세요."
+            "value": "문제가 발생해 완료되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noe gikk galt, så det ble ikke gjennomført. Prøv igjen."
+            "value": "Noe gikk galt, så det ble ikke gjennomført."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Coś poszło nie tak, więc to się nie udało. Spróbuj ponownie."
+            "value": "Coś poszło nie tak, więc to się nie udało."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Algo deu errado e isso não foi concluído. Tente novamente."
+            "value": "Algo deu errado e isso não foi concluído."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Что-то пошло не так, и действие не выполнено. Попробуйте ещё раз."
+            "value": "Что-то пошло не так, и действие не выполнено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เกิดข้อผิดพลาด จึงดำเนินการไม่สำเร็จ ลองอีกครั้ง"
+            "value": "เกิดข้อผิดพลาด จึงดำเนินการไม่สำเร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir sorun oluştu, bu yüzden işlem tamamlanmadı. Yeniden deneyin."
+            "value": "Bir sorun oluştu, bu yüzden işlem tamamlanmadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Щось пішло не так, і дію не виконано. Спробуйте ще раз."
+            "value": "Щось пішло не так, і дію не виконано."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã xảy ra sự cố nên thao tác chưa hoàn tất. Hãy thử lại."
+            "value": "Đã xảy ra sự cố nên thao tác chưa hoàn tất."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "出现问题，操作未完成。请重试。"
+            "value": "出现问题，操作未完成。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "發生問題，操作未完成。請再試一次。"
+            "value": "發生問題，操作未完成。"
           }
         }
       }
