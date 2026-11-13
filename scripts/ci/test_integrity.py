@@ -145,7 +145,10 @@ def analyze(name_status: str, diff: str) -> list[Finding]:
 
 
 def _git(*args: str) -> str:
-    return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT)
+    # `diff --text` prints a binary file's raw bytes (#40110's .webp images); replace what is not UTF-8 so the
+    # check still reads every text line instead of crashing (run 42752938602).
+    output = subprocess.check_output(["git", *args], stderr=subprocess.STDOUT)
+    return output.decode("utf-8", errors="replace")
 
 
 def resolve_base(explicit: str | None) -> str:
@@ -180,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-all", action="store_true",
                         help="record findings but accept an explicitly approved change")
     args = parser.parse_args(argv)
+    # A finding can hold any character (a test path, or the U+FFFD of a non-UTF-8 diff line); a runner
+    # whose stdout is ASCII must print it escaped, not crash before the verdict.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="backslashreplace")
     base = resolve_base(args.base)
     findings = run(base)
     payload = {"base": base, "head": _git("rev-parse", "HEAD").strip(), "findings": [asdict(f) for f in findings]}
@@ -188,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     elif findings:
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
-            with open(summary, "a", encoding="utf-8") as handle:
+            with open(summary, "a", encoding="utf-8", errors="backslashreplace") as handle:
                 handle.write("## Test integrity findings\n\n")
                 for finding in findings:
                     handle.write(f"- `{finding.kind}`: `{finding.path}` — {finding.detail}\n")

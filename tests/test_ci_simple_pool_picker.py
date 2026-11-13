@@ -49,10 +49,10 @@ class PickRuleTests(unittest.TestCase):
                 picker.BLACKSMITH[0],
             ),
             (
-                "queued release consumes only its slots",
+                "queued release work holds its whole label",
                 picker.State(jobs=1, blacksmith=(pool(picker.BLACKSMITH[0], 5, reserved=1),
                                                  pool(picker.BLACKSMITH[1], 10))),
-                picker.BLACKSMITH[0],
+                picker.BLACKSMITH[1],
             ),
             (
                 "all full uses the lowest queued plus running ratio",
@@ -482,8 +482,7 @@ class OwnedQueueTests(unittest.TestCase):
         by_label = {pool.label: pool for pool in state.blacksmith}
         self.assertEqual((by_label[picker.BLACKSMITH[0]].queued, by_label[picker.BLACKSMITH[0]].reserved), (7, 1))
         self.assertEqual(by_label[picker.BLACKSMITH[1]].running, 10)
-        # The reserved count consumes one slot; the pool may still be picked
-        # when its remaining capacity is sufficient.
+        # A label holding queued release work is never picked while another label is not held.
         self.assertNotEqual(picker.pick(state).label, picker.BLACKSMITH[0])
 
     def test_logged_picker_inputs_use_unreserved_slots(self):
@@ -778,6 +777,64 @@ class EveryMacos26LabelDeadTests(unittest.TestCase):
 
     def test_a_live_label_still_takes_the_overflow(self):
         self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1))).label, self.SMALL)
+
+
+
+class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
+    """One queued app FFI release build (the janitor's reserved_queued) keeps pull request runs off its label on
+    both paths: the free-slot pick and the least-loaded fallback. 2026-11-10: run 42833220418's build queued 66
+    minutes on blacksmith-6vcpu-macos-26 while pull request runs kept taking that label's free slots."""
+
+    def test_the_free_slot_path_skips_a_held_label_with_room(self):
+        large, small, mac15 = picker.BLACKSMITH
+        state = picker.State(jobs=1, blacksmith=(pool(large, 5, running=5), pool(small, 10, running=2, reserved=1),
+                                                 pool(mac15, 10, running=1)))
+        self.assertEqual(pool(small, 10, running=2, reserved=1).unreserved_available, 0)
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_the_least_loaded_fallback_skips_a_held_label(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # Every label is full, and the held one is the least loaded: before, the fallback took it.
+        state = picker.State(jobs=1, blacksmith=(pool(large, 5, running=5, queued=9),
+                                                 pool(small, 10, running=10, queued=1, reserved=1),
+                                                 pool(mac15, 10, running=10, queued=9)))
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_the_admission_borrow_and_the_retry_runner_skip_a_held_label(self):
+        large, small, mac15 = picker.BLACKSMITH
+        choice = picker.pick(picker.State(jobs=3, blacksmith=(pool(large, 5, reserved=1), pool(small, 10),
+                                                              pool(mac15, 10))))
+        self.assertEqual((choice.label, choice.admission_label), (small, ""))
+
+    def test_a_snapshot_reservation_reaches_the_pick(self):
+        large, small, mac15 = picker.BLACKSMITH
+        pools = {large: {"queued": 3, "running": 5}, small: {"queued": 1, "running": 2, "reserved_queued": 1},
+                 mac15: {"queued": 4, "running": 10}}
+        state = observed([], pools, runners_error=OSError("no runners"))
+        self.assertNotEqual(picker.pick(state).label, small)
+
+    def test_with_every_label_held_a_run_still_gets_one(self):
+        held = tuple(pool(label, 10, running=10, reserved=1) for label in picker.BLACKSMITH)
+        self.assertIn(picker.pick(picker.State(jobs=1, blacksmith=held)).label, picker.BLACKSMITH)
+
+    def test_a_moving_held_label_wins_over_stalled_unheld_ones(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # Dropping the held label first left only the stalled ones, so the run took the dead 12 vCPU label and
+        # stayed queued there after the reservation cleared.
+        state = picker.State(jobs=1, blacksmith=(
+            dataclasses.replace(pool(large, 5, running=0, queued=1), stalled=True),
+            pool(small, 10, running=10, queued=3, reserved=1),
+            dataclasses.replace(pool(mac15, 10, running=0, queued=1), stalled=True)))
+        self.assertEqual(picker.pick(state).label, small)
+
+    def test_with_every_moving_label_held_a_run_takes_a_held_moving_label_over_a_dead_one(self):
+        large, small, mac15 = picker.BLACKSMITH
+        # The dead label is the only unheld one. Filtering reservations first left only it, so the run went to a
+        # label that was not moving.
+        dead = dataclasses.replace(pool(large, 5, running=0, queued=4), stalled=True)
+        state = picker.State(jobs=1, blacksmith=(dead, pool(small, 10, running=10, queued=2, reserved=1),
+                                                 pool(mac15, 10, running=10, queued=5, reserved=1)))
+        self.assertEqual(picker.pick(state).label, small)
 
 
 if __name__ == "__main__":

@@ -293,7 +293,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
 /// [`TERMINAL_REAPER_ACTIVE_CAPABILITY`] while the unplaced-terminal reaper runs.
 fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
-    if mux.terminal_reaper_running() {
+    if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
     capabilities
@@ -14667,6 +14667,24 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = MessageWriter::new(QueuedSink {
+            outbound: Arc::new(BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
+    }
+}
+
 fn attach_overflow_json(surface: SurfaceId) -> Value {
     json!({
         "event": "overflow",
@@ -15215,6 +15233,29 @@ mod tests {
         );
         reaper.stop();
         assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+    }
+
+    /// The socket answers `identify` as soon as it is bound, and the owner
+    /// started its reaper only later: a client that identified in between
+    /// saw an owner without a reaper (restart_host_leak.rs:87 on macOS,
+    /// main #39586). A reaper held from before the bind lists the capability
+    /// from the start; a stopped reaper ends it.
+    #[test]
+    fn terminal_reap_identify_lists_a_held_reaper_before_it_is_released() {
+        let mux = test_mux();
+        let held = crate::prepare_terminal_reaper(&mux).unwrap();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "an owner that starts its reaper once bound answered identify without \
+             terminal-reaper-active-v1 before the reaper thread ran"
+        );
+        let reaper = held.release();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(
+            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "a stopped reaper is still advertised"
+        );
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
