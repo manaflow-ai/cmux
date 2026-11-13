@@ -379,7 +379,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     test("keyboard contract: Esc in Other skips the whole ask, including earlier answers", async () => {
       const page = await pendingQuestion("pending-4-questions");
       await page.keyboard.press("1");
-      expect(await page.locator(".acpmux-question-tab[aria-current=step]").innerText()).toBe("Platforms");
+      expect(await page.locator(".acpmux-question-position").innerText()).toBe("2 of 4");
       await page.keyboard.press("5");
       await page.locator(".acpmux-question-other textarea").waitFor();
       await page.keyboard.type("Tauri");

@@ -168,6 +168,8 @@ STEP_LEVEL_ONLY = {
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
     "release.yml build-sign-notarize-blacksmith",  # its same-run Blacksmith twin, the same steps
+    # nightly-next on one Mac (Leo, 2026-11-12): build, sign, notarize and publish in one job by design.
+    "nightly.yml nightly-next-one",
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(

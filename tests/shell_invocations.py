@@ -140,6 +140,7 @@ class Token(NamedTuple):
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
     plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
     equal_unquoted: bool = False  # an unquoted `=` occurred in the word (including the assignment operator)
+    assignment_prefix_quoted: bool = False  # a quote or escape occurred before the assignment operator (fail closed)
 
 
 class Lexed(NamedTuple):
@@ -453,6 +454,7 @@ def lex(text: str) -> Lexed:
     plain_open = True  # nothing quoted, escaped or expanded yet in it
     equal_seen = False
     equal_unquoted = False
+    assignment_prefix_quoted = False
     i = 0
 
     def start_word(at: int) -> None:
@@ -465,16 +467,18 @@ def lex(text: str) -> Lexed:
         return "]" in prefix or "[" not in prefix
 
     def end_word(at: int) -> None:
-        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen, equal_unquoted
+        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen
+        nonlocal equal_unquoted, assignment_prefix_quoted
         if not in_word:
             return
         word = "".join(buf)
         if expect_delimiter is not None:
             pending.append((word, expect_delimiter, not quoted))
             expect_delimiter = None
-        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted))
+        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted,
+                            assignment_prefix_quoted))
         buf, subs, quoted, dynamic, in_word = [], [], False, False, False
-        plain, plain_open, equal_seen, equal_unquoted = 0, True, False, False
+        plain, plain_open, equal_seen, equal_unquoted, assignment_prefix_quoted = 0, True, False, False, False
 
     def command_starts() -> bool:
         """Whether a word here would be the first of a command (where `((` opens an arithmetic command)."""
@@ -558,6 +562,8 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1])
+            if not equal_seen:
+                assignment_prefix_quoted = True
             if text[i + 1:i + 2] == "=" and not equal_seen and quoted_equal_is_operator():
                 equal_seen = True
             quoted = True
@@ -569,6 +575,8 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1:close])
+            if not equal_seen:
+                assignment_prefix_quoted = True
             if not equal_seen and "=" in text[i + 1:close] and quoted_equal_is_operator():
                 equal_seen = True
             quoted = True
@@ -576,6 +584,8 @@ def lex(text: str) -> Lexed:
             i = close + 1
         elif c == '"':
             start_word(i)
+            if not equal_seen:
+                assignment_prefix_quoted = True
             quoted = True
             plain_open = False
             i += 1
@@ -1015,10 +1025,14 @@ def _opaque(word: Token) -> bool:
     return word.dynamic or "\x00" in word.text or bool(_BRACE_EXPANSION.search(word.text) or _GLOB.search(word.text))
 
 
+def _assignment_uncertain(word: Token) -> bool:
+    return _ASSIGNMENT.match(word.text) is not None and word.assignment_prefix_quoted
+
+
 def _is_assignment(word: Token) -> bool:
     """Whether bash takes the word as a prefix assignment: NAME, `[` and `=` unquoted (`"X=1" cmd` runs X=1)."""
     match = _ASSIGNMENT.match(word.text)
-    if match is None:
+    if match is None or word.assignment_prefix_quoted:
         return False
     if match.group(2) is None:
         return word.plain >= match.end()
@@ -1099,8 +1113,12 @@ def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | No
             if option not in wrapper.flags:
                 return None, False
         i += 2 if taken else 1
-    while i < len(words) and (wrapper.assignments == "env" and "=" in words[i].text
-                              or wrapper.assignments == "bash" and _is_assignment(words[i])):
+    while i < len(words):
+        if _assignment_uncertain(words[i]):
+            return None, False
+        if not (wrapper.assignments == "env" and "=" in words[i].text
+                or wrapper.assignments == "bash" and _is_assignment(words[i])):
+            break
         if wrapper.assignments == "env" and _opaque(words[i]):
             return None, False  # env's word is expanded (a glob in `Y[0]=2`) before env reads it
         i += 1
@@ -1160,6 +1178,10 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
         return Invocation([w.text for w in words[start:]], False, True)
     had_prefix_assignment = False
     while start < len(words):
+        if _assignment_uncertain(words[start]):
+            # Quoting or escaping before an assignment-looking operator changes bash's grammar. Do not model the
+            # assignment further: nothing is certain, while may_run() must still allow the real program.
+            return Invocation([w.text for w in words[start:]], False, True)
         if _is_assignment(words[start]):
             had_prefix_assignment = True
             start += 1
