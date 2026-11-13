@@ -34,9 +34,13 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-remote-browser-host-publish-${{ inputs.branch }}
-  cancel-in-progress: false
+# No workflow-level concurrency group: the publish job waits for a cef-publish
+# reviewer, and a run waiting there never times out, so a workflow group let
+# one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
+# run 42677635673, 2026-11-09). The macOS build
+# serializes per branch in its own job group; publish has none (its upload is
+# content-addressed and write-once, and the source tag names one commit).
+# scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
 jobs:
   resolve:
@@ -132,6 +136,9 @@ jobs:
   build:
     name: Build the host
     needs: [resolve, cef]
+    concurrency:
+      group: cmux-next-remote-browser-host-publish-build-${{ inputs.branch }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
@@ -222,6 +229,7 @@ jobs:
   publish:
     name: Publish the host and write its pin
     needs: [resolve, build]
+    # Waits for a reviewer, so it holds no concurrency group.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15

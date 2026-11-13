@@ -199,7 +199,10 @@
     "signupPendingBody": "이미 계정이 있다면 이전에 사용한 방법으로 로그인하세요. 방금 계정을 만들었다면 로그인하기 전에 이메일을 인증하세요.",
     "genericTitle": "로그인을 완료할 수 없습니다",
     "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
-    "backToSignIn": "로그인으로 돌아가기"
+    "backToSignIn": "로그인으로 돌아가기",
+    "chatgptLinkTitle": "ChatGPT를 연결하려면 한 번 로그인하세요",
+    "chatgptLinkBody": "이 이메일에는 이미 cmux 계정이 있습니다. 이전에 사용한 방법으로 로그인하면 해당 계정에 ChatGPT가 연결됩니다.",
+    "chatgptEmailUnverifiedBody": "ChatGPT 계정의 이메일이 인증되지 않았습니다. OpenAI에서 인증하거나 다른 방법으로 로그인하세요."
   },
   "cloudPublicationAccess": {
     "title": "액세스 권한이 없습니다",
