@@ -48,7 +48,7 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app, unlisted_workspaces, wait_for_count  # noqa: E402
+from bench_launch import launch_app, pinned_tiles, unlisted_workspaces, wait_for_count  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -775,6 +775,8 @@ def main():
             unlisted, unlisted_names = unlisted_workspaces(topo, rows)
             entry = {"rows_listed": len(rows), "topology_workspaces": len(topo.get("workspaces") or []),
                      "unlisted": unlisted, "unlisted_names": unlisted_names,
+                     # Pinned workspaces drawn as tiles over the list: listed, but not as rows.
+                     "pinned_tiles": pinned_tiles(topo, rows, made["pinned"]),
                      "create_failures": list(made["create_failures"]), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
             want = set(opts.scenarios.split(","))

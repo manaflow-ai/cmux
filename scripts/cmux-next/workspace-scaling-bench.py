@@ -144,9 +144,11 @@ def sidebar_row_mismatch(report, sidebar_count, count):
     workspaces whose create failed (sidebar-stress-bench.py `create_failures`), so a short list says why."""
     size = ((report if isinstance(report, dict) else {}).get("sizes") or {}).get(str(sidebar_count)) or {}
     measured = size.get("rows_listed")
-    if not isinstance(measured, int) or measured == count:
+    # A workspace the probe pinned outside a group is a tile over the list, not a row (bench_launch.pinned_tiles).
+    tiles = size.get("pinned_tiles") if isinstance(size.get("pinned_tiles"), int) else 0
+    if not isinstance(measured, int) or measured + tiles == count:
         return None
-    record = {"workspaces": count, "probe": "sidebar", "expected_rows": count, "measured_rows": measured}
+    record = {"workspaces": count, "probe": "sidebar", "expected_rows": count, "measured_rows": measured, "pinned_tiles": tiles}
     if isinstance(size.get("create_failures"), list):
         record["create_failures"] = size["create_failures"][:5]
         record["create_failure_count"] = len(size["create_failures"])

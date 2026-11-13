@@ -257,6 +257,15 @@ def unlisted_workspaces(topology, rows, limit=10):
     return len(missing), missing[:limit]
 
 
+def pinned_tiles(topology, rows, pinned_ids):
+    """How many of the workspaces a bench pinned (`pinned_ids`, public ids) no `debug.sidebar_rows` row lists. The app
+    draws a pinned workspace outside a group as a tile over the list (SidebarListView+SelectionOrder.swift
+    `selectionOrder`: tiles, then rows), not as a `workspace(...)` row, so a row count is short by these."""
+    pinned = set(pinned_ids or [])
+    workspaces = [ws for ws in (topology or {}).get("workspaces") or [] if isinstance(ws, dict) and ws.get("id") in pinned]
+    return unlisted_workspaces({"workspaces": workspaces}, rows, limit=0)[0]
+
+
 def shown_in_window(topology, workspace_id):
     """Whether a window of a `snapshot.get` topology shows `workspace_id` (its `windows[].workspace`)."""
     return any(isinstance(w, dict) and w.get("workspace") == workspace_id for w in (topology or {}).get("windows") or [])
