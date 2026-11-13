@@ -195,7 +195,7 @@ Designer pass, 2026-10-14, on `origin/feat-cnx-ios` `1311e6d57acc`. Scope: agent
   shown. Add a small ring in the composer's controls row (used / size) with a menu that
   shows the tokens.
 - **Mode selection.** `current_mode_update` is parsed, but the composer has only Model and
-  Effort (`ChatComposer.modelPill`, since split into the model, Mode and Effort chips). There is no mode switch, such as Plan or Ask versus
+  Effort (`ChatComposer.modelPill`, since one picker with Claude > model, Mode and Effort submenus). There is no mode switch, such as Plan or Ask versus
   Code. Add a Mode section to the same menu when the agent sends modes.
 - **Plan / progress.** Plan entries are stored, and the transcript shows checklists. There
   is no pinned plan progress (for example `3 / 5`) above the composer while a turn runs.
