@@ -23,6 +23,17 @@ extension LiveCoordinator {
 
     /// Connects a new Mac session to the coordinator.
     func wire(_ session: MacSession) {
+        session.link.onSignal = { [weak self, weak session] signal in
+            guard let self, let session, !session.macID.isEmpty else { return }
+            switch signal {
+            case .phase(let phase):
+                self.incidents.link(macID: session.macID, name: session.name, Self.incidentState(phase))
+            case .dropped(let reason):
+                self.incidents.dropped(macID: session.macID, reason: reason)
+            case .dialFailed(let reason):
+                self.incidents.dialFailed(macID: session.macID, reason: reason)
+            }
+        }
         session.link.endpoint = { [weak self] macID in
             guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
@@ -1169,6 +1180,35 @@ final class MultiMacFeedActions: FeedActions {
     func isAlreadyAnswered(_ error: any Error) -> Bool {
         guard let error = error as? AcpmuxConnection.RPCError else { return false }
         return error.message.hasPrefix("no pending permission")
+    }
+}
+
+// MARK: Connectivity incidents
+
+extension LiveCoordinator {
+    /// A link phase as the incident detector reads it.
+    nonisolated static func incidentState(_ phase: LinkMachine.Phase) -> ConnectivityIncidentDetector.LinkState {
+        switch phase {
+        case .idle: .notWanted(.linkClosed)
+        case .macOffline: .notWanted(.macOffline)
+        case .signedOut: .notWanted(.signedOut)
+        case .connecting(let transport, _): .trying(transport: transport.rawValue, reason: nil, newDial: true)
+        case .waiting(let transport, _, let reason, _): .trying(transport: transport.rawValue, reason: reason, newDial: false)
+        case .connected(let transport, _, _): .connected(transport: transport.rawValue)
+        }
+    }
+
+    /// The kind of network a path description names (`en0,pdp_ip0 via …`): its preferred interface.
+    nonisolated static func networkKind(_ path: String) -> String {
+        let first = path.split(separator: " ").first.map(String.init)?.split(separator: ",").first.map(String.init) ?? ""
+        if first.hasPrefix("pdp_ip") { return "cellular" }
+        if first.hasPrefix("en") { return "wifi" }
+        return "other"
+    }
+
+    /// The developer network simulations that are on, as reports name them.
+    nonisolated static func simulations(relayOnly: Bool, blockUDP: Bool) -> [String] {
+        (relayOnly ? ["relay_only"] : []) + (blockUDP ? ["block_udp"] : [])
     }
 }
 #endif

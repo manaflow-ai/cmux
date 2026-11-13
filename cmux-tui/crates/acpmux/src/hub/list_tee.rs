@@ -3,10 +3,11 @@ mod summary;
 use super::*;
 #[cfg(test)]
 use acpmux_book::index::IndexPage;
-use acpmux_book::index::{ReadSide, RowKey, SortKey, Summary};
+use acpmux_book::index::{OriginState, ReadSide, RowKey, SortKey, Summary};
+use acpmux_core::hub::Source;
 use acpmux_core::life::V2;
-use std::collections::{BTreeSet, HashMap, HashSet};
-use summary::summary_from_session;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use summary::{summary_from_remote, summary_from_session};
 use tokio::sync::Notify;
 
 const BATCH: usize = 256;
@@ -39,12 +40,27 @@ impl TeeHandle {
         #[cfg(test)]
         self.state.mark_all_ns.store(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
+
+    pub(super) fn mark_remote(&self, peer: &str, id: &str) {
+        self.state.mark_remote(peer, id);
+    }
+
+    pub(super) fn origin(&self, id: &str, state: OriginState, since: u64) {
+        self.state.origin(id, state, since);
+    }
+
+    pub(super) fn remote_ready(&self) {
+        self.state.remote_ready();
+    }
 }
 
 #[derive(Default)]
 struct TeeState {
     hub: std::sync::Weak<acpmux_core::hub::Hub>,
     pending: std::sync::Mutex<HashSet<String>>,
+    remote: std::sync::Mutex<HashSet<(String, String)>>,
+    origins: std::sync::Mutex<HashMap<String, VecDeque<(OriginState, u64)>>>,
+    remote_ready: AtomicBool,
     notify: Notify,
     marks: AtomicU64,
     all: AtomicBool,
@@ -71,9 +87,43 @@ impl TeeState {
         self.notify.notify_one();
     }
 
+    fn mark_remote(&self, peer: &str, id: &str) {
+        self.marks.fetch_add(1, Ordering::Relaxed);
+        self.remote
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert((peer.to_owned(), id.to_owned()));
+        self.notify.notify_one();
+    }
+
+    fn origin(&self, id: &str, state: OriginState, since: u64) {
+        let mut origins = self.origins.lock().unwrap_or_else(|e| e.into_inner());
+        let queue = origins.entry(id.to_owned()).or_default();
+        if state == OriginState::Removed {
+            queue.clear();
+            queue.push_back((state, since));
+        } else if queue.back().is_some_and(|(state, _)| *state == OriginState::Removed) {
+            // `removed` is a lifecycle cut. Preserve it ahead of the latest
+            // record so a rapid remove/reconnect cannot collapse the cut.
+            queue.push_back((state, since));
+        } else if let Some(last) = queue.back_mut() {
+            *last = (state, since);
+        } else {
+            queue.push_back((state, since));
+        }
+        self.notify.notify_one();
+    }
+
+    fn remote_ready(&self) {
+        self.remote_ready.store(true, Ordering::Release);
+        self.notify.notify_one();
+    }
+
     fn has_pending(&self) -> bool {
         self.all.load(Ordering::Acquire)
             || !self.pending.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+            || !self.remote.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+            || !self.origins.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
     }
 
     fn take(&self) -> Vec<String> {
@@ -85,87 +135,31 @@ impl TeeState {
         ids
     }
 
-    #[cfg(test)]
-    fn record_walk_id_memory(&self, ids: &HashSet<String>) {
-        // `HashSet` uses hashbrown's power-of-two bucket table. `capacity()`
-        // is the number of elements admitted before a resize, not its bucket
-        // count, so round it up and include the control-group tail. `String`
-        // capacities are the owned heap bytes; lengths undercount reused
-        // allocations. This is a structural upper bound, not serialized data.
-        let buckets = ids
-            .capacity()
-            .checked_next_power_of_two()
-            .unwrap_or(ids.capacity())
-            .max(if ids.is_empty() { 0 } else { 8 });
-        let id_bytes = ids.iter().map(|id| id.capacity()).sum::<usize>().saturating_add(
-            buckets.saturating_mul(WALK_ID_STATE_BYTES).saturating_add(WALK_HASH_GROUP_BYTES),
-        );
-        self.walk_peak_id_bytes.fetch_max(id_bytes as u64, Ordering::Relaxed);
+    fn take_remote(&self, limit: usize) -> Vec<(String, String)> {
+        let mut pending = self.remote.lock().unwrap_or_else(|e| e.into_inner());
+        let ids: Vec<_> = pending.iter().take(limit).cloned().collect();
+        for id in &ids { pending.remove(id); }
+        ids
+    }
+
+    fn take_origins(&self, limit: usize) -> Vec<(String, OriginState, u64)> {
+        let mut pending = self.origins.lock().unwrap_or_else(|e| e.into_inner());
+        let ids: Vec<_> = pending.keys().cloned().collect();
+        let mut taken = Vec::new();
+        for id in ids {
+            while taken.len() < limit {
+                let next = pending.get_mut(&id).and_then(VecDeque::pop_front);
+                let Some((state, since)) = next else { break };
+                taken.push((id.clone(), state, since));
+            }
+            if pending.get(&id).is_some_and(VecDeque::is_empty) { pending.remove(&id); }
+            if taken.len() >= limit { break; }
+        }
+        taken
     }
 
     #[cfg(test)]
-    fn record_walk_page_memory(&self, page_bytes: usize, cold_bytes: usize) {
-        self.walk_peak_page_bytes.fetch_max(page_bytes as u64, Ordering::Relaxed);
-        self.walk_peak_cold_bytes.fetch_max(cold_bytes as u64, Ordering::Relaxed);
-        self.walk_peak_page_total_bytes
-            .fetch_max(page_bytes.saturating_add(cold_bytes) as u64, Ordering::Relaxed);
-    }
-
-    #[cfg(test)]
-    fn summary_owned_bytes(row: &Summary) -> usize {
-        let string_bytes = row.chat_id.capacity()
-            + row.title.capacity()
-            + row.harness.capacity()
-            + row.state.capacity()
-            + row.origin.capacity()
-            + row.workspace.as_ref().map_or(0, String::capacity)
-            + row.folder.as_ref().map_or(0, String::capacity);
-        let key_bytes =
-            |key: &RowKey| std::mem::size_of::<RowKey>() + key.origin.len() + key.chat_id.len();
-        let parent_bytes = row.parent.as_ref().map_or(0, key_bytes);
-        let fork_bytes = row.fork_of.as_ref().map_or(0, |fork| key_bytes(&fork.key));
-        let raw_bytes =
-            row.extra.get().len() + row.peer_form.as_ref().map_or(0, |peer| peer.get().len());
-        // The Arc header and the Summary's owned fields are allocated with the
-        // decoded cold row. Hot rows only charge their Arc slot in the page.
-        std::mem::size_of::<Summary>()
-            + 2 * std::mem::size_of::<usize>()
-            + string_bytes
-            + parent_bytes
-            + fork_bytes
-            + raw_bytes
-    }
-
-    #[cfg(test)]
-    fn walk_page_owned_bytes(page: &IndexPage) -> (usize, usize) {
-        let slots = page.rows.capacity().saturating_mul(std::mem::size_of::<Arc<Summary>>());
-        let cold_rows = if page.bytes_read > 0 {
-            page.rows.iter().map(|row| Self::summary_owned_bytes(row)).sum()
-        } else {
-            0
-        };
-        (slots, cold_rows)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn walk_peak_memory(&self) -> (u64, u64, u64, u64) {
-        (
-            self.walk_peak_page_bytes.load(Ordering::Relaxed),
-            self.walk_peak_cold_bytes.load(Ordering::Relaxed),
-            self.walk_peak_page_total_bytes.load(Ordering::Relaxed),
-            self.walk_peak_id_bytes.load(Ordering::Relaxed),
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn load_and_mark_all_ns(&self) -> (u64, u64) {
-        (self.store_load_ns.load(Ordering::Relaxed), self.mark_all_ns.load(Ordering::Relaxed))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn walk_finished(&self) -> bool {
-        self.walk_done.load(Ordering::Acquire)
-    }
+    fn record_walk_id_memory    }
 }
 
 /// One scheduled deadline per chat. A tag update replaces its old deadline;
@@ -337,8 +331,42 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
             v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         state.pending.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
     }
+    for (id, origin_state, since) in state.take_origins(BATCH) {
+        if let Err(error) = v2.hub.origin(&id, origin_state, since) {
+            tracing::warn!(origin = %id, %error, "v2 list tee rejected an origin state");
+        }
+    }
+    let mut used = 0usize;
     for id in state.take() {
         submit_id(v1, v2, expiries, &id);
+        used += 1;
+        if used >= BATCH {
+            return;
+        }
+    }
+    for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
+        submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire));
+    }
+}
+
+fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) {
+    if v2.hub.source(peer) == Some(Source::Mirror) {
+        return;
+    }
+    let rows = v1.remote_sessions.snapshot();
+    if let Some(row) = rows.find_live_mux(peer, id) {
+        match summary_from_remote(peer, &row.summary) {
+            Ok(summary) => {
+                if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
+                    tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary")
+            }
+        }
+    } else if remote_ready && let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
+        tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
     }
 }
 
@@ -348,6 +376,7 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     v1.wait_store().await;
     #[cfg(test)]
     state.store_load_ns.store(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    let _ = v2.hub.wait_hydrated().await;
     // Only ids survive a page. Each lookup uses the current session map,
     // so a purge drained between pages cannot be undone by an old handle.
     let mut unseen: HashSet<_> =
@@ -401,6 +430,67 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     expiries
 }
 
+async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
+    let mut peer_names: HashSet<String> = v1.config.read().await.peers.keys().cloned().collect();
+    for peer in v1.peers() {
+        let Some(name) = peer.get("name").and_then(Value::as_str) else { continue };
+        let Some(handle) = v1.peer_by_name(name) else { continue };
+        peer_names.insert(name.to_owned());
+        let origin_state = match handle.state() {
+            crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
+                OriginState::Connected
+            }
+            _ => OriginState::Down,
+        };
+        state.origin(name, origin_state, crate::store::now_ms());
+    }
+    let remote_rows = v1.remote_sessions.snapshot();
+    let remote_keys: HashSet<(String, String)> = remote_rows
+        .values()
+        .filter_map(|row| row.summary.session_id().map(|id| (row.peer.clone(), id.to_owned())))
+        .collect();
+    for row in remote_rows.values() {
+        if let Some(id) = row.summary.session_id() {
+            state.mark_remote(&row.peer, id);
+        }
+    }
+    for origin in v2.hub.snapshot().origins() {
+        if !peer_names.contains(&origin.id) {
+            state.origin(&origin.id, OriginState::Removed, crate::store::now_ms());
+        }
+    }
+    let mut anchor: Option<SortKey> = None;
+    loop {
+        let page = match v2.hub.snapshot().read_page(
+            anchor.as_ref(),
+            ReadSide::After,
+            false,
+            BATCH,
+            256 * 1024,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(error) => {
+                tracing::warn!(%error, "v2 remote reconciliation page failed");
+                break;
+            }
+        };
+        for row in &page.rows {
+            if row.origin != "local"
+                && !remote_keys.contains(&(row.origin.clone(), row.chat_id.clone()))
+            {
+                state.mark_remote(&row.origin, &row.chat_id);
+            }
+        }
+        if !page.has_after {
+            break;
+        }
+        let Some(next) = page.after_key else { break };
+        anchor = Some(next);
+        tokio::task::yield_now().await;
+    }
+}
+
 pub(crate) fn start_v2_tee(
     v1: Arc<Hub>,
     v2: Arc<V2>,
@@ -409,9 +499,17 @@ pub(crate) fn start_v2_tee(
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
         let mut expiries = reconcile(&v1, &v2, &state).await;
+        if v1.config.read().await.peers.is_empty() {
+            state.remote_ready();
+        }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut remote_reconciled = false;
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
+                reconcile_remote(&v1, &v2, &state).await;
+                remote_reconciled = true;
+            }
             let clock_tick = tokio::select! {
                 biased;
                 _ = tick.tick() => true,
@@ -493,17 +591,20 @@ impl V1PageProvider {
 
 impl acpmux_core::hub::PageProvider for V1PageProvider {
     fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>> {
-        if key.origin.as_ref() != "local" {
-            return Ok(None);
+        if key.origin.as_ref() == "local" {
+            return match session_by_id(&self.hub, &key.chat_id) {
+                Some(session) => summary_from_session(&self.hub, &session).map(Arc::new).map(Some),
+                None if !self.hub.store_loaded() => Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "session store is still loading; retry the keyed page",
+                )),
+                None => Ok(None),
+            };
         }
-        match session_by_id(&self.hub, &key.chat_id) {
-            Some(session) => summary_from_session(&self.hub, &session).map(Arc::new).map(Some),
-            None if !self.hub.store_loaded() => Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "session store is still loading; retry the keyed page",
-            )),
-            None => Ok(None),
-        }
+        let rows = self.hub.remote_sessions.snapshot();
+        rows.find_live_mux(&key.origin, &key.chat_id)
+            .map(|row| summary_from_remote(&key.origin, &row.summary).map(Arc::new).map(Some))
+            .unwrap_or(Ok(None))
     }
 }
 

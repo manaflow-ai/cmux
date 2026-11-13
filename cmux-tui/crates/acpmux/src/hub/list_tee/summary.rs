@@ -317,6 +317,53 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     }
 }
 
+/// Converts one peer table row into the list index's typed summary. The row is
+/// supplied from `RemoteRows::live_of_peer`, so fields rewritten by the v1
+/// stale marker are not carried into the v2 row. Remote rows never transit to
+/// another peer, hence `peer_form` stays empty.
+pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io::Result<Summary> {
+    let value = row.value();
+    let chat_id =
+        row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
+    let mut summary = Summary::new(chat_id);
+    summary.origin = peer.to_owned();
+    summary.title = value
+        .get("title")
+        .or_else(|| value.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    cut_title(&mut summary.title);
+    summary.harness = row.harness().unwrap_or_default().to_owned();
+    summary.state = row
+        .status()
+        .or_else(|| value.get("state").and_then(Value::as_str))
+        .unwrap_or("closed")
+        .to_owned();
+    summary.last_activity = row.updated_ms();
+    let count = value.get("unreadTurns").and_then(Value::as_u64).unwrap_or(0);
+    let unread = value.get("unread").and_then(Value::as_bool).unwrap_or(false);
+    summary.unread = if count == 0 && unread { 1 } else { count.min(u32::MAX as u64) as u32 };
+    summary.workspace = value
+        .get("workspaceId")
+        .or_else(|| value.get("workspace"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    summary.folder =
+        value.get("cwd").and_then(Value::as_str).map(|path| path.trim_end_matches('/').to_owned());
+    summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
+    let mut opaque = value
+        .as_object()
+        .map(extra)
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
+        opaque.remove(key);
+    }
+    summary.extra = json(&Value::Object(opaque))?;
+    summary.prepare()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
