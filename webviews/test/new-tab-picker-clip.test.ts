@@ -61,7 +61,13 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const geometry = await page.evaluate(() => {
       const menu = document.querySelector(".acpmux-cols")!.getBoundingClientRect();
       const frame = document.querySelector(".acpmux-cols-frame")!.getBoundingClientRect();
-      const lists = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-body > .acpmux-cols-list")];
+      // The menu's scrolling columns, as QuickModelColumns.tsx reads them for its fades: the rail and the
+      // model list (in .acpmux-cols-lists) and the options column, which scrolls in its tune-scroll.
+      const lists = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".acpmux-cols-body .acpmux-cols-lists > .acpmux-cols-list, .acpmux-cols-body .acpmux-cols-tune-scroll",
+        ),
+      ];
       const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
       const screen = screenNode.getBoundingClientRect();
       return {
