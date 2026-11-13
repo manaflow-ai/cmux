@@ -107,5 +107,73 @@ class WorkspaceScalingTests(unittest.TestCase):
         self.assertEqual({row["interaction"] for row in rows}, {"sidebar_scroll", "switch"})
 
 
+
+import json  # noqa: E402
+import sys  # noqa: E402
+import tempfile  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
+import bench_launch  # noqa: E402
+
+
+class FakeTopology:
+    """snapshot.get's workspace ids, with close-all-in-all-windows as the app runs it: every workspace but the home
+    workspace closes (home_not_closable), and a run with nothing to close is refused."""
+
+    def __init__(self, ids, home="ws-home", fail=False):
+        self.ids, self.home, self.fail = list(ids), home, fail
+
+    def read_ids(self):
+        return list(self.ids)
+
+    def close_all(self):
+        if self.fail:
+            return 1
+        closable = [ws for ws in self.ids if ws != self.home]
+        if not closable:
+            return 1  # "nothing to close"
+        self.ids = [ws for ws in self.ids if ws == self.home]
+        return 0
+
+
+class CloseAllWorkspacesTests(unittest.TestCase):
+    """cmux#24569: workspace-scaling's instant probe exited 1 and its typing probe 2 at every size, because both
+    waited for zero workspaces after close-all while the home workspace never closes."""
+
+    def close(self, topology):
+        clock = iter(range(1000))
+        return bench_launch.close_all_workspaces(topology.read_ids, topology.close_all, settle=30, step=1,
+                                                 clock=lambda: next(clock), sleep=lambda _s: None)
+
+    def test_home_workspace_stays_and_is_not_counted(self):
+        kept, done = self.close(FakeTopology(["ws-home", "ws-1", "ws-2"]))
+        self.assertTrue(done)
+        self.assertEqual(kept, frozenset({"ws-home"}))
+
+    def test_only_home_left_is_a_done_close(self):
+        kept, done = self.close(FakeTopology(["ws-home"]))
+        self.assertTrue(done)
+        self.assertEqual(kept, frozenset({"ws-home"}))
+
+    def test_a_failed_close_of_real_workspaces_is_not_done(self):
+        _kept, done = self.close(FakeTopology(["ws-home", "ws-1"], fail=True))
+        self.assertFalse(done)
+
+
+class ProbeReasonTests(unittest.TestCase):
+    def test_failed_probe_names_its_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report, log = Path(tmp, "report.json"), Path(tmp, "probe.log")
+            report.write_text(json.dumps({"invalid": {"restored_workspaces": {"existing": 1}}}))
+            log.write_text("line 1\nTraceback (most recent call last)\nSystemExit: could not clear\n")
+            reason = bench.probe_reason(report, log)
+            self.assertEqual(reason["invalid"], {"restored_workspaces": {"existing": 1}})
+            self.assertEqual(reason["log_tail"][-1], "SystemExit: could not clear")
+
+    def test_missing_report_and_log_give_no_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(bench.probe_reason(Path(tmp, "none.json"), Path(tmp, "none.log")), {})
+
+
 if __name__ == "__main__":
     unittest.main()
