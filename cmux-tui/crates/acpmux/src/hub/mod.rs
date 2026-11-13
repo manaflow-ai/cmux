@@ -263,7 +263,9 @@ pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
-pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+pub(crate) use shutdown::{
+    AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
+};
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;

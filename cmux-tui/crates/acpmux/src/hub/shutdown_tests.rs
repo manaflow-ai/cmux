@@ -702,3 +702,69 @@ async fn handoff_persistence_does_not_block_the_runtime_and_still_seals_the_stor
     assert_eq!(reopened.events("kept", 0, 10).unwrap().len(), 2);
     reopened.seal();
 }
+
+/// The daemon cuts its session cleanup at its deadline, which can drop an agent's terminate
+/// inside its grace, after the SIGTERM and before the SIGKILL (Codex review of #42296). An agent
+/// that ignores SIGTERM still gets its SIGKILL then, not a life past the daemon.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
+    let dir = std::env::temp_dir().join(format!("acpmux-cut-kill-{}", uuid::Uuid::now_v7()));
+    let hub = queue_hub_in(&dir, json!({"FAKE_IGNORE_TERM": "1"}));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let grace = super::shutdown::SHUTDOWN_GRACE;
+    let cut = tokio::time::timeout(Duration::from_millis(300), child.terminate(grace)).await;
+    assert!(cut.is_err(), "the agent that ignores SIGTERM ended inside the cut");
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "the agent's group outlived its cut terminate").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Waits up to a second for every process of the agent's group `group` to be gone (no
+/// signal reaches the group): the agent's own process, and any it started under it.
+#[cfg(unix)]
+async fn until_group_gone(group: i32, what: &str) {
+    let by = tokio::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let gone = unsafe { libc::killpg(group, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < by, "{what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Quit Everything's ends do not wait behind the peer notice loop's last cache write, which may
+/// take its whole bound (`OWNED_TASKS_CLOSE`), longer than the daemon's 750 ms restart cutoff:
+/// a cleanup cut there sent no agent its end (Codex review of #42296). On the daemon's
+/// multi-thread runtime, as the cache write blocks its thread.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quit_everything_ends_its_agents_beside_a_slow_peer_cache_write() {
+    let dir = std::env::temp_dir().join(format!("acpmux-quit-peer-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let peer =
+        crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(1_500, std::sync::atomic::Ordering::SeqCst);
+    hub.end_agents_at_shutdown(Default::default()).unwrap();
+    // The daemon's restart cutoff: SHUTDOWN_BUDGET less the writers' 250 ms.
+    let _ = tokio::time::timeout(Duration::from_millis(750), hub.shutdown_for_handoff(false)).await;
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "Quit Everything left its agent running").await;
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let _ = std::fs::remove_dir_all(&dir);
+}
