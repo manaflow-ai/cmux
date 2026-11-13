@@ -67,9 +67,13 @@ for variant in baseline candidate; do
     printf '%s\n' 'import "use-sync-external-store/shim";' > webviews/.shared-react-cjs-smoke.mjs
     (cd webviews && CMUX_SHARED_REACT_RUNTIME_OUT="$OUT/$variant/bundles/Resources/markdown-viewer/webviews-app/__runtime" \
       bun scripts/agent-pane/bundle.mjs .shared-react-cjs-smoke.mjs - "$OUT/$variant/cjs-react-smoke.js")
-    grep -q '/__runtime/react.js' "$OUT/$variant/cjs-react-smoke.js" || {
-      echo "$variant: CJS React smoke did not resolve the shared runtime" >&2; exit 1;
-    }
+    if [[ "$variant" == candidate ]]; then
+      grep -q '/__runtime/react.js' "$OUT/$variant/cjs-react-smoke.js" || {
+        echo "$variant: CJS React smoke did not resolve the shared runtime" >&2; exit 1;
+      }
+    elif grep -q '/__runtime/react.js' "$OUT/$variant/cjs-react-smoke.js"; then
+      echo "$variant: baseline unexpectedly externalized React" >&2; exit 1
+    fi
     # No synthetic esbuild entry: exercise all production compiler, JSON and CSS plugins.
     bash scripts/cmux-next/build-web-bundles.sh \
       --out-root "$OUT/$variant/bundles" --report-dir "$OUT/$variant/metafiles"
