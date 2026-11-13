@@ -370,12 +370,6 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
-          # The Zig cache key names the job, host and run, not the target, so every Linux leg of
-          # a run raced for one key and one saved; the Cloud machine channel's legs saved none in
-          # 46 runs (2026-11-13) and restored another leg's cache. Then ghostty-vt-sys builds
-          # libghostty-vt cold, 86-95 s right before cmux-tui-core on cmux-tui's critical path
-          # (--timings, run 43425726435). thin: a key per target, so each leg finds its own.
-          cache-key: ${{ inputs.lto == 'thin' && format('thin-{0}', matrix.target) || '' }}
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
