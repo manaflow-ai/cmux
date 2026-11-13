@@ -114,9 +114,7 @@ pub fn v1_row(
         object.remove("parentId");
         object.remove("forkSeq");
     }
-    let listed_parent =
-        parent.is_some_and(|parent| parent.parent.is_none() && parent.state != "closed");
-    if listed_parent {
+    if Summary::listed_under(summary, parent) {
         if let Some(parent) = parent {
             object.insert("spawnedBy".into(), Value::String(parent.chat_id.clone()));
         }
@@ -622,6 +620,13 @@ where
 
     fn value_key<U: Serialize>(row: &U) -> Option<ListKey> {
         serde_json::to_value(row).ok().and_then(|value| Self::row_key(&value))
+    }
+
+    fn summary_is_live<U: Serialize>(row: &U) -> bool {
+        serde_json::to_value(row)
+            .ok()
+            .and_then(|value| serde_json::from_value::<Summary>(value).ok())
+            .is_none_or(|summary| summary.is_live())
     }
 
     fn row_identity(key: &ListKey) -> (String, String) {
@@ -1165,15 +1170,7 @@ where
                     emitted = true;
                     self.note_page_summary(&sid, &summary);
                     let key = Self::value_key(&summary);
-                    let live = serde_json::to_value(&summary)
-                        .ok()
-                        .and_then(|value| {
-                            value
-                                .get("state")
-                                .and_then(Value::as_str)
-                                .map(|state| state != "closed")
-                        })
-                        .unwrap_or(true);
+                    let live = Self::summary_is_live(&summary);
                     let left = self.subscriptions.get(&sid).is_some_and(|sub| {
                         Self::sub_view_is_live(sub)
                             && !live

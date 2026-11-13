@@ -33,8 +33,9 @@ pub struct CompactionResult {
 
 impl Compaction {
     pub(super) fn new(directory: PathBuf, covered_generation: u64, seq: u64) -> Self {
-        let captured_now =
-            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
+        let captured_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
         Self {
             snapshot_path: directory.join("index.snap"),
             directory,
@@ -99,6 +100,7 @@ impl Compaction {
             0,
             None,
             self.covered_generation,
+            index.origins().cloned().collect(),
             index.merged_rows().map(|row| {
                 if cancelled.load(Ordering::Acquire) {
                     return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
