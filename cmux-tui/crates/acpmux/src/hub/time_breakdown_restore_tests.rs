@@ -307,10 +307,11 @@ async fn a_turn_ending_during_an_open_seed_still_gets_its_backfill() {
     }
     // The open's seed ends.
     hub.seed_time_breakdown(&session, false);
-    let state = session.time_breakdown.lock().unwrap();
-    assert!(state.initialized, "the turn's backfill was dropped");
-    assert!(!state.seeding);
-    drop(state);
+    {
+        let state = session.time_breakdown.lock().unwrap();
+        assert!(state.initialized, "the turn's backfill was dropped");
+        assert!(!state.seeding);
+    }
     let at = 1_000_000 + (TURNS + 1) * 10_000;
     assert_eq!(breakdown(&session, at), whole_fold(TURNS + 1, at));
     assert!(root.0.join("sessions/long").join(time_breakdown::FILE).exists());
