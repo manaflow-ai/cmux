@@ -17,6 +17,13 @@ SCRIPT = ROOT / "scripts/ci/submodule_forward_only.py"
 import sys
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import submodule_forward_only  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 def git(*args: str, cwd: Path) -> str:
@@ -301,6 +308,161 @@ class GitHubRelationTests(unittest.TestCase):
 
     def test_diverged_compare_is_not_forward(self) -> None:
         self.assertEqual(self.relation({"status": "diverged", "ahead_by": 1, "behind_by": 1593}), "diverged")
+
+
+class InitTimeoutTests(unittest.TestCase):
+    """A busy runner makes the shallow submodule clone slower, never red on its own (cmux#41742's class).
+
+    Each case fakes a slow `git submodule update`: the guard's run() answers it with the timeout's exit 124.
+    """
+
+    # The same fixture, without running SubmoduleForwardOnlyTests' cases a second time.
+    setUp = SubmoduleForwardOnlyTests.setUp
+    commit_sub = SubmoduleForwardOnlyTests.commit_sub
+    pointer = SubmoduleForwardOnlyTests.pointer
+
+    def guard_in_process(self, timeouts: int) -> tuple[int, str, list[float]]:
+        """main() in the superrepo, with the first TIMEOUTS submodule updates timing out. Returns (exit code,
+        stderr, the limit each submodule update got)."""
+        real = submodule_forward_only.run
+        limits: list[float] = []
+
+        def slow(*args: str, cwd: str | None = None, timeout: float = submodule_forward_only.FETCH_TIMEOUT_SECONDS):
+            if args[:3] == ("git", "submodule", "update"):
+                limits.append(timeout)
+                if len(limits) <= timeouts:
+                    return subprocess.CompletedProcess(args, 124, stdout="", stderr="command timed out")
+            return real(*args, cwd=cwd, timeout=timeout)
+
+        env = {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "protocol.file.allow",
+               "GIT_CONFIG_VALUE_0": "always"}
+        here = os.getcwd()
+        err = io.StringIO()
+        try:
+            os.chdir(self.superrepo)
+            with patch.object(submodule_forward_only, "run", slow), patch.dict(os.environ, env), \
+                    patch.object(sys, "argv", ["submodule_forward_only.py", "--base", self.base, "--head", "HEAD"]), \
+                    contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = submodule_forward_only.main()
+        finally:
+            os.chdir(here)
+        return code, err.getvalue(), limits
+
+    def test_an_untouched_submodule_never_waits_on_a_clone(self) -> None:
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=99)
+        self.assertEqual((code, limits), (0, []), err)
+
+    def test_a_timed_out_update_is_retried_once_with_a_longer_limit(self) -> None:
+        self.pointer(self.commit_sub("forward subject"))
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=1)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(limits), 2, limits)
+        self.assertGreater(limits[1], limits[0])
+
+    def test_a_changed_submodule_that_times_out_twice_fails_and_says_it_timed_out(self) -> None:
+        """The change moved this gitlink, so the guard cannot pass it unjudged: it fails, naming the timeout."""
+        self.pointer(self.commit_sub("forward subject"))
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=2)
+        self.assertEqual(code, 1, err)
+        self.assertEqual(len(limits), 2, limits)
+        self.assertIn(f"timed out after {limits[0]:g} s and again after {limits[1]:g} s", err)
+
+
+
+# A stand-in for ssh (GIT_SSH, simple variant: HOST COMMAND). Its first connection waits SLOW_SECONDS before it
+# serves, as a slow transport does; later ones serve at once. Each records its pid, so a test can see whether the
+# guard left it running.
+SLOW_SSH = """#!/bin/sh
+echo $$ >> "$SLOW_SSH_PIDS"
+if mkdir "$SLOW_SSH_MARK" 2>/dev/null; then sleep "$SLOW_SSH_SECONDS"; fi
+exec sh -c "$2"
+"""
+
+
+class SlowTransportTests(unittest.TestCase):
+    """A timed-out submodule clone is stopped whole before the retry (cmux#41752 review F1).
+
+    run() stopped only `git submodule update` itself: the `git clone` under it and its transport kept running, and
+    the retry, over the same half-made checkout, failed at once with "Unable to find current revision in submodule
+    path" while the first clone was still going. Real git over a real slow transport here, no mock: the submodule's
+    URL goes through SLOW_SSH, whose first connection outlasts the first limit.
+    """
+
+    setUp = SubmoduleForwardOnlyTests.setUp
+    commit_sub = SubmoduleForwardOnlyTests.commit_sub
+    pointer = SubmoduleForwardOnlyTests.pointer
+
+    SLOW_SECONDS = 6
+
+    def slow_remote(self) -> dict[str, str]:
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        ssh = bin_dir / "slow-ssh"
+        ssh.write_text(SLOW_SSH, encoding="utf-8")
+        ssh.chmod(0o755)
+        self.pids = self.root / "ssh.pids"
+        self.addCleanup(self.stop_leftovers)
+        modules = (self.superrepo / ".gitmodules").read_text(encoding="utf-8")
+        (self.superrepo / ".gitmodules").write_text(
+            modules.replace(f"url = {self.subrepo}", f"url = slowhost:{self.subrepo}"), encoding="utf-8")
+        git("commit", "-qam", "submodule over the slow transport", cwd=self.superrepo)
+        # As GitHub serves it: a commit fetched by id, and a blob filter for the guard's deepening fetch.
+        git("config", "uploadpack.allowReachableSHA1InWant", "true", cwd=self.subrepo)
+        git("config", "uploadpack.allowFilter", "true", cwd=self.subrepo)
+        self.base = git("rev-parse", "HEAD", cwd=self.superrepo)
+        return {"GIT_SSH": str(ssh), "GIT_SSH_VARIANT": "simple", "SLOW_SSH_PIDS": str(self.pids),
+                "SLOW_SSH_MARK": str(self.root / "ssh.first"), "SLOW_SSH_SECONDS": str(self.SLOW_SECONDS),
+                "GITHUB_TOKEN": "", "GH_TOKEN": ""}
+
+    def transport_pids(self) -> list[int]:
+        return [int(line) for line in self.pids.read_text().split()] if self.pids.exists() else []
+
+    def stop_leftovers(self) -> None:
+        """Only the stand-ins this test started, by the pids they wrote."""
+        for pid in self.transport_pids():
+            try:
+                os.kill(pid, 9)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    @staticmethod
+    def alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        # A zombie no one reaped yet is gone for this purpose.
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        except (OSError, IndexError):
+            return True
+
+    def test_a_timed_out_clone_is_stopped_whole_and_the_retry_succeeds(self) -> None:
+        env = self.slow_remote()
+        self.pointer(self.commit_sub("forward subject"))
+        shutil.rmtree(self.superrepo / "deps/sample")
+        here = os.getcwd()
+        err = io.StringIO()
+        try:
+            os.chdir(self.superrepo)
+            with patch.object(submodule_forward_only, "INIT_TIMEOUT_SECONDS", 2), \
+                    patch.object(submodule_forward_only, "RETRY_INIT_TIMEOUT_SECONDS", 60), \
+                    patch.dict(os.environ, env), \
+                    patch.object(sys, "argv", ["submodule_forward_only.py", "--base", self.base, "--head", "HEAD"]), \
+                    contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = submodule_forward_only.main()
+        finally:
+            os.chdir(here)
+        pids = self.transport_pids()
+        self.assertTrue(pids, f"the clone never reached the transport:\n{err.getvalue()}")
+        self.assertFalse(self.alive(pids[0]), "the timed-out clone's transport is still running after the guard")
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("timed out after 2 s", err.getvalue())
 
 
 if __name__ == "__main__":

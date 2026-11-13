@@ -23,15 +23,30 @@ RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 STEP = "Validate macOS runner guards"
 JOB = "workflow-guard-tests / preflight"
 
-spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
-excuse = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(excuse)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import base_red_excuse as excuse  # noqa: E402
+
+
+# tests/guard_child_env.py, loaded by path: the one child environment every spawned guard run uses.
+import importlib.util as _guard_child_importlib  # noqa: E402
+_guard_child_spec = _guard_child_importlib.spec_from_file_location("guard_child_env", ROOT / "tests/guard_child_env.py")
+guard_child_env = _guard_child_importlib.module_from_spec(_guard_child_spec)
+_guard_child_spec.loader.exec_module(guard_child_env)
+_FIXTURE_TEMP = tempfile.mkdtemp(prefix="guard-check-isolation-")
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+atexit.register(shutil.rmtree, _FIXTURE_TEMP, ignore_errors=True)
 
 
 def fixture_env() -> dict[str, str]:
     """The fixtures' red checks are not this step's: the guard runner (run_ci_guards.py) points
-    CMUX_GUARD_CHECK_RESULTS at the running step's results, so the fixtures must not inherit it."""
-    return {k: v for k, v in os.environ.items() if k != "CMUX_GUARD_CHECK_RESULTS"}
+    CMUX_GUARD_CHECK_RESULTS and the GITHUB_* step files at the running step's own, so the fixtures get
+    guard_child_env's (none of the caller's)."""
+    return guard_child_env.guard_child_env(_FIXTURE_TEMP)
 
 
 def guard_script(failing: set[str]) -> str:
@@ -122,9 +137,9 @@ class ABaseRedCannotExcuseAnother(unittest.TestCase):
         """What base_red_excuse.py finds on the head and not the base: failing test names, always compared,
         or error lines when no test name failed."""
         head_steps, head_tests, head_errors = excuse.signature(excuse.failed_view(
-            *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
+            *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=False))
         base_steps, base_tests, base_errors = excuse.signature(excuse.failed_view(
-            *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
+            *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=True))
         self.assertEqual(head_steps, base_steps)
         if head_tests:
             return head_tests - base_tests

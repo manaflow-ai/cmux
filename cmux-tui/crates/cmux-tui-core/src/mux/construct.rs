@@ -165,6 +165,7 @@ impl Mux {
         );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        let route_generations = state.surfaces.generations().clone();
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
@@ -225,6 +226,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
+            route_generations,
             state: signaled_mutex::StateMutex::new(state, lane_on),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -368,6 +370,7 @@ impl Mux {
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
             project_chats: Default::default(),
+            project_watch: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -448,6 +451,7 @@ impl Mux {
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
+            tree_reply_flight: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]

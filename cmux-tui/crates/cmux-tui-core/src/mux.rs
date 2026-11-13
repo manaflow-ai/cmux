@@ -66,6 +66,7 @@ use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
 use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+pub(crate) use kitty_budget_state::KittyImageAdoptionExpectation;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
@@ -518,6 +519,15 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = crate::terminal_host_runtime::HOST_TERMINATE_WAIT;
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The index `delta` steps from `active` in a ring of `len` items (`len > 0`,
+/// `active < len`). `delta` comes from a client and can be any `isize`: it is
+/// reduced into the ring first, so the sum is below `2 * len` and never overflows.
+pub(crate) fn ring_step(active: usize, delta: isize, len: usize) -> usize {
+    let len_signed = isize::try_from(len).unwrap_or(isize::MAX);
+    let step = usize::try_from(delta.rem_euclid(len_signed)).unwrap_or(0);
+    active.saturating_add(step) % len
+}
+
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -556,6 +566,9 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
+    /// The route generations of `state`'s routing tables, read without the session lock
+    /// (`crate::route_table::RouteGenerations`).
+    pub(crate) route_generations: crate::route_table::RouteGenerations,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -713,6 +726,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -871,6 +886,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// One whole-tree `list-workspaces` build for concurrent readers.
+    pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -1091,17 +1108,6 @@ impl Mux {
     #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
-    }
-
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
     }
 
     pub fn surface_count(&self) -> usize {

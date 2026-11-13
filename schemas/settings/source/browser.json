@@ -94,6 +94,27 @@
             "devtools",
             "bookmarks"
           ]
+        },
+        {
+          "key": "browser.showLoadingBar",
+          "title": {
+            "key": "settings.browser.showLoadingBar",
+            "text": "Show Loading Bar"
+          },
+          "help": {
+            "key": "settings.browser.showLoadingBar.help",
+            "text": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserLoadingBarSetting",
+          "default": false,
+          "keywords": [
+            "loading",
+            "progress",
+            "bar",
+            "line",
+            "omnibar"
+          ]
         }
       ]
     },
@@ -1503,6 +1524,28 @@
             "link",
             "middle",
             "wheel"
+          ]
+        },
+        {
+          "key": "browser.vimKeys",
+          "title": {
+            "key": "settings.browser.vimKeys",
+            "text": "Vim Keys in Pages"
+          },
+          "help": {
+            "key": "settings.browser.vimKeys.help",
+            "text": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserVimKeysSetting",
+          "default": true,
+          "keywords": [
+            "vim",
+            "vimium",
+            "link hints",
+            "keyboard",
+            "scroll",
+            "hjkl"
           ]
         }
       ]

@@ -97,6 +97,8 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
   path of the settings file the owner reads and writes (the configured path, not a symlink's target).
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
+- `settings.edit {edits, if_revision?}` (mutation): several `set`, `set_unset`, `reset` and
+  `reset_unchanged` edits in one publish (section 7, items 2 and 3).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
   (mutations meant only for the hosting app). Coordinator decision 2026-10-04: the daemon REFUSES
   both for every caller (`operation.failed`, `required_authority: attested_hosting_app`). A
@@ -281,7 +283,18 @@ these from the daemon first:
    `server ensure` (the detached owner inherits it; no new flag, so the settings owner, the
    keybindings owner and the daemon's other readers of the file stay on one path). A
    `server restart` gives the next owner the old owner's value unless the restarting client sets
-   its own. `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   its own (an empty value is no value). The client that spawns the owner makes a relative value
+   absolute from its own directory, so a restart from another directory keeps the file.
+   `settings.snapshot` answers `path`. Test: `cmux-tui/crates/cmux-tui/tests/ensure_settings_file.rs`.
+   Open, to decide before the app sets the variable: terminal children inherit it from the owner.
+   A test daemon started in a cmux terminal with only `HOME` isolation would then write the
+   user's file, so the review asked to remove it from terminal children
+   (`shell_integration::keys_to_unset_in_child`). But the `cmux` CLI in a terminal finds the
+   owner's file only by that variable: `cmux mcp` and `cmux setup mcp` (`mcp.enabled`,
+   `cli/mcp.rs`), `cmux settings validate` without a file, the version report's cohort and the
+   update notice (`feature_flags::settings`), `remote.ultraMode`. Without it they read the
+   default file while `cmux settings set` writes the owner's file. Not removed yet. One way:
+   those readers ask the owner for `path` first, then the variable goes.
    Swift half, to do (no Swift changed yet):
    - Launch: `DaemonLauncher.forApp` gets `CMUX_NEXT_CONFIG_FILE = CmuxConfigFile.launchURL().path`
      in `daemonEnvironment`, always, also for the default file. As read in
@@ -300,8 +313,26 @@ these from the daemon first:
 2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
    owner's `settings.set`: a renamed row's old key goes with the write, the window background's
    opacity and material change together, a built-in density ends the custom one.
+   Daemon half, done: `settings.edit {edits, if_revision?, origin?}` (capability
+   `settings-edit-v1`). Each edit is `{op, key | path, value?}`; the owner applies them in order
+   to the file text and publishes once, with one revision and one `settings-changed`. Each edit
+   passes the checks of `settings.set` (`op: set`) or `settings.reset` (`op: reset`): kind,
+   managed keys, agent policy, removed keys, the overlap rule. One refused edit refuses the op
+   and nothing is written. At most 1000 edits; apps never get it. The app computes the linked
+   edits (the window background pair needs the Ghostty material, a host fact) and sends them
+   in one op. Moving the portable rules (renamed key, density) into the owner's `settings.set`
+   stays open. Test: `cmux-tui/crates/cmux-config/tests/settings_edit.rs`.
 3. Conditional edits: set only when unset (`setUnset`) and remove only when unchanged
    (`removeUnchanged`, the stored-defaults pass). `if_revision` covers the whole file only.
+   Daemon half, done: the `settings.edit` ops `set_unset` (sets only while the file has no value
+   at the path; JSON null is a value) and `reset_unchanged` (resets only while the file still
+   holds `value` there; `1` and `1.0` are one value; it removes like `settings.reset`, so a schema
+   key takes the objects it empties with it). A condition reads
+   the file as the edits before it in the same op left it, under the owner's lock, so no write
+   lands between the check and the publish. A skipped edit writes nothing and is not checked.
+   The result's `applied` lists the indexes of the edits that applied (Swift's returned paths).
+   Not in the op: `removeUnchanged`'s record beside the file (`recordBeside`, written before the
+   publish) and the text before it. They belong to the launch passes, so they move with item 4.
 4. The launch passes (`runLaunchMigrations`) in the daemon, because they run at launch with no
    wait for a daemon connection: the quit behavior, workspace row and pane toolbar buttons
    migrations, the classic imports (`ClassicSettingsMigration`, `ClassicShortcutImport`,

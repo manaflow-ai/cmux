@@ -110,16 +110,20 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     // Two more agents' messages that queue while the first work holds the turn's lock, its turn
     // not shown yet: both wait in the queue behind it (`queue.rs` `turn_claimed`, fuzz g1) and
     // join the first work's turn as a digest (`digest.rs` `take_joined`).
+    // Each message is waited for by its own prompt id: the queue is not empty once the second
+    // one is in it, so a wait for "not empty" could release the first work before the third
+    // message queued, and the third would then run its own turn.
+    let in_queue = |id: &str| s.queue().iter().any(|q| q.prompt_id == id);
     let waits = send(&hub, &s, "s-other", "p-other", "and this", false);
     let waiting = async {
-        while s.queued() == 0 {
+        while !in_queue("p-other") {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
     tokio::time::timeout(WAIT, waiting).await.expect("the second message waits");
     let joins = send(&hub, &s, "s-third", "p-third", "and that", false);
     let queued = async {
-        while s.queue.lock().unwrap().is_empty() {
+        while !in_queue("p-third") {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };

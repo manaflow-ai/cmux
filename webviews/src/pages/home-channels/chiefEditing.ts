@@ -4,7 +4,8 @@
 // the backend, `locked`), and the backends through the host's harness center
 // (`cmux.chief.backend.*`: acpmux's list, add, doctor). A bring-your-own key goes to the host in
 // the one add call and to the Keychain from there; the page keeps no copy.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import type { PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { chief as chiefRecord } from "./daemonPeople";
 import type {
   HomeChief,
@@ -56,8 +57,8 @@ export interface ChiefEditorService {
 
 const SELECTORS = { machine: "current", session: "current" };
 
-export const describeError = (error: unknown) =>
-  isPageError(error) || error instanceof Error ? error.message : String(error);
+/** The plain sentence of a failure; the owner's own text stays in the error. */
+export const describeError = (error: unknown) => userMessage(error);
 
 /** The record fields of a Save that need the person's gesture (sent through the host). */
 export function gestureFields(before: HomeChief | undefined, save: ChiefSave): Record<string, unknown> {
