@@ -755,7 +755,18 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
                 std::thread::sleep(Duration::from_millis(100));
             }
         }
-        let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+        // The outer Claude's Stop was handed over before its record was
+        // written, but its journal append may still be in flight: read the
+        // row until the agent's last event (Stop: idle) shows, or 5 s pass.
+        // Events journaled out of send order must not leave it working.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let row = loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["state"] == "idle" || Instant::now() >= deadline {
+                break row;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
         assert_eq!(row["source"], "hook", "{tag}: {row}");
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
         assert_eq!(row["state"], "idle", "{tag}: {row}");
@@ -776,10 +787,11 @@ fn any_launcher_nested_claude_claim_keeps_clear_reporting_when_hooks_see_the_env
         fs::create_dir_all(dir).unwrap();
     }
     let claude = realbin.join("claude");
-    write_executable(&claude, FAKE_CLAUDE);
+    cmux_test_exec::write_executable(&claude, FAKE_CLAUDE).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
-        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+        cmux_test_exec::copy_executable(Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &daemon_exe)
+            .unwrap();
     }
     let path = format!("{}:/usr/bin:/bin", realbin.display());
     let mut daemon = Daemon::start(&root, &daemon_exe, "clear", &home, &data, &path);

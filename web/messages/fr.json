@@ -199,7 +199,10 @@
     "signupPendingBody": "Si vous avez déjà un compte, connectez-vous avec la méthode utilisée précédemment. Si vous venez de créer un compte, vérifiez votre adresse e-mail avant de vous connecter.",
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
-    "backToSignIn": "Retour à la connexion"
+    "backToSignIn": "Retour à la connexion",
+    "chatgptLinkTitle": "Connectez-vous une fois pour associer ChatGPT",
+    "chatgptLinkBody": "Cette adresse e-mail a déjà un compte cmux. Connectez-vous avec la méthode utilisée auparavant et ChatGPT sera associé à ce compte.",
+    "chatgptEmailUnverifiedBody": "L’adresse e-mail de votre compte ChatGPT n’est pas vérifiée. Vérifiez-la auprès d’OpenAI ou connectez-vous autrement."
   },
   "cloudPublicationAccess": {
     "title": "Vous n’avez pas accès",
@@ -509,7 +512,18 @@
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
         "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul.",
-        "addSeats": "Ajouter des sièges"
+        "addSeats": "Ajouter des sièges",
+        "enterprise": {
+          "current": "Forfait actuel",
+          "body": "{team} bénéficie d'un forfait personnalisé convenu avec l'équipe cmux. Contactez l'équipe cmux pour le modifier.",
+          "price": "Prix",
+          "perMonth": "{amount}/mois",
+          "machines": "Machines cloud",
+          "pool": "vCPU / mémoire partagés",
+          "largest": "Plus grande machine",
+          "size": "{vcpus} vCPU / {gb} Go",
+          "noLimit": "Aucune limite"
+        }
       },
       "teamList": {
         "heading": "Périmètres de facturation",

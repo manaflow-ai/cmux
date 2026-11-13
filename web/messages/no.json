@@ -199,7 +199,10 @@
     "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
-    "backToSignIn": "Tilbake til innlogging"
+    "backToSignIn": "Tilbake til innlogging",
+    "chatgptLinkTitle": "Logg inn én gang for å koble til ChatGPT",
+    "chatgptLinkBody": "Denne e-postadressen har allerede en cmux-konto. Logg inn med metoden du brukte før, så kobles ChatGPT til kontoen.",
+    "chatgptEmailUnverifiedBody": "E-postadressen på ChatGPT-kontoen din er ikke bekreftet. Bekreft den hos OpenAI, eller logg inn på en annen måte."
   },
   "cloudPublicationAccess": {
     "title": "Du har ikke tilgang",
@@ -509,7 +512,18 @@
         "grantedBody": "cmux-teamet har gitt {team} tilgang til Team. Det finnes ikke noe abonnement å administrere.",
         "seatsUsed": "{members} av {seats} brukt",
         "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Plassene følger antall medlemmer, så abonnementet oppdateres av seg selv.",
-        "addSeats": "Legg til plasser"
+        "addSeats": "Legg til plasser",
+        "enterprise": {
+          "current": "Nåværende plan",
+          "body": "{team} har en tilpasset plan avtalt med cmux-teamet. Kontakt cmux-teamet for å endre den.",
+          "price": "Pris",
+          "perMonth": "{amount}/måned",
+          "machines": "Skymaskiner",
+          "pool": "Delte vCPU-er / minne",
+          "largest": "Største maskin",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Ingen grense"
+        }
       },
       "teamList": {
         "heading": "Faktureringsomfang",
