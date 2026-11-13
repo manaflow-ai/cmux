@@ -631,6 +631,7 @@ import {
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
+import { HarnessUpdatesContext, useHarnessUpdateList } from "./harnessUpdateList";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
@@ -2274,11 +2275,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.
   const [signedOut, setSignedOut] = useState<Record<string, string>>({});
+  // The same rows, for Harness updates available (harnessUpdateList.ts): every outdated agent CLI.
+  const [healthRows, setHealthRows] = useState<readonly unknown[]>([]);
   const signedOutRechecked = useRef(0);
   useEffect(() => {
     const client = directClient.current;
     if (!connected || !client || !agentLocal) {
       setSignedOut({});
+      setHealthRows([]);
       return;
     }
     let live = true;
@@ -2287,12 +2291,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     signedOutRechecked.current = healthRecheck;
     void Promise.resolve()
       .then(() => client.harnessHealthRows(refresh ? { refresh: true } : {}))
-      .then((rows) => live && setSignedOut(signedOutHarnesses(rows)))
+      .then((rows) => {
+        if (!live) return;
+        setSignedOut(signedOutHarnesses(rows));
+        setHealthRows(rows);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [connected, agentLocal, healthRecheck, catalogSource]);
+  // Every outdated agent CLI on this Mac for the model menus (Leo 2026-11-12, ask-3fdf0982ec), the
+  // chat's own through its offer (Restart Chat follows it), any other updated in place.
+  const harnessName = useCallback(
+    (id: string) => agentName(id, catalog.find((entry) => entry.id === id)?.name),
+    [catalog],
+  );
+  const harnessUpdates = useHarnessUpdateList({
+    rows: healthRows,
+    offer: updateOffer,
+    own: healthHarness,
+    nameFor: harnessName,
+    native: callNative,
+    onUpdated: recheckHealth,
+  });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
   // rules it has not read yet. A chat on another machine or in the cloud gets none.
@@ -13801,11 +13823,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
         <UpdateOfferContext.Provider value={updateOffer}>
-          <AgentProgressContext.Provider value={progressStore}>
-            <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
-              <NoticeSlot>{pane}</NoticeSlot>
-            </OpenBackgroundTasks.Provider>
-          </AgentProgressContext.Provider>
+          <HarnessUpdatesContext.Provider value={harnessUpdates}>
+            <AgentProgressContext.Provider value={progressStore}>
+              <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
+                <NoticeSlot>{pane}</NoticeSlot>
+              </OpenBackgroundTasks.Provider>
+            </AgentProgressContext.Provider>
+          </HarnessUpdatesContext.Provider>
         </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>
