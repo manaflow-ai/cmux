@@ -7,6 +7,7 @@
 export type ChipMeasure = {
   chip: string;
   glyph: number | null;
+  glyphCenterY: number | null;
   label: { size: number; weight: number } | null;
   chevron: number | null;
   /** The label's ink center minus the glyph's center (px; 0 is one line). */
@@ -66,6 +67,7 @@ export function measureNewTabChips(): ChipMeasure[] {
       return {
         chip,
         glyph: square(glyphElement),
+        glyphCenterY: glyphCenter,
         label: style ? { size: Number.parseFloat(style.fontSize), weight: Number(style.fontWeight) } : null,
         chevron: square(chevron),
         glyphOffset: ink !== null && glyphCenter !== null ? Math.round((ink - glyphCenter) * 100) / 100 : null,

@@ -58,6 +58,15 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
             await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
             const chips: ChipMeasure[] = await page.evaluate(measureNewTabChips);
             const where = `${state} ${width}px ${look}: ${JSON.stringify(chips)}`;
+            const locationCenters = chips
+              .filter((chip) => chip.chip === "location 1" || chip.chip === "location 2")
+              .map((chip) => chip.glyphCenterY);
+            expect(locationCenters, where).toHaveLength(2);
+            expect(
+              locationCenters.every((center) => typeof center === "number"),
+              where,
+            ).toBe(true);
+            expect(Math.abs(Number(locationCenters[0]) - Number(locationCenters[1])), where).toBeLessThanOrEqual(0.5);
             // The two chips above the box and the permission and model chips under it.
             expect(chips.filter((chip) => chip.chip.startsWith("location")).length, where).toBeGreaterThanOrEqual(1);
             expect(
