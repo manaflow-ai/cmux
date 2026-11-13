@@ -38,9 +38,11 @@ pub(super) struct LiveTreeInput<'a> {
     /// Whether the store holds a live `resource` row ("screen", "pane" or
     /// "tab") with this public id.
     pub(super) stored_live: &'a StoredLive<'a>,
-    /// Scoped walks only: the host of every active stored terminal row the
-    /// scope's tabs show. A tab whose row, focus and terminal row are all
-    /// stored as the walk would write them is not restated.
+    /// The host of every active stored terminal row the scope's tabs show. A
+    /// tab whose row, focus and terminal row are all stored as the walk would
+    /// write them is not restated. `None` states each tab of the walk again:
+    /// a full walk, and a scoped walk of a workspace that the registry's fold
+    /// does not hold whole (`workspace_registry/public_fold.rs`).
     pub(super) active_terminal_hosts: Option<&'a HashMap<TerminalPublicId, String>>,
     /// Which workspaces outside the scope a scoped walk states again.
     pub(super) rows: WorkspaceRows,
@@ -223,9 +225,52 @@ impl Mux {
         )
     }
 
+    /// The projection of a change that is confined to `workspaces` and that removed and moved
+    /// no workspace (it may have added some after the last one): a move in a workspace or
+    /// between 2 of them, and one part of the restatement after a start. Nothing outside the
+    /// scope is stated and the stored side is read for the scope only, so the hold and the
+    /// journal record follow the size of those workspaces. A store that does not hold exactly
+    /// the workspaces of the live list states each workspace row, as a created view does.
+    pub(crate) fn changed_workspaces_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        workspaces: &[WorkspacePublicId],
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let rows = created_view_rows(registry, state)?;
+        self.resource_effect_projection_scoped_rows_locked(
+            registry, state, workspaces, rows, result,
+        )
+    }
+
+    /// The projection of one part of the restatement after a daemon start
+    /// (`mux/startup_restore/restate_parts.rs`): `workspaces` and nothing outside them, with no
+    /// read of the store's workspace count. A part changes no value of the live tree, so it
+    /// added, removed and moved no workspace. A stored row of a workspace that the live tree
+    /// lost stays for the commit that meets it (a create states each workspace row then).
+    pub(crate) fn restate_part_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        workspaces: &[WorkspacePublicId],
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let rows = WorkspaceRows::Added(state.workspaces.len());
+        let result = Value::Object(Default::default());
+        self.resource_effect_projection_scoped_rows_locked(
+            registry, state, workspaces, rows, result,
+        )
+    }
+
     /// [`Self::resource_effect_projection_scoped_locked`] that states again, of the workspaces
     /// outside the scope, only the ones `rows` names. The same scoped read, walk, fallback and
     /// cross-check; the one difference is the workspace rows it leaves out.
+    ///
+    /// A workspace of the scope that the registry's fold does not hold whole is stated again
+    /// here, each live value of it and not only the changed ones, and the projection names the
+    /// scope in `restated`: the caller marks it whole after the commit
+    /// (`WorkspaceRegistry::mark_workspaces_whole`). So a change that comes before the
+    /// restatement after a start reached its workspace states that workspace in its own commit.
     pub(crate) fn resource_effect_projection_scoped_rows_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -260,8 +305,18 @@ impl Mux {
         }
         #[cfg(test)]
         crate::walk_counters::frame_rows_read(before.active_screens.len());
-        let panes = before.panes.iter().map(|pane| pane.public_id.clone()).collect::<Vec<_>>();
-        let active_terminal_hosts = registry.active_terminal_hosts_of_panes(&panes)?;
+        let restated = if scope.iter().all(|workspace| registry.workspace_is_whole(workspace)) {
+            Vec::new()
+        } else {
+            scope_list(&scope)
+        };
+        // A walk that states its workspaces again keeps no tab back, so it needs no stored host.
+        let active_terminal_hosts = if restated.is_empty() {
+            let panes = before.panes.iter().map(|pane| pane.public_id.clone()).collect::<Vec<_>>();
+            Some(registry.active_terminal_hosts_of_panes(&panes)?)
+        } else {
+            None
+        };
         let read = started.elapsed();
         reindex_scope(state, &scope)?;
         let index = started.elapsed().saturating_sub(read);
@@ -274,11 +329,14 @@ impl Mux {
             terminals: &terminals,
             tab_order: &tab_order,
             stored_live: &stored_live,
-            active_terminal_hosts: Some(&active_terminal_hosts),
+            active_terminal_hosts: active_terminal_hosts.as_ref(),
             rows,
         };
         let projection = match self.project_live_tree(&input, state, result.clone()) {
-            Ok(projection) => projection,
+            Ok(mut projection) => {
+                projection.restated = restated;
+                projection
+            }
             Err(error) if error.is::<ScopeEscaped>() => {
                 registry.resource_projection_stats().scope_fell_back();
                 return self.resource_effect_projection_locked(registry, state, result);

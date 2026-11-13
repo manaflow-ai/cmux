@@ -599,6 +599,7 @@ impl Mux {
             changes: Value::Array(deltas),
             result,
             restates_all: scope.is_none(),
+            restated: Vec::new(),
         })
     }
 

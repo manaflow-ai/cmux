@@ -223,6 +223,9 @@ impl Mux {
         if full_projection && !commit.replayed {
             registry.record_full_projection_fold(commit.revision, &plan.deltas);
         }
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &plan.restated);
+        }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan
             .workspace_ledger

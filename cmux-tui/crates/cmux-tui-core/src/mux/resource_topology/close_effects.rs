@@ -261,6 +261,7 @@ impl Mux {
                     changes: json!([]),
                     result: json!({}),
                     restates_all: false,
+                    restated: Vec::new(),
                 }
             } else {
                 self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
@@ -604,6 +605,9 @@ impl Mux {
             plan.workspace_close.as_ref(),
             projection.restates_all,
         )?;
+        if !close.resource.replayed {
+            registry.mark_workspaces_whole(close.resource.revision, &projection.restated);
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
             hook();

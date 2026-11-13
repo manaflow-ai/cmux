@@ -221,11 +221,15 @@ impl Mux {
             &projection.changes,
             projection.restates_all,
         )?;
+        let restated = std::mem::take(&mut projection.restated);
         drop(projection);
         drop(state);
         crate::debug_spans::mark("projection.intent_prepared");
         let commit =
             self.commit_effect_intent(&mut registry, intent, finish)?.into_patch_commit()?;
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &restated);
+        }
         crate::debug_spans::mark("projection.writer_committed");
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
@@ -458,8 +462,10 @@ impl Mux {
 
 /// The plan that commits `projection`: its commit drops the upserts the
 /// journal already states (a scoped walk still restates every workspace's
-/// row), and a full projection's, unpruned, may seed the public fold.
-fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
+/// row), a full projection's, unpruned, may seed the public fold, and the
+/// workspaces that a scoped walk stated again are marked whole in it.
+pub(super) fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
     ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
         .projected(projection.restates_all)
+        .restating(projection.restated)
 }

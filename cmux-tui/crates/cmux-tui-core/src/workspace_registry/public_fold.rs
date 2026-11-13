@@ -19,15 +19,23 @@
 //! a lost fold sent the next create or close to the full projection, which
 //! wrote one journal value for each live resource of the session.)
 //!
-//! A daemon start states the session again in one full projection commit
-//! before its first request (`Mux::restate_session_at_start`), so a daemon
-//! that serves has a complete fold unless that commit failed.
+//! The fold holds a workspace WHOLE when it holds each live value of that
+//! workspace: a commit stated the workspace again from the live tree (not
+//! only the values it changed) and the fold folded that record. A scoped
+//! commit asks this for the workspaces of its scope
+//! ([`WorkspaceRegistry::workspace_is_whole`]); one that is not whole is
+//! stated again in that commit, and marked
+//! ([`WorkspaceRegistry::mark_workspaces_whole`]). A fold that starts again
+//! holds no workspace whole. After a daemon start, a worker states the
+//! workspaces again in parts while the daemon serves
+//! (`mux/startup_restore/restate_parts.rs`).
 //!
 //! A full projection makes the fold complete (it then holds every live
-//! resource). Only the debug cross-check reads that: a complete fold can
-//! say that the journal does not state a resource, a partial one cannot.
+//! resource, so each workspace whole). Only the debug cross-check reads
+//! that: a complete fold can say that the journal does not state a
+//! resource, a partial one cannot.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::*;
 
@@ -36,10 +44,15 @@ const TRACKED_RESOURCES: [&str; 6] = ["workspace", "screen", "pane", "tab", "ter
 #[derive(Debug, Default)]
 pub(super) struct PublicTopologyFold {
     revision: u64,
+    /// The revision at which the fold started, empty: it folded each record after it and none
+    /// before it.
+    since: u64,
     values: HashMap<(String, String), Value>,
     /// Whether `values` holds every live topology resource (a full projection was folded since
     /// the fold started). Read through [`Self::holds_every_resource`] only.
     complete: bool,
+    /// The public ids of the workspaces that the fold holds whole (see the module text).
+    whole: HashSet<String>,
 }
 
 #[cfg(test)]
@@ -77,10 +90,26 @@ impl PublicTopologyFold {
                 }
                 "delete" => {
                     self.values.remove(&key);
+                    if resource == "workspace" {
+                        self.whole.remove(id);
+                    }
                 }
                 _ => {}
             }
         }
+    }
+
+    /// A full projection was folded: the fold holds every live resource, so each workspace
+    /// that it holds is whole.
+    fn completed(&mut self) {
+        self.complete = true;
+        let workspaces = self
+            .values
+            .keys()
+            .filter(|(resource, _)| resource == "workspace")
+            .map(|(_, id)| id.clone())
+            .collect::<Vec<_>>();
+        self.whole.extend(workspaces);
     }
 
     /// Whether decorating `change` could make the fold state it: an upsert of a resource decoration adds to
@@ -306,15 +335,19 @@ impl WorkspaceRegistry {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);
                 fold.revision = revision;
-                fold.complete |= full_projection;
+                if full_projection {
+                    fold.completed();
+                }
             }
             // Not at this commit's base: lost. The next use starts it again at the journal head.
             Some(_) => self.public_fold = None,
             // Lost, and not started again when this commit pruned (the journal head could not
             // be read): the record's own values are what the journal states at `revision`.
-            // Whether they are every live resource is not known here, so it is not complete.
+            // Whether they are every live resource is not known here, so it is not complete,
+            // and it holds no workspace whole (`since` is this revision).
             None => {
-                let mut fold = PublicTopologyFold { revision, ..Default::default() };
+                let mut fold =
+                    PublicTopologyFold { revision, since: revision, ..Default::default() };
                 fold.apply(journaled);
                 self.public_fold = Some(fold);
             }
@@ -349,7 +382,7 @@ impl WorkspaceRegistry {
                 if self.catch_up_public_fold()
                     && let Some(fold) = self.public_fold.as_mut()
                 {
-                    fold.complete = true;
+                    fold.completed();
                 }
             }
             // Started again at the head after this commit: it does not hold the record's values.
@@ -370,9 +403,53 @@ impl WorkspaceRegistry {
         let kept = held.is_some();
         self.public_fold = held.or_else(|| {
             let revision = current_resource_revision(&self.connection.get()).ok()?;
-            Some(PublicTopologyFold { revision, ..Default::default() })
+            Some(PublicTopologyFold { revision, since: revision, ..Default::default() })
         });
         kept
+    }
+
+    /// Whether the fold holds each live value of `workspace` (see the module text). No catch-up
+    /// (a shared borrow): a fold that is behind the journal still holds the workspace whole,
+    /// because each record that it has yet to fold states its own values. A commit path may
+    /// read this; it does not read the `complete` flag.
+    pub(crate) fn workspace_is_whole(
+        &self,
+        workspace: &crate::resource::WorkspacePublicId,
+    ) -> bool {
+        self.public_fold.as_ref().is_some_and(|fold| fold.whole.contains(workspace.as_str()))
+    }
+
+    /// The commit at `revision` stated `workspaces` again from the live tree: each live value
+    /// of each one was in its changes, and the commit dropped only the ones that this fold held
+    /// with that value. So the fold holds them whole once it has folded that record. A fold
+    /// that started at or after `revision` did not fold it and marks none: the next scoped
+    /// commit in such a workspace states it again.
+    pub(crate) fn mark_workspaces_whole(
+        &mut self,
+        revision: u64,
+        workspaces: &[crate::resource::WorkspacePublicId],
+    ) {
+        if workspaces.is_empty() {
+            return;
+        }
+        self.catch_up_public_fold();
+        let Some(fold) = self.public_fold.as_mut() else { return };
+        if fold.since >= revision || fold.revision < revision {
+            return;
+        }
+        for workspace in workspaces {
+            let id = workspace.to_string();
+            // A workspace that a later record deleted is not held.
+            if fold.values.contains_key(&("workspace".to_string(), id.clone())) {
+                fold.whole.insert(id);
+            }
+        }
+    }
+
+    /// How many workspaces the fold holds whole.
+    #[cfg(test)]
+    pub(crate) fn whole_workspaces_for_test(&self) -> usize {
+        self.public_fold.as_ref().map_or(0, |fold| fold.whole.len())
     }
 
     /// `fold` with every resource record after its revision applied, or `None` when the journal

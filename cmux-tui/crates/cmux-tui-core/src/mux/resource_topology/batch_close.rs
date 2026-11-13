@@ -342,6 +342,7 @@ impl Mux {
                 replayed: true,
             });
         }
+        registry.mark_workspaces_whole(committed.resource.revision, &projection.restated);
         let mut effects =
             plan.install(&mut state, committed.resource.revision, committed.workspace_revision);
         drop(state);
