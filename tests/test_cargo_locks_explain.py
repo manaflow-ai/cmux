@@ -468,7 +468,7 @@ PASSES_THROUGH = {
 
 RUNS_CARGO_LOCKED = re.compile(r"(?<![\w./-])cargo\b(?![-_.\w]).*--locked\b|[\"']cargo[\"'].*[\"']--locked[\"']")
 PRINTS_A_CAUSE = re.compile(r"::error|\bFAIL\b|\bleft:")
-SKIP_SUFFIXES = {".md", ".json", ".lock", ".toml", ".txt", ".png", ".jpg", ".svg"}
+SKIP_SUFFIXES = {".md", ".json", ".toml", ".txt", ".png", ".jpg", ".svg"}
 
 
 def wraps_cargo(text: str) -> bool:
