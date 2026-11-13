@@ -8,13 +8,9 @@
 use acpmux_book::blobs::{Blobs, Body};
 use acpmux_book::checkpoint::{Checkpoint, Cursor, OpenBody, next_edition};
 use acpmux_book::folds::Folds;
-use acpmux_book::log::{
-    self, Anchor as BookAnchor, CheckpointHead, Edge, Error as BookError, Log, Options, RawRange,
-    Side,
-};
+use acpmux_book::log::{self, CheckpointHead, Error as BookError, Log, Options, RawRange};
 use acpmux_book::row::{Outline, RowKind};
 use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
-use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,12 +18,6 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc as tokio_mpsc;
-
-use crate::wire::{
-    Anchor, AnchorSide, BlobFrame, BlobRequest, ChatDelta, ChatDeltaFrame, ChatRow, ChatWindow,
-    Frame, Page, Sub, chat_delta_frame, chat_page_frame, chat_window_frame,
-};
 
 pub mod source;
 
@@ -64,10 +54,7 @@ impl source::RawSource for EmptySource {
 /// A chat mailbox is bounded in approximate encoded bytes. PR 4 adds connection credit; this
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_SUBSCRIBER_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
-const TEXT_COALESCE: Duration = Duration::from_millis(16);
-const REPLAY_BYTES: usize = 256 * 1024;
 
 #[derive(Clone)]
 pub struct ChatConfig {
@@ -105,7 +92,6 @@ pub enum ChatError {
     Closed,
     Book(BookError),
     Io(std::io::Error),
-    Wire(crate::wire::FrameError),
     Translate(translate::Error),
     Response,
     SourceChanged,
@@ -118,7 +104,6 @@ impl std::fmt::Display for ChatError {
             Self::Closed => f.write_str("chat actor is closed"),
             Self::Book(error) => write!(f, "chat book: {error}"),
             Self::Io(error) => write!(f, "chat actor: {error}"),
-            Self::Wire(error) => write!(f, "chat wire: {error}"),
             Self::Translate(error) => write!(f, "chat translate: {error}"),
             Self::Response => f.write_str("chat actor response was dropped"),
             Self::SourceChanged => f.write_str("chat source stamp changed"),
@@ -136,17 +121,11 @@ impl From<std::io::Error> for ChatError {
         Self::Io(error)
     }
 }
-impl From<crate::wire::FrameError> for ChatError {
-    fn from(error: crate::wire::FrameError) -> Self {
-        Self::Wire(error)
-    }
-}
 impl From<translate::Error> for ChatError {
     fn from(error: translate::Error) -> Self {
         Self::Translate(error)
     }
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Recovery {
     /// The checkpoint and its tail were opened normally.
@@ -157,39 +136,14 @@ pub enum Recovery {
     Rebuild,
 }
 
-pub struct ChatSubscription {
-    pub window: Frame,
-    /// Replay frames are returned before the receiver is installed in the actor. The last one
-    /// is marked `replay: "end"`; live frames cannot be sent before it.
-    pub replay: Vec<Frame>,
-    pub receiver: tokio_mpsc::Receiver<Frame>,
-}
-
-pub struct ChatPage {
-    pub frame: Frame,
-}
-
-pub struct ChatBlob {
-    pub frame: BlobFrame,
-}
-
 enum Request {
     Wake,
-    Sub { request: Sub, reply: mpsc::Sender<Result<ChatSubscription, ChatError>> },
-    Page { request: Page, reply: mpsc::Sender<Result<ChatPage, ChatError>> },
-    Blob { request: BlobRequest, reply: mpsc::Sender<Result<ChatBlob, ChatError>> },
     Close { reply: mpsc::Sender<Result<(), ChatError>> },
 }
 
 impl Request {
     fn bytes(&self) -> usize {
-        match self {
-            Self::Wake => 16,
-            Self::Sub { request, .. } => request.sid.len() + request.stream.0.len() + 128,
-            Self::Page { request, .. } => request.sid.len() + request.stream.0.len() + 128,
-            Self::Blob { request, .. } => request.sid.len() + request.stream.0.len() + 128,
-            Self::Close { .. } => 16,
-        }
+        16
     }
 }
 
@@ -232,24 +186,6 @@ impl ChatHandle {
         self.send(Request::Wake)
     }
 
-    pub fn subscribe(&self, request: Sub) -> Result<ChatSubscription, ChatError> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Sub { request, reply: reply_tx })?;
-        reply_rx.recv().map_err(|_| ChatError::Response)?
-    }
-
-    pub fn page(&self, request: Page) -> Result<ChatPage, ChatError> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Page { request, reply: reply_tx })?;
-        reply_rx.recv().map_err(|_| ChatError::Response)?
-    }
-
-    pub fn blob(&self, request: BlobRequest) -> Result<ChatBlob, ChatError> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Blob { request, reply: reply_tx })?;
-        reply_rx.recv().map_err(|_| ChatError::Response)?
-    }
-
     pub fn close(&self) -> Result<(), ChatError> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.send(Request::Close { reply: reply_tx })?;
@@ -264,7 +200,7 @@ pub struct ChatActor {
 
 impl ChatActor {
     /// Starts a supervised actor. Hydration runs on this dedicated worker, never on a tokio
-    /// runtime worker. A panic drops subscribers and reopens from the checkpoint.
+    /// runtime worker. A panic reopens from the checkpoint.
     pub fn spawn(config: ChatConfig) -> Self {
         let (tx, rx) = sync_channel(256);
         let queued = Arc::new(Mutex::new(0));
@@ -284,14 +220,6 @@ impl ChatActor {
     }
 }
 
-struct Subscriber {
-    sid: String,
-    tx: tokio_mpsc::Sender<Frame>,
-    queued: usize,
-    pending_text: Vec<(u64, u64, String)>,
-    text_since: Option<Instant>,
-}
-
 struct ActorState {
     config: ChatConfig,
     log: Log,
@@ -306,7 +234,6 @@ struct ActorState {
     boot_id: u64,
     source_stamp: u64,
     source: Box<dyn source::RawSource>,
-    subscribers: Vec<Subscriber>,
     last_used: Instant,
     last_checkpoint: Instant,
     settled_since_checkpoint: u32,
@@ -417,7 +344,6 @@ fn open_state_from_log(
         boot_id: saved_checkpoint.as_ref().map_or(0, |c| c.boot_id),
         source_stamp,
         source,
-        subscribers: Vec::new(),
         last_used: Instant::now(),
         last_checkpoint: Instant::now(),
         settled_since_checkpoint: 0,
@@ -450,27 +376,13 @@ fn open_state_from_log(
 
 fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<usize>>) -> bool {
     loop {
-        if let Err(error) = read_source(state)
-            && matches!(error, ChatError::SourceChanged)
-        {
+        if matches!(read_source(state), Err(ChatError::SourceChanged)) {
             return false;
         }
-        let wait = state
-            .subscribers
-            .iter()
-            .filter_map(|subscriber| {
-                subscriber.text_since.map(|at| TEXT_COALESCE.saturating_sub(at.elapsed()))
-            })
-            .min()
-            .unwrap_or(IDLE_AFTER);
-        let request = match rx.recv_timeout(wait) {
+        let request = match rx.recv_timeout(IDLE_AFTER) {
             Ok(request) => request,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                flush_text(state, true);
-                if state.subscribers.is_empty()
-                    && state.translate.open_rows().next().is_none()
-                    && state.last_used.elapsed() >= IDLE_AFTER
-                {
+                if state.translate.open_rows().next().is_none() {
                     let _ = checkpoint(state);
                     return true;
                 }
@@ -478,43 +390,22 @@ fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<u
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => return true,
         };
-        flush_text(state, false);
         let bytes = request.bytes();
         if let Ok(mut queued) = queued.lock() {
             *queued = queued.saturating_sub(bytes);
         }
         state.last_used = Instant::now();
-        let stop = match request {
+        match request {
             Request::Wake => {
                 if matches!(read_source(state), Err(ChatError::SourceChanged)) {
                     return false;
                 }
-                false
-            }
-            Request::Sub { request, reply } => {
-                let result = subscribe(state, request);
-                let _ = reply.send(result);
-                false
-            }
-            Request::Page { request, reply } => {
-                let result = page(state, request);
-                let _ = reply.send(result);
-                false
-            }
-            Request::Blob { request, reply } => {
-                let result = blob(state, request);
-                let _ = reply.send(result);
-                false
             }
             Request::Close { reply } => {
-                flush_text(state, true);
                 let result = checkpoint(state);
                 let _ = reply.send(result);
-                true
+                return true;
             }
-        };
-        if stop {
-            return true;
         }
     }
 }
@@ -533,217 +424,6 @@ fn read_source(state: &mut ActorState) -> Result<(), ChatError> {
         state.raw_place = line.end;
     }
     Ok(())
-}
-
-fn anchor(anchor: Option<Anchor>) -> BookAnchor {
-    match anchor.unwrap_or(Anchor::End) {
-        Anchor::End => BookAnchor::End,
-        Anchor::Row { row_id, side } => BookAnchor::Row {
-            id: row_id,
-            side: match side {
-                AnchorSide::Before => Side::Before,
-                AnchorSide::After => Side::After,
-                AnchorSide::Around => Side::Around,
-            },
-        },
-        Anchor::List { .. } => BookAnchor::End,
-    }
-}
-
-fn row_text(log: &mut Log, refs: &[log::RowRef]) -> Result<Vec<ChatRow>, ChatError> {
-    let mut bytes = Vec::new();
-    let mut ranges = Vec::new();
-    match log.fill(refs, &mut bytes, &mut ranges) {
-        Ok(_) => refs
-            .iter()
-            .zip(ranges)
-            .map(|(reference, range)| {
-                let text = bytes.get(range).ok_or(ChatError::Closed)?;
-                let raw = RawValue::from_string(
-                    String::from_utf8(text.to_vec()).map_err(|_| ChatError::Closed)?,
-                )
-                .map_err(|_| ChatError::Closed)?;
-                Ok(ChatRow { id: reference.row_id, rev: reference.rev, text: raw })
-            })
-            .collect(),
-        Err(BookError::CorruptRow { .. }) => {
-            // A damaged record must not hide its neighbours. The book is rebuilt from raw by
-            // the recovery owner; until then, isolate the bad row and serve the rest.
-            let mut rows = Vec::with_capacity(refs.len());
-            for reference in refs {
-                let one = std::slice::from_ref(reference);
-                let mut bytes = Vec::new();
-                let mut ranges = Vec::new();
-                match log.fill(one, &mut bytes, &mut ranges) {
-                    Ok(_) => {
-                        let Some(range) = ranges.into_iter().next() else { continue };
-                        let Some(text) = bytes.get(range) else { continue };
-                        let raw = RawValue::from_string(
-                            String::from_utf8(text.to_vec()).map_err(|_| ChatError::Closed)?,
-                        )
-                        .map_err(|_| ChatError::Closed)?;
-                        rows.push(ChatRow { id: reference.row_id, rev: reference.rev, text: raw });
-                    }
-                    Err(BookError::CorruptRow { .. }) => continue,
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            Ok(rows)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn open_row(state: &ActorState, row: &OwnedRow) -> Result<ChatRow, ChatError> {
-    let mut encoded = Vec::new();
-    let body = state.bodies.get(&row.id);
-    let mut body_bytes = Vec::new();
-    if let Some(body) = body {
-        state.blobs.write_body(body, &mut body_bytes)?;
-    } else {
-        body_bytes.extend_from_slice(b"{}");
-    }
-    let body = std::str::from_utf8(&body_bytes).map_err(|_| ChatError::Closed)?;
-    row.as_row(body).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
-    let raw = RawValue::from_string(String::from_utf8(encoded).map_err(|_| ChatError::Closed)?)
-        .map_err(|_| ChatError::Closed)?;
-    Ok(ChatRow { id: row.id, rev: row.rev, text: raw })
-}
-
-fn subscribe(state: &mut ActorState, request: Sub) -> Result<ChatSubscription, ChatError> {
-    let cursor = request.cursor.as_ref().map(|cursor| cursor.0).unwrap_or(state.log.last_seq());
-    let wanted = usize::from(request.window.unwrap_or(100)).clamp(1, 400);
-    let window = state.log.window(anchor(request.anchor), wanted, log::MAX_PAGE_BYTES);
-    let rows = row_text(&mut state.log, &window.rows)?;
-    let open = state
-        .translate
-        .open_rows()
-        .map(|row| open_row(state, row))
-        .collect::<Result<Vec<_>, _>>()?;
-    let wire = ChatWindow {
-        sid: request.sid.clone(),
-        cursor: state.log.last_seq(),
-        rows,
-        open: open.clone(),
-        has_before: window.has_before,
-        has_after: window.has_after,
-        queue: Vec::new(),
-        queue_count: 0,
-    };
-    let window_frame = chat_window_frame(&wire)?;
-    let mut replay = Vec::new();
-    if request.cursor.is_some() {
-        let mut next_cursor = cursor;
-        loop {
-            let since = state.log.since(next_cursor, REPLAY_BYTES)?;
-            let rows = row_text(&mut state.log, &since.rows)?;
-            let mut ops = Vec::new();
-            for (reference, row) in since.rows.iter().zip(rows) {
-                let candidate =
-                    ChatDelta::Row { sid: request.sid.clone(), seq: reference.seq, row };
-                ops.push(candidate);
-                let frame = chat_delta_frame(&ChatDeltaFrame {
-                    sid: request.sid.clone(),
-                    ops: ops.clone(),
-                    replay: Some("replay".into()),
-                    open: Vec::new(),
-                    queue: Vec::new(),
-                })?;
-                if frame.encoded_len() > REPLAY_BYTES && !ops.is_empty() {
-                    let Some(last) = ops.pop() else {
-                        return Err(ChatError::Closed);
-                    };
-                    if !ops.is_empty() {
-                        replay.push(chat_delta_frame(&ChatDeltaFrame {
-                            sid: request.sid.clone(),
-                            ops,
-                            replay: Some("replay".into()),
-                            open: Vec::new(),
-                            queue: Vec::new(),
-                        })?);
-                    }
-                    ops = vec![last];
-                }
-            }
-            if !ops.is_empty() {
-                replay.push(chat_delta_frame(&ChatDeltaFrame {
-                    sid: request.sid.clone(),
-                    ops,
-                    replay: Some("replay".into()),
-                    open: Vec::new(),
-                    queue: Vec::new(),
-                })?);
-            }
-            next_cursor = since.cursor;
-            if !since.more || next_cursor <= cursor {
-                break;
-            }
-        }
-        replay.push(chat_delta_frame(&ChatDeltaFrame {
-            sid: request.sid.clone(),
-            ops: Vec::new(),
-            replay: Some("end".into()),
-            open,
-            queue: Vec::new(),
-        })?);
-    }
-    let (tx, receiver) = tokio_mpsc::channel(64);
-    state.subscribers.push(Subscriber {
-        sid: request.sid,
-        tx,
-        queued: 0,
-        pending_text: Vec::new(),
-        text_since: None,
-    });
-    Ok(ChatSubscription { window: window_frame, replay, receiver })
-}
-
-fn page(state: &mut ActorState, request: Page) -> Result<ChatPage, ChatError> {
-    let (side, position) = request.side().ok_or(ChatError::Closed)?;
-    let mut row_id = match position {
-        crate::wire::Position::Row(id) => *id,
-        crate::wire::Position::List(_) => return Err(ChatError::Closed),
-    };
-    if let Some(group) = request.fold
-        && let Some(fold) = state.folds.containing(group)?
-    {
-        row_id = if side == crate::wire::PageSide::Before {
-            fold.last.saturating_add(1)
-        } else {
-            fold.group
-        };
-    }
-    let window = state.log.page(
-        if side == crate::wire::PageSide::Before {
-            Edge::Before(row_id)
-        } else {
-            Edge::After(row_id)
-        },
-        request.max_bytes as usize,
-    );
-    let rows = row_text(&mut state.log, &window.rows)?;
-    Ok(ChatPage {
-        frame: chat_page_frame(&ChatWindow {
-            sid: request.sid,
-            cursor: state.log.last_seq(),
-            rows,
-            open: Vec::new(),
-            has_before: window.has_before,
-            has_after: window.has_after,
-            queue: Vec::new(),
-            queue_count: 0,
-        })?,
-    })
-}
-
-fn blob(state: &mut ActorState, request: BlobRequest) -> Result<ChatBlob, ChatError> {
-    let row_id = request.row_id.ok_or(ChatError::Closed)?;
-    let mut bytes = Vec::new();
-    let total =
-        state.log.read_blob(row_id, request.offset, request.max_bytes as usize, &mut bytes)?;
-    Ok(ChatBlob {
-        frame: BlobFrame { sid: request.sid, offset: request.offset, total_bytes: total, bytes },
-    })
 }
 
 fn apply_line(state: &mut ActorState, bytes: &[u8], base_offset: u64) -> Result<(), ChatError> {
@@ -798,13 +478,6 @@ fn apply_ops(
                     state.bodies.entry(id).or_insert(Body::new(id).map_err(ChatError::Book)?);
                 state.blobs.set(body, key, &value, append)?;
                 state.raw_ranges.entry(id).or_insert(raw);
-                if let BodySource::Text(text) = &source {
-                    let seq = state.log.last_seq();
-                    broadcast(
-                        state,
-                        ChatDelta::Text { sid: String::new(), seq, row_id: id, text: text.clone() },
-                    );
-                }
             }
         }
     }
@@ -823,20 +496,15 @@ fn apply_ops(
 
 fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
     let body = state.bodies.entry(row.id).or_insert(Body::new(row.id).map_err(ChatError::Book)?);
+    if row.open {
+        state.raw_ranges.insert(row.id, raw);
+        return Ok(());
+    }
     let mut body_bytes = Vec::new();
     state.blobs.write_body(body, &mut body_bytes)?;
     let body_text = std::str::from_utf8(&body_bytes).map_err(|_| ChatError::Closed)?;
     let mut encoded = Vec::new();
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
-    if row.open {
-        state.raw_ranges.insert(row.id, raw);
-        let seq = state.log.last_seq();
-        broadcast(
-            state,
-            ChatDelta::Row { sid: String::new(), seq, row: chat_row(row.id, row.rev, encoded)? },
-        );
-        return Ok(());
-    }
     let final_bytes = state.blobs.settle(body)?;
     if final_bytes.is_none() {
         let outline = Outline { head: "{}", preview: "" };
@@ -867,10 +535,7 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     }
     state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
-    broadcast(
-        state,
-        ChatDelta::Row { sid: String::new(), seq, row: chat_row(row.id, row.rev, encoded)? },
-    );
+    let _ = seq;
     Ok(())
 }
 
@@ -893,104 +558,8 @@ fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), Cha
         }
         Err(error) => return Err(error.into()),
     };
-    broadcast(
-        state,
-        ChatDelta::Patch { sid: String::new(), seq, row: chat_row(row.id, row.rev, encoded)? },
-    );
+    let _ = seq;
     Ok(())
-}
-
-fn chat_row(id: u64, rev: u32, bytes: Vec<u8>) -> Result<ChatRow, ChatError> {
-    let raw = RawValue::from_string(String::from_utf8(bytes).map_err(|_| ChatError::Closed)?)
-        .map_err(|_| ChatError::Closed)?;
-    Ok(ChatRow { id, rev, text: raw })
-}
-
-fn broadcast(state: &mut ActorState, operation: ChatDelta) {
-    let mut dead = Vec::new();
-    for (index, subscriber) in state.subscribers.iter_mut().enumerate() {
-        let sid = subscriber.sid.clone();
-        if let ChatDelta::Text { seq, row_id, text, .. } = &operation {
-            if let Some((_, _, existing)) =
-                subscriber.pending_text.iter_mut().find(|(id, _, _)| id == row_id)
-            {
-                existing.push_str(text);
-            } else {
-                subscriber.pending_text.push((*row_id, *seq, text.clone()));
-            }
-            subscriber.text_since.get_or_insert_with(Instant::now);
-            continue;
-        }
-        flush_subscriber_text(subscriber);
-        let operation = match operation.clone() {
-            ChatDelta::Row { seq, row, .. } => ChatDelta::Row { sid: sid.clone(), seq, row },
-            ChatDelta::Text { seq, row_id, text, .. } => {
-                ChatDelta::Text { sid: sid.clone(), seq, row_id, text }
-            }
-            ChatDelta::Patch { seq, row, .. } => ChatDelta::Patch { sid: sid.clone(), seq, row },
-            ChatDelta::Queue { seq, entry, queue_count, .. } => {
-                ChatDelta::Queue { sid: sid.clone(), seq, entry, queue_count }
-            }
-            ChatDelta::Gone { seq, .. } => ChatDelta::Gone { sid: sid.clone(), seq },
-        };
-        let Ok(frame) = chat_delta_frame(&ChatDeltaFrame {
-            sid,
-            ops: vec![operation],
-            replay: None,
-            open: Vec::new(),
-            queue: Vec::new(),
-        }) else {
-            dead.push(index);
-            continue;
-        };
-        let bytes = frame.encoded_len();
-        if subscriber.queued.saturating_add(bytes) > MAX_SUBSCRIBER_BYTES
-            || subscriber.tx.try_send(frame).is_err()
-        {
-            dead.push(index);
-        } else {
-            subscriber.queued = subscriber.queued.saturating_add(bytes);
-        }
-    }
-    for index in dead.into_iter().rev() {
-        state.subscribers.swap_remove(index);
-    }
-}
-
-fn flush_subscriber_text(subscriber: &mut Subscriber) {
-    if subscriber.pending_text.is_empty() {
-        subscriber.text_since = None;
-        return;
-    }
-    let sid = subscriber.sid.clone();
-    let ops = subscriber
-        .pending_text
-        .drain(..)
-        .map(|(row_id, seq, text)| ChatDelta::Text { sid: sid.clone(), seq, row_id, text })
-        .collect();
-    subscriber.text_since = None;
-    if let Ok(frame) = chat_delta_frame(&ChatDeltaFrame {
-        sid,
-        ops,
-        replay: None,
-        open: Vec::new(),
-        queue: Vec::new(),
-    }) {
-        let bytes = frame.encoded_len();
-        if subscriber.queued.saturating_add(bytes) <= MAX_SUBSCRIBER_BYTES
-            && subscriber.tx.try_send(frame).is_ok()
-        {
-            subscriber.queued = subscriber.queued.saturating_add(bytes);
-        }
-    }
-}
-
-fn flush_text(state: &mut ActorState, force: bool) {
-    for subscriber in &mut state.subscribers {
-        if force || subscriber.text_since.is_some_and(|at| at.elapsed() >= TEXT_COALESCE) {
-            flush_subscriber_text(subscriber);
-        }
-    }
 }
 
 fn body_key(field: BodyField) -> &'static str {
@@ -1044,7 +613,6 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     fn file_config(dir: &tempfile::TempDir) -> ChatConfig {
         let source_path = dir.path().join("source.ndjson");
@@ -1062,23 +630,12 @@ mod tests {
     }
 
     #[test]
-    fn actor_books_a_line_and_resumes_before_live_frames() {
+    fn actor_books_a_line_from_the_source() {
         let dir = tempfile::tempdir().unwrap();
         let actor = ChatActor::spawn(file_config(&dir));
         actor.handle.wake().unwrap();
-        let subscription =
-            actor.handle.subscribe(Sub::new("s", "chat:chat").from_cursor(0)).unwrap();
-        let replay = subscription.replay;
-        assert!(
-            replay
-                .last()
-                .and_then(|frame| frame.decode_json::<ChatDeltaFrame>().ok())
-                .and_then(|frame| frame.replay)
-                .as_deref()
-                == Some("end")
-        );
         actor.join();
-        thread::sleep(Duration::from_millis(1));
+        assert!(CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 
     #[test]
@@ -1098,12 +655,9 @@ mod tests {
         std::fs::write(checkpoint, bytes).unwrap();
 
         let rebuilt = ChatActor::spawn(config);
-        let subscription =
-            rebuilt.handle.subscribe(Sub::new("s", "chat:chat").from_cursor(0)).unwrap();
-        assert!(
-            subscription.replay.iter().any(|frame| frame.decode_json::<ChatDeltaFrame>().is_ok())
-        );
+        rebuilt.handle.wake().unwrap();
         rebuilt.join();
+        assert!(CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 }
 
@@ -1130,7 +684,6 @@ mod v2_pr03a_gate_tests {
         let started = Instant::now();
         let actor = ChatActor::spawn(config);
         actor.handle.wake().unwrap();
-        let _ = actor.handle.subscribe(Sub::new("gate", "chat:gate"));
         actor.join();
         started.elapsed()
     }
