@@ -29,7 +29,6 @@ export const LOAD_FADE_MOUNT_MS = 250; // motion-allow: an arrival-to-mount boun
 export class LoadFadeWindow {
   #loading = false;
   #until = Number.NEGATIVE_INFINITY;
-  #readerAt = Number.NEGATIVE_INFINITY;
   readonly #arrived = new Map<string, number>();
   readonly #now: () => number;
 
@@ -54,23 +53,6 @@ export class LoadFadeWindow {
   /// Whether what arrives now is part of the load (and the page may run an entrance).
   get open(): boolean {
     return this.#now() <= this.#until && entranceAllowed();
-  }
-
-  /// The reader moved the view themselves (wheel, pointer, touch or key), now.
-  readerMoved(): void {
-    this.#readerAt = this.#now();
-  }
-
-  /// Whether the reader moved the view within the last `withinMs`: what lands under their own
-  /// gesture draws whole, with no fade or entrance.
-  readerMoving(withinMs: number): boolean {
-    return this.#now() - this.#readerAt <= withinMs;
-  }
-
-  /// Both reads a render takes at once: whether arrivals count as the load (`open`), and whether
-  /// the reader moved within `withinMs` (`readerMoving`).
-  arrivals(withinMs: number): { open: boolean; readerMoving: boolean } {
-    return { open: this.open, readerMoving: this.readerMoving(withinMs) };
   }
 
   /// Item `id` arrived in the open window.

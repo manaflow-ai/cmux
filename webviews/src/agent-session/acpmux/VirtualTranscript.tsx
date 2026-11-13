@@ -51,14 +51,14 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import {
   JUMP_CURVE,
   jumpDuration,
   jumpGlideStart,
-  transcriptFadeReach,
   railBottomShadowReach,
+  transcriptFadeReach,
 } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -79,10 +79,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  createFollowChase,
-  type FollowChase,
   ARRIVAL_EASE,
   arrivalStepMs,
+  createFollowChase,
+  type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
@@ -95,12 +95,12 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteReplyUnpainted, noteTranscriptMount } from "./flickerLog";
+import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
-import { noteReaderScroll } from "./summary/heldWhileScrolling";
+import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { keepTabOnScreen, leaveOnScreenRef } from "../../ui/tabReach";
 import {
@@ -180,7 +180,8 @@ import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
+import { SUBAGENTS } from "./subagents/subagentFold";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
@@ -644,6 +645,8 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "backgroundTask" ||
     row.kind === SUBAGENT_DONE ||
     row.kind === SUBAGENT_STARTED ||
+    row.kind === SUBAGENT_ROW ||
+    (row.kind === SUBAGENTS && !isRunGroup(row)) ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
@@ -2164,6 +2167,13 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  const olderDragPending = useRef(false);
+  const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
+  const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
+  useLayoutEffect(() => {
+    olderDragPending.current = false;
+    setScrollbarRange(undefined);
+  }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
@@ -2210,12 +2220,11 @@ function TranscriptView({
     let olderLate: boolean | undefined;
     // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
-    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it. Once the reader
-    // is moving, history pages are part of that gesture and must draw whole: a page published by
-    // the short-open fill path can otherwise start an opacity animation under an upward scrub, which
-    // reads as a blank/flicker and makes the next frame harder to follow.
-    const { open: loadOpen, readerMoving: readerIsMoving } = loadFade.current.arrivals(READER_SCROLL_MS);
-    const loadArrival = loadOpen && coldOpen === undefined && !readerIsMoving;
+    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it. During a reader
+    // gesture, history is part of that motion and must draw settled so its first frame is complete.
+    // Only new arrivals need this snapshot; a gesture ending must not reanimate an existing row.
+    const readerIsMoving = readerScroll.read();
+    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
@@ -2229,9 +2238,6 @@ function TranscriptView({
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      // A stream can append a row in the same commit as a page fill. While the reader is moving,
-      // give it a settled box too; a live entrance transform would expose a transient band under
-      // the wheel even though the row itself is not older history.
       else if (!readerIsMoving) arrived.push(row);
       knownRows.current.add(key);
     }
@@ -3124,6 +3130,7 @@ function TranscriptView({
           earlier: earlier?.length,
           promptCount,
           rose: roomRose,
+          dragging: draggedHeight !== undefined,
           // Exact where this chat was held whole before at this width (transcriptHeights.ts).
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
@@ -3159,6 +3166,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
+    draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
@@ -3321,8 +3329,10 @@ function TranscriptView({
   // never clamps and the line the reader clicked stays on its pixel.
   const keptEnd = sessionSwitched ? 0 : foldRoom;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(rowsEnd, keptEnd) }),
-    [measured, rowsEnd, keptEnd],
+    // A loaded page can exceed the reserve estimate. Keep the spacer's clipped physical extent
+    // through the thumb gesture even then; all newly loaded rows are still placed and measured.
+    () => ({ ...measured.layout, totalHeight: draggedHeight ?? Math.max(rowsEnd, keptEnd) }),
+    [measured, rowsEnd, keptEnd, draggedHeight],
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
@@ -3352,7 +3362,7 @@ function TranscriptView({
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
   const projectedTop =
-    sessionSwitched || placedBefore === layout
+    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -3796,6 +3806,10 @@ function TranscriptView({
           foldRoomRef.current > rowsEndRef.current + 0.5)
       )
         follow(false);
+    } else if (old && node && userScrollIntent(node).isScrollbarDragging()) {
+      // The native thumb owns its offset until release; row anchoring must not write over it.
+      scrollPacer.current?.cancel();
+      if (Math.abs(scrollRef.current.top - node.scrollTop) > 0.5) setScrollAt(node.scrollTop, 0);
     } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
@@ -4661,6 +4675,7 @@ function TranscriptView({
     const room = layout.origin ?? 0;
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
+    if (userScrollIntent(node).isScrollbarDragging()) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
@@ -4913,13 +4928,7 @@ function TranscriptView({
     // the view's foot: nothing to hold the reader from.
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
-    // A passive wheel or scrollbar drag can move the native offset into the reserve before its
-    // input reaches this handler. Do not write it back to the loaded-room top in that window: for
-    // a fast scrub through a long tail that top can be the tail's bottom, which turns one upward
-    // gesture into a visible rebound. The pending input and `giveRoomNearTop` below remove the
-    // reserve; once the input is acknowledged, the clamp keeps layout-only corrections at the
-    // loaded-room edge.
-    if (room > 0 && layoutScrollTop(node) < room && !readerUpPending.current) {
+    if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
@@ -5196,6 +5205,13 @@ function TranscriptView({
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {
+      if (intent.isScrollbarDragging()) {
+        if (!olderDragPending.current && previousLayout.current) {
+          setScrollbarRange({ session: heldSession.current, height: previousLayout.current.totalHeight });
+        }
+        olderDragPending.current = true;
+        followIntent(false);
+      }
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
@@ -5281,7 +5297,6 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
-      loadFade.current?.readerMoved();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
@@ -5371,6 +5386,10 @@ function TranscriptView({
       setScrollAt(node.scrollTop, 0);
     };
     const unsubscribeQuiet = intent.subscribeQuiet(() => {
+      if (olderDragPending.current) {
+        olderDragPending.current = false;
+        setScrollbarRange(undefined);
+      }
       settleHeldFollowMotion();
       if (!followDeferred.current) return;
       followDeferred.current = false;
@@ -5381,6 +5400,10 @@ function TranscriptView({
     // streaming can commit. A drag's end or a canceled input leaves no upward move pending.
     const readerReleased = () => {
       readerUpPending.current = false;
+      if (olderDragPending.current) {
+        olderDragPending.current = false;
+        setScrollbarRange(undefined);
+      }
     };
     const readerCanceled = (event: Event) => {
       if (event.defaultPrevented && node.contains(event.target as Node)) readerUpPending.current = false;

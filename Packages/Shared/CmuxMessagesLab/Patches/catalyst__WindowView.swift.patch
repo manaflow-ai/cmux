@@ -1087,7 +1087,40 @@
      // MARK: Hit testing
  
      /// `outline`: the drawn balloon (RowDraw.balloon, computed in row coordinates as the cell draws it), same space as
-@@ -2236,6 +2768,15 @@
+@@ -2213,6 +2745,32 @@
+         return nil
+     }
+ 
++    /// cmux: the red "!" beside my Not Delivered bubble (PartRenderer.draw: 14 pt left of the body's
++    /// vertical middle, 16 pt across). Its hit is 40 pt tall (the desktop minimum) and runs from 34 pt
++    /// left of the body to 4 pt left of it, where the bubble's own hit (body ±4 pt) starts, so the
++    /// two never overlap (Lawrence 2026-11-12: the mark took no click, so the send could not be
++    /// retried or deleted).
++    func failedMarkHit(_ p: CGPoint) -> Hit? {
++        func check(_ spec: RowSpec, _ toSelf: (CGRect) -> CGRect) -> Hit? {
++            guard case let .part(row) = spec.kind, row.failed else { return nil }
++            let body = toSelf(RowDraw.bodyRect(spec))
++            let mark = CGRect(x: body.minX - 34, y: body.midY - 20, width: 30, height: 40)
++            guard mark.contains(p) else { return nil }
++            return Hit(row: row, body: body, key: spec.key, outline: toSelf(RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale)))
++        }
++        if threadOpen {
++            for (v, spec) in zip(threadViews, threadSpecs).reversed() {
++                if let hit = check(spec, { $0.offsetBy(dx: v.frame.minX, dy: v.frame.minY) }) { return hit }
++            }
++            return nil
++        }
++        for case let cell as RowCell in collection.visibleCells {
++            guard let spec = cell.spec else { continue }
++            if let hit = check(spec, { cell.convert($0, to: self) }) { return hit }
++        }
++        return nil
++    }
++
+     /// The soft mask (SoftBalloon) of a hit's balloon in this view's coordinates, where its cell or thread copy draws it
+     /// (with the cell's window snap, RowCell.rowSnap), or nil (a balloon with the crisp shape): the menu highlight's
+     /// shape (cx-3cb soft-copies).
+@@ -2236,6 +2794,15 @@
  
      /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
      /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
@@ -1103,7 +1136,7 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2252,12 +2793,29 @@
+@@ -2252,12 +2819,29 @@
                  let r = cell.convert(cell.bounds, to: self)
                  if pv.outgoing {
                      if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
@@ -1134,7 +1167,7 @@
      func threadContentContains(_ p: CGPoint) -> Bool {
          threadViews.contains { $0.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) }
              || threadHeaderView?.frame.contains(p) == true
-@@ -2284,7 +2842,8 @@
+@@ -2284,7 +2868,8 @@
              return .handled
          }
          // A hosted row that takes clicks (TranscriptCustomRowProvider.tapped: cmux's run card).
@@ -1144,7 +1177,7 @@
              return .handled
          }
          let s = store.state
-@@ -2317,6 +2876,9 @@
+@@ -2317,6 +2902,9 @@
  
      /// The host's thread header changed (title, status, owner): the open thread view asks
      /// `HostHooks.threadHeader` again.
@@ -1154,7 +1187,7 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2515,12 +3077,21 @@
+@@ -2515,12 +3103,21 @@
          return l
      }
  
@@ -1177,7 +1210,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2529,7 +3100,6 @@
+@@ -2529,7 +3126,6 @@
          if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
          tint.add(t, forKey: "thread")
          if let blur {
@@ -1185,7 +1218,7 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +3297,7 @@
+@@ -2727,7 +3323,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
