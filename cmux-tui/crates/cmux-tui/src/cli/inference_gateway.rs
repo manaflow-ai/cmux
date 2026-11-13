@@ -47,6 +47,10 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use super::cloud_client_session::secure_origin;
 use super::inference_gateway_mac::{ClaudeBorrow, Login, MacLogins, login_for, oauth_beta};
 
+#[path = "inference_gateway_connections.rs"]
+mod connections;
+use connections::{Connection, Daemon};
+
 const PROTOCOL: &str = "cmux.inference-gateway/1";
 const CONNECT_PATH: &str = "/v1/cloud/inference-gateway/connect";
 /// The person's own gateway: it serves every machine they created, in any team (a shared chat spends its owner's login).
@@ -73,6 +77,10 @@ const UPSTREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 /// A provider answer that sends nothing for this long is given up, and its call's slot freed.
 const UPSTREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const CODEX_BACKEND: &str = "https://chatgpt.com/backend-api/codex";
+/// The OpenAI API a Sign in with ChatGPT (`chatgpt-plan`) connection calls.
+const OPENAI_API: &str = "https://api.openai.com/v1";
+/// The most of a 429's body read to tell a usage limit from a rate limit.
+const LIMIT_BODY_BYTES: usize = 64 * 1024;
 const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// An access token this close to its expiry is refreshed before a call.
@@ -537,7 +545,12 @@ async fn serve(options: Options) -> i32 {
             return 1;
         }
     };
-    let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
+    let mut provider = Provider::new(options.upstream.clone(), http);
+    if matches!(options.upstream, Upstream::MacLogins(_)) {
+        // The person's ordered connections (docs/model-connections.md); without them, the Mac's logins.
+        provider = provider.with_daemon(Arc::new(connections::AcpmuxDaemon::local()));
+    }
+    let upstream = Arc::new(provider);
     let has_login = match upstream.check().await {
         Ok(found) => found,
         Err(error) => {
@@ -612,6 +625,7 @@ async fn serve(options: Options) -> i32 {
 }
 
 /// A call being received: its head, then its body.
+#[derive(Clone)]
 struct Pending {
     method: String,
     path: String,
@@ -858,15 +872,15 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             return send(tx, &error_frame(id, code, &message)).await;
         }
     };
-    let status = response.status().as_u16();
+    let status = response.status;
     let mut headers = serde_json::Map::new();
     for name in ANSWER_HEADERS {
-        if let Some(v) = response.headers().get(*name).and_then(|v| v.to_str().ok()) {
+        if let Some(v) = response.headers.get(*name).and_then(|v| v.to_str().ok()) {
             headers.insert((*name).to_owned(), Value::String(v.to_owned()));
         }
     }
     send(tx, &json!({"v": 1, "t": "head", "id": id, "status": status, "headers": headers})).await;
-    let mut body = response.bytes_stream();
+    let mut body = response.body;
     loop {
         let chunk = match tokio::time::timeout(UPSTREAM_IDLE_TIMEOUT, body.next()).await {
             Ok(Some(chunk)) => chunk,
@@ -918,14 +932,62 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
 }
 
+/// A provider's answer: streaming from the provider, or already read (a 429 looked at for a usage limit).
+struct Reply {
+    status: u16,
+    headers: reqwest::header::HeaderMap,
+    body: futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
+}
+
+impl From<reqwest::Response> for Reply {
+    fn from(response: reqwest::Response) -> Self {
+        Self {
+            status: response.status().as_u16(),
+            headers: response.headers().clone(),
+            body: response.bytes_stream().boxed(),
+        }
+    }
+}
+
+impl Reply {
+    /// Reads the body (at most [`LIMIT_BODY_BYTES`]) and keeps it to send on as it was.
+    async fn read(mut self) -> (Self, Vec<u8>) {
+        let mut seen = Vec::new();
+        while seen.len() < LIMIT_BODY_BYTES {
+            match tokio::time::timeout(UPSTREAM_IDLE_TIMEOUT, self.body.next()).await {
+                Ok(Some(Ok(chunk))) => seen.extend_from_slice(&chunk),
+                _ => break,
+            }
+        }
+        let kept = bytes::Bytes::from(seen.clone());
+        let rest = std::mem::replace(&mut self.body, futures_util::stream::empty().boxed());
+        self.body = futures_util::stream::once(async move { Ok(kept) }).chain(rest).boxed();
+        (self, seen)
+    }
+}
+
 /// The login this gateway holds, and how a call reaches the provider with it.
 struct Provider {
     upstream: Upstream,
     http: reqwest::Client,
-    /// The Codex login, loaded on first use and kept current across refreshes.
-    codex: Mutex<Option<CodexLogin>>,
+    /// The Codex logins (the Mac's, an added account's), each loaded on first use and kept
+    /// current across refreshes, by login file.
+    codex: Mutex<HashMap<PathBuf, CodexLogin>>,
     /// `--mac-logins`: Claude Code's sign-in, borrowed.
     claude: Option<ClaudeBorrow>,
+    /// `--mac-logins`: added Claude accounts' sign-ins, borrowed, by account folder.
+    accounts: Mutex<HashMap<PathBuf, Arc<ClaudeBorrow>>>,
+    /// `--mac-logins`: the person's ordered connections (inference_gateway_connections.rs); none,
+    /// or a daemon without them, serves from the Mac's logins as before.
+    daemon: Option<Arc<dyn Daemon>>,
+    /// Whether the last call was served from the connections (logged when that changes).
+    from_connections: std::sync::atomic::AtomicU8,
+    /// Resolved api-key secrets by reference, until a 401 drops one.
+    secrets: Mutex<HashMap<String, String>>,
+    /// The secret store an api-key reference reads (acpmux's; a fake in tests).
+    keychain: fn(&str, Option<&str>) -> Result<String, String>,
+    /// The OpenAI API a `chatgpt-plan` connection calls ([`OPENAI_API`]; a fake in tests).
+    openai_api: String,
 }
 
 #[derive(Clone)]
@@ -939,13 +1001,58 @@ struct CodexLogin {
 
 type CallError = (&'static str, String);
 
+/// Codes that mean this connection cannot take the call (no usable login, a path or a body it does
+/// not serve) before anything reached the provider, so the next connection may.
+fn passes_on(code: &str) -> bool {
+    matches!(
+        code,
+        "inference.gateway_login"
+            | "inference.gateway_config"
+            | "inference.unsupported_path"
+            | "inference.unsupported_request"
+    )
+}
+
+/// A connection's base URL: https, or plain http to this computer (a local proxy route).
+fn connection_base(base: &str) -> Result<String, CallError> {
+    let refused =
+        || ("inference.gateway_config", "the connection's API URL is not https".to_owned());
+    let url = reqwest::Url::parse(base).map_err(|_| refused())?;
+    match url.scheme() {
+        "https" => {}
+        "http" if matches!(plain_http_reach(&url), Reach::Loopback) => {}
+        _ => return Err(refused()),
+    }
+    if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
+        return Err(refused());
+    }
+    Ok(base.trim_end_matches('/').to_owned())
+}
+
 impl Provider {
     fn new(upstream: Upstream, http: reqwest::Client) -> Self {
         let claude = match &upstream {
             Upstream::MacLogins(logins) => Some(ClaudeBorrow::new(logins.clone())),
             _ => None,
         };
-        Self { upstream, http, codex: Mutex::new(None), claude }
+        Self {
+            upstream,
+            http,
+            codex: Mutex::new(HashMap::new()),
+            claude,
+            accounts: Mutex::new(HashMap::new()),
+            daemon: None,
+            from_connections: std::sync::atomic::AtomicU8::new(0),
+            secrets: Mutex::new(HashMap::new()),
+            keychain: acpmux::config::profiles::keychain_lookup,
+            openai_api: OPENAI_API.to_owned(),
+        }
+    }
+
+    /// `--mac-logins` serves from the person's connections in `daemon` when it has them.
+    fn with_daemon(mut self, daemon: Arc<dyn Daemon>) -> Self {
+        self.daemon = Some(daemon);
+        self
     }
 
     /// Fails at start when the login cannot be read, so a mistake shows before any machine calls.
@@ -964,12 +1071,19 @@ impl Provider {
                     if claude { "signed in" } else { "not found" },
                     if codex { "signed in" } else { "not found" },
                 ));
-                Ok(claude || codex)
+                let mut connected = false;
+                if let Some(daemon) = &self.daemon
+                    && let Some(state) = daemon.state().await
+                {
+                    self.note_source(true);
+                    connected = state.connections.iter().any(|c| c.signed_in);
+                }
+                Ok(claude || codex || connected)
             }
             Upstream::Codex { auth } => {
                 let login = read_codex_login(auth).await?;
                 log(&format!("holding the Codex login in {}", auth.display()));
-                *self.codex.lock().await = Some(login);
+                self.codex.lock().await.insert(auth.clone(), login);
                 Ok(true)
             }
             Upstream::Proxy { base, key_file } => {
@@ -982,7 +1096,7 @@ impl Provider {
         }
     }
 
-    async fn call(&self, call: &Pending) -> Result<reqwest::Response, CallError> {
+    async fn call(&self, call: &Pending) -> Result<Reply, CallError> {
         match &self.upstream {
             Upstream::Proxy { base, key_file } => {
                 let key = match key_file {
@@ -995,32 +1109,266 @@ impl Provider {
                     "inference.not_found",
                     format!("the inference gateway serves no {}", log_path(&call.path)),
                 ))?;
-                self.send(&url, call, key.as_deref(), &[]).await
+                self.send(&url, call, key.as_deref(), &[]).await.map(Reply::from)
             }
-            Upstream::MacLogins(logins) => match login_for(&logins.claude_base, &call.path) {
-                Some(Login::Claude(url)) => self.claude_call(&url, call).await,
-                Some(Login::Codex) => self.codex_call(&logins.codex_auth, call).await,
-                None => Err((
-                    "inference.not_found",
-                    format!("the inference gateway serves no {}", log_path(&call.path)),
-                )),
-            },
+            Upstream::MacLogins(logins) => {
+                if let Some(daemon) = &self.daemon {
+                    if let Some(state) = daemon.state().await {
+                        self.note_source(true);
+                        return self.connections_call(logins, daemon.as_ref(), &state, call).await;
+                    }
+                    self.note_source(false);
+                }
+                self.mac_call(logins, call).await
+            }
             Upstream::Codex { auth } => self.codex_call(auth, call).await,
         }
     }
 
-    /// A Messages call with Claude Code's borrowed sign-in: read again once on a 401 (Claude Code
-    /// may have renewed it meanwhile), and a 401 on the only token there is the gateway's login error.
-    async fn claude_call(&self, url: &str, call: &Pending) -> Result<reqwest::Response, CallError> {
-        let Some(borrow) = &self.claude else {
-            return Err(("inference.gateway_config", "no Claude login is configured".into()));
+    /// One log line when the gateway starts or stops serving from the person's connections.
+    fn note_source(&self, connections: bool) {
+        use std::sync::atomic::Ordering;
+        let now = if connections { 2 } else { 1 };
+        if self.from_connections.swap(now, Ordering::Relaxed) != now {
+            log(if connections {
+                "serving from your connections (Settings > Models), in your order"
+            } else {
+                "this Mac's acpmux has no connections; serving from this Mac's logins"
+            });
+        }
+    }
+
+    /// `--mac-logins` without connections: Messages with Claude Code's sign-in, Responses with Codex's.
+    async fn mac_call(&self, logins: &MacLogins, call: &Pending) -> Result<Reply, CallError> {
+        match login_for(&logins.claude_base, &call.path) {
+            Some(Login::Claude(url)) => match &self.claude {
+                Some(borrow) => self.claude_call(borrow, &url, call).await,
+                None => Err(("inference.gateway_config", "no Claude login is configured".into())),
+            },
+            Some(Login::Codex) => self.codex_call(&logins.codex_auth, call).await,
+            None => Err((
+                "inference.not_found",
+                format!("the inference gateway serves no {}", log_path(&call.path)),
+            )),
+        }
+    }
+
+    /// A call from the person's connections: the `x-cmux-connection` one first, then (with `spread`)
+    /// the rest in order. A usage-limit 429, or a connection that cannot take the call, moves it to
+    /// the next; the model is never changed.
+    async fn connections_call(
+        &self,
+        logins: &MacLogins,
+        daemon: &dyn Daemon,
+        state: &connections::ConnectionsState,
+        call: &Pending,
+    ) -> Result<Reply, CallError> {
+        let Some(family) = connections::family_for_path(&call.path) else {
+            return Err((
+                "inference.not_found",
+                format!("the inference gateway serves no {}", log_path(&call.path)),
+            ));
         };
+        let pinned = call
+            .headers
+            .iter()
+            .find(|(k, _)| k == connections::CONNECTION_HEADER)
+            .map(|(_, v)| v.as_str());
+        let list = connections::candidates(state, family, pinned);
+        for (at, connection) in list.iter().enumerate() {
+            let more = at + 1 < list.len();
+            match self.connection_call(logins, daemon, connection, family, call).await {
+                Ok(reply) if reply.status == 429 && more => {
+                    let (reply, seen) = reply.read().await;
+                    if !connections::usage_limited(&reply.headers, &seen) {
+                        return Ok(reply);
+                    }
+                    log(&format!(
+                        "{} is out of usage; trying your next connection",
+                        printable(&connection.id)
+                    ));
+                }
+                Ok(reply) => return Ok(reply),
+                Err((code, _)) if more && passes_on(code) => log(&format!(
+                    "{} cannot take the call ({code}); trying your next connection",
+                    printable(&connection.id)
+                )),
+                Err(error) => return Err(error),
+            }
+        }
+        let model = connections::requested_model(&call.body)
+            .map(|m| printable(&m).chars().take(80).collect::<String>())
+            .unwrap_or_else(|| "this model".into());
+        Err((
+            "inference.no_connection",
+            format!("none of your connections serves {model}; set up Cloud in Settings > Models"),
+        ))
+    }
+
+    async fn connection_call(
+        &self,
+        logins: &MacLogins,
+        daemon: &dyn Daemon,
+        connection: &Connection,
+        family: &str,
+        call: &Pending,
+    ) -> Result<Reply, CallError> {
+        let claude_url = || format!("{}{}", logins.claude_base, call.path);
+        match connection.kind.as_str() {
+            "codex-login" => self.codex_call(&logins.codex_auth, call).await,
+            "claude-login" => match &self.claude {
+                Some(borrow) => self.claude_call(borrow, &claude_url(), call).await,
+                None => Err(("inference.gateway_config", "no Claude login is configured".into())),
+            },
+            // An added account: the CLI's own login in its account folder, the same as the Mac's.
+            "subscription" => {
+                let route = daemon
+                    .route(&connection.id)
+                    .await
+                    .map_err(|e| ("inference.gateway_config", e))?;
+                let home =
+                    route.account_home.map(PathBuf::from).filter(|home| home.is_absolute()).ok_or(
+                        ("inference.gateway_config", "the account has no login folder".to_owned()),
+                    )?;
+                if family == "claude" {
+                    let borrow = self.account(&home, &logins.claude_base).await;
+                    self.claude_call(&borrow, &claude_url(), call).await
+                } else {
+                    self.codex_call(&home.join("auth.json"), call).await
+                }
+            }
+            "chatgpt-plan" => self.plan_call(daemon, &connection.id, call).await,
+            "api-key" => self.key_call(daemon, connection, family, call).await,
+            other => Err((
+                "inference.gateway_config",
+                format!("this gateway does not serve {} connections", printable(other)),
+            )),
+        }
+    }
+
+    /// An added Claude account's sign-in, borrowed from its folder's credentials file.
+    async fn account(&self, home: &Path, claude_base: &str) -> Arc<ClaudeBorrow> {
+        let mut accounts = self.accounts.lock().await;
+        accounts
+            .entry(home.to_owned())
+            .or_insert_with(|| {
+                Arc::new(ClaudeBorrow::new(MacLogins {
+                    claude_home: home.to_owned(),
+                    codex_auth: home.join("auth.json"),
+                    keychain: false,
+                    claude_base: claude_base.to_owned(),
+                }))
+            })
+            .clone()
+    }
+
+    /// Sign in with ChatGPT: the plan's token from acpmux, to the OpenAI API, with the body the
+    /// plan route takes.
+    async fn plan_call(
+        &self,
+        daemon: &dyn Daemon,
+        id: &str,
+        call: &Pending,
+    ) -> Result<Reply, CallError> {
+        let (route, query) =
+            call.path.split_once('?').map_or((call.path.as_str(), None), |(r, q)| (r, Some(q)));
+        let mut call = call.clone();
+        let url = match route {
+            "/v1/responses" => {
+                call.body = connections::sanitize_plan_body(&call.body)
+                    .map_err(|e| ("inference.unsupported_request", e))?;
+                format!("{}/responses", self.openai_api)
+            }
+            "/v1/models" => match query {
+                Some(q) => format!("{}/models?{q}", self.openai_api),
+                None => format!("{}/models", self.openai_api),
+            },
+            _ => {
+                return Err((
+                    "inference.unsupported_path",
+                    format!("a ChatGPT plan does not serve {}", log_path(&call.path)),
+                ));
+            }
+        };
+        let token = daemon.chatgpt_token(id).await.map_err(|e| ("inference.gateway_login", e))?;
+        self.send(&url, &call, Some(&token), &[]).await.map(Reply::from)
+    }
+
+    /// A provider key: the route's base URL (else the provider's API) and its resolved secret,
+    /// Anthropic's `x-api-key` for Messages, a bearer otherwise.
+    async fn key_call(
+        &self,
+        daemon: &dyn Daemon,
+        connection: &Connection,
+        family: &str,
+        call: &Pending,
+    ) -> Result<Reply, CallError> {
+        let route =
+            daemon.route(&connection.id).await.map_err(|e| ("inference.gateway_config", e))?;
+        let own =
+            if family == "claude" { &route.anthropic_base_url } else { &route.openai_base_url };
+        let base = own
+            .clone()
+            .or_else(|| {
+                connections::provider_base(connection.provider.as_deref(), family).map(Into::into)
+            })
+            .ok_or((
+                "inference.unsupported_path",
+                "the key's provider does not serve this model's API".to_owned(),
+            ))?;
+        let url = proxy_url(&connection_base(&base)?, &call.path).ok_or((
+            "inference.not_found",
+            format!("the inference gateway serves no {}", log_path(&call.path)),
+        ))?;
+        let reference = route
+            .secret
+            .ok_or(("inference.gateway_config", "the key connection names no key".to_owned()))?;
+        let key = self.secret(&reference).await?;
+        let response = if family == "claude" && route.auth.as_deref() != Some("bearer") {
+            self.send(&url, call, None, &[("x-api-key", key.as_str())]).await?
+        } else {
+            self.send(&url, call, Some(&key), &[]).await?
+        };
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            // A rotated key: read the reference again on the next call.
+            self.secrets.lock().await.remove(&reference);
+        }
+        Ok(response.into())
+    }
+
+    /// An api-key reference's value, resolved once (off the async threads: the secret store is a
+    /// subprocess) and kept until the provider refuses it.
+    async fn secret(&self, reference: &str) -> Result<String, CallError> {
+        if let Some(value) = self.secrets.lock().await.get(reference) {
+            return Ok(value.clone());
+        }
+        let keychain = self.keychain;
+        let owned = reference.to_owned();
+        let value = tokio::task::spawn_blocking(move || {
+            let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+            connections::resolve_secret(&owned, &env, &keychain)
+        })
+        .await
+        .map_err(|_| ("inference.gateway_login", "the secret store did not answer".to_owned()))?
+        .map_err(|e| ("inference.gateway_login", e))?;
+        self.secrets.lock().await.insert(reference.to_owned(), value.clone());
+        Ok(value)
+    }
+
+    /// A Messages call with a borrowed Claude sign-in: read again once on a 401 (Claude Code may
+    /// have renewed it meanwhile), and a 401 on the only token there is the gateway's login error.
+    async fn claude_call(
+        &self,
+        borrow: &ClaudeBorrow,
+        url: &str,
+        call: &Pending,
+    ) -> Result<Reply, CallError> {
         let beta = oauth_beta(&call.headers);
         let extra = [("anthropic-beta", beta.as_str())];
         let token = borrow.token(None).await?;
         let response = self.send(url, call, Some(&token), &extra).await?;
         if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-            return Ok(response);
+            return Ok(response.into());
         }
         let token = borrow.token(Some(&token)).await?;
         let response = self.send(url, call, Some(&token), &extra).await?;
@@ -1030,14 +1378,10 @@ impl Provider {
                 "the agent's sign-in on your Mac was refused; sign in to the agent on your Mac again".into(),
             ));
         }
-        Ok(response)
+        Ok(response.into())
     }
 
-    async fn codex_call(
-        &self,
-        auth: &Path,
-        call: &Pending,
-    ) -> Result<reqwest::Response, CallError> {
+    async fn codex_call(&self, auth: &Path, call: &Pending) -> Result<Reply, CallError> {
         let url = codex_url(&call.path).ok_or((
             "inference.unsupported_path",
             format!("a Codex login does not serve {}", call.path),
@@ -1047,13 +1391,13 @@ impl Provider {
             [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
         let response = self.send(&url, call, Some(&login.access), &account).await?;
         if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-            return Ok(response);
+            return Ok(response.into());
         }
         // The token was revoked or rotated under us: refresh once and send again.
         let login = self.codex_login(auth, true).await?;
         let account =
             [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
-        self.send(&url, call, Some(&login.access), &account).await
+        self.send(&url, call, Some(&login.access), &account).await.map(Reply::from)
     }
 
     async fn send(
@@ -1103,8 +1447,8 @@ impl Provider {
 
     /// The current Codex login, refreshed when it is near expiry or `force`d (a 401).
     async fn codex_login(&self, auth: &Path, force: bool) -> Result<CodexLogin, CallError> {
-        let mut slot = self.codex.lock().await;
-        let mut login = match slot.clone() {
+        let mut logins = self.codex.lock().await;
+        let mut login = match logins.get(auth).cloned() {
             Some(login) => login,
             None => read_codex_login(auth).await.map_err(|e| ("inference.gateway_login", e))?,
         };
@@ -1122,7 +1466,7 @@ impl Provider {
                 log("refreshed the Codex login");
             }
         }
-        *slot = Some(login.clone());
+        logins.insert(auth.to_owned(), login.clone());
         Ok(login)
     }
 }
@@ -1778,5 +2122,280 @@ mod tests {
     fn formats_utc_times() {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+    }
+
+    /// The person's acpmux, faked: its connections (or none, as with no daemon), plan tokens and routes.
+    struct FakeDaemon {
+        state: Option<connections::ConnectionsState>,
+        routes: HashMap<String, connections::RouteView>,
+        asked: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Daemon for FakeDaemon {
+        async fn state(&self) -> Option<connections::ConnectionsState> {
+            self.state.clone()
+        }
+        async fn chatgpt_token(&self, id: &str) -> Result<String, String> {
+            self.asked.lock().unwrap().push(format!("token {id}"));
+            Ok(format!("plan-token-{id}"))
+        }
+        async fn route(&self, id: &str) -> Result<connections::RouteView, String> {
+            self.asked.lock().unwrap().push(format!("route {id}"));
+            self.routes.get(id).cloned().ok_or_else(|| format!("no route {id:?}"))
+        }
+    }
+
+    fn fake_keychain(service: &str, account: Option<&str>) -> Result<String, String> {
+        match (service, account) {
+            ("cmux-harness", Some(account)) => Ok(format!("sk-{account}")),
+            _ => Err("not found".into()),
+        }
+    }
+
+    fn conn(id: &str, kind: &str, provider: &str, families: &[&str]) -> Connection {
+        serde_json::from_value(json!({
+            "id": id, "kind": kind, "provider": provider, "families": families,
+            "label": id, "signed_in": true, "enabled": true, "default_for": [], "serves_cloud": true
+        }))
+        .unwrap()
+    }
+
+    fn key_route(base: &str, account: &str) -> connections::RouteView {
+        connections::RouteView {
+            anthropic_base_url: Some(base.to_owned()),
+            openai_base_url: Some(format!("{base}/v1")),
+            auth: Some("api-key".into()),
+            secret: Some(format!("keychain:cmux-harness/{account}")),
+            account_home: None,
+        }
+    }
+
+    fn connected(
+        spread: bool,
+        list: Vec<Connection>,
+        routes: Vec<(&str, connections::RouteView)>,
+        dir: &Path,
+    ) -> (Provider, Arc<FakeDaemon>) {
+        let daemon = Arc::new(FakeDaemon {
+            state: Some(connections::ConnectionsState {
+                connections: list,
+                spread,
+                order_explicit: true,
+            }),
+            routes: routes.into_iter().map(|(id, r)| (id.to_owned(), r)).collect(),
+            asked: std::sync::Mutex::new(Vec::new()),
+        });
+        let logins = MacLogins {
+            claude_home: dir.to_owned(),
+            codex_auth: dir.join("auth.json"),
+            keychain: false,
+            claude_base: "http://127.0.0.1:1".into(),
+        };
+        let mut provider =
+            Provider::new(Upstream::MacLogins(logins), test_client()).with_daemon(daemon.clone());
+        provider.keychain = fake_keychain;
+        (provider, daemon)
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-gw-conn-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const OUT_OF_USAGE: &str = "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: 40\r\nconnection: close\r\n\r\n{\"error\":{\"type\":\"usage_limit_reached\"}}";
+    const OK_JSON: &str =
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n{\"ok\":1}";
+
+    #[tokio::test]
+    async fn a_usage_limit_moves_the_call_to_the_next_connection_when_spread_is_on() {
+        let (first, first_got) = fake_upstream(OUT_OF_USAGE).await;
+        let (second, second_got) = fake_upstream(OK_JSON).await;
+        let dir = temp_dir("spread");
+        let (provider, _) = connected(
+            true,
+            vec![
+                conn("a", "api-key", "anthropic", &["claude"]),
+                conn("b", "api-key", "anthropic", &["claude"]),
+            ],
+            vec![("a", key_route(&first, "a")), ("b", key_route(&second, "b"))],
+            &dir,
+        );
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "s1", pending("/v1/messages", r#"{"model":"claude-opus-5-5"}"#), &tx)
+            .await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["status"], 200, "{got:?}");
+        let one = first_got.await.unwrap().to_ascii_lowercase();
+        let two = second_got.await.unwrap().to_ascii_lowercase();
+        // Anthropic keys go as x-api-key, each connection with its own; the model is the same.
+        assert!(one.contains("x-api-key: sk-a") && !one.contains("authorization:"), "{one}");
+        assert!(two.contains("x-api-key: sk-b"), "{two}");
+        assert!(one.ends_with(r#"{"model":"claude-opus-5-5"}"#));
+        assert!(two.ends_with(r#"{"model":"claude-opus-5-5"}"#));
+        assert!(!two.contains("x-cmux-connection"));
+    }
+
+    #[tokio::test]
+    async fn without_spread_a_usage_limit_is_the_answer() {
+        let (first, first_got) = fake_upstream(OUT_OF_USAGE).await;
+        let dir = temp_dir("nospread");
+        let (provider, daemon) = connected(
+            false,
+            vec![
+                conn("a", "api-key", "openai", &["codex"]),
+                conn("b", "api-key", "openai", &["codex"]),
+            ],
+            vec![("a", key_route(&first, "a")), ("b", key_route("http://127.0.0.1:1", "b"))],
+            &dir,
+        );
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "s2", pending("/v1/responses", r#"{"model":"gpt-5.5"}"#), &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["status"], 429);
+        let request = first_got.await.unwrap();
+        assert!(request.starts_with("POST /v1/responses HTTP/1.1"), "{request}");
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer sk-a"));
+        assert_eq!(*daemon.asked.lock().unwrap(), vec!["route a"], "b is never tried");
+    }
+
+    #[tokio::test]
+    async fn the_connection_header_pins_the_call_and_a_rate_limit_stays_put() {
+        let (second, second_got) = fake_upstream(
+            "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: 37\r\nconnection: close\r\n\r\n{\"error\":{\"type\":\"rate_limit_error\"}}",
+        )
+        .await;
+        let dir = temp_dir("pin");
+        let (provider, daemon) = connected(
+            true,
+            vec![
+                conn("a", "api-key", "anthropic", &["claude"]),
+                conn("b", "api-key", "anthropic", &["claude"]),
+            ],
+            vec![("a", key_route("http://127.0.0.1:1", "a")), ("b", key_route(&second, "b"))],
+            &dir,
+        );
+        let mut call = pending("/v1/messages", r#"{"model":"m"}"#);
+        call.headers.push(("x-cmux-connection".into(), "b".into()));
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "s3", call, &tx).await;
+        let got = frames(&mut rx).await;
+        // A short rate limit is not out of usage: the pinned answer goes back whole.
+        assert_eq!(got[0]["status"], 429);
+        let body: Vec<u8> = got[1..got.len() - 1]
+            .iter()
+            .flat_map(|f| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(f["data"].as_str().unwrap())
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(body, br#"{"error":{"type":"rate_limit_error"}}"#);
+        assert!(second_got.await.unwrap().to_ascii_lowercase().contains("x-api-key: sk-b"));
+        assert_eq!(*daemon.asked.lock().unwrap(), vec!["route b"]);
+    }
+
+    #[tokio::test]
+    async fn a_connection_of_another_family_is_skipped_and_nothing_serving_names_the_model() {
+        let dir = temp_dir("family");
+        let (provider, daemon) = connected(
+            true,
+            vec![conn("claude-login", "claude-login", "anthropic", &["claude"])],
+            vec![],
+            &dir,
+        );
+        let mut call = pending("/v1/responses", r#"{"model":"gpt-5.5-codex"}"#);
+        call.headers.push(("x-cmux-connection".into(), "claude-login".into()));
+        let (tx, mut rx) = mpsc::channel(4);
+        answer(&provider, "s4", call, &tx).await;
+        let got = frames(&mut rx).await;
+        assert_eq!(got[0]["code"], "inference.no_connection");
+        assert!(got[0]["message"].as_str().unwrap().contains("gpt-5.5-codex"), "{got:?}");
+        assert!(daemon.asked.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_chatgpt_plan_call_carries_the_plans_token_and_a_sanitized_body() {
+        let (api, got_request) = fake_upstream(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\ndata: 1\n\n",
+        )
+        .await;
+        let dir = temp_dir("plan");
+        let (mut provider, daemon) = connected(
+            true,
+            vec![conn("plan-1", "chatgpt-plan", "openai", &["codex"])],
+            vec![],
+            &dir,
+        );
+        provider.openai_api = format!("{api}/v1");
+        let body = json!({
+            "model": "gpt-5.5-codex", "store": true, "previous_response_id": "r",
+            "input": [{"role": "system", "content": "s"}]
+        });
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "s5", pending("/v1/responses", &body.to_string()), &tx).await;
+        assert_eq!(frames(&mut rx).await[0]["status"], 200);
+        let request = got_request.await.unwrap();
+        assert!(request.starts_with("POST /v1/responses HTTP/1.1"), "{request}");
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer plan-token-plan-1"));
+        let sent: Value = serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(sent["model"], "gpt-5.5-codex");
+        assert_eq!((sent["store"].clone(), sent["stream"].clone()), (json!(false), json!(true)));
+        assert!(sent.get("previous_response_id").is_none());
+        assert_eq!(sent["input"][0]["role"], "developer");
+        assert_eq!(*daemon.asked.lock().unwrap(), vec!["token plan-1"]);
+        // A tool_search call is refused before any token is asked for.
+        let (tx, mut rx) = mpsc::channel(4);
+        let search = json!({"model": "m", "tools": [{"type": "tool_search"}]}).to_string();
+        answer(&provider, "s6", pending("/v1/responses", &search), &tx).await;
+        assert_eq!(frames(&mut rx).await[0]["code"], "inference.unsupported_request");
+        assert_eq!(daemon.asked.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn with_no_daemon_the_gateway_serves_from_the_macs_logins() {
+        let (base, upstream) = fake_upstream(OK_JSON).await;
+        let dir = temp_dir("nodaemon");
+        let far = (now_s() + 3600) * 1000;
+        std::fs::write(
+            dir.join(".credentials.json"),
+            format!(r#"{{"claudeAiOauth":{{"accessToken":"oat-mac","expiresAt":{far}}}}}"#),
+        )
+        .unwrap();
+        let daemon = Arc::new(FakeDaemon {
+            state: None,
+            routes: HashMap::new(),
+            asked: std::sync::Mutex::new(Vec::new()),
+        });
+        let logins = MacLogins {
+            claude_home: dir.clone(),
+            codex_auth: dir.join("auth.json"),
+            keychain: false,
+            claude_base: base,
+        };
+        let provider =
+            Provider::new(Upstream::MacLogins(logins), test_client()).with_daemon(daemon);
+        let mut call = pending("/v1/messages", r#"{"model":"m"}"#);
+        call.headers.push(("x-cmux-connection".into(), "gone".into()));
+        let (tx, mut rx) = mpsc::channel(32);
+        answer(&provider, "s7", call, &tx).await;
+        assert_eq!(frames(&mut rx).await[0]["status"], 200);
+        assert!(
+            upstream.await.unwrap().to_ascii_lowercase().contains("authorization: bearer oat-mac")
+        );
+    }
+
+    #[test]
+    fn a_connection_base_is_https_or_this_computer() {
+        assert_eq!(
+            connection_base("https://api.example.com/v1/").unwrap(),
+            "https://api.example.com/v1"
+        );
+        assert!(connection_base("http://127.0.0.1:8317").is_ok());
+        assert!(connection_base("http://api.example.com").is_err());
+        assert!(connection_base("https://u:p@api.example.com").is_err());
+        assert!(connection_base("ftp://x").is_err());
     }
 }

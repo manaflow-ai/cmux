@@ -257,6 +257,7 @@ describe("devbox image template", () => {
       expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
       expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
       expect(codexConfig).toContain('"x-cmux-surface-id" = "CMUX_SURFACE_ID"');
+      expect(codexConfig).toContain('"x-cmux-connection" = "CMUX_MODEL_CONNECTION"');
       expect(codexConfig.indexOf("[model_providers.cmux.env_http_headers]")).toBeLessThan(codexConfig.indexOf("[history]"));
     } finally {
       rmSync(home, { recursive: true, force: true });

@@ -171,6 +171,8 @@ with open(codex / "config.toml.cmux-lock", "a") as lock:
         "[model_providers.cmux.env_http_headers]",
         '"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"',
         '"x-cmux-surface-id" = "CMUX_SURFACE_ID"',
+        "# the picker's account for the chat (a route id); the gateway serves it first",
+        '"x-cmux-connection" = "CMUX_MODEL_CONNECTION"',
         "",
         "[history]",
         'persistence = "save-all"',
