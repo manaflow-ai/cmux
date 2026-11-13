@@ -12,9 +12,10 @@ workspace = true
 
 [dependencies]
 crc32fast = "1.5"
+bincode = "1.3"
 imbl.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

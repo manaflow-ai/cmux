@@ -1692,6 +1692,12 @@ async fn dispatch_request_with_identity(
                 additional_directories,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
+                // Purged by its creator right after its work (the Chief compactor's nodes): its
+                // prompts' bodies are not kept (`hub/ephemeral.rs`). An `ephemeral` run keeps
+                // them, so a failed first send can still be resent.
+                throwaway: !adopting
+                    && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
+                        == Some(true),
                 require_asking: crate::hub::require_asking::asked(meta),
             };
             let s = match &admitted {

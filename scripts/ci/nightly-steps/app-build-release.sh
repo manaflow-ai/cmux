@@ -117,6 +117,16 @@ echo "compilation cache limit: $cas_limit_bytes bytes (${cas_free_kib:-unknown} 
 # One build root per nightly Mac when this slot keeps build state (app-host-build-root.sh).
 # shellcheck source=scripts/ci/nightly-steps/app-host-build-root.sh
 source scripts/ci/nightly-steps/app-host-build-root.sh
+# Every binary artifact (Iroh, Sentry-Dynamic, WebRTC) is in this tree's own SourcePackages before the build: one
+# missing or recorded in another tree drops the artifact state and resolves again (spm_artifact_preflight.py).
+(
+  cd "$build_root"
+  python3 scripts/ci/spm_artifact_preflight.py .spm-cache \
+    --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
+    xcodebuild -resolvePackageDependencies -scheme cmux \
+    -clonedSourcePackagesDirPath .spm-cache \
+    -packageCachePath "$PWD/.spm-cache/.package-cache"
+) >&2
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()

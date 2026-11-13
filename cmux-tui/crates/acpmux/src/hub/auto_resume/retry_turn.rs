@@ -75,6 +75,10 @@ fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
 /// acpmux kept (`image(id)`). None when a part cannot be rebuilt (a document, an audio clip, a
 /// link, an image not kept) or there is nothing to send.
 fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<Vec<Value>> {
+    // A throwaway session's long prompt kept only a preview (`hub/ephemeral.rs`).
+    if crate::hub::ephemeral::body_left_out(msg) {
+        return None;
+    }
     let blocks: Option<Vec<Value>> = match msg.get("inlineParts").and_then(Value::as_array) {
         Some(parts) => parts
             .iter()

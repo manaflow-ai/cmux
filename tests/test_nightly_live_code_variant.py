@@ -24,7 +24,9 @@ RELEASE = "scripts/ci/nightly-steps/app-build-release.sh"
 LIVE = "scripts/ci/nightly-steps/app-build-live-code.sh"
 # The live code settings are the real ones (scripts/live-code/lib/xcodebuild-args.sh, which reads Package.swift).
 REAL = (RELEASE, LIVE, "scripts/live-code/lib/xcodebuild-args.sh", "Packages/macOS/CmuxNext/Package.swift",
-        "scripts/cmux-next/lib/swift-size-opt.sh")
+        "scripts/cmux-next/lib/swift-size-opt.sh",
+        # The SourcePackages preflight; with no .spm-cache in the tree it resolves nothing.
+        "scripts/ci/spm_artifact_preflight.py")
 VARIANT = ROOT / "scripts/ci/nightly-steps/app-build-live-code.sh"
 
 STUBS = {
