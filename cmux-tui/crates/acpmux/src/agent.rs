@@ -1588,6 +1588,11 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1601,15 +1606,11 @@ impl ChildAgent {
             }
         })
         .await;
-        // Then the job ends, stragglers included (SIGKILL on Unix).
+        // Then the job ends, stragglers included (SIGKILL on Unix, by the guard's drop).
         #[cfg(windows)]
         self.kill_job();
         #[cfg(unix)]
-        if let Some(pg) = pgid {
-            unsafe {
-                libc::killpg(pg, libc::SIGKILL);
-            }
-        }
+        drop(escalate);
         if let Ok(mut g) = self.child.try_lock()
             && let Some(c) = g.as_mut()
         {
@@ -2122,9 +2123,12 @@ impl ChildAgent {
 
     /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
     /// True when this call lowered it. A harness with no class set (another daemon started it)
-    /// or one that ended is left alone.
+    /// takes the agent tier; one that ended is left alone.
     pub async fn enter_run_class(&self) -> bool {
-        let Some(class) = self.run_class.get().copied() else { return false };
+        // A harness adopted from another daemon has no class here: one whose start that daemon
+        // did not see end (a restart mid-start) would keep the start's priority for good, so it
+        // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
+        let class = self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal);
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
@@ -2751,6 +2755,22 @@ impl ChildAgent {
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
+            }
+        }
+    }
+}
+
+/// SIGKILL to an agent's process group once dropped: at the end of `ChildAgent::terminate`'s
+/// grace, or earlier when its caller drops the terminate future after the SIGTERM went out.
+#[cfg(unix)]
+struct KillGroupOnDrop(Option<i32>);
+
+#[cfg(unix)]
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        if let Some(pg) = self.0 {
+            unsafe {
+                libc::killpg(pg, libc::SIGKILL);
             }
         }
     }

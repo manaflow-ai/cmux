@@ -23,7 +23,7 @@ impl Hub {
             return;
         }
         // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
-        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+        let _ = tokio::time::timeout(super::shutdown::OWNED_TASKS_CLOSE, notified).await;
     }
 
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
@@ -160,7 +160,9 @@ impl Hub {
                     // Rows came (a list, a changed row) or the link is up: the peer's chats are
                     // read ahead soon (`peer_snapshot/warm.rs`).
                     let warms = match &notice {
-                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::Connected
+                        | PeerNotice::Sessions(_)
+                        | PeerNotice::SessionsPatch { .. } => true,
                         PeerNotice::SessionChanged { kind, .. } => kind != "purged",
                         _ => false,
                     };

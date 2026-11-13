@@ -59,10 +59,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | seed | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, rows, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
+    /// `seed` {rows: 50 | 500 | 5000}: FOR FILMS ONLY. Starts a fill of the shown transcript with generated rows and answers {started}; done when `debug.home` says shown_count == rows. The rows are ONLY in the store (the owner has none: a reconnect or a close + open reads the owner's tail again), and a send typed into a seeded Home collides with the seeded seqs.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
         if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
@@ -77,9 +78,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
             view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
-        guard let view else {
-            return .object(["error": .string("no Home conversation is shown")])
-        }
+        guard let view else { return .object(["error": .string("no Home conversation is shown")]) }
         let ok: Bool
         // The mock Home fixture showing `view` (nil for a real conversation): the fixture actions' one lookup.
         let shownFixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view)
@@ -114,6 +113,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing": return JSONValue(foundation: view.debugTypingState()) ?? .null
         case "rows": return JSONValue(foundation: view.debugRowsState()) ?? .null
+        case "seed": return JSONValue(foundation: view.debugStartSeed(rows: params["rows"]?.intValue)) ?? .null
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []

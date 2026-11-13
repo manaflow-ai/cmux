@@ -309,6 +309,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |

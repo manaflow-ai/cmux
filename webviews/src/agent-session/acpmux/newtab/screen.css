@@ -31,9 +31,9 @@
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-row.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
 /* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
-.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
+.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
@@ -44,14 +44,14 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
- .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+ .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid var(--ds-color-separator);overflow:hidden}
 /* Each action centers its icon and label in its own third, so the strip reads as three cells, not a row that starts off the rows' glyph column (Leo 2026-11-06: "this is misaligned at the left ... have them all individually centered along their things?"). The cell spans the rows' edges, so its hover fill lines up with theirs. */
 .nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-create-strip-item .nt-row-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three icons, still centered, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
-.nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-create-strip-item.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
 .nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .nt-chats{margin-top:var(--ds-space-5)}
 .nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
@@ -168,17 +168,18 @@
      2026-10-29: "stop making them take up so much space"). */
   --acpmux-strip-height: 24px;
   margin: 0;
-  /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
-     the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
-     project chip row starts at a different x than + and the text). */
+  /* Subtract the context and ghost button insets from the + center. The location slot scales
+     with density; the ghost button's 4.5 px leading inset does not. */
   padding: 0 var(--ds-space-1);
-  padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
+  padding-inline-start: calc(var(--nt-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-location-box)) / 2 - var(--acpmux-strip-pad, 4px) - 4.5px);
   border-radius: 0;
   background: none;
   box-shadow: none;
 }
 /* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
-   browser tab and New chat read as buttons, not as text (Lucas #21133). */
+   browser tab and New chat read as buttons, not as text (Lucas #21133). The outline is the chrome's
+   divider token and the fills the app's hover ramp, so a theme, Borders: None and the title area
+   tone reach them as they reach the window around the page. */
 .nt-screen .nt-create {
   gap: var(--ds-space-2);
   margin: var(--ds-space-2) 0 0;
@@ -187,13 +188,13 @@
   height: 28px;
   padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--ds-color-divider);
   color: var(--agent-soft);
   font-weight: var(--weight-regular);
 }
 .nt-screen .nt-create .nt-tool:hover,
 .nt-screen .nt-create .nt-tool:focus-visible {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .nt-screen .nt-create .nt-tool:focus-visible {
@@ -293,12 +294,12 @@
 /* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
 .nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab{width:100%;height:28px;border:0;border-radius:var(--ds-radius-popup);background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-card-host,.nt-row-host{display:contents}
 /* The create actions' buttons. Geometry and type: the shared ghost button (ui/ghost.css, cx-s6zvc). */
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit}
-.nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-tool:hover,.nt-tool:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
 /* The create actions (cx-ag5.7): one quiet ghost row under the box, at its left edge. */
 .nt-create{display:flex;flex-wrap:wrap;margin:var(--ds-space-2) var(--ds-space-1) 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
@@ -322,10 +323,10 @@
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
 .nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
-.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
+.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:var(--ds-radius-control)}
 /* Filter (cx-htpk0): quiet text like the view tabs, full ink while it narrows the list. */
 .nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:22px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:var(--ds-color-hover)}
 .nt-all .nt-chats-filter-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .nt-chats-filter-chevron{width:var(--grid-glyph);height:var(--grid-glyph);opacity:.7}
 .nt-chats-filter-list{min-width:150px}
@@ -343,7 +344,7 @@
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
 .nt-all-row{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
-.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
 .nt-all-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -414,7 +415,7 @@
   --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
   --acpmux-composer-trail-stroke: 1.5;
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  --acpmux-text-drop: calc(var(--text-content) / 14);
+  --acpmux-text-drop: 0px;
   --acpmux-composer-inset: var(--nt-composer-inset);
   --acpmux-chip-glyph: var(--acpmux-composer-glyph);
   --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
@@ -465,8 +466,10 @@
 .nt-foot :is(.acpmux-mode-text, .acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
   color: inherit;
 }
-/* The left column: the permission chip's shield overhangs its box as the folder's glyph does, so
-   both glyphs and both labels start on one edge each (the shield's center stays under +). */
+/* The permission chip's padding and shield slot scale with density, as the + control does. */
+.nt-foot .acpmux-composer-foot .acpmux-access {
+  margin-inline-start: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-control) / 2 - var(--acpmux-row-inset) - var(--acpmux-shield-box) / 2);
+}
 .nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
   margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
 }
@@ -503,8 +506,7 @@
   min-height: var(--acpmux-composer-control);
   margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
-/* The field's text drops by --acpmux-text-drop (composerLocation.css) so its ink, not its line box,
-   centers on the row's middle where the controls stand; the shell glyph drops with it. */
+/* Keep the prompt, placeholder and shell glyph on the same centered line. */
 .nt-input[data-split] .nt-field {
   padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
   padding-bottom: calc(var(--nt-input-pad-block) - var(--acpmux-text-drop));
@@ -601,7 +603,7 @@
   padding: 0 var(--ds-space-1);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-soft);
   font: inherit;
   font-size: var(--text-caption);
@@ -610,7 +612,7 @@
 }
 .nt-card-children-toggle:hover,
 .nt-card-children-toggle[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-pressed);
   color: var(--agent-text);
 }
 .nt-card-children {
@@ -662,7 +664,7 @@
 /* The bar fills from the inline start: right to left under RTL. */
 .nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:var(--ds-space-2);margin-left:calc(-1 * var(--ds-space-1))}
-.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
+.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);
   background:transparent;color:var(--agent-text)}
 .nt-player-button:hover:not(:disabled){background:var(--acpmux-pill-hover)}
 .nt-player-button:active:not(:disabled){background:var(--acpmux-pill-press)}
@@ -787,7 +789,7 @@
   padding: 0 var(--ds-space-2);
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
   background: none;
   box-shadow: none;
   color: var(--agent-soft);

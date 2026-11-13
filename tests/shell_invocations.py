@@ -126,7 +126,8 @@ class Token(NamedTuple):
     dynamic: bool = False  # the word holds an expansion bash resolves at run time ($x, ${..}, $(..), `..`, <(..))
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
     plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
-    equal_unquoted: bool = False  # the first `=` in the word was an unquoted literal
+    equal_unquoted: bool = False  # the assignment operator's `=` was an unquoted literal
+    assignment_prefix_quoted: bool = False  # a quote or escape occurred before the assignment operator (fail closed)
 
 
 class Lexed(NamedTuple):
@@ -337,6 +338,8 @@ def lex(text: str) -> Lexed:
     plain_open = True  # nothing quoted, escaped or expanded yet in it
     equal_seen = False
     equal_unquoted = False
+    assignment_prefix_quoted = False
+    bracket_depth = 0
     i = 0
 
     def start_word(at: int) -> None:
@@ -344,17 +347,23 @@ def lex(text: str) -> Lexed:
         if not in_word:
             in_word, word_start = True, at
 
+    def quoted_equal_is_operator() -> bool:
+        prefix = "".join(buf)
+        return "]" in prefix or "[" not in prefix
+
     def end_word(at: int) -> None:
-        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen, equal_unquoted
+        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen
+        nonlocal equal_unquoted, assignment_prefix_quoted, bracket_depth
         if not in_word:
             return
         word = "".join(buf)
         if expect_delimiter is not None:
             pending.append((word, expect_delimiter, not quoted))
             expect_delimiter = None
-        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted))
+        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted,
+                            assignment_prefix_quoted))
         buf, subs, quoted, dynamic, in_word = [], [], False, False, False
-        plain, plain_open, equal_seen, equal_unquoted = 0, True, False, False
+        plain, plain_open, equal_seen, equal_unquoted, assignment_prefix_quoted, bracket_depth = 0, True, False, False, False, 0
 
     def command_starts() -> bool:
         """Whether a word here would be the first of a command (where `((` opens an arithmetic command)."""
@@ -428,8 +437,8 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1])
-            if text[i + 1:i + 2] == "=" and not equal_seen:
-                equal_seen = True
+            if not equal_seen:
+                assignment_prefix_quoted = True
             quoted = True
             plain_open = False
             i += 2
@@ -439,13 +448,17 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1:close])
-            if not equal_seen and "=" in text[i + 1:close]:
+            if not equal_seen:
+                assignment_prefix_quoted = True
+            if not equal_seen and not bracket_depth and "=" in text[i + 1:close]:
                 equal_seen = True
             quoted = True
             plain_open = False
             i = close + 1
         elif c == '"':
             start_word(i)
+            if not equal_seen:
+                assignment_prefix_quoted = True
             quoted = True
             plain_open = False
             i += 1
@@ -463,15 +476,13 @@ def lex(text: str) -> Lexed:
                     if text[i + 1] == "\n":
                         i += 2
                         continue
-                    if text[i + 1] == "=" and not equal_seen:
-                        equal_seen = True
                 if text[i] in "$`":
                     after = expansion(i, True)
                     if after is None:
                         return Lexed(tokens, False, heredoc_subs)
                     i = after
                     continue
-                if text[i] == "=" and not equal_seen:
+                if text[i] == "=" and not equal_seen and not bracket_depth:
                     equal_seen = True
                 buf.append(text[i])
                 i += 1
@@ -527,7 +538,11 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
-            if c == "=" and not equal_seen:
+            if c == "[":
+                bracket_depth += 1
+            elif c == "]" and bracket_depth:
+                bracket_depth -= 1
+            elif c == "=" and not equal_seen and not bracket_depth:
                 equal_seen, equal_unquoted = True, True
             if plain_open:
                 plain += 1
@@ -786,8 +801,9 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             words, dynamic, skip_target = [], False, False
             cases[-1] = "pattern"
             case_pattern_matches[-1] = False
-            case_fallthrough[-1] = token.text == ";&" and case_body_active[-1]
-            case_retest[-1] = token.text == ";;&"
+            if case_body_active[-1]:
+                case_fallthrough[-1] = token.text == ";&"
+                case_retest[-1] = token.text == ";;&"
             case_body_active[-1] = False
             previous = token
             continue
@@ -865,10 +881,15 @@ def _opaque(word: Token) -> bool:
     return word.dynamic or "\x00" in word.text or bool(_BRACE_EXPANSION.search(word.text) or _GLOB.search(word.text))
 
 
+def _assignment_uncertain(word: Token) -> bool:
+    match = _ASSIGNMENT.match(word.text)
+    return match is not None and (word.assignment_prefix_quoted or (match.group(2) is not None and word.quoted))
+
+
 def _is_assignment(word: Token) -> bool:
     """Whether bash takes the word as a prefix assignment: NAME, `[` and `=` unquoted (`"X=1" cmd` runs X=1)."""
     match = _ASSIGNMENT.match(word.text)
-    if match is None:
+    if match is None or word.assignment_prefix_quoted or (match.group(2) is not None and word.quoted):
         return False
     if match.group(2) is None:
         return word.plain >= match.end()
@@ -914,8 +935,12 @@ def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | No
             if option not in wrapper.flags:
                 return None, False
         i += 2 if taken else 1
-    while i < len(words) and (wrapper.assignments == "env" and "=" in words[i].text
-                              or wrapper.assignments == "bash" and _is_assignment(words[i])):
+    while i < len(words):
+        if wrapper.assignments != "env" and _assignment_uncertain(words[i]):
+            return None, False
+        if not (wrapper.assignments == "env" and "=" in words[i].text
+                or wrapper.assignments == "bash" and _is_assignment(words[i])):
+            break
         if wrapper.assignments == "env" and _opaque(words[i]):
             return None, False  # env's word is expanded (a glob in `Y[0]=2`) before env reads it
         i += 1
@@ -976,15 +1001,28 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
         # `coproc cmd` runs cmd in the background, `coproc NAME { .. }` a group: what runs is not read here.
         return Invocation([w.text for w in words[start:]], False, True)
-    while start < len(words) and _is_assignment(words[start]):  # a keyword after an assignment is a program
+    had_prefix_assignment = False
+    while start < len(words):
+        if _assignment_uncertain(words[start]):
+            # Quoting or escaping before an assignment-looking operator changes bash's grammar. Do not model the
+            # assignment further: nothing is certain, while may_run() must still allow the real program.
+            return Invocation([w.text for w in words[start:]], False, True)
+        if not _is_assignment(words[start]):
+            break
+        # a keyword after an assignment is a program
+        had_prefix_assignment = True
         start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
+    wrappers: list[str] = []
+    wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
-        if name in _WRAPPERS:
+        time_reserved = name == "time" and not words[start].quoted and not had_prefix_assignment \
+            and (not wrappers or all(wrapper == "time" for wrapper in wrappers))
+        if name in _WRAPPERS and (name != "time" or time_reserved):
             program, sure = _unwrap(words, start, _WRAPPERS[name])
-        elif name in _SHELLS:
+        elif name in _SHELLS and not words[start].quoted:
             program, sure = _shell_script(words, start)
         else:
             break
@@ -994,18 +1032,34 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # `env` or `nice` alone runs itself; `exec` or `time` alone runs nothing.
             return Invocation([w.text for w in words[start:]], certain and sure, False)
         certain = certain and sure
+        wrappers.append(name)
+        wrapper_assignment = wrapper_assignment or any(_is_assignment(words[i]) for i in range(start + 1, program))
         start = program
         if name in _SHELLS:
             # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
             # only as an option value, or none.
             any_program = not sure
             break  # the operand is a script file, whatever its name
-    if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
-        # `time coproc cmd` and other wrappers reach coproc after their operands are unwrapped.
+    if wrappers and all(name == "time" for name in wrappers) and not had_prefix_assignment and not wrapper_assignment \
+            and start < len(words) \
+            and words[start].text == "coproc" and not words[start].quoted:
+        # Only time (including repeated or -p forms) keeps coproc as a reserved word after unwrapping.
         return Invocation([w.text for w in words[start:]], False, True)
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
+    if program.text.rsplit("/", 1)[-1] == "time" and (program.quoted or had_prefix_assignment or wrappers
+                                                       or "/" in program.text):
+        # A textual `time` is an external command after assignments or another wrapper. Its operand is the program
+        # name passed to that executable, but whether the wrapper exists is uncertain.
+        operand = start + 1
+        while operand < len(words) and words[operand].text == "-p" and not words[operand].quoted:
+            operand += 1
+        if operand >= len(words):
+            return Invocation([program.text], False, False)
+        target = words[operand]
+        return Invocation([target.text.removeprefix("./"), *(w.text for w in words[operand + 1:])], False,
+                           _opaque(target))
     if _opaque(program) or program.text.startswith("$"):
         certain, any_program = False, True
     if program.text in _RUNS_ARGUMENTS or program.text in defined:
