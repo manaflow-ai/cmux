@@ -10,7 +10,7 @@ use acpmux_book::index::{
     replay_generation_logs,
 };
 use arc_swap::ArcSwap;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,7 +20,9 @@ use tokio::sync::Notify;
 use crate::wire::{Frame, FrameError, FrameKind, Sub};
 mod compaction;
 mod disk;
+mod history;
 pub use compaction::CompactionStats;
+use history::History;
 
 pub use crate::wire::{Delta, Window};
 
@@ -28,7 +30,6 @@ pub use crate::wire::{Delta, Window};
 pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
 const EVENT_CAPACITY: usize = 1024;
-const HISTORY_CAPACITY: usize = 16 * 1024;
 const SUBSCRIBER_BYTES: usize = 4 * 1024 * 1024;
 
 /// A summary change in index sequence order. The summary is shared with the
@@ -126,14 +127,6 @@ impl Subscriber {
             }),
             notify: Notify::new(),
         }
-    }
-}
-
-fn item_seq(item: &ListItem) -> u64 {
-    match item {
-        ListItem::Summary(event) => event.seq,
-        ListItem::Gone { seq, .. } => *seq,
-        ListItem::Dropped { cursor } => *cursor,
     }
 }
 
@@ -256,7 +249,7 @@ pub struct Hub {
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
-    history: Arc<Mutex<VecDeque<ListItem>>>,
+    history: Arc<Mutex<History>>,
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -278,7 +271,7 @@ pub struct HubWriter {
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
-    history: Arc<Mutex<VecDeque<ListItem>>>,
+    history: Arc<Mutex<History>>,
     log: Option<IndexLog>,
     log_dirty: bool,
     log_errors: Arc<AtomicU64>,
@@ -340,7 +333,7 @@ impl Hub {
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
-        let history = Arc::new(Mutex::new(VecDeque::with_capacity(HISTORY_CAPACITY)));
+        let history = Arc::new(Mutex::new(History::new()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
         compaction_counters
@@ -419,39 +412,25 @@ impl Hub {
         let subscriber = Arc::new(Subscriber::new(0));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         let index = self.snapshot();
-        let resume_cursor = if sub.cursor.is_some()
+        // Copy bounded wire bytes under the history lock; decoding never holds it.
+        let replay = if sub.cursor.is_some()
             && cursor <= index.seq()
             && sub.edition == Some(index.edition())
         {
-            let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-            history
-                .front()
-                .map(item_seq)
-                .filter(|first| cursor.saturating_add(1) >= *first)
-                .map_or(index.seq(), |_| cursor)
+            self.history.lock().map_err(|_| HubError::WriterGone)?.after(cursor, index.seq())
         } else {
-            index.seq()
+            None
         };
+        let resume_cursor = if replay.is_some() { cursor } else { index.seq() };
         let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let items = replay.map(history::decode).transpose().map_err(FrameError::Decode)?;
         if let Ok(mut state) = subscriber.state.lock() {
-            if sub.cursor.is_some() {
-                let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-                if resume_cursor == cursor {
-                    retain_pending_after(&mut state, cursor);
-                    state.cursor = cursor;
-                    for item in history
-                        .iter()
-                        .filter(|item| item_seq(item) > cursor && item_seq(item) <= index.seq())
-                    {
-                        enqueue_item(&mut state, item.clone());
-                    }
-                } else {
-                    retain_pending_after(&mut state, index.seq());
-                    state.cursor = index.seq();
+            retain_pending_after(&mut state, resume_cursor);
+            state.cursor = resume_cursor;
+            if let Some(items) = items {
+                for item in items {
+                    enqueue_item(&mut state, item);
                 }
-            } else {
-                retain_pending_after(&mut state, index.seq());
-                state.cursor = index.seq();
             }
         }
         Ok(ListSubscription {
@@ -623,11 +602,10 @@ impl HubWriter {
             // The returned row is unchanged; no event is published.
             return Ok(SummaryEvent { seq: current.seq(), summary: existing });
         }
-        self.persist(&record)?;
+        self.persist(&record, &key)?;
         let next = self.published.load_full().apply(record.seq, record.summary);
-        let summary = next
-            .get_row(&RowKey::new(record.origin.as_str(), record.chat_id.as_str()))
-            .ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
+        let summary =
+            next.get_row(&key).ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
         let event = SummaryEvent { seq: record.seq, summary };
         self.published.store(Arc::new(next));
         self.record_history(ListItem::Summary(event.clone()));
@@ -665,13 +643,16 @@ impl HubWriter {
             return Ok(false);
         }
         let seq = current.seq().saturating_add(1);
-        self.persist(&acpmux_book::index::IndexRecord {
-            seq,
-            origin: key.origin.to_string(),
-            chat_id: key.chat_id.to_string(),
-            summary: Summary::new(key.chat_id.to_string()),
-            gone: true,
-        })?;
+        self.persist(
+            &acpmux_book::index::IndexRecord {
+                seq,
+                origin: key.origin.to_string(),
+                chat_id: key.chat_id.to_string(),
+                summary: Summary::new(key.chat_id.to_string()),
+                gone: true,
+            },
+            key,
+        )?;
         let Some(next) = current.remove_row(seq, key) else {
             return Ok(false);
         };
@@ -707,9 +688,10 @@ impl HubWriter {
 
     fn record_history(&self, item: ListItem) {
         if let Ok(mut history) = self.history.lock() {
-            history.push_back(item);
-            while history.len() > HISTORY_CAPACITY {
-                history.pop_front();
+            if history.append(&item).is_err() {
+                // The durable index is still valid; no cursor may cross a gap
+                // in the optional resume cache.
+                self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

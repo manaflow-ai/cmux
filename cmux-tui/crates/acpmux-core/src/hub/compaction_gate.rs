@@ -21,6 +21,69 @@ fn best(samples: &[u128]) -> u128 {
     samples.chunks_exact(SAMPLES).take(ROUNDS).map(p95).min().unwrap()
 }
 
+/// Select evenly spaced turns from one observation stretch. The compaction
+/// and non-compaction samples are collected over the same stretch of the
+/// run, but the writer can spend a different number of turns in each phase.
+/// Sampling both vectors this way makes each 200-turn round cover the same
+/// portion of that stretch instead of comparing the run's first outside turns
+/// with its last during turns.
+fn spread_evenly(samples: &[u128]) -> Vec<u128> {
+    if samples.len() <= SAMPLES {
+        return samples.to_vec();
+    }
+    let last = samples.len() - 1;
+    (0..SAMPLES).map(|index| samples[index * last / (SAMPLES - 1)]).collect()
+}
+
+/// Group one observation stretch into rounds. A round ends at its 200th
+/// during turn; all outside turns observed before that boundary belong to the
+/// same round. Keeping this as a pure helper makes the equal-stretch rule
+/// testable without running the million-change gate.
+fn matched_rounds(
+    observations: &[(bool, u128)],
+) -> Option<([Vec<u128>; ROUNDS], [Vec<u128>; ROUNDS])> {
+    let mut outside: [Vec<u128>; ROUNDS] = std::array::from_fn(|_| Vec::new());
+    let mut during: [Vec<u128>; ROUNDS] = std::array::from_fn(|_| Vec::new());
+    let mut round = 0;
+    for &(is_during, elapsed) in observations {
+        if round == ROUNDS {
+            break;
+        }
+        if is_during {
+            during[round].push(elapsed);
+            if during[round].len() == SAMPLES {
+                round += 1;
+            }
+        } else {
+            outside[round].push(elapsed);
+        }
+    }
+    if round != ROUNDS || outside.iter().any(|values| values.len() < SAMPLES) {
+        return None;
+    }
+    Some((outside, during))
+}
+
+fn report_matched_rounds(outside: &[u128], during: &[u128]) {
+    for (round, (outside, during)) in
+        outside.chunks_exact(SAMPLES).zip(during.chunks_exact(SAMPLES)).take(ROUNDS).enumerate()
+    {
+        let mut outside = outside.to_vec();
+        let mut during = during.to_vec();
+        outside.sort_unstable();
+        during.sort_unstable();
+        eprintln!(
+            "PR5b matched_round round={} count={} outside_p50_ns={} outside_p95_ns={} during_p50_ns={} during_p95_ns={}",
+            round + 1,
+            outside.len(),
+            outside[outside.len() / 2],
+            p95(&outside),
+            during[during.len() / 2],
+            p95(&during),
+        );
+    }
+}
+
 fn report_split(label: &str, samples: &mut [u128]) {
     samples.sort_unstable();
     let median = samples.get(samples.len() / 2).copied().unwrap_or(0);
@@ -36,6 +99,28 @@ fn row(id: impl Into<String>, activity: u64) -> Summary {
     row.last_activity = activity;
     row.state = "running".to_owned();
     row
+}
+
+#[test]
+fn matched_rounds_do_not_compare_different_stretches() {
+    let mut observations = Vec::new();
+    for round in 0..ROUNDS {
+        // Deliberately vary outside density. A global quantile selection would
+        // move samples between these intervals; the rounder must keep them
+        // attached to the 200 during turns that close each interval.
+        for outside in 0..(SAMPLES + round * 37) {
+            observations.push((false, (round * 10_000 + outside) as u128));
+        }
+        for during in 0..SAMPLES {
+            observations.push((true, (round * 10_000 + 9_000 + during) as u128));
+        }
+    }
+    let (outside, during) = matched_rounds(&observations).expect("all rounds are complete");
+    assert_eq!(during.iter().map(Vec::len).collect::<Vec<_>>(), vec![SAMPLES; ROUNDS]);
+    assert_eq!(outside[0][0], 0);
+    assert_eq!(outside[1][0], 10_000);
+    assert_eq!(outside[ROUNDS - 1][0], (ROUNDS - 1) as u128 * 10_000);
+    assert_eq!(during[ROUNDS - 1][0], (ROUNDS - 1) as u128 * 10_000 + 9_000);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -68,22 +153,20 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(hub.snapshot().len(), 11_000);
     eprintln!("PR5b startup_writer_turns: batches={} p95_ns={}", hydration.len(), p95(&hydration));
     let mut during = Vec::new();
-    let mut outside = Vec::new();
     let mut changes = 0_u64;
     let mut first_million_peak = 0;
     let mut split: [Vec<u128>; 6] = std::array::from_fn(|_| Vec::new());
     let mut sync_split: [Vec<u128>; 6] = std::array::from_fn(|_| Vec::new());
+    let mut observations = Vec::new();
     let mut overlays = Vec::new();
     let mut changed_counts = Vec::new();
     let mut rotations = Vec::new();
     // Fast compactions may finish in fewer than 1,000 turns through 1M changes.
     // Continue the same workload to collect five rounds, never slow a worker
-    // or hold an artificial compaction open to manufacture samples.
-    while changes < MAX_CHANGES
-        && (changes < MIN_CHANGES
-            || during.len() < ROUNDS * SAMPLES
-            || outside.len() < ROUNDS * SAMPLES)
-    {
+    // or hold an artificial compaction open to manufacture samples. Both phase
+    // vectors below cover this same stretch: each round closes on its 200th
+    // during turn, and its outside turns are selected only from that interval.
+    while changes < MAX_CHANGES && (changes < MIN_CHANGES || during.len() < ROUNDS * SAMPLES) {
         writer.finish_compaction(false).await;
         let count = if changes < MIN_CHANGES {
             BATCH.min(MIN_CHANGES - changes)
@@ -164,10 +247,10 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             assert!(matches!(item, Some(ListItem::Summary(_))));
         }
         if count == BATCH {
-            let samples = if running { &mut during } else { &mut outside };
-            if samples.len() < ROUNDS * SAMPLES {
-                samples.push(elapsed);
+            if running {
+                during.push(elapsed);
             }
+            observations.push((running, elapsed));
         }
         changes += count;
         if changes == MIN_CHANGES {
@@ -198,11 +281,26 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(stats.failed, 0);
     assert!(stats.completed > 0);
     assert!(changes >= MIN_CHANGES);
-    assert_eq!(during.len(), ROUNDS * SAMPLES, "not enough actual in-flight writer turns");
-    assert_eq!(outside.len(), ROUNDS * SAMPLES, "not enough outside writer turns");
-    let small = best(&outside);
-    let god = best(&during);
-    let all = p95(&during);
+    assert!(during.len() >= ROUNDS * SAMPLES, "not enough actual in-flight writer turns");
+    let (round_outside, round_during) =
+        matched_rounds(&observations).expect("not enough completed matched rounds");
+    let matched_outside: Vec<_> = round_outside
+        .iter()
+        .flat_map(|round| {
+            assert!(round.len() >= SAMPLES, "not enough outside turns in matched interval");
+            spread_evenly(round)
+        })
+        .collect();
+    let matched_during: Vec<_> = round_during.iter().flatten().copied().collect();
+    assert_eq!(matched_outside.len(), ROUNDS * SAMPLES);
+    assert_eq!(matched_during.len(), ROUNDS * SAMPLES);
+    report_matched_rounds(&matched_outside, &matched_during);
+    let outside_rounds: Vec<_> =
+        matched_outside.chunks_exact(SAMPLES).map(|round| p95(round)).collect();
+    assert_eq!(outside_rounds.len(), ROUNDS);
+    let small = best(&matched_outside);
+    let god = best(&matched_during);
+    let all = p95(&matched_during);
     report_split("during_gate_samples", &mut during);
     for (n, label) in [
         "outside",
@@ -240,6 +338,12 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         )
         .unwrap();
     }
+    assert!(
+        outside_rounds[ROUNDS - 1] <= outside_rounds[0].saturating_mul(12) / 10,
+        "outside rounds slowed: first={}ns fifth={}ns rounds={outside_rounds:?}",
+        outside_rounds[0],
+        outside_rounds[ROUNDS - 1]
+    );
     assert!(god <= small.saturating_mul(12) / 10, "during={god}ns outside={small}ns");
     assert!(all <= small.saturating_mul(2), "all during={all}ns outside={small}ns");
     drop((hub, writer));

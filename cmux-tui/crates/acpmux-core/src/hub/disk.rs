@@ -67,7 +67,7 @@ impl HubWriter {
         HubError::Log(error)
     }
 
-    pub(super) fn persist(&mut self, record: &IndexRecord) -> Result<(), HubError> {
+    pub(super) fn persist(&mut self, record: &IndexRecord, key: &RowKey) -> Result<(), HubError> {
         if let Some(log) = self.log.as_mut() {
             if let Err(error) = log.append_record(record) {
                 return Err(self.defer_record(record, error));
@@ -76,7 +76,7 @@ impl HubWriter {
         }
         // Only written changes may replace the captured snapshot's rows.
         if let Some(job) = self.compaction.as_mut() {
-            job.changed.insert(RowKey::new(record.origin.as_str(), record.chat_id.as_str()));
+            job.changed.insert(key.clone());
         }
         Ok(())
     }
