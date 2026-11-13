@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43408166067",
+  "recorded_at": "2026-11-13T10:32:21Z",
+  "reason": "cmux-tui 0ba6febb2962 changes the image's cmux-tui (pinned ef41262d7ad9)",
+  "dry_run": false,
+  "cmux_tui": "0ba6febb2962fd304f8bbb0f9ec6944f5a8f0a86",
+  "fixes": [
+    {
+      "sha": "0ba6febb2962fd304f8bbb0f9ec6944f5a8f0a86",
+      "mergedAt": "2026-11-13T01:55:32-08:00",
+      "subject": "Session list clients follow from a cursor on reconnect and lag: agent pane, sidebar feed, TUI (W4) (#41889)"
+    },
+    {
+      "sha": "f2e57649a6fb654762ae4a68c2354c1c005b0c26",
+      "mergedAt": "2026-11-13T01:47:13-08:00",
+      "subject": "test: translate queue coverage and checkpoint limits (#42506) (#42513)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T10:32:21Z",
+    "snapshot_id": "sh-75ae5c27d6014bd6a7ae6ba31089546c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43408166067): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "25b5705934055dd79f908e1b714d5d3eed269699",
+    "image": "cloud-native-auto-0ba6febb-43408166067-1",
+    "revision": "ci-43408166067-1",
+    "at": "2026-11-13T10:32:21Z"
+  },
+  "rolled_back": false
+}
