@@ -897,7 +897,8 @@ struct ShellTabs: View {
                                                         workspaces: shell.cloudMachineWorkspaces()))
                         },
                         automations: { AnyView(CloudAutomationsScreen()) },
-                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                        connectGitHub: { AnyView(GitHubConnectRow()) },
+                        workspace: { shell.cloudWorkspacePage(machineID: $0, workspaceID: $1) }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }

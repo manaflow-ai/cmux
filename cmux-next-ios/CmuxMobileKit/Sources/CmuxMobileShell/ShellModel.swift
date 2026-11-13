@@ -67,9 +67,9 @@ final class ShellModel {
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] {
         didSet {
-            // Back at the root (a tab tap, a reset): no workspace is on the Settings stack.
-            if settingsPath.isEmpty, !workspacesInSettings.isEmpty { workspacesInSettings = [] }
             updateInteractiveOpen()
+            // A Cloud workspace on (or off) the Settings stack: its machine's link follows.
+            if oldValue.contains(where: \.isCloudWorkspace) || settingsPath.contains(where: \.isCloudWorkspace) { updateShownMacs() }
         }
     }
 
@@ -388,12 +388,26 @@ final class ShellModel {
                                         openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing))
             },
             shown: { [weak live] machineID in live?.touch(machineID) },
-            // On the Settings stack (from its push to its pop, pages over it included): the tab bar
-            // hides, as for a workspace on any other tab.
-            onStack: { [weak self] id, onStack in
-                if onStack { self?.workspacesInSettings.insert(id) } else { self?.workspacesInSettings.remove(id) }
+            // A route on the Settings path: the path says what is on screen (``showsTabBar(on:)``,
+            // ``updateShownMacs()``), as Workspaces' path does.
+            open: { [weak self] workspace in
+                self?.settingsPath.append(.cloudWorkspace(machineID: workspace.macID, workspaceID: workspace.id))
             }
         )
+    }
+
+    /// The page of a Cloud workspace route on the Settings stack (it closes if the workspace goes).
+    func cloudWorkspacePage(machineID: String, workspaceID: String) -> AnyView {
+        AnyView(WorkspaceScreen(store: store, workspaceID: workspaceID, terminal: terminalTabs, creator: creator,
+                                openWorkspace: { [weak self] in self?.show(workspace: $0) }, screenSharing: screenSharing))
+    }
+
+    /// The Cloud machine of the topmost workspace on the Settings stack, if one is open there.
+    var settingsCloudMachine: String? {
+        for route in settingsPath.reversed() {
+            if case .cloudWorkspace(let machineID, _) = route { return machineID }
+        }
+        return nil
     }
 
     /// The account's Cloud machines among the Macs on the Workspaces list, while signed in to a
@@ -440,7 +454,10 @@ final class ShellModel {
             }
         case .feed:
             live.showing(macIDs: nil)
-        case .home, .settings:
+        case .settings:
+            // A Cloud workspace open on the Settings stack keeps its machine shown (its link stays).
+            live.showing(macIDs: settingsCloudMachine.map { [$0] } ?? [])
+        case .home:
             live.showing(macIDs: [])
         }
     }
@@ -450,6 +467,13 @@ final class ShellModel {
     func macRemoved(_ macID: String) {
         if let index = workspacesPath.firstIndex(where: { $0.macID == macID }) {
             workspacesPath.removeSubrange(index...)
+        }
+        // A Cloud machine's workspace open on the Settings stack closes too, back to its page.
+        if let index = settingsPath.firstIndex(where: {
+            if case .cloudWorkspace(let machineID, _) = $0 { return machineID == macID }
+            return false
+        }) {
+            settingsPath.removeSubrange(index...)
         }
     }
 
@@ -576,7 +600,7 @@ final class ShellModel {
     /// Home, Workspaces or the Feed (a workspace and its pages, a chat, a
     /// conversation) owns the bottom edge (SPEC 3.1), so the bar hides while
     /// that stack is not at its root; Settings pages keep it, except a workspace
-    /// a Cloud machine's page opens there (`workspacesInSettings`).
+    /// a Cloud machine's page opens there (a `.cloudWorkspace` route).
     ///
     /// Pushed screens never hide it themselves: SwiftUI applied a pushed
     /// screen's `.toolbar(.hidden, for: .tabBar)` only when it was pushed on
@@ -585,15 +609,12 @@ final class ShellModel {
     /// showed over the bar, and a screen that hid it in some branches only
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
-        if tab == .settings { return workspacesInSettings.isEmpty }
+        // A workspace a Cloud machine's page opened is a route on the Settings path: like a
+        // workspace and its pages on any other tab, it owns the bottom edge while it is on the stack
+        // (pages pushed over it included), and the bar comes back when it is popped.
+        if tab == .settings { return settingsCloudMachine == nil }
         return depth(of: tab) == 0
     }
-
-    /// Workspaces on the Settings stack (a Cloud machine's page opens its workspaces there, so
-    /// swipe-back returns to it): like a workspace and its pages on any other tab they own the
-    /// bottom edge. Membership follows the push and the pop (``CloudMachineWorkspaces/onStack``),
-    /// never visibility, so a page pushed over the workspace keeps the bar hidden too.
-    var workspacesInSettings: Set<String> = []
 
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {

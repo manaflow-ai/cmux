@@ -294,6 +294,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
+        case .cloudWorkspace(let machineID, let workspaceID):
+            cloudPages?.workspace(machineID, workspaceID)
         case .longPressMenus:
             LongPressMenusPage()
         }
@@ -314,6 +316,14 @@ public enum SettingsRoute: Hashable, Sendable {
     case accentColor
     /// Cloud → Cloud Machines (the account's Cloud machines).
     case cloudMachines
+    /// A Cloud machine's workspace, opened from its Cloud Machines page (the shell builds the page).
+    case cloudWorkspace(machineID: String, workspaceID: String)
+
+    /// A Cloud workspace route (the shell hides the tab bar and keeps the machine's link for it).
+    public var isCloudWorkspace: Bool {
+        if case .cloudWorkspace = self { return true }
+        return false
+    }
     /// Cloud → Automations (the account's Cloud automations).
     case automations
     /// Long-Press Menus: the menu items the person hid.

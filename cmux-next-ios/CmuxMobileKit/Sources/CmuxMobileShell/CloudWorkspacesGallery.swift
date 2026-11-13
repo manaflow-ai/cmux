@@ -61,8 +61,9 @@ final class CloudWorkspacesGallery {
         }
     }
 
-    /// The machine page's Workspaces section over the same store.
-    var machineWorkspaces: CloudMachineWorkspaces {
+    /// The machine page's Workspaces section over the same store; a workspace opens as a route
+    /// on `path`, as the app's Settings stack does.
+    func machineWorkspaces(path: Binding<[Workspace]>) -> CloudMachineWorkspaces {
         let store = store, creator = creator
         return CloudMachineWorkspaces(
             state: { id in
@@ -70,7 +71,23 @@ final class CloudWorkspacesGallery {
             },
             canCreate: { id in creator.availableMacs.contains { $0.id == id } },
             create: { creator.create(start: .terminal, macID: $0) },
-            page: { workspace in AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, creator: creator)) })
+            page: { workspace in AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, creator: creator)) },
+            open: { path.wrappedValue.append($0) })
+    }
+
+    /// The Cloud Machines page with its machines' workspaces pushed on its own path.
+    struct MachinesPage: View {
+        let gallery: CloudWorkspacesGallery
+        @State private var path: [Workspace] = []
+
+        var body: some View {
+            NavigationStack(path: $path) {
+                CloudMachinesScreen(model: .gallery(), workspaces: gallery.machineWorkspaces(path: $path))
+                    .navigationDestination(for: Workspace.self) { workspace in
+                        WorkspaceScreen(store: gallery.store, workspaceID: workspace.id, creator: gallery.creator)
+                    }
+            }
+        }
     }
 }
 

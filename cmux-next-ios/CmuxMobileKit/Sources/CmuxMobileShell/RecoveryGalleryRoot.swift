@@ -64,7 +64,7 @@ public struct RecoveryGalleryRoot: View {
             case "cloudworkspaces":
                 cloudGallery.list
             case "cloudmachineworkspaces":
-                NavigationStack { CloudMachinesScreen(model: .gallery(), workspaces: cloudGallery.machineWorkspaces) }
+                CloudWorkspacesGallery.MachinesPage(gallery: cloudGallery)
             default:
                 states
             }

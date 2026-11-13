@@ -294,8 +294,6 @@ struct CloudMachineDetail: View {
     let id: String
     var openChats: (() -> Void)?
     var workspaces: CloudMachineWorkspaces?
-    /// A workspace New Workspace made on this machine, pushed at once.
-    @State private var openedWorkspace: Workspace?
     @State private var renaming = false
     @State private var newName = ""
     @State private var snapshotting = false
@@ -331,7 +329,7 @@ struct CloudMachineDetail: View {
                     }
                     .disabled(!model.canAct)
                     if let workspaces {
-                        CloudMachineWorkspacesSection(machine: machine, workspaces: workspaces) { openedWorkspace = $0 }
+                        CloudMachineWorkspacesSection(machine: machine, workspaces: workspaces) { workspaces.open($0) }
                     }
                     if let openChats, machine.status == .running {
                         Section {
@@ -389,19 +387,7 @@ struct CloudMachineDetail: View {
                 }
                 .listStyle(.insetGrouped)
                 .navigationTitle(machine.title)
-                .navigationDestination(item: $openedWorkspace) { workspace in
-                    if let workspaces { workspaces.page(workspace) }
-                }
-                // Stack membership is the binding: set from the push until the pop, also while a
-                // page of the workspace is pushed over it.
-                .onChange(of: openedWorkspace?.id) { old, new in
-                    if let old { workspaces?.onStack(old, false) }
-                    if let new { workspaces?.onStack(new, true) }
-                }
-                .onDisappear {
-                    // The machine's page itself left (popped, or the stack replaced): nothing of it is on screen.
-                    if let id = openedWorkspace?.id { workspaces?.onStack(id, false) }
-                }
+
                 .alert("Rename Machine", isPresented: $renaming) {
                     TextField("Name", text: $newName)
                     Button("Rename") { Task { await model.rename(machine, to: newName) } }
@@ -485,20 +471,20 @@ public struct CloudMachineWorkspaces {
     public var page: @MainActor (Workspace) -> AnyView
     /// The page is on screen: its machine's link opens (and stays while recent).
     public var shown: @MainActor (_ machineID: String) -> Void
-    /// A workspace of this page is on its navigation stack (true from its push until it is
-    /// popped, whatever is pushed over it), so the shell can hide its tab bar as on Workspaces.
-    public var onStack: @MainActor (_ workspaceID: String, _ onStack: Bool) -> Void
+    /// Opens a workspace of the machine: the shell pushes it as a route on its navigation path, so
+    /// the path itself says what is on screen (the tab bar, the machine's link).
+    public var open: @MainActor (Workspace) -> Void
 
     public init(state: @escaping @MainActor (String) -> State, canCreate: @escaping @MainActor (String) -> Bool,
                 create: @escaping @MainActor (String) -> Workspace?, page: @escaping @MainActor (Workspace) -> AnyView,
                 shown: @escaping @MainActor (String) -> Void = { _ in },
-                onStack: @escaping @MainActor (_ workspaceID: String, _ onStack: Bool) -> Void = { _, _ in }) {
+                open: @escaping @MainActor (Workspace) -> Void = { _ in }) {
         self.state = state
         self.canCreate = canCreate
         self.create = create
         self.page = page
         self.shown = shown
-        self.onStack = onStack
+        self.open = open
     }
 }
 
@@ -550,17 +536,28 @@ struct CloudMachineWorkspacesSection: View {
                             .accessibilityIdentifier("cloudMachines.workspaces.empty")
                     }
                     ForEach(list) { workspace in
-                        NavigationLink {
-                            workspaces.page(workspace)
+                        Button {
+                            open(workspace)
                         } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workspace.title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                                if let place = workspace.branch ?? (workspace.directory.isEmpty ? nil : workspace.directory) {
-                                    Text(place).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workspace.title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                                    if let place = workspace.branch ?? (workspace.directory.isEmpty ? nil : workspace.directory) {
+                                        Text(place).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                    }
                                 }
+                                Spacer(minLength: 8)
+                                // A push, as a navigation row's (the button opens a route on the stack).
+                                Image(systemName: "chevron.right")
+                                    .font(theme.type.meta.weight(.semibold))
+                                    .foregroundStyle(theme.colors.label3)
+                                    .accessibilityHidden(true)
                             }
+                            .contentShape(Rectangle())
                             .accessibilityElement(children: .combine)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(.isButton)
                         .accessibilityIdentifier("cloudMachines.workspace.\(workspace.id)")
                     }
                 }

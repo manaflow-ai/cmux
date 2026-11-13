@@ -14,11 +14,15 @@ public struct SettingsCloudPages {
     public var machines: () -> AnyView
     public var automations: () -> AnyView
     public var connectGitHub: () -> AnyView
+    /// A Cloud machine's workspace on the Settings stack (``SettingsRoute/cloudWorkspace(machineID:workspaceID:)``).
+    public var workspace: (_ machineID: String, _ workspaceID: String) -> AnyView
 
-    public init(machines: @escaping () -> AnyView, automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
+    public init(machines: @escaping () -> AnyView, automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView,
+                workspace: @escaping (_ machineID: String, _ workspaceID: String) -> AnyView = { _, _ in AnyView(EmptyView()) }) {
         self.machines = machines
         self.automations = automations
         self.connectGitHub = connectGitHub
+        self.workspace = workspace
     }
 }
 

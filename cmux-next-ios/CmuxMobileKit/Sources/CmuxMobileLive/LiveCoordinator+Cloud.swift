@@ -53,6 +53,8 @@ extension LiveCoordinator {
         publishCloudMachines()
         let ids = Set(machines.map(\.id))
         for gone in before.subtracting(ids) {
+            // Its open pages close, as a removed Mac's do (a workspace on Workspaces or Settings).
+            onMacRemoved?(gone)
             closeSession(gone)
             store.replaceWorkspaces(macID: gone, with: [])
             store.macData[gone] = nil

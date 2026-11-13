@@ -107,9 +107,13 @@ final class CloudWorkspacesCaptureUITests: XCTestCase {
         XCTAssertTrue(app.buttons["cloudMachines.workspace.ws-cloud-1"].exists)
         shot(app, "\(name)-01-machine-workspaces")
 
+        // An existing row opens its workspace (a route on the stack, the path every open takes).
         app.buttons["cloudMachines.workspace.ws-cloud-1"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["workspace.ws-cloud-1"].waitForExistence(timeout: 10), "workspace\n\(app.debugDescription)")
         shot(app, "\(name)-02-workspace")
+        // Back to the machine's page, and New Workspace opens its new workspace the same way.
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Build box"].waitForExistence(timeout: 10), "back\n\(app.debugDescription)")
         app.terminate()
 
         let again = launch("cloudmachineworkspaces", name)
