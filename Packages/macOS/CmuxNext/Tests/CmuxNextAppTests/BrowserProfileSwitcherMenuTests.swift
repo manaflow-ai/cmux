@@ -27,10 +27,15 @@ struct BrowserProfileSwitcherMenuTests {
     @Test func theAvatarMenuSwitchesTheTabToAnotherProfileInOneClick() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             defer { for key in Array(services.cache.browsers.keys) { services.cache.release(key) } }
+            // The daemon moves a tab only into a profile it holds: create the profile once the app keeps
+            // its records there (before that, a new profile lives only in this Mac's file), and wait for it.
+            try await PasswordManagerRouteTests.until({ services.browserProfiles.usesDaemonRecords },
+                                                       report: { "the app does not keep browser profiles in the daemon" })
             let name = "Switch \(UUID().uuidString.prefix(6))"
             try services.browserProfiles.createProfileNow(name: name, color: "blue", icon: nil)
-            try await PasswordManagerRouteTests.until({ services.browserProfiles.ordered.contains { $0.name == name } },
-                                                       report: { "profiles \(services.browserProfiles.ordered.map(\.name))" })
+            let personal = services.machines.local.store.personal
+            try await PasswordManagerRouteTests.until({ personal.browserProfiles.contains { $0.name == name } && services.browserProfiles.ordered.contains { $0.name == name } },
+                                                       report: { "daemon profiles \(personal.browserProfiles.map(\.name)), app \(services.browserProfiles.ordered.map(\.name))" })
             let other = try #require(services.browserProfiles.ordered.first { $0.name == name })
             defer { try? services.browserProfiles.delete(other.id) }
 
@@ -79,7 +84,7 @@ struct BrowserProfileSwitcherMenuTests {
             #expect(switchIndex < renameIndex, "the profile list is not above the profile's actions")
 
             // One click: what `ActionMenuTarget.performAction` runs for it. The tab reopens in the other profile.
-            #expect((switchRow.target as? NSMenuItemValidation)?.validateMenuItem(switchRow) == true, "the switch row is disabled")
+            #expect((switchRow.target as? any NSMenuItemValidation)?.validateMenuItem(switchRow) == true, "the switch row is disabled")
             let refusal = services.registry.capturingRefusal {
                 _ = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments))
             }
