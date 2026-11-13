@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43366119152",
+  "recorded_at": "2026-11-13T04:46:11Z",
+  "reason": "cmux-tui d913a08f480e changes the image's cmux-tui (pinned 8c23543b1027)",
+  "dry_run": false,
+  "cmux_tui": "d913a08f480e63a6a205138063bac94789139081",
+  "fixes": [
+    {
+      "sha": "d913a08f480e63a6a205138063bac94789139081",
+      "mergedAt": "2026-11-12T20:07:51-08:00",
+      "subject": "agent service v2 PR 2: acpmux-book translate for v1 events and Claude JSONL (#42135)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T04:46:11Z",
+    "snapshot_id": "sh-609171fe226c4ccd8727813b0f369706",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43366119152): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "631b1c9e384f1292ecf4ece6347e22ae4da27508",
+    "image": "cloud-native-auto-d913a08f-43366119152-1",
+    "revision": "ci-43366119152-1",
+    "at": "2026-11-13T04:46:11Z"
+  },
+  "rolled_back": false
+}
