@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import { parseSync } from "@babel/core";
+import { build as bundleHelper } from "esbuild";
 
 const grammarFile = /\/@shikijs\/langs\/dist\/[^/]+\.mjs$/;
 const payload = /JSON\.parse\(("(?:\\.|[^"\\])*")\)/g;
@@ -30,11 +31,11 @@ export function packGrammar(code, id) {
   return `import { inflateGrammar } from ${JSON.stringify(loaderId)};\n${transformed}`;
 }
 
-export function shikiPackVite() {
+export function shikiPackVite({ decoder = "native" } = {}) {
   return {
     name: "cmux-shiki-pack",
     apply: "build",
-    generateBundle(_options, bundle) {
+    async generateBundle(_options, bundle) {
       let packed = 0;
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== "chunk" || !/^chunks\/shiki-lang-.*\.mjs$/.test(chunk.fileName)) continue;
@@ -47,9 +48,27 @@ export function shikiPackVite() {
         packed++;
       }
       if (!packed) throw new Error("Shiki pack found no emitted grammar payloads");
-      this.emitFile({ type: "asset", fileName: "chunks/shiki-pack-inflate.mjs", source: loader });
+      this.emitFile({ type: "asset", fileName: "chunks/shiki-pack-inflate.mjs", source: await helperSource(decoder) });
     },
   };
+}
+
+async function helperSource(decoder) {
+  if (decoder === "native") return loader;
+  if (decoder !== "fflate") throw new Error(`Unknown Shiki decoder: ${decoder}`);
+  const result = await bundleHelper({
+    stdin: {
+      contents: `import { gunzipSync } from "fflate";\nexport function inflateGrammar(base64) {\n  const bytes = Uint8Array.from(atob(base64), (byte) => byte.charCodeAt(0));\n  return JSON.parse(new TextDecoder().decode(gunzipSync(bytes)));\n}`,
+      resolveDir: process.cwd(),
+    },
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    minify: true,
+    write: false,
+  });
+  return result.outputFiles[0].text;
 }
 
 function packGeneratedGrammar(code, filename) {

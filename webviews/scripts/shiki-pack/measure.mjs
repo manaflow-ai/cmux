@@ -27,6 +27,7 @@ const receipt = {
   timings: [],
   smoke: [],
   browsers: {},
+  decoder: process.env.CMUX_SHIKI_DECODER ?? "native",
 };
 
 async function files(root, prefix = "") {
@@ -49,7 +50,12 @@ for (const variant of ["baseline", "control", "gzip"]) {
       : ["run", "vp", "build", "--config", "scripts/shiki-pack/benchmark.vite.mjs"];
   const log = execFileSync(command, args, {
     cwd: webviews,
-    env: { ...process.env, CMUX_WEBVIEWS_OUT_DIR: root, CMUX_SHIKI_PACK: variant === "gzip" ? "1" : "0" },
+    env: {
+      ...process.env,
+      CMUX_WEBVIEWS_OUT_DIR: root,
+      CMUX_SHIKI_PACK: variant === "gzip" ? "1" : "0",
+      CMUX_SHIKI_DECODER: process.env.CMUX_SHIKI_DECODER ?? "native",
+    },
     encoding: "utf8",
     timeout: 600_000,
     maxBuffer: 32 * 1024 * 1024,
@@ -119,6 +125,18 @@ for (const treeShaking of [true, false]) {
   await writeFile(path.join(out, `core-tree-shaking-${treeShaking}.json`), JSON.stringify(result.metafile));
 }
 receipt.coreBarrel = core;
+const wrapper = await build({
+  stdin: { contents: 'export { createHighlighterCore } from "shiki/core";', resolveDir: webviews },
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  minify: true,
+  write: false,
+  metafile: true,
+  treeShaking: true,
+});
+receipt.coreWrapper = wrapper.outputFiles[0].contents.length;
+await writeFile(path.join(out, "core-wrapper-tree-shaking.json"), JSON.stringify(wrapper.metafile));
 
 // Compare native codecs without shipping a second codec or changing the candidate's portable gzip.
 const codecs = { jsonBytes: 0, gzipBytes: 0, brotliBytes: 0 };
@@ -271,6 +289,9 @@ try {
             const page = await context.newPage();
             const errors = [];
             page.on("pageerror", (error) => errors.push(String(error)));
+            page.on("requestfailed", (request) =>
+              errors.push(`request failed: ${request.url()}: ${request.failure()?.errorText}`),
+            );
             page.on("response", (response) => {
               if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`);
             });
@@ -301,6 +322,49 @@ try {
                   },
                 };
                 window.__shikiTiming = {};
+                window.__shikiLongTasks = [];
+                if (PerformanceObserver.supportedEntryTypes.includes("longtask"))
+                  new PerformanceObserver((list) =>
+                    window.__shikiLongTasks.push(
+                      ...list.getEntries().map(({ startTime, duration }) => ({ startTime, duration })),
+                    ),
+                  ).observe({ type: "longtask", buffered: true });
+                const readableEditor = () => {
+                  const editor = document.querySelector(".ProseMirror");
+                  const heading = editor?.querySelector("h1");
+                  if (!editor?.isContentEditable || heading?.textContent !== "Grammar benchmark") return false;
+                  const rect = heading.getBoundingClientRect();
+                  const style = getComputedStyle(editor);
+                  return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    rect.right > 0 &&
+                    rect.bottom > 0 &&
+                    rect.left < innerWidth &&
+                    rect.top < innerHeight &&
+                    style.visibility === "visible" &&
+                    Number(style.opacity) > 0 &&
+                    style.pointerEvents !== "none"
+                  );
+                };
+                const afterPaint = (key, predicate) => {
+                  const check = () => {
+                    if (!predicate()) return requestAnimationFrame(check);
+                    requestAnimationFrame(() =>
+                      requestAnimationFrame(() => {
+                        if (!predicate()) return requestAnimationFrame(check);
+                        window.__shikiTiming[key] = performance.now();
+                      }),
+                    );
+                  };
+                  requestAnimationFrame(check);
+                };
+                afterPaint("readyPaint", readableEditor);
+                if (language !== "plain")
+                  afterPaint(
+                    "highlightPaint",
+                    () => readableEditor() && document.querySelector(".md-code code [style]"),
+                  );
                 const observer = new MutationObserver(() => {
                   if (!window.__shikiTiming.ready && document.querySelector(".ProseMirror h1"))
                     window.__shikiTiming.ready = performance.now();
@@ -318,7 +382,7 @@ try {
               await page
                 .waitForFunction(
                   (language) =>
-                    window.__shikiTiming.ready && (language === "plain" || window.__shikiTiming.highlighted),
+                    window.__shikiTiming.readyPaint && (language === "plain" || window.__shikiTiming.highlightPaint),
                   language,
                   { timeout: 30_000 },
                 )
@@ -329,7 +393,10 @@ try {
                 });
               const timing = await page.evaluate(() => window.__shikiTiming);
               assert(
-                Number.isFinite(timing.ready) && (language === "plain" || Number.isFinite(timing.highlighted)),
+                Number.isFinite(timing.ready) &&
+                  Number.isFinite(timing.readyPaint) &&
+                  (language === "plain" ||
+                    (Number.isFinite(timing.highlighted) && Number.isFinite(timing.highlightPaint))),
                 "missing readiness timing",
               );
               assert.deepEqual(errors, [], `${variant}/${language}/${temperature}`);
@@ -342,6 +409,7 @@ try {
                 repeat,
                 ...timing,
                 colorsHash: createHash("sha256").update(colors).digest("hex"),
+                longTasks: await page.evaluate(() => window.__shikiLongTasks),
               });
             }
             await context.close();
@@ -374,10 +442,12 @@ const quantile = (values, q) => {
 };
 const summary = {
   head: receipt.head,
+  paintMethod: "two-rAF readiness proxy, not a compositor timestamp",
   browsers: receipt.browsers,
   variants: Object.fromEntries(Object.entries(receipt.variants).map(([name, value]) => [name, value.bytes])),
   languages: new Set(receipt.grammarEquality.map(({ file }) => file)).size,
   coreBarrel: core,
+  coreWrapper: receipt.coreWrapper,
   codecs,
   smoke: receipt.smoke,
   timings: [],
@@ -414,7 +484,49 @@ for (const engine of ["chromium", "webkit"])
             rows.map((row) => row.highlighted),
             0.95,
           ),
+          readyPaintP50: quantile(
+            rows.map((row) => row.readyPaint),
+            0.5,
+          ),
+          readyPaintP95: quantile(
+            rows.map((row) => row.readyPaint),
+            0.95,
+          ),
+          highlightPaintP50: quantile(
+            rows.map((row) => row.highlightPaint),
+            0.5,
+          ),
+          highlightPaintP95: quantile(
+            rows.map((row) => row.highlightPaint),
+            0.95,
+          ),
+          longTaskMax: Math.max(0, ...rows.flatMap((row) => row.longTasks.map(({ duration }) => duration))),
         });
       }
 await writeFile(path.join(out, "summary.json"), JSON.stringify(summary, null, 2));
-console.log(JSON.stringify(summary, null, 2));
+// The broker returns a bounded log tail. Keep every paired metric in that tail even
+// when artifact retrieval is temporarily unavailable; raw samples stay in receipt.json.
+console.log(
+  `SHIKI_SIZE head=${summary.head} bytes=${summary.variants.baseline}->${summary.variants.gzip} files=${receipt.variants.baseline.inventory.length}->${receipt.variants.gzip.inventory.length}`,
+);
+console.log(
+  `SHIKI_CORRECTNESS ${JSON.stringify({ languages: summary.languages, smoke: summary.smoke, browsers: summary.browsers, paintMethod: summary.paintMethod })}`,
+);
+console.log(`SHIKI_CODECS ${JSON.stringify({ ...codecs, coreBarrel: core, coreWrapper: receipt.coreWrapper })}`);
+const metric = (row, name) =>
+  [row[`${name}P50`], row[`${name}P95`]].map((value) => (Number.isFinite(value) ? value.toFixed(1) : "-")).join("/");
+for (const baseline of summary.timings.filter((row) => row.variant === "baseline")) {
+  const gzip = summary.timings.find(
+    (row) =>
+      row.variant === "gzip" &&
+      row.engine === baseline.engine &&
+      row.language === baseline.language &&
+      row.temperature === baseline.temperature,
+  );
+  const metrics = ["ready", "highlight", "readyPaint", "highlightPaint"]
+    .map((name) => `${name}=${metric(baseline, name)}->${metric(gzip, name)}`)
+    .join(" ");
+  console.log(
+    `SHIKI_TIMING ${baseline.engine}/${baseline.language}/${baseline.temperature} ${metrics} longTask=${baseline.longTaskMax.toFixed(1)}->${gzip.longTaskMax.toFixed(1)} ms(p50/p95)`,
+  );
+}

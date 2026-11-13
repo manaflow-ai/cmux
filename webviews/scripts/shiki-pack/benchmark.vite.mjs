@@ -4,5 +4,10 @@ import { shikiPackVite } from "./plugin.mjs";
 
 export default {
   ...config,
-  plugins: [...config.plugins, ...(process.env.CMUX_SHIKI_PACK === "1" ? [shikiPackVite()] : [])],
+  plugins: [
+    ...config.plugins,
+    ...(process.env.CMUX_SHIKI_PACK === "1"
+      ? [shikiPackVite({ decoder: process.env.CMUX_SHIKI_DECODER ?? "native" })]
+      : []),
+  ],
 };
