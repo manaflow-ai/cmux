@@ -181,6 +181,12 @@ public final class AddressBarView: NSView {
         // (BrowserToolbarLayout decides the omnibar's width).
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // The chip is exactly its icon and label; the field takes the bar's spare width, so the
+        // URL starts right after the chip, as in Chrome (https://github.com/manaflow-ai/cmux/issues/42273).
+        // At the default 250 both views hugged alike and Auto Layout could widen the chip instead,
+        // pushing the address to the right of its "Not secure" label.
+        chip.setContentHuggingPriority(.required, for: .horizontal)
+        chip.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         for view in [backdrop, pill, chip, field] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
