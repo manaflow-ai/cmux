@@ -212,7 +212,7 @@ async fn quiet_unsubscribe_releases_tasks_and_subscribers() {
 
 #[test]
 fn inflight_bytes_stay_counted_and_notice_uses_completed_cursor() {
-    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES + 100);
+    let mut state = ConnectionState::new(128);
     state.subscribe("s", Cursor(7)).unwrap();
     let control = state.control("s").unwrap();
     assert_eq!(state.offer("s", frame(90), Cursor(8)), Offer::Taken);
@@ -778,7 +778,7 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
 
 #[test]
 fn subscription_first_frame_consumes_its_request_reserve() {
-    let mut state = ConnectionState::new(crate::wire::CONNECTION_BUDGET_BYTES);
+    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES * 2);
     state.subscribe("s", Cursor(0)).unwrap();
     let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
@@ -791,18 +791,14 @@ fn subscription_first_frame_consumes_its_request_reserve() {
 
 #[test]
 fn other_subscription_still_sees_the_request_reserve() {
-    let mut state = ConnectionState::new(crate::wire::CONNECTION_BUDGET_BYTES);
+    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES * 2);
     state.subscribe("s", Cursor(0)).unwrap();
     state.subscribe("other", Cursor(0)).unwrap();
     let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
     state.begin_subscription_reply(control);
     assert_eq!(
-        state.offer(
-            "other",
-            frame(crate::wire::CONNECTION_BUDGET_BYTES - crate::wire::MAX_FRAME_BYTES - 8),
-            Cursor(1)
-        ),
+        state.offer("other", frame(crate::wire::MAX_FRAME_BYTES - 8), Cursor(1)),
         Offer::Taken
     );
     assert!(matches!(
@@ -814,7 +810,7 @@ fn other_subscription_still_sees_the_request_reserve() {
 
 #[test]
 fn subscription_first_frame_past_remaining_budget_drops_with_named_cursor() {
-    let mut state = ConnectionState::new(128);
+    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES + 100);
     state.subscribe("s", Cursor(7)).unwrap();
     let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
