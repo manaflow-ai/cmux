@@ -143,12 +143,16 @@ enum BrowserToolbarHandlers {
     /// with `browserProfile.moveTab`; then New Browser Profile, Import from
     /// Browser and Rename Browser Profile for the tab's profile.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
-        let registry = services.registry
-        let target = tabTarget(entry)
         let profiles = services.browserProfiles
         let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        return profileMenu(tabKey: tabKey(entry), current: current, profiles: profiles.ordered, registry: services.registry)
+    }
+
+    /// The profile button's menu for the tab `tabKey`, whose profile is `current`, listing `profiles`.
+    static func profileMenu(tabKey: String, current: String, profiles: [BrowserProfileRecord], registry: ActionRegistry) -> NSMenu {
+        let target = ActionTargetRef(kind: .tab, id: tabKey)
         let menu = NSMenu()
-        for record in profiles.ordered {
+        for record in profiles {
             let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
             item.state = record.id == current ? .on : .off
             let closure = ActionMenuClosure { [weak registry] in
