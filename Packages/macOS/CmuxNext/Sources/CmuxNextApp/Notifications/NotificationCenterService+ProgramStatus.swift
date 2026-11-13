@@ -49,19 +49,14 @@ extension NotificationCenterService {
     }
 
     /// Where the tab is for the user now (status-indicators.md visibility
-    /// rule): the selected tab of its pane, in the workspace a visible window
-    /// shows, while cmux is active. A pane of the shown workspace counts as on
-    /// screen.
+    /// rule): drawn by a visible window, while cmux is active. A tab on an
+    /// inactive screen, under a top page or scrolled out of view is not.
     func visibility(of located: LocatedTab) -> TerminalVisibility {
         guard let services else { return .hidden }
-        let pane = located.pane
-        let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil
-        // One window must both select the tab and be visible; flags from
-        // different windows never combine.
+        // One window must both draw the tab (``WindowController/showsOnScreen(_:in:)``) and be visible; flags
+        // from different windows never combine.
         let shown = services.windows.controllers.contains { controller in
-            controller.state.workspaceID == located.workspace.id && controller.state.page == nil
-                && (controller.state.selection.selection(in: pane.id) ?? fallback) == located.tab.id
-                && (controller.window?.occlusionState.contains(.visible) ?? false)
+            controller.showsOnScreen(located.tab.id, in: located.pane) && (controller.window?.occlusionState.contains(.visible) ?? false)
         }
         var visibility = TerminalVisibility.hidden
         visibility.appActive = services.appActiveSource()

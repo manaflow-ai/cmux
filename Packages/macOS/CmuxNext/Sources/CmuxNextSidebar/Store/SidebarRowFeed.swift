@@ -85,6 +85,7 @@ public final class SidebarRowFeed {
         /// batch at a time (batches may share buffers). Nil for a row whose batch could not run. `observing` runs each
         /// row's stage and finish (the feed observes each under the row's own observation).
         public static func rows(_ makes: [Self], observing: (Int, () -> Void) -> Void = { _, body in body() }) -> [SidebarWorkspace?] {
+            SidebarPerfCounters.add(.rowsMade, makes.count)
             var rows = [SidebarWorkspace?](repeating: nil, count: makes.count)
             var batches: [(batch: any SidebarRowBatch, members: [Int])] = []
             for (index, make) in makes.enumerated() {
@@ -127,6 +128,8 @@ public final class SidebarRowFeed {
         /// The armed observation's generation; a callback of an older one is stale.
         var generation: UInt64 = 0
         let cancel = SidebarRowWatchCancel()
+        /// Its last map got no row (its batch could not run): nothing it read may tell it to map again.
+        var unmapped = false
         /// The pass that last named the row.
         var pass: UInt64
         /// No pass names the row now and `keeps` held it: nothing draws it, so a change marks it and maps nothing.
@@ -318,7 +321,8 @@ public final class SidebarRowFeed {
             dirty.remove(id)
             parkedEntries[id] = entry
         }
-        if armListings() || parkedNow { scheduleParkedCheck() }
+        // Also while any row is parked: a parked workspace that closed or left the window tells nobody (no row parks, none hears it).
+        if armListings() || parkedNow || !parkedEntries.isEmpty || !parkedListings.isEmpty { scheduleParkedCheck() }
         var rows: [SidebarWorkspace] = []
         let remap = inputsChanged
         inputsChanged = false
@@ -340,7 +344,8 @@ public final class SidebarRowFeed {
     /// Maps the rows of `ids` (each once) under observations that mark each dirty on its next change, every batch in
     /// one call (``Make/rows(_:observing:)``); a row's observations still armed are removed first. A batched row is
     /// observed twice, its stage and its finish, both under its cancel signal. A row whose batch could not run is not
-    /// in the result: it keeps its last row, its stage stays observed, and the next change it read maps it again.
+    /// in the result: it keeps its last row, its stage stays observed, and the next change it read maps it again
+    /// (or the pass that shows its space again: `unparkedEntry`).
     private func map(_ ids: [WorkspaceID]) -> [(Entry, SidebarWorkspace)] {
         var seen = Set<WorkspaceID>(), picked: [(id: WorkspaceID, entry: Entry)] = []
         for id in ids where seen.insert(id).inserted {
@@ -361,7 +366,10 @@ public final class SidebarRowFeed {
                 MainDelivery().run { self?.markDirty(id, generation: generation) }
             }
         }
-        return zip(picked, rows).compactMap { pick, row in row.map { (pick.entry, $0) } }
+        return zip(picked, rows).compactMap { pick, row in
+            pick.entry.unmapped = row == nil
+            return row.map { (pick.entry, $0) }
+        }
     }
 
     /// Removes `entry`'s armed observations: the write fires them (the registrar
@@ -400,9 +408,8 @@ public final class SidebarRowFeed {
         return parkedNow
     }
 
-    /// The parked rows and listings whose workspace `keeps` holds no longer are forgotten. It runs after the turn
-    /// that parked them and after a change one of them heard (its workspace closed or left the window), never in
-    /// an input's turn.
+    /// The parked rows and listings whose workspace `keeps` holds no longer are forgotten. It runs after a fill
+    /// while any is parked and after a change one of them heard, never in an input's turn.
     private func scheduleParkedCheck() {
         guard !parkedCheckScheduled else { return }
         parkedCheckScheduled = true
@@ -425,6 +432,7 @@ public final class SidebarRowFeed {
     private func unparkedEntry(_ id: WorkspaceID) -> Entry? {
         guard let entry = parkedEntries.removeValue(forKey: id) else { return nil }
         entry.parked = false
+        if entry.unmapped { disarm(entry) } // the pass that names it maps it again, as it did before rows parked
         entries[id] = entry
         return entry
     }
@@ -513,14 +521,4 @@ public final class SidebarRowFeed {
         }
         if !changed.isEmpty { onChange?(changed) }
     }
-}
-
-/// Rows whose maps share one call (the sidebar row face, `SidebarMapping`): the feed begins it, stages each of its
-/// rows the turn maps (``SidebarRowFeed/Make``), runs it once, then finishes each row from its slot.
-@MainActor
-public protocol SidebarRowBatch: AnyObject {
-    /// Empties the batch before its rows stage.
-    func begin()
-    /// Maps every staged row in one call; false when it could not (each of its rows keeps its last mapped row).
-    func run() -> Bool
 }

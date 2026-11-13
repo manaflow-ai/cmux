@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MacBookGlyph } from "./MacBookGlyph";
 import { Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { Popover } from "../../ui/Popover";
@@ -845,8 +846,6 @@ export function EnvironmentPicker({
       type="button"
       className="acpmux-location-button ui-ghost ui-ghost-sm"
       aria-label={label + ": " + value}
-      aria-haspopup="dialog"
-      aria-expanded={open}
       {...press}
       onPointerDown={(event) => {
         altAtPress.current = event.altKey;
@@ -874,6 +873,7 @@ export function EnvironmentPicker({
         button
       )}
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
@@ -989,12 +989,12 @@ function matches(words: readonly string[], text: string): boolean {
 export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      className={`acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon${kind === "local" ? " acpmux-macbook-icon" : ""}`}
       data-kind={kind}
       style={name && kind !== "local" ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
-      viewBox="0 0 16 16"
+      viewBox={kind === "local" ? "0 0 20 16" : "0 0 16 16"}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
@@ -1004,10 +1004,7 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
       focusable="false"
     >
       {kind === "local" ? (
-        <>
-          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-          <path d="M1.75 12.5h12.5" />
-        </>
+        <MacBookGlyph />
       ) : kind === "ssh" ? (
         <>
           <rect x="2" y="3" width="12" height="10" rx="1.5" />

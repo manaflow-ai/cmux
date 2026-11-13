@@ -40,6 +40,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# ci.yml copies this script with deadline_http.py beside it and runs it with -I, which leaves its own
+# directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 # Commits on the head's first-parent chain examined for a green head.
 MAX_CHAIN = 8
 # Commits fetched behind the head and main to find the merge base and check
@@ -341,8 +346,9 @@ def github_verdicts(repository: str, token: str, api_url: str, number: int, base
         left = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
         if left <= 0:
             raise Skip(f"reading CI verdicts would start past the {BUDGET_SECONDS} s budget")
-        with urllib.request.urlopen(request, timeout=left) as response:
-            return json.load(response)
+        # The whole call ends within LEFT, a trickled answer included (deadline_http).
+        _, payload, _ = deadline_http.request(request, left, raise_errors=True)
+        return json.loads(payload)
 
     def lookup(oids: list[str]) -> dict[str, Optional[str]]:
         owner, _, name = repository.partition("/")

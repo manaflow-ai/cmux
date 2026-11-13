@@ -10,8 +10,8 @@
 // before and after each bench (bench/hostLoad.ts) and divides that bench's ms rows by it (1 on a host with a free
 // core, so most runs keep their rows as measured). Each bench's factor is in the report's `benches`.
 //   bun bench/web-ui-suite.ts [--only chat-open,chat-switch] [--out report.json]
-// The browser benches need Playwright's chromium and webkit (playwright install --with-deps --only-shell
-// chromium webkit) and build the pane themselves.
+// The browser benches need Playwright's webkit (playwright install --with-deps webkit) and Chrome
+// (scripts/ci/ensure-system-chrome.sh; bench/browsers.ts launches it) and build the pane themselves.
 /// <reference types="bun" />
 import fs from "node:fs";
 import path from "node:path";
@@ -28,31 +28,36 @@ type Bench = {
   ownPart?: boolean;
 };
 
-/// Short arguments; the timeouts of the benches without `ownPart` sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
+/// Short arguments; the timeouts of the benches without `ownPart` sum to at most SUITE_CAP_MS (29.5 minutes), under
+/// perf-cron.py's 30-minute cap on the suite (test/web-ui-suite-order.test.ts holds them to it). Each timeout is about 1.5x
+/// or more of what its bench takes on the perf cron's runner (blacksmith-4vcpu), which runs these benches about 1.7x as
+/// long as a fast-checks runner does (the base's ui-stability failed its Chromium launch after 57-59 s there, 30-34 s on
+/// fast-checks runs 43373098960 and 43374947921).
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
 export const BENCHES: readonly Bench[] = [
+  // These three take 0 to 2 s on the perf runner (2026-11-12).
   {
     name: "agent-activity-groups",
     file: "agent-activity-groups.bench.ts",
     args: ["5", "50"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
   {
     name: "edit-turns-stream",
     file: "edit-turns-stream.bench.ts",
     args: ["5", "100"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
   {
     name: "transcript-view-rows",
     file: "transcript-view-rows.bench.ts",
     args: ["500", "500", "3"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
-  // chat-open takes about 18 s on the perf runner (2026-11-08); 165 s leaves the suite's sum where it was.
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 165_000 },
+  // chat-open takes about 36 s on the perf runner (2026-11-12).
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
@@ -60,13 +65,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
     file: "thread-rail-jump.bench.ts",
     args: ["1000", "5"],
-    timeoutMs: 150_000,
+    timeoutMs: 90_000,
   },
-  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
+  // ui-stability takes 130 to 134 s on a fast-checks runner (about 225 s on the perf runner) once its Chromium launches.
+  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 360_000 },
   // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
   {
     name: "transcript-turn-end-shift",
@@ -80,7 +87,17 @@ export const BENCHES: readonly Bench[] = [
     name: "transcript-replay",
     file: "transcript-replay.bench.ts",
     args: ["--turns", "600"],
-    timeoutMs: 150_000,
+    // 93 to 99 s on a fast-checks runner (about 165 s on the perf runner, where 150 s timed it out on every tip
+    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9).
+    timeoutMs: 300_000,
+  },
+  // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
+  // record's arrival to its paint, task ms per call and layout shift.
+  {
+    name: "tool-call-burst",
+    file: "tool-call-burst.bench.ts",
+    args: ["--rounds", "3"],
+    timeoutMs: 120_000,
   },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
@@ -99,6 +116,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // The pane's state layer kept per operation that should keep nothing (sessions made and closed, chats reopened,
+  // reconnects mid-stream, a shell's output streaming), small and god side by side: bytes, objects and entries per
+  // operation after warm-up (bench/stateGrowth.ts). perf-cron.py's web-ui-growth part runs it (`--only state-growth`).
+  {
+    name: "state-growth",
+    file: "state-growth.bench.ts",
+    args: ["120", "--scale", "both"],
+    timeoutMs: 240_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
@@ -110,13 +137,14 @@ export const BENCHES: readonly Bench[] = [
   },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
-  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own.
+  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
+  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
   {
     name: "chat-open-god",
     file: "chat-open.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 600_000,
+    timeoutMs: 300_000,
     ownPart: true,
   },
   {
@@ -124,7 +152,7 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-switch.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
   {
@@ -132,12 +160,24 @@ export const BENCHES: readonly Bench[] = [
     file: "transcript-replay.bench.ts",
     args: [],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
 ];
 
+/// What the benches without `ownPart` may take together: perf-cron.py's 30-minute cap on the suite, less 30 s.
+export const SUITE_CAP_MS = 1_770_000;
+
 export type Failure = { bench: string; why: string; tail: string[] };
+
+/// What a failed bench's `tail` carries (pure): its malformed PERF_ROW lines, the last lines of its own output (a bench
+/// that says why it failed on stdout, as state-growth's FAIL lines do, would otherwise leave the tail empty) and the
+/// last lines of its stderr, each bounded, in that order.
+export function failureTail(stdout: string, stderr: string, bad: readonly string[]): string[] {
+  const said = stdout.split("\n").filter((line) => line.trim() && !line.startsWith(PERF_ROW_MARK));
+  const errors = stderr.split("\n").filter((line) => line.trim());
+  return [...bad.slice(-4), ...said.slice(-8), ...errors.slice(-12)];
+}
 
 /// The rows in a bench's stdout (pure). A malformed PERF_ROW line is a failure of that bench, not a row.
 export function parseRows(stdout: string): { rows: PerfRow[]; bad: string[] } {
@@ -239,7 +279,7 @@ async function main() {
             ? `${bad.length} malformed PERF_ROW line(s)`
             : null;
     if (why) {
-      const tail = [...bad, ...result.stderr.split("\n").filter(Boolean)].slice(-12);
+      const tail = failureTail(result.stdout, result.stderr, bad);
       failed.push({ bench: bench.name, why, tail });
       console.log(`web-ui-suite: ${bench.name} FAILED (${why})`);
       for (const line of tail) console.log(`  ${bench.name}! ${line}`);

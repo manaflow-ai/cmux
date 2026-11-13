@@ -44,4 +44,14 @@ struct TerminalPaneFollowTallyTests {
         #expect(tally.lagging == 2)
         #expect(tally.firstLagging.map(\.frame) == [0, 1])
     }
+
+    @Test func aSizeAskedOfGhosttyAndNotShownCountsAsInFlight() {
+        var tally = TerminalPaneFollowTally()
+        let waiting = TerminalPaneFollowSizes(area: CGSize(width: 590, height: 400), asked: CGSize(width: 590, height: 400),
+                                              shown: CGSize(width: 600, height: 400), inFlight: true)
+        tally.record(waiting, frame: 0)
+        tally.record(Self.sizes(area: 590, asked: 590, shown: 590), frame: 1)
+        #expect(tally.inFlight == 1)
+        #expect(tally.lagging == 1 && tally.held == 0)
+    }
 }

@@ -4,8 +4,9 @@
 // model and its effort ("Opus 5.5  Medium"); no effort chip of its own is drawn. The button draws a
 // background only under the pointer, on keyboard focus (a real Tab: code focus draws none, FOCUS-RING,
 // src/ui/focusModality.ts) or while its menu is open, and that
-// background is the soft pill of the Claude app's chips (composer-chip-press.test.ts covers the
-// press).
+// background is the soft fill of the Claude app's chips (composer-chip-press.test.ts covers the
+// press). Its corner is the button radius, `--ds-radius-control`: every button rounds as a tab
+// (Lawrence 2026-11-12, a660569b1c62), so it is not a full pill (half the height) any more.
 //
 // It renders the real composer and New Tab box on the gallery stage in Chromium. CI fails the file
 // when it cannot launch (requireBrowserLane). Locally:
@@ -89,7 +90,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
           // A ring is any shadow layer in a visible color (a transparent inset is no ring).
           ring: (style.boxShadow.match(/rgba?\([^)]*\)/g) ?? []).some((color) => !clear(color)),
           radius: parseFloat(style.borderTopLeftRadius),
-          height: element.getBoundingClientRect().height,
+          // The button radius that the page resolves (desktop.css), not a number of this test.
+          control: parseFloat(style.getPropertyValue("--ds-radius-control")),
         };
       });
 
@@ -129,7 +131,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         ).toBe(true);
         const focus = await look(page, chip);
         expect(focus.filled, "keyboard focus draws a background").toBe(true);
-        expect(focus.radius, "the pill shape").toBeGreaterThanOrEqual(focus.height / 2 - 0.5);
+        expect(focus.control, "the page resolves the button radius").toBeGreaterThan(0);
+        expect(focus.radius, "the button radius (--ds-radius-control)").toBe(focus.control);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
         const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
@@ -140,7 +143,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
           await eased(page);
           const hover = await look(page, chip);
           expect(hover.filled, "hover draws a background").toBe(true);
-          expect(hover.radius, "the pill shape").toBeGreaterThanOrEqual(hover.height / 2 - 0.5);
+          expect(hover.radius, "the button radius (--ds-radius-control)").toBe(hover.control);
         }
         await page.close();
       });

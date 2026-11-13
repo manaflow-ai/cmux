@@ -433,6 +433,12 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
 output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
 `retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+On a sub-session whose last turn was stopped (`cancelled`; capability `subsession-resume-v1`)
+it continues it instead, in the same chat and agent session: one new turn told to carry on from
+where it stopped (provenance `{kind: "auto_resume", reason: "stopped", promptId, turnId, manual:
+true}`, prompt id `stopped-resume-<ms>`), never queued (`retry.busy`), answered once it starts
+(`hub/subsession_resume.rs`). A top-level chat's stopped turn still says `retry.nothing_failed`.
+A parent's Stop stops only the parent's own turn; its sub-sessions run on.
 With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
 `subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
 automatic retry fires now, else one more goes, as the prompt the automatic one sends
@@ -1578,7 +1584,7 @@ Extensions:
 | `_acpmux/media_open {sessionId, path}` | Open an image or video the chat names, on the machine that runs it, and answer `{handle, size, mimeType, identity}`. Relative paths start in the chat folder; absolute paths may be inside that folder, `/tmp`, the user's home, or the chat uploads. Every component is opened with `O_NOFOLLOW`, the opened file must be a regular file with one link, inside those roots and not a dot name, key file or `~/Library` path, and its bytes must be png, jpeg, gif or webp (at most 10 MiB) or mp4, mov, m4v or webm (at most 200 MiB). At most 8 handles per connection, each closed after 2 minutes idle and all at disconnect. A peer chat goes to the peer only when its `initialize` features list `mediaRead` (else `mediaRead.unsupported`); never from a Web connection (`mediaRead.remote`). |
 | `_acpmux/media_range {sessionId, handle, offset, length}` | Read 1 to 6 MiB of an open handle and answer `{offset, size, identity, data}` (base64), `size` and `identity` repeating the open. A file changed since the open (device, inode, size or mtime) is refused (`media.changed`) and its handle closed; the range that reaches the end closes it too. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
-| `_acpmux/shutdown` | Stop the daemon. |
+| `_acpmux/shutdown` | Stop the daemon. `reason` (optional) names the client's trigger; the daemon logs it with the client's executable (`a client asked this daemon to stop ... reason=...`). |
 
 Notifications to attached clients: `session/update` (standard), `_acpmux/event` (mux-internal
 records such as `user_message`, `status`, `turn_result`, `permission_request`),

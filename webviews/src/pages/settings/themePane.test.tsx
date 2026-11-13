@@ -31,25 +31,21 @@ test("the Theme page draws each theme key once, in one card, with no second App 
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => card(page!).contains(row))).toBe(true);
   }
-  expect(page.container.querySelector(".domain-button")).toBeNull();
+  // The theme card has no plain "Filter" list; Personalization's other parts may draw one (font families).
+  expect(card(page).querySelector(".domain-button")).toBeNull();
   // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent.
   expect([...card(page).querySelectorAll("[data-theme-row]")].map((row) => row.getAttribute("data-theme-row"))).toEqual(
     ["match", "single", "app-match", "app", "accent"],
   );
 });
 
-test("every popup is the same fixed-width button, and every row has its Reset slot after the control", async () => {
+test("every popup is the same fixed-width button, and no row has a Reset button", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const buttons = [...card(page).querySelectorAll("[data-theme-picker], [data-accent-picker]")];
   expect(buttons.length).toBe(3);
   for (const button of buttons) expect(button.classList.contains("theme-button")).toBe(true);
-  for (const row of card(page).querySelectorAll("[data-theme-row]")) {
-    expect(row.querySelector(".row-control > :last-child")?.classList.contains("reset-slot")).toBe(true);
-  }
-  // At the defaults no Reset shows; a changed accent shows its own, in the slot that was there.
-  expect(card(page).querySelector(".reset-slot[data-shown]")).toBeNull();
   await run(() => page!.store.set("appearance.accent", "blue"));
-  expect(themeRow(page, "accent")!.querySelector(".reset-slot[data-shown]")).not.toBeNull();
+  expect(card(page).querySelector(".reset-slot, [data-reset]")).toBeNull();
 });
 
 test("the accent is a swatch popup: each choice has its swatch, the check is on the right, a pick writes it", async () => {

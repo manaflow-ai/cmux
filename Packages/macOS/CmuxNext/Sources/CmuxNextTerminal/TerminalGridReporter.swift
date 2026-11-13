@@ -6,25 +6,25 @@ import GhosttyNextKit
 /// drag sends its grids while it moves, coalesced to the display refresh (cmux-ad m29, RESIZE P0 6: the newest grid at
 /// most once per refresh, so a full-screen program, which the reflow preview does not re-wrap, follows its pane); every other report
 /// (at rest, forced, a spring's final grid) goes now. A drag's grid, like a key resize's, is the grid of the size asked of
-/// Ghostty, and Ghostty holds that size's frame of a full-screen program for its redraw (RESIZE SYNC; RESIZE P0 12, m55
-/// "terminals: zero lag"; it replaced cmux-ad m29's rule that a drag's grid waits until its size shows, which made the
-/// program redraw a refresh after the divider).
+/// Ghostty, and the presenter holds that size's frame for the program's redraw (RESIZE P0 12, m55 "terminals: zero lag";
+/// it replaced cmux-ad m29's rule that a drag's grid waits until its size shows, which made the program redraw a refresh
+/// after the divider).
 @MainActor
 final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
-    /// Its window ends at the next refresh of the view's window (T-KEYS B3: that window's grid-report ticks; RESIZE P0 6:
+    /// Its window ends at the next refresh of the view's window (T-KEYS B3: that window's presenter ticks it; RESIZE P0 6:
     /// not at 25 ms); its timer stays the backstop.
     private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock, ticks: { [weak self] in
         guard let self else { return nil }
         if let ticks { return ticks() }
-        return view?.window.map(TerminalGridReportRefreshes.forWindow)
+        return view?.window.map(TerminalFramePresenter.forWindow)
     }) { [weak self] in self?.deliver($0) }
     private let clock: any Clock<Duration>
     private let ticks: (@MainActor () -> (any TerminalGridReportTicks)?)?
 
     /// - Parameters:
     ///   - clock: The coalescing window's backstop clock; tests pass a manual one, so a drag needs no real sleep.
-    ///   - ticks: The refreshes that end a window; nil: the view's window's refreshes. Tests pass refreshes stepped by
+    ///   - ticks: The refreshes that end a window; nil: the view's window presenter. Tests pass refreshes stepped by
     ///     hand, so no real frame tick ends a window during the test.
     init(view: TerminalSurfaceView, clock: any Clock<Duration> = ContinuousClock(),
          ticks: (@MainActor () -> (any TerminalGridReportTicks)?)? = nil) {
@@ -62,7 +62,8 @@ final class TerminalGridReporter {
     private func deliver(_ grid: TerminalGridSize) {
         guard let view, let surface = view.surface else { return }
         TerminalSurfaceView.gridReports &+= 1
-        // Ghostty restarts its resize hold's bound when the PTY owner announces this grid (ghostty_surface_set_grid, RESIZE SYNC).
+        // The refresh the program gets this grid in: a hold for its redraw at it counts its bound from here (RESIZE P0 23).
+        if view.session != nil { view.frameOwnership.gridSentEpoch = view.window.map(TerminalFramePresenter.forWindow)?.currentEpoch }
         let size = ghostty_surface_size(surface)
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)

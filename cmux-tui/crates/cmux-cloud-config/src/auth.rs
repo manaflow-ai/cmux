@@ -293,13 +293,41 @@ pub struct TeamRow {
     pub plan: Option<String>,
 }
 
+/// Whether `name` is the default team the sign-in service made for the signed-in account by
+/// itself: "<own email>'s Team", its sign-up naming. The client can read no creator or default
+/// flag for a team (its provenance is server-only metadata), so only the account's own email
+/// counts: a team someone named after any other email keeps its name (Leo 2026-11-10: "apparently
+/// sometimes stakcauth just adds a team of jsut u when it's ur personal account?").
+fn is_own_default_team(name: &str, own_email: Option<&str>) -> bool {
+    let Some(email) = own_email.map(str::trim).filter(|email| email.contains('@')) else {
+        return false;
+    };
+    let lower = name.to_lowercase();
+    let email = email.to_lowercase();
+    ["'s team", "\u{2019}s team"]
+        .iter()
+        .any(|suffix| lower.strip_suffix(suffix) == Some(email.as_str()))
+}
+
 /// The account's teams as rows, in the order given, with `active` checked: at most one row is,
-/// and none when `active` names no listed team.
-pub fn team_rows(teams: &[TeamFacts], active: Option<&str>) -> Vec<TeamRow> {
+/// and none when `active` names no listed team. The sign-in service's default team for this
+/// account (`own_email`'s) shows as Personal, unless the account already has a team named
+/// Personal: then each keeps its name.
+pub fn team_rows(
+    teams: &[TeamFacts],
+    active: Option<&str>,
+    own_email: Option<&str>,
+) -> Vec<TeamRow> {
+    let has_personal = teams.iter().any(|team| team.name.trim() == PERSONAL_TEAM_NAME);
     teams
         .iter()
         .map(|team| {
             let name = team.name.trim();
+            let name = if !has_personal && is_own_default_team(name, own_email) {
+                PERSONAL_TEAM_NAME
+            } else {
+                name
+            };
             let plan = team
                 .plan
                 .as_deref()
