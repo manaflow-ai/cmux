@@ -26,7 +26,7 @@ for mode in "${modes[@]}"; do
     bash "$root/scripts/cmux-next/build-app-ffi.sh" >&2
   seconds=$((SECONDS - start))
   lib="$out/$mode/macos/libcmux_app_ffi.a"
-  nm -gU "$lib" | awk '$2 == "T" {print $3}' | sort -u > "$out/$mode.exports"
+  nm -gU "$lib" | awk '$2 == "T" && $3 ~ /^_cmux_/ {print $3}' | sort -u > "$out/$mode.exports"
   clang -arch arm64 -mmacosx-version-min=14.0 -dynamiclib -dead_strip \
     -Wl,-exported_symbols_list,"$out/$mode.exports" -Wl,-force_load,"$lib" \
     -Wl,-undefined,dynamic_lookup -lc++ -o "$out/$mode.dylib"
