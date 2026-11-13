@@ -134,8 +134,8 @@ enum NoPart {
     Escaped,
 }
 
-impl std::fmt::Display for NoPart {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for NoPart {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Nothing => formatter.write_str("nothing to state"),
             Self::Escaped => formatter.write_str("the part's walk left its scope"),

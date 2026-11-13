@@ -113,6 +113,17 @@ fn a_part_that_takes_in_the_active_workspaces_is_cut_to_8() {
     mux.shutdown();
 }
 
+/// A rename of the workspace at `index` in the live tree that no commit stated: the name, its
+/// source and its revision, as a rename makes them (the commit's name fence refuses a name that
+/// changed with no new revision).
+fn drift_a_name(mux: &Mux, index: usize) {
+    let mut state = mux.state.lock().unwrap();
+    let workspace = &mut state.workspaces[index];
+    workspace.name = "drifted".into();
+    workspace.name_source = crate::resource_name::NameSource::User;
+    workspace.name_revision += 1;
+}
+
 /// THE EQUIVALENCE, 1 of 2. A value of the live tree that no commit stated (as the restore of a
 /// start can leave one): the parts state it, with no full projection, and the journal then
 /// states the rows and the session.
@@ -121,10 +132,7 @@ fn the_parts_leave_the_journal_equal_to_the_rows_and_the_session() {
     let mux = without_crosscheck(|| session_in(test_mux(), 12));
     let drifted = workspace_ids(&mux)[7].clone();
     lose_the_fold(&mux);
-    {
-        let mut state = mux.state.lock().unwrap();
-        state.workspaces[7].name = "drifted".into();
-    }
+    drift_a_name(&mux, 7);
     assert_ne!(journal_workspaces(&mux)[&drifted]["name"], "drifted");
     let full = full_projections(&mux);
     let tally = mux.restate_session_in_parts().unwrap();
@@ -142,10 +150,7 @@ fn the_parts_leave_the_journal_equal_to_the_rows_and_the_session() {
 fn a_full_projection_after_the_parts_states_nothing_new() {
     let mux = without_crosscheck(|| session_in(test_mux(), 12));
     lose_the_fold(&mux);
-    {
-        let mut state = mux.state.lock().unwrap();
-        state.workspaces[7].name = "drifted".into();
-    }
+    drift_a_name(&mux, 7);
     let full = full_projections(&mux);
     mux.restate_session_in_parts().unwrap();
     assert_eq!(full_projections(&mux), full, "a part ran a full projection");
@@ -296,7 +301,7 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
     lose_the_fold(&mux);
     assert!(mux.session_restate_laps_for_test().is_none());
     let full = full_projections(&mux);
-    mux.startup_adoptions_released.store(true, std::sync::atomic::Ordering::Release);
+    mux.startup_adoptions_released.store(true, Ordering::Release);
     let worker = mux.spawn_session_restate().expect("the worker thread did not start");
     worker.join().unwrap();
 

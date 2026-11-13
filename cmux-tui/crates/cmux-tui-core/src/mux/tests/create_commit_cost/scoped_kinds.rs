@@ -7,7 +7,9 @@
 //! THE COUNT, for each kind, after a lost fold (as after a daemon start, before the parts end):
 //! the commit runs no full projection, and its record states no workspace value and no tab of a
 //! workspace that it did not change. The workspace that had the focus is the one exception: a
-//! change that moves the focus states the workspace that the focus left.
+//! change that moves the focus states the workspace that the focus left, and a change of no
+//! value of the live tree (a screen pin: a presentation row) has the workspace with the focus
+//! as its scope. After a lost fold a workspace of the scope is stated whole, one time.
 //!
 //! THE EQUIVALENCE. Each change runs with the debug cross-check on: the commit compares the
 //! scoped projection with the full one and refuses a difference. After it the journal, folded
@@ -58,7 +60,7 @@ fn counted(mux: &Arc<Mux>, own: &str, kind: &str, change: impl FnOnce(&Arc<Mux>)
     let (_, _, had_focus) = workspace_at(mux, mux.with_state(|state| state.active_workspace));
     let other_tabs = workspace_ids(mux)
         .iter()
-        .filter(|workspace| workspace.as_str() != own)
+        .filter(|workspace| workspace.as_str() != own && **workspace != had_focus)
         .flat_map(|workspace| tab_ids(mux, workspace))
         .collect::<BTreeSet<_>>();
     lose_the_fold(mux);
@@ -70,7 +72,7 @@ fn counted(mux: &Arc<Mux>, own: &str, kind: &str, change: impl FnOnce(&Arc<Mux>)
     for (change, resource, id) in &changes {
         assert!(
             !(resource == "tab" && other_tabs.contains(id)),
-            "{kind}: the record has a {change} of tab {id} of another workspace"
+            "{kind}: the record has a {change} of tab {id} of a workspace that it did not change"
         );
         assert!(
             !(resource == "workspace" && id != own && *id != had_focus),
@@ -146,6 +148,8 @@ fn a_tab_drag_after_a_lost_fold_states_its_own_workspace_and_no_other() {
     assert_states_the_workspace(&changes, &layout.workspace, "a tab drag");
     layout.mux.with_state(|state| {
         assert_eq!(state.workspaces[2].screens[0].layout_columns.len(), 3, "the tab's new column");
+        // The drag gives the focus to the tab: the record states the workspace that it left.
+        assert_eq!(state.active_workspace, 2, "the workspace of the dragged tab has the focus");
     });
     layout.mux.shutdown();
 }
@@ -160,14 +164,17 @@ fn a_tab_pin_after_a_lost_fold_states_no_workspace_that_it_does_not_change() {
     layout.mux.shutdown();
 }
 
-/// The screen request commit.
+/// The screen request commit. The pin is a presentation row and changes no value of the live
+/// tree: the walk has the workspace with the focus as its scope, not the session.
 #[test]
-fn a_screen_pin_after_a_lost_fold_states_no_workspace_that_it_does_not_change() {
+fn a_screen_pin_after_a_lost_fold_states_the_workspace_with_the_focus_and_no_other() {
     let layout = layout_session();
     let screen = layout.mux.with_state(|state| state.workspaces[2].screens[0].id);
-    counted(&layout.mux, &layout.workspace, "a screen pin", |mux| {
+    let (_, _, has_focus) = workspace_at(&layout.mux, 1);
+    let changes = counted(&layout.mux, &layout.workspace, "a screen pin", |mux| {
         assert!(mux.set_screen_pinned(screen, true).unwrap().0);
     });
+    assert_states_the_workspace(&changes, &has_focus, "a screen pin");
     layout.mux.shutdown();
 }
 
