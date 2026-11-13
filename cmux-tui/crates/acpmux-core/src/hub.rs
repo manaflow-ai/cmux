@@ -427,6 +427,18 @@ impl Hub {
         self.published.load_full()
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_history_encoded_ops(&self) {
+        if let Ok(history) = self.history.lock() {
+            history.reset_encoded_ops();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_encoded_ops(&self) -> usize {
+        self.history.lock().map_or(0, |history| history.encoded_ops())
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);

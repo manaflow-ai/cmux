@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
@@ -26,6 +28,8 @@ pub(super) struct History {
     first: u64,
     tail: usize,
     used: usize,
+    #[cfg(test)]
+    encoded_ops: AtomicUsize,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -73,7 +77,19 @@ impl History {
             first: 0,
             tail: 0,
             used: 0,
+            #[cfg(test)]
+            encoded_ops: AtomicUsize::new(0),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset_encoded_ops(&self) {
+        self.encoded_ops.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(super) fn encoded_ops(&self) -> usize {
+        self.encoded_ops.load(Ordering::Relaxed)
     }
 
     #[cfg(test)]
@@ -133,6 +149,8 @@ impl History {
             self.pop().map_err(serde_json::Error::io)?;
         }
         let start = self.tail;
+        #[cfg(test)]
+        self.encoded_ops.fetch_add(1, Ordering::Relaxed);
         let mut writer = Append { history: self, written: 0, checksum: DefaultHasher::new() };
         if let Err(error) = serde_json::to_writer(&mut writer, &op) {
             writer.history.clear();
@@ -196,9 +214,9 @@ impl History {
         if count == 0 {
             return None;
         }
-        // One output allocation and one direct copy under the history lock.
-        // Do not allocate a temporary Vec for each operation: a full replay
-        // can contain thousands of operations.
+        // One byte-buffer allocation and one metadata-vector allocation under
+        // the history lock. Do not allocate a temporary Vec per operation: a
+        // full replay can contain thousands of operations.
         let max_bytes = max_bytes.min(256 * 1024);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
         let mut entries = Vec::with_capacity(count.min(max_bytes / MIN_OP_BYTES));

@@ -2,6 +2,8 @@
 
 use crate::hub::HubError;
 mod list;
+#[cfg(test)]
+mod replay_gates;
 use crate::wire::{Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub};
 pub use list::HubSource;
 use std::collections::VecDeque;
