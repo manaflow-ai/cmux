@@ -2096,7 +2096,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .systemEvent(_, text): return SystemEventCell.height(text, width: width)
         case let .unavailability(_, messageID): return UnavailabilityCell.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return LoadingCell.height
-        case .conversationStart: return ConversationStartCell.height
+        // No service line (a conversation with people): only the room above the first timestamp.
+        case .conversationStart:
+            return options.serviceTitle.isEmpty && options.serviceSubtitle.isEmpty
+                ? ConversationStartCell.topInset : ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)
         }
     }

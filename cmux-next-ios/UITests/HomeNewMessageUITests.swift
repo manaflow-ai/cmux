@@ -186,6 +186,15 @@ final class HomeNewMessageUITests: XCTestCase {
             let typed = expectation(for: NSPredicate(format: "value CONTAINS %@", "nightly"), evaluatedWith: field)
             _ = XCTWaiter().wait(for: [typed], timeout: 5)
             attach(app, look, "13-existing-typed")
+            // The bottom edge: drag the transcript down a little so its newest bubbles sit behind the
+            // message box (the soft scroll edge effect there), then let it settle.
+            let transcript = existing.collectionViews.firstMatch
+            if transcript.exists {
+                transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                    .press(forDuration: 0.05, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+                Self.pause(0.8)
+                attach(app, look, "13b-under-message-box")
+            }
             if send.waitForExistence(timeout: 5) { send.tap() }
             // The sheet goes; the Chief conversation is on Home with the message.
             XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Status of the nightly?")).firstMatch
@@ -193,6 +202,14 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertFalse(app.textFields["conversation.compose.to"].exists, "New Message closed")
             Self.pause(1.0)
             attach(app, look, "14-sent-chief-conversation-on-home")
+            // The same bottom edge on Home's Chief screen.
+            let homeTranscript = app.collectionViews.firstMatch
+            if homeTranscript.exists {
+                homeTranscript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                    .press(forDuration: 0.05, thenDragTo: homeTranscript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+                Self.pause(0.8)
+                attach(app, look, "14b-home-under-message-box")
+            }
             app.terminate()
         }
     }
@@ -268,6 +285,13 @@ final class HomeNewMessageUITests: XCTestCase {
                           "the Invite share sheet\n\(app.debugDescription)")
             Self.pause(1.0)
             attach(app, look, "20-invite-share-sheet")
+            // Every app the system offers for the link (the share sheet's More).
+            let more = app.buttons["More"].firstMatch
+            if more.waitForExistence(timeout: 3) {
+                more.tap()
+                Self.pause(1.5)
+                attach(app, look, "20b-invite-share-more")
+            }
             app.terminate()
         }
     }
@@ -288,6 +312,33 @@ final class HomeNewMessageUITests: XCTestCase {
         Self.pause(1.0)
         attach(app, .light, "21-ax5-sheet")
         app.terminate()
+    }
+
+    /// The share sheet's choices come from the system, not this app: Safari sharing the same link
+    /// on the same simulator offers the same ones as Invite to cmux.
+    @MainActor
+    func testSafariShareSheetForComparison() {
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        safari.launch()
+        safari.open(URL(string: "https://cmux.com")!)
+        Self.pause(4)
+        let share = safari.buttons["Share"].firstMatch
+        if !share.waitForExistence(timeout: 8) {
+            // Safari 26+: the share button sits in the page menu.
+            let page = safari.buttons["PageFormatMenuButton"].firstMatch
+            if page.waitForExistence(timeout: 3) { page.tap() }
+        }
+        XCTAssertTrue(share.waitForExistence(timeout: 8), "Safari share\n\(safari.debugDescription)")
+        share.tap()
+        Self.pause(2.0)
+        attach(safari, .light, "23-safari-share-sheet")
+        let more = safari.buttons["More"].firstMatch
+        if more.waitForExistence(timeout: 3) {
+            more.tap()
+            Self.pause(1.5)
+            attach(safari, .light, "23b-safari-share-more")
+        }
+        safari.terminate()
     }
 
     /// A11: Forward from a Chief's select mode opens the same New Message, with the draft.
