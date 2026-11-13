@@ -302,6 +302,7 @@ import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTa
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
+import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
@@ -4145,8 +4146,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
-        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
-        retryCapabilities: directClient.current?.capabilities,
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts); it reads
+        // acpmux's capabilities, `retryCapabilities`, set with Resume below.
         // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
@@ -4156,6 +4157,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const send = (text: string) => callNative("chat.send", { text });
           return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
         })(restartChat),
+      }),
+      // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
+      // It sends no prompt through the composer, so the helper's own read-only pane offers it too,
+      // on its tab (Leo, 2026-11-12: "A Resume button in cmux on a stopped helper's row and tab"):
+      // owned by the chat that pane's composer relays to.
+      ...(subagentRelayChat && {
+        retryCapabilities: directClient.current?.capabilities,
+        resumeAgent: ((owner: string) => (agent: Subagent) => {
+          const client = directClient.current;
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          return runSubagentResume(agent, owner, { request, capabilities: client.capabilities, reaches });
+        })(subagentRelayChat),
       }),
       ...(connected &&
         retryModels.length > 1 && {
@@ -4273,6 +4288,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       retryTop,
       catalog,
       restartChat,
+      subagentRelayChat,
       snapshot.commands,
       queueRunsNext,
       nextStepKey,
@@ -5376,6 +5392,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const waitingKey = [...freshWaiting].sort().join(" ");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new set only when its agents change
   const waitingAgents = useMemo(() => freshWaiting, [waitingKey]);
+  /// Resume for the surfaces outside the transcript's TurnActionsContext (the tray, the summary card,
+  /// Session Info): the same `resumeAgent` the end line calls (subagents/ResumeControl.tsx).
+  const resumeActions = useMemo(
+    () => ({ resumeAgent: turnActions.resumeAgent, retryCapabilities: turnActions.retryCapabilities }),
+    [turnActions.resumeAgent, turnActions.retryCapabilities],
+  );
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -5384,6 +5406,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       asks: askedToolCalls,
       onOpen: showSubagent,
       autoOpen: quick ? undefined : { on: autoOpenSubagents, set: setAutoOpenSubagents },
+      // Resume on a stopped subagent's row in the card and Session Info (subagents/ResumeControl.tsx).
+      ...(turnActions.resumeAgent && { resume: resumeActions }),
     }),
     [
       snapshot.subagentViews,
@@ -5391,6 +5415,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       subagentView,
       askedToolCalls,
       showSubagent,
+      turnActions.resumeAgent,
+      resumeActions,
       quick,
       autoOpenSubagents,
       setAutoOpenSubagents,
@@ -6262,6 +6288,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenPanel={quick ? undefined : openBackgroundPanel}
             stop={stopSubagent}
             stopProcess={stopProcess}
+            resume={resumeActions}
             placement={trayPlacement}
             shown={trayChat}
             enters={trayEnters}
@@ -11232,9 +11259,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.loadOlder
                                                                         : !childRows
-                                                                          ? () =>
-                                                                              directClient.current?.loadOlder() ??
-                                                                              Promise.resolve()
+                                                                          ? (fill: boolean) =>
+                                                                              directClient.current?.loadOlder(
+                                                                                undefined,
+                                                                                fill,
+                                                                              ) ?? Promise.resolve()
                                                                           : undefined
                                                                     }
                                                                     openAt={

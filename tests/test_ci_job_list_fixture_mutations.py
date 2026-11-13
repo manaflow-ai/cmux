@@ -442,6 +442,33 @@ class MatrixReadsNothingResolves(unittest.TestCase):
     def test_an_escaped_quote_before_a_computed_index(self) -> None:
         self._assert_unresolved("${{ format('it''s }} {0}', matrix[inputs.axis]) }}")
 
+    def test_a_matrix_reference_inside_a_string_literal(self) -> None:
+        # cmux#41768 follow-up F1: expand_matrix replaced `${{ matrix.note }}` by text, also inside the outer
+        # expression's string literal. The value `' }}` then closed the literal and the expression, and
+        # matrix[inputs.axis] after it read as plain text, so a signing job on vars.LINUX_RUNNER passed.
+        runs_on = "${{ '${{ matrix.note }}' && matrix[inputs.axis] }}"
+        matrix = {"runner": ["${{ vars.LINUX_RUNNER }}"], "note": ["' }}"], "axis": ["runner"]}
+        job = {"runs-on": runs_on, "strategy": {"matrix": matrix}}
+        self.assertIsNone(workflow_jobs.expand_matrix(job, runs_on))
+        self.assertIsNone(workflow_jobs.runs_on_cells(job), f"{runs_on} read as a known cell")
+        self.assertTrue(self._failures(runs_on, matrix), f"{runs_on} passes the keychain guard")
+
+    def test_a_whole_matrix_reference_beside_a_literal_that_spells_one(self) -> None:
+        # Negative twin: the whole `${{ matrix.runner }}` is replaced; the same text inside another expression's
+        # literal stays the literal it is.
+        runs_on = "${{ matrix.runner }}-${{ 'x' }}"
+        job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+        self.assertEqual(workflow_jobs.expand_matrix(job, runs_on), ["macos-26-${{ 'x' }}"])
+        spelled = "${{ matrix.runner }}-${{ '${{ matrix.runner }}' }}"
+        job = {"runs-on": spelled, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+        self.assertEqual(workflow_jobs.expand_matrix(job, spelled), ["macos-26-${{ '${{ matrix.runner }}' }}"])
+
+    def test_dotted_leaves_string_literals_as_written(self) -> None:
+        # dotted() rewrites an index to dot form by text; inside a literal that changes the literal's value.
+        self.assertEqual(workflow_jobs.dotted("${{ 'matrix[\"runner\"]' }}"), "${{ 'matrix[\"runner\"]' }}")
+        self.assertEqual(workflow_jobs.dotted("${{ matrix['runner'] }}"), "${{ matrix.runner }}")
+        self.assertEqual(workflow_jobs.dotted("${{ 'a' && matrix[\"runner\"] }}"), "${{ 'a' && matrix.runner }}")
+
     def test_an_unterminated_expression(self) -> None:
         for runs_on in ("${{ matrix[inputs.axis]", "${{ format('}}', matrix[inputs.axis])", "macos-26 ${{ vars.X"):
             with self.subTest(runs_on=runs_on):

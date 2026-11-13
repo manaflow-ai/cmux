@@ -4,6 +4,10 @@ fn row(id: &str, status: &str) -> Value {
     json!({"sessionId": id, "name": id, "status": status, "updatedAt": 5, "tags": ["a"]})
 }
 
+fn id_of(row: &Value) -> Option<&str> {
+    row.get("sessionId").and_then(Value::as_str)
+}
+
 fn list(rows: &[Value]) -> String {
     json!({"sessions": rows}).to_string()
 }
@@ -142,7 +146,7 @@ fn delta_parsed(list: &str, known: &Map<String, Value>) -> Option<String> {
 #[test]
 fn a_delta_read_row_by_row_is_the_parsed_lists_byte_for_byte() {
     let mut known = Known::default();
-    known.listed(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]);
+    known.listed(&texts(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]));
     let param = known.to_param();
     let known = param.as_object().unwrap();
     let odd =

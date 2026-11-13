@@ -79,9 +79,6 @@ const DATAGRAM_BUFFER: usize = 65_536;
 /// Socket buffers of a datagram socket: room for a burst of media (the
 /// macOS default receive space holds about three datagrams).
 const DATAGRAM_SOCKET_BUFFER: libc::c_int = 256 * 1024;
-/// The longest Unix socket path both macOS (104 bytes) and Linux (108) bind,
-/// without its terminating NUL.
-const MAX_SOCKET_PATH: usize = 103;
 
 /// A running control socket. Dropping it unlinks the socket, ends every
 /// control connection and unbinds their datagram ports.
@@ -150,7 +147,9 @@ pub fn datagram_socket_path(control: &Path, port: u16) -> PathBuf {
 /// reachable by this user only, whatever the umask was at bind time.
 fn prepare_datagram_directory(control: &Path) -> io::Result<PathBuf> {
     let directory = datagram_directory(control);
-    if datagram_socket_path(control, u16::MAX).as_os_str().as_bytes().len() > MAX_SOCKET_PATH {
+    if datagram_socket_path(control, u16::MAX).as_os_str().as_bytes().len()
+        > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(

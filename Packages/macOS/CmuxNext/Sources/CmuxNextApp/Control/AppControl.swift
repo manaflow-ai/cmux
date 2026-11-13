@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
+import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -101,7 +102,7 @@ final class AppControl {
         service.router.register(services.cmuxRemoteActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
-        service.router.register(NotificationsControl.methods(services: services))
+        service.router.register(ControlMethod.notifications(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         service.router.register([CloudMachineStreamControl.method { [weak services] machine in try? await (await MainActor.run { services?.machines.session(machine)?.daemon.remoteEndpoint })?().socketPath }])
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.

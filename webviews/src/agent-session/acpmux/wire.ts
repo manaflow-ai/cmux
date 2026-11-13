@@ -50,6 +50,8 @@ export type WireStats = {
   connects: number;
   closes: number;
   reconnects: number;
+  /// Lost connections by cause: how often this page's chat reconnected, and why.
+  lostBy: Record<string, number>;
   /// Full transcript replaces of the chat on screen (direct.ts `noteReplace`).
   transcriptReplaces: number;
   lastError?: string;
@@ -126,6 +128,8 @@ export class AcpWireLog {
   private pending = new Map<number, Pending>();
   private latencies: number[] = [];
   private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0, transcriptReplaces: 0 };
+  /// Established connections lost, by cause (`lost`'s `cause`: a close's code, `stalled …`, `liveness`).
+  private lostBy: Record<string, number> = {};
   private lastError?: string;
   private listeners = new Set<Listener>();
   private readonly now: () => number;
@@ -201,7 +205,13 @@ export class AcpWireLog {
   lifecycle(event: string, detail?: Record<string, unknown>): void {
     if (event === "connected") this.counters.connects += 1;
     if (event === "close") this.counters.closes += 1;
-    if (event === "reconnect scheduled") this.counters.reconnects += 1;
+    // The app's panes never schedule a reconnect of their own: a lost connection asks the host for a
+    // fresh client (`lost`), so that is what counts, by cause.
+    if (event === "reconnect scheduled" || event === "lost") this.counters.reconnects += 1;
+    if (event === "lost") {
+      const cause = typeof detail?.cause === "string" ? detail.cause : "unknown";
+      this.lostBy[cause] = (this.lostBy[cause] ?? 0) + 1;
+    }
     if (event === "transcript replaced") this.counters.transcriptReplaces += 1;
     if (event === "error" || event === "connect failed")
       this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
@@ -226,6 +236,7 @@ export class AcpWireLog {
       textChars: this.bytes,
       oldestSeq: this.log[0]?.seq,
       ...this.counters,
+      lostBy: { ...this.lostBy },
       inFlight: this.pending.size,
       lastError: this.lastError,
       latencyP50Ms: percentile(sorted, 0.5),
