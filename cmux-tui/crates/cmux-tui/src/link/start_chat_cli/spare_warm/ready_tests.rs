@@ -99,7 +99,7 @@ fn a_ready_events_copy_is_never_a_warms_answer_and_a_warm_onto_it_gives_no_secon
     )
     .unwrap();
     // The warm still asks the platform (the event's record is no warm), and copies nothing more.
-    assert_eq!((calls.get(), answer["fresh"].clone(), answer.get("copy")), (1, json!(true), None));
+    assert_eq!((calls.get(), answer["fresh"].clone(), answer.get("copy")), (1, json!(false), None));
 }
 
 #[test]
@@ -158,8 +158,10 @@ fn an_installed_copy_is_reported_to_the_platform_once_and_nothing_else_is() {
     ask(&end("finished", MACHINE), 1_000_100);
     ask(&end("abandoned", MACHINE), 1_000_200);
     assert!(reports.borrow().is_empty());
-    ask(&ready_of(MACHINE), 1_000_300);
-    assert_eq!(ask(&end("installed", MACHINE), 1_000_400)["finished"], json!(true));
+    let later = 1_000_000 + COPY_BUDGET_MS;
+    ask(&ready_of(MACHINE), later);
+    assert_eq!(ask(&end("installed", MACHINE), later + 1)["finished"], json!(true));
+    assert_eq!(ask(&end("installed", MACHINE), later + 2)["finished"], json!(false));
     assert_eq!(*reports.borrow(), vec![("tok".to_string(), TEAM.to_string(), MACHINE.to_string())]);
 }
 
@@ -297,4 +299,86 @@ fn seeded_sweep_of_ready_events_claims_warms_two_clients_consent_off_and_failed_
     }
     eprintln!("spare-ready sweep: {SWEEP_SEEDS} seeds, {total:?}");
     assert!(total.ready_copies > 0 && total.ready_coalesced > 0, "{total:?}");
+}
+
+/// A ready-triggered copy carries the same fenced scope as a warm. Only its accepted completion
+/// may publish readiness, and the network report runs after releasing the local ledger lock.
+#[test]
+fn scoped_ready_reports_only_current_installed_or_verified_completions() {
+    for outcome in ["installed", "verified"] {
+        let dir = tempfile::tempdir().unwrap();
+        let scope = ReceiptScope {
+            platform: "https://staging.example".into(),
+            team: TEAM.into(),
+            install: "inst_a".into(),
+            credential: "fp_a".into(),
+        };
+        let reports = Cell::new(0_usize);
+        let report = |_: &Request, _: &str, _: &str, machine: &str| {
+            assert_eq!(machine, MACHINE);
+            let lock = std::fs::OpenOptions::new()
+                .write(true)
+                .open(dir.path().join("spare-warm.lock"))
+                .unwrap();
+            assert!(lock.try_lock().is_ok(), "network report still holds the ledger lock");
+            reports.set(reports.get() + 1);
+        };
+        let ask = |mut request: Value, now| {
+            request["account"] = json!("user_a");
+            request["scope"] = json!(scope);
+            request["currentScope"] = json!(scope);
+            run_reporting(
+                &flags(&request.to_string()),
+                dir.path(),
+                now,
+                &mut stdin().as_bytes(),
+                &no_call,
+                &report,
+            )
+            .unwrap()
+        };
+        let first = ask(json!({"ready":MACHINE}), 1_000_000);
+        let first_generation = first["copy"]["generation"].clone();
+        ask(json!({"abandoned":MACHINE,"generation":first_generation}), 1_000_100);
+        let second = ask(json!({"ready":MACHINE}), 1_000_200);
+        let mut end = json!({"generation":first_generation});
+        end[outcome] = json!(MACHINE);
+        assert_eq!(ask(end.clone(), 1_000_300)["finished"], false);
+        assert_eq!(reports.get(), 0);
+        assert!(copy_in_flight(dir.path(), MACHINE, 1_000_300));
+        end["generation"] = second["copy"]["generation"].clone();
+        assert_eq!(ask(end.clone(), 1_000_400)["finished"], true);
+        assert_eq!(reports.get(), 1);
+        assert_eq!(
+            receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_500)["installed"],
+            true
+        );
+        assert_eq!(ask(end, 1_000_600)["finished"], false);
+        assert_eq!(reports.get(), 1);
+    }
+}
+
+#[test]
+fn ready_does_not_replace_a_guest_writer_when_the_credential_scope_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let original = ReceiptScope {
+        platform: "https://staging.example".into(),
+        team: TEAM.into(),
+        install: "inst_a".into(),
+        credential: "fp_a".into(),
+    };
+    let changed = ReceiptScope { credential: "fp_b".into(), ..original.clone() };
+    let ask = |scope: &ReceiptScope, mut request: Value, now| {
+        request["account"] = json!("user_a");
+        request["scope"] = json!(scope);
+        request["currentScope"] = json!(scope);
+        call(dir.path(), &request.to_string(), now)
+    };
+    let first = ask(&original, json!({"ready":MACHINE}), 1_000_000);
+    assert!(ask(&changed, json!({"ready":MACHINE}), 1_000_100).get("copy").is_none());
+    assert_eq!(read(dir.path()).copies.len(), 1);
+    ask(&original, json!({"finished":MACHINE,"generation":first["copy"]["generation"]}), 1_000_200);
+    let second = ask(&changed, json!({"ready":MACHINE}), 1_000_300);
+    assert!(second.get("copy").is_some());
+    assert_ne!(second["copy"]["generation"], first["copy"]["generation"]);
 }

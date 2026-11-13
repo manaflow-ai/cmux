@@ -6,7 +6,7 @@
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{COPY_BUDGET_MS, Copying, Record, State};
+use super::{COPY_BUDGET_MS, Copying, ReceiptScope, Record, State};
 
 /// `ready: M` (under the lock) for `account` in `team`. No copy when one is already covered: a receipt for M (an
 /// installed login within its life, kept trimmed by the caller), a copy onto M in flight (or a warm still waiting
@@ -20,22 +20,25 @@ pub(super) fn ready(
     machine: &str,
     now_ms: u64,
     copy: Value,
+    generation: Option<String>,
+    scope: Option<ReceiptScope>,
 ) -> Value {
     let ours = |other_account: &str, other_team: Option<&str>| {
         other_account == account && other_team == Some(team)
     };
-    let receipt = file
-        .installed
-        .iter()
-        .any(|receipt| receipt.account == account && receipt.machine == machine);
-    let in_flight = file.copies.iter().any(|copy| {
-        ours(&copy.account, Some(copy.team.as_str()))
-            && copy.machine.as_deref().is_none_or(|other| other == machine)
+    let receipt = file.installed.iter().any(|receipt| {
+        receipt.account == account
+            && receipt.team == team
+            && receipt.machine == machine
+            && receipt.scope == scope
     });
+    let in_flight =
+        file.copies.iter().any(|copy| copy.machine.as_deref().is_none_or(|other| other == machine));
     let given = file.warms.iter().any(|record| {
         ours(&record.account, record.team.as_deref())
             && record.machine == machine
             && record.copy_given
+            && record.scope == scope
     });
     let mut answer = json!({"ok": true, "machine": machine, "team": team, "fresh": false});
     if receipt || in_flight || given {
@@ -47,11 +50,13 @@ pub(super) fn ready(
         .iter_mut()
         .find(|record| ours(&record.account, record.team.as_deref()) && record.machine == machine)
     {
+        record.scope = scope.clone();
         record.copy_given = true;
         record.ready = true;
         record.warm_until = record.warm_until.max(until);
     } else {
         file.warms.push(Record {
+            scope: scope.clone(),
             account: account.to_string(),
             team: Some(team.to_string()),
             machine: machine.to_string(),
@@ -63,7 +68,10 @@ pub(super) fn ready(
             ready: true,
         });
     }
+    file.installed.retain(|receipt| receipt.machine != machine);
     file.copies.push(Copying {
+        generation,
+        scope,
         account: account.to_string(),
         team: team.to_string(),
         machine: Some(machine.to_string()),
