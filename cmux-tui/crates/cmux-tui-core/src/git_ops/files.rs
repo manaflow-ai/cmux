@@ -10,11 +10,12 @@
 //! working in that folder can use them as they are.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
 use super::run::run_git;
+use super::work_tree_entry::{Kind, Tree};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
 use crate::resource::ResourceError;
 use cmux_json::JsonSet as _;
@@ -82,10 +83,10 @@ pub(super) fn search(
             .then_with(|| left.path.cmp(right.path))
     });
     // A submodule is listed as one path, but it is a folder: never a result.
-    let search_folder = Path::new(&search_root);
+    let mut folders = Folders::of(repository, &search_root);
     let results: Vec<Value> = ranked
         .iter()
-        .filter(|entry| !search_folder.join(entry.path).is_dir())
+        .filter(|entry| !folders.has(entry.path))
         .take(limit)
         .map(|entry| {
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
@@ -122,6 +123,32 @@ pub(super) fn folder(
     let folder =
         if prefix.is_empty() { repository.root.clone() } else { repository.root.join(prefix) };
     Ok(folder.to_string_lossy().into_owned())
+}
+
+/// Says of a path that git lists under a folder of the work tree if it is a
+/// real folder (a submodule). A link is never one, whatever its target is,
+/// and a path below a link is not one: each folder above the path is opened
+/// through its parent ([`super::work_tree_entry`]).
+pub(super) struct Folders {
+    tree: Option<Tree>,
+    /// The listed folder, from the work tree's top folder.
+    below: PathBuf,
+}
+
+impl Folders {
+    /// For the paths that git lists under `listed`, the result of [`folder`].
+    pub(super) fn of(repository: &Repository, listed: &str) -> Self {
+        match Path::new(listed).strip_prefix(&repository.root) {
+            Ok(below) => Self { tree: Tree::open(&repository.root), below: below.to_path_buf() },
+            Err(_) => Self { tree: None, below: PathBuf::new() },
+        }
+    }
+
+    /// True when `path`, relative to the listed folder, is a real folder.
+    pub(super) fn has(&mut self, path: &str) -> bool {
+        let Some(tree) = self.tree.as_mut() else { return false };
+        tree.entry(&self.below.join(path)).is_ok_and(|entry| entry.kind() == Some(Kind::Folder))
+    }
 }
 
 /// The files under `directory`, relative to it and sorted, and whether the

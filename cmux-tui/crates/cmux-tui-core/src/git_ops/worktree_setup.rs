@@ -506,7 +506,7 @@ fn same_folder(left: &Path, right: &Path) -> bool {
 /// The text of `path` from `since` (or from where the last `limit` bytes
 /// start, if later) to its end, with that start and end.
 fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
-    let Ok(mut file) = File::open(path) else { return (String::new(), 0, 0) };
+    let Some(mut file) = open_own(path) else { return (String::new(), 0, 0) };
     let end = file.metadata().map_or(0, |metadata| metadata.len());
     let start = since.min(end).max(end.saturating_sub(limit));
     let mut bytes = Vec::new();
@@ -655,7 +655,31 @@ fn signal_group(pid: u32, signal: Signal) {
 fn signal_group(_pid: u32, _signal: Signal) {}
 
 fn read_status(git_dir: &Path) -> Option<Status> {
-    serde_json::from_slice(&fs::read(git_dir.join(STATUS_FILE)).ok()?).ok()
+    let mut bytes = Vec::new();
+    open_own(&git_dir.join(STATUS_FILE))?.read_to_end(&mut bytes).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Opens a file that a setup wrote in a worktree's git folder, for a read.
+/// The file is the setup's own: a link in its place is not followed, and
+/// only a regular file is read (the open file is looked at, not its name).
+fn open_own(path: &Path) -> Option<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    // No open here refuses a link: the look at the name is all there is.
+    #[cfg(not(unix))]
+    {
+        if !fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+            return None;
+        }
+    }
+    let file = options.open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
 fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {

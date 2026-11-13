@@ -14,7 +14,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::Repository;
-use super::files::{candidates, folder};
+use super::files::{Folders, candidates, folder};
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.files.list";
@@ -33,7 +33,9 @@ pub(super) fn list(
         .clamp(1, MAX_LIMIT);
     let listed = folder(repository, directory, OPERATION)?;
     let (paths, cut) = candidates(repository, directory, OPERATION)?;
-    let listed_folder = Path::new(&listed);
+    // A symlink is a leaf, as git records it: following one could list a folder
+    // outside the repository. Only a real folder (a submodule) is a directory.
+    let mut folders = Folders::of(repository, &listed);
     // name -> is a directory
     let mut children: BTreeMap<&str, bool> = BTreeMap::new();
     for path in &paths {
@@ -45,11 +47,7 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        // A symlink is a leaf, as git records it: following one could list a folder
-        // outside the repository. Only a real folder (a submodule) is a directory.
-        let real_folder =
-            || std::fs::symlink_metadata(listed_folder.join(name)).is_ok_and(|meta| meta.is_dir());
-        if nested || (!*directory && real_folder()) {
+        if nested || (!*directory && folders.has(name)) {
             *directory = true;
         }
     }

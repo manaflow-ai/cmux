@@ -32,6 +32,7 @@ mod mutation;
 mod push;
 mod target;
 mod user_run;
+mod work_tree_entry;
 mod worktree;
 mod worktree_apply;
 mod worktree_include;
