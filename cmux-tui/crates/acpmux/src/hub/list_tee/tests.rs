@@ -39,6 +39,18 @@ fn removing_a_deadline_prevents_a_late_mark() {
     assert!(state.take().is_empty());
 }
 
+#[test]
+fn origin_remove_is_preserved_before_a_reconnect() {
+    let state = TeeState::default();
+    state.origin("peer", OriginState::Removed, 10);
+    state.origin("peer", OriginState::Connected, 20);
+    state.origin("peer", OriginState::Down, 30);
+
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Removed, 10)]);
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Down, 30)]);
+    assert!(state.take_origins(1).is_empty());
+}
+
 #[tokio::test]
 async fn one_hundred_thousand_stream_appends_do_not_mark() {
     let hub = memory_hub();

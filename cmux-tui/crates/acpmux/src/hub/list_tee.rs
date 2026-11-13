@@ -4,7 +4,7 @@ use super::*;
 use acpmux_book::index::{OriginState, ReadSide, RowKey, SortKey, Summary};
 use acpmux_core::hub::Source;
 use acpmux_core::life::V2;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use summary::{summary_from_remote, summary_from_session};
 use tokio::sync::Notify;
 
@@ -37,7 +37,7 @@ impl TeeHandle {
 struct TeeState {
     pending: std::sync::Mutex<HashSet<String>>,
     remote: std::sync::Mutex<HashSet<(String, String)>>,
-    origins: std::sync::Mutex<HashMap<String, (OriginState, u64)>>,
+    origins: std::sync::Mutex<HashMap<String, VecDeque<(OriginState, u64)>>>,
     notify: Notify,
     marks: AtomicU64,
     all: AtomicBool,
@@ -60,10 +60,19 @@ impl TeeState {
     }
 
     fn origin(&self, id: &str, state: OriginState, since: u64) {
-        self.origins
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(id.to_owned(), (state, since));
+        let mut origins = self.origins.lock().unwrap_or_else(|e| e.into_inner());
+        let queue = origins.entry(id.to_owned()).or_default();
+        if state == OriginState::Removed
+            || queue.back().is_some_and(|(state, _)| *state == OriginState::Removed)
+        {
+            // `removed` is a lifecycle cut. Preserve it ahead of the latest
+            // record so a rapid remove/reconnect cannot collapse the cut.
+            queue.push_back((state, since));
+        } else if let Some(last) = queue.back_mut() {
+            *last = (state, since);
+        } else {
+            queue.push_back((state, since));
+        }
         self.notify.notify_one();
     }
 
@@ -94,15 +103,22 @@ impl TeeState {
 
     fn take_origins(&self, limit: usize) -> Vec<(String, OriginState, u64)> {
         let mut pending = self.origins.lock().unwrap_or_else(|e| e.into_inner());
-        let ids: Vec<_> = pending
-            .iter()
-            .take(limit)
-            .map(|(id, (state, since))| (id.clone(), *state, *since))
-            .collect();
-        for (id, _, _) in &ids {
-            pending.remove(id);
+        let ids: Vec<_> = pending.keys().cloned().collect();
+        let mut taken = Vec::new();
+        for id in ids {
+            while taken.len() < limit {
+                let next = pending.get_mut(&id).and_then(VecDeque::pop_front);
+                let Some((state, since)) = next else { break };
+                taken.push((id.clone(), state, since));
+            }
+            if pending.get(&id).is_some_and(VecDeque::is_empty) {
+                pending.remove(&id);
+            }
+            if taken.len() >= limit {
+                break;
+            }
         }
-        ids
+        taken
     }
 }
 
