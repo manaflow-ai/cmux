@@ -14557,6 +14557,12 @@ export class AcpmuxDirectClient {
       more = result?.hasMore === true && page.length > 0;
       return page.length > 0;
     };
+    // A slot's page the gap reads above already passed (they ran below its top past a byte cap)
+    // holds nothing older than `before`; that says nothing of what is left below, so it is
+    // skipped, and the next round reads on from `before`. Only an empty read at `before` ends it.
+    const takeSlot = (result: any) => {
+      if (records(result?.events).some((event) => event.seq < before)) take(result);
+    };
     while (more && before > through && before > 1) {
       const slots: number[] = [];
       // Down to the first slot that starts at or below `through`: its page holds the records just
@@ -14574,7 +14580,7 @@ export class AcpmuxDirectClient {
           if (stale()) return undefined;
           if (!take(result)) more = false;
         }
-        if (more) take(results[slot]);
+        if (more) takeSlot(results[slot]);
       }
     }
     return { pages, before, more };
