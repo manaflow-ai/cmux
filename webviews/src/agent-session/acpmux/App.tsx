@@ -4741,7 +4741,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     start: Omit<CloudStart, "task" | "attachments">,
     fromPage = false,
   ): string | boolean => {
-    const refused = cloudPageRefusal(sandboxOffered);
+    // The host's check (`sandbox.checked`) may not have answered yet, or timed out on a busy Mac: the start
+    // goes to the host anyway, whose own guards refuse a tab that holds a send (AgentPaneCloudStart `held`),
+    // and the check is read again. RED before: an unanswered check refused every Cloud send of the tab.
+    if (sandboxOfferable && !sandbox.checked) void sandbox.read();
+    const refused = cloudPageRefusal(sandboxOfferable);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (cloudStartPending.current) return false;
