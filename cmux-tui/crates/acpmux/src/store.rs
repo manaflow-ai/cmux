@@ -367,6 +367,13 @@ pub struct SessionMeta {
     /// its list read race. Cleared when the last client showing it stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_return: Option<LastReturn>,
+    /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
+    /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
+    /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
+    /// restart, update, reconnect, attach or `_acpmux/view` never does. Rows after it by an agent
+    /// or another person are the person's unseen rows (the pane's Jump up).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub read_through: BTreeMap<String, u64>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
@@ -1367,6 +1374,8 @@ mod sync_model;
 
 mod memory;
 pub use memory::MemoryStore;
+#[cfg(test)]
+pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 // ----------------------------------------------------------------- local
 
