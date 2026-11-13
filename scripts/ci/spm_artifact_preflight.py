@@ -15,7 +15,10 @@ packages): the local packages the Xcode project references (--xcodeproj) and eve
 when no pin is read), and any dependency workspace-state.json still names. A `.binaryTarget(name:, url:)` (or a
 `path:` to a .zip) is expected at SOURCE_PACKAGES/artifacts/<identity>/<name>/<name>.xcframework, where identity is
 the package directory's lowercased name (artifacts/{iroh-ffi/Iroh, cmuxvncwebrtc/WebRTC, cmuxnext/CCmuxAppFFI}); a
-`.binaryTarget(name:, path:)` to an xcframework is expected in the package's own tree. It also checks every artifact
+`.binaryTarget(name:, path:)` to an xcframework is expected in the package's own tree. A manifest that declares one
+target in more than one way takes one of them when SwiftPM evaluates it (iroh-ffi: `path:` where a locally built
+xcframework is in the checkout, else the release zip by `url:`), so such a target is in place when one of its
+places holds it, and a missing one is asked for where a resolve puts it. It also checks every artifact
 workspace-state.json records. One that is missing, or recorded outside SOURCE_PACKAGES/artifacts, drops
 workspace-state.json and artifacts/ (the checkouts stay, so nothing is cloned again) and runs RESOLVE_CMD
 (`xcodebuild -resolvePackageDependencies` with the build's -clonedSourcePackagesDirPath), then checks again.
@@ -106,6 +109,19 @@ def checkout_name(location: str) -> str:
     return name[:-4] if name.endswith('.git') else name
 
 
+def expected_place(declared: dict[Path, str], artifacts: Path) -> Path:
+    """Where one binary target's xcframework is expected, of the places its declarations name: the first that holds
+    it; when none does, the one under ARTIFACTS, which a resolve fills (a place in a package's own tree it does
+    not); else the first."""
+    for place in declared:
+        if place.is_dir():
+            return place
+    for place in declared:
+        if artifacts in place.parents:
+            return place
+    return next(iter(declared))
+
+
 def expected_artifacts(source_packages: Path, resolved_files: list[Path],
                        local_roots: list[Path] | None = None) -> dict[Path, str]:
     """Every binary target xcframework the packages in play need, mapped to why it is expected. LOCAL_ROOTS are
@@ -139,12 +155,20 @@ def expected_artifacts(source_packages: Path, resolved_files: list[Path],
             packages.extend((checkout.name.lower(), checkout) for checkout in sorted(checkouts.iterdir())
                             if (checkout / 'Package.swift').is_file())
     for identity, package_dir in packages:
+        # One target name, each place a declaration of it puts the xcframework: more than one when the manifest
+        # selects between declarations (see the module's text).
+        places: dict[str, dict[Path, str]] = {}
         for target, kind, path in binary_targets(package_dir):
             if kind == 'path' and path and not path.endswith('.zip'):
-                expected.setdefault(package_dir / path, f'{identity} declares binary target {target} at {path}')
+                places.setdefault(target, {}).setdefault(
+                    package_dir / path, f'{identity} declares binary target {target} at {path}')
             elif kind == 'url' or path:
-                expected.setdefault(artifacts / identity / target / f'{target}.xcframework',
-                                    f'{identity} declares binary target {target}')
+                places.setdefault(target, {}).setdefault(
+                    artifacts / identity / target / f'{target}.xcframework',
+                    f'{identity} declares binary target {target}')
+        for declared in places.values():
+            place = expected_place(declared, artifacts)
+            expected.setdefault(place, declared[place])
     return expected
 
 
