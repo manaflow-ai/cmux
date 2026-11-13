@@ -2084,6 +2084,9 @@ function TranscriptView({
   /// Ends a margin drag and lets its held rows go (gutterSelect.ts `release`).
   const gutterRelease = useRef<(() => void) | undefined>(undefined);
   const pendingFocus = useRef<string | undefined>(undefined);
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  // This ref is declared before the row-arrival bookkeeping below, which reads it during render.
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   const sessionKey = sessionId ?? "";
   heldSession.current = sessionKey;
   // Keep the key in state so a StrictMode render cannot consume the session transition before the
@@ -2951,8 +2954,6 @@ function TranscriptView({
   /// The rows' going clamped the offset to the shorter tail's end, the bottom, and nothing found
   /// the reader's row again. Only the reader's own input, Jump to latest or a send lets it go.
   const heldPlace = useRef<ScrollAnchor | undefined>(undefined);
-  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
-  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
