@@ -1402,6 +1402,13 @@ def first_operand(args: list[str], options: Options) -> int | None:
 # Past this many levels of one command running another, what it runs counts as unreadable.
 _NEST_LIMIT = 4
 _SOURCES = {"source", "."}
+_XARGS_OPTIONS = Options(
+    values=_options("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
+                    "--eof", "--replace", "--max-lines", "--max-args", "--max-procs", "--max-chars",
+                    "--process-slot-var"),
+    flags=_options("-0", "-r", "-t", "-p", "-x", "--null", "--no-run-if-empty", "--verbose",
+                   "--interactive", "--exit"),
+)
 
 
 def may_run_nested(run: str) -> list[list[str]]:
@@ -1410,7 +1417,9 @@ def may_run_nested(run: str) -> list[list[str]]:
     -c runs, a text argument (`su -c '..'`, `ssh host '..'`, `env -S '..'`), and each tail of its words a runner
     (xargs, find -exec, flock, a wrapper with options this does not model) may run as a command. An empty list
     stands for executable content this cannot read: a heredoc or stdin into a shell, eval or -c of text held in a
-    variable or substitution, a sourced file, an unlexable tail, nesting past _NEST_LIMIT. A variable program
+    variable or substitution (even without literal whitespace), a sourced file, an unlexable tail, nesting past
+    _NEST_LIMIT. Runner text this cannot resolve fails closed; a known argv command's data arguments do not become
+    executable text (`xargs rm "$path"`). A variable program
     (`"$python" -m x`) is read by its argument tails like any runner, so its arguments still count. A caller
     asking "may this publish" counts an empty list as yes; a function's body is listed where it is defined."""
     found: list[list[str]] = []
@@ -1490,8 +1499,21 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
     if not _unreadable(program) and program not in _RUNS_ARGUMENTS and program not in _WRAPPERS:
         found.append([])  # a script a shell runs in a mode this does not model
         return
+    if program == "xargs":
+        # Unlike a text runner, xargs passes data arguments to one command. Locate that command before deciding
+        # which expansions are executable: -n's value is not a program, and rm's variable path is not code.
+        target = first_operand(args, _XARGS_OPTIONS)
+        if target is None or target < len(args) and _opaque(_word_token(args[target])):
+            found.append([])
+        elif target < len(args):
+            tail = _classify(_Command([_word_token(text) for text in args[target:]], False, True), defined)
+            if tail is not None:
+                _expand(tail, defined, depth + 1, found)
+        return
     for word in args:
-        if re.search(r"\s", word):
+        if (program in _RUNS_ARGUMENTS or program in _WRAPPERS) and _unreadable(word):
+            found.append([])  # env -S "$CMD", su -c "$CMD", ssh host "$CMD": runtime text may run anything
+        elif re.search(r"\s", word):
             _nested(word, defined, depth + 1, found)
     operand_seen = False
     for index in range(1, len(words)):

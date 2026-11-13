@@ -1062,7 +1062,7 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None, workflow
 # `-glaeda` suffix, a fleet pool's label) may be a machine whose workspace, HOME and caches outlive the job.
 ONE_SHOT_LABEL = re.compile(
     r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)|macos-(\d{2}|latest)(-large|-xlarge|-intel)?"
-    r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}|macos-\d{2}))$"
+    r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}|macos-(\d{2}|latest)))$"
 )
 
 

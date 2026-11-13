@@ -653,7 +653,7 @@ class TagGate(unittest.TestCase):
             'env -S "$CMD"', 'env --split-string "$CMD"', 'env --split-string="$CMD"',
             'env -S"$CMD"', 'su -c "$CMD"', 'su runner -c "$CMD"',
             'su --command="$CMD" runner', 'sh -c "$CMD"', 'bash -c "$CMD"',
-            'eval "$CMD"', 'xargs "$CMD"', 'xargs -n 1 "$CMD"',
+            'eval "$CMD"', 'xargs "$CMD"', 'xargs -n 1 "$CMD"', 'xargs -- "$CMD"',
             'ssh host "$CMD"', 'watch "$CMD"', 'flock /tmp/lock "$CMD"',
         )
         for runner in runners:
