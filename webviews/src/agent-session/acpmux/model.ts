@@ -1891,12 +1891,13 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
-/// The column's own width (`--cv-column`), before the page edge limits it.
+/// The column's own width (`--cv-column`), before its inset rounds to a whole pixel.
 export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>
   Math.min(max, Math.max(min, paneWidth));
 export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
   const column = transcriptColumnSpan(paneWidth, chat);
-  const inset = Math.max(PAGE_EDGE * gridScale(), (paneWidth - column) / 2);
+  // A whole pixel, as `round(nearest, ..., 1px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
