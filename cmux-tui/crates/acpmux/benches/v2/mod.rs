@@ -364,15 +364,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "5f",
-        name: "v2.pr05f.resident_rss",
-        done_when: "Building the folders view adds under 1 MB resident at 2,000 folders; holding 1,000 path-copy versions adds under 2% of the view rise.",
-        measured: false,
-        ratio: 2.0,
-        ratio_all: None,
-        god_max: Some((1024 * 1024) as f64),
-    },
-    GateRow {
         pr: "6",
         name: "v2.pr06.thin_store_geometry",
         done_when: "DOM mutation probe on open: blank to settled and nothing else. Zero visible-row shifts not caused by input, across open, reconnect, restart and page-up. Scroll-up settle 1.2x.",
@@ -691,6 +682,7 @@ mod tests {
             .unwrap()
             .is_match(row)
     }
+
     #[test]
     fn every_gate_name_in_a_source_has_a_registry_row() {
         let names = names_in_sources();

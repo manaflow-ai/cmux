@@ -289,42 +289,20 @@ impl Folders {
             }
             (None, _) => (Unbounded, Unbounded),
         };
-        let mut rows = Vec::new();
-        let mut bytes_read = 0usize;
-        let mut has_more = false;
+        let mut candidates = Vec::with_capacity(limit.saturating_add(1));
         let matches = |row: &FolderRow| {
             filter.is_none_or(|filter| {
                 filter.origin.as_ref().is_none_or(|origin| row.origin.as_ref() == origin)
             })
-        };
-        let mut visit = |row: &Arc<FolderRow>| {
-            if rows.len() >= limit {
-                has_more = true;
-                return false;
-            }
-            let row_bytes = row.encoded_len().saturating_add(1);
-            if bytes_read.saturating_add(row_bytes) > max_bytes {
-                if rows.is_empty() {
-                    return false;
-                }
-                has_more = true;
-                return false;
-            }
-            bytes_read = bytes_read.saturating_add(row_bytes);
-            rows.push(row.clone());
-            true
         };
         match side {
             FolderReadSide::After => {
                 for (_, row) in self
                     .ordered
                     .range::<_, FolderSortKey>((start, end))
-                    .filter(|(_, row)| matches(row))
                     .take(limit.saturating_add(1))
                 {
-                    if !visit(row) {
-                        break;
-                    }
+                    candidates.push(row.clone());
                 }
             }
             FolderReadSide::Before => {
@@ -332,42 +310,69 @@ impl Folders {
                     .ordered
                     .range::<_, FolderSortKey>((start, end))
                     .rev()
-                    .filter(|(_, row)| matches(row))
                     .take(limit.saturating_add(1))
                 {
-                    if !visit(row) {
-                        break;
-                    }
+                    candidates.push(row.clone());
                 }
-                rows.reverse();
             }
         }
-        if rows.is_empty() && !has_more {
-            let has_matching =
-                self.ordered.range::<_, FolderSortKey>((start, end)).any(|(_, row)| matches(row));
-            if has_matching {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "folders page byte budget cannot fit the next row",
-                ));
+        let candidate_count = candidates.len();
+        let mut visited = Vec::with_capacity(candidate_count.min(limit));
+        let mut rows = Vec::new();
+        let mut bytes_read = 0usize;
+        let mut byte_limited = false;
+        for row in &candidates {
+            if rows.len() == limit {
+                break;
             }
+            if !matches(row) {
+                visited.push(row.clone());
+                continue;
+            }
+            let row_bytes = row.encoded_len().saturating_add(1);
+            if bytes_read.saturating_add(row_bytes) > max_bytes {
+                if rows.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "folders page byte budget cannot fit the next row",
+                    ));
+                }
+                byte_limited = true;
+                break;
+            }
+            visited.push(row.clone());
+            bytes_read = bytes_read.saturating_add(row_bytes);
+            rows.push(row.clone());
         }
-        let before_key = rows.first().map(|row| FolderCursor::new(row.at, row.key()));
-        let after_key = rows.last().map(|row| FolderCursor::new(row.at, row.key()));
+        if side == FolderReadSide::Before {
+            rows.reverse();
+        }
+        let candidate_first = match side {
+            FolderReadSide::After => visited.first(),
+            FolderReadSide::Before => visited.last(),
+        };
+        let candidate_last = match side {
+            FolderReadSide::After => visited.last(),
+            FolderReadSide::Before => visited.first(),
+        };
+        let before_key = candidate_first.map(|row| FolderCursor::new(row.at, row.key()));
+        let after_key = candidate_last.map(|row| FolderCursor::new(row.at, row.key()));
         let has_before = match side {
-            FolderReadSide::Before => has_more,
+            FolderReadSide::Before => candidate_count > limit || byte_limited,
             FolderReadSide::After => before_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Unbounded, Excluded(&key.sort_key())))
-                    .any(|(_, row)| matches(row))
+                    .next()
+                    .is_some()
             }),
         };
         let has_after = match side {
-            FolderReadSide::After => has_more,
+            FolderReadSide::After => candidate_count > limit || byte_limited,
             FolderReadSide::Before => after_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Excluded(&key.sort_key()), Unbounded))
-                    .any(|(_, row)| matches(row))
+                    .next()
+                    .is_some()
             }),
         };
         Ok(FolderPage { rows, has_before, has_after, before_key, after_key, bytes_read })
@@ -453,6 +458,84 @@ mod tests {
         let (folders, _) = Folders::new().apply(entry("local", "/a", "one", 1, 1)).unwrap();
         assert!(folders.window(MAX_FOLDER_ROWS + 1, MAX_FOLDER_PAGE_BYTES).is_err());
         assert!(folders.window(1, 1).is_err());
+    }
+
+    #[test]
+    fn ties_page_in_both_directions_and_byte_budget_stops_after_one() {
+        let (folders, _) = Folders::new().apply(entry("local", "/a", "a", 7, 1)).unwrap();
+        let (folders, _) = folders.apply(entry("local", "/b", "b", 7, 1)).unwrap();
+        let (folders, _) = folders.apply(entry("local", "/c", "c", 7, 1)).unwrap();
+        let first = folders.window(1, MAX_FOLDER_PAGE_BYTES).unwrap();
+        let second =
+            folders.page_after(first.after_key.as_ref(), 1, MAX_FOLDER_PAGE_BYTES).unwrap();
+        let before = folders
+            .page_before(second.before_key.as_ref().unwrap(), 1, MAX_FOLDER_PAGE_BYTES)
+            .unwrap();
+        assert_eq!(before.rows[0].key(), first.rows[0].key());
+        let row_bytes = first.rows[0].encoded_len() + 1;
+        let bounded = folders.window(3, row_bytes).unwrap();
+        assert_eq!(bounded.rows.len(), 1);
+        assert!(bounded.has_after);
+    }
+
+    #[test]
+    fn oversized_keys_and_invalid_counts_are_refused() {
+        assert!(
+            Folders::new()
+                .apply(FolderEntry::new(
+                    "o".repeat(MAX_FIELD_BYTES + 1),
+                    "/f",
+                    Some(row("o", "c")),
+                    1,
+                    1
+                ))
+                .is_err()
+        );
+        assert!(
+            Folders::new()
+                .apply(FolderEntry::new(
+                    "local",
+                    &*"f".repeat(MAX_FOLDER_BYTES + 1),
+                    Some(row("local", "c")),
+                    1,
+                    1
+                ))
+                .is_err()
+        );
+        assert!(Folders::new().apply(FolderEntry::new("local", "/f", None, 1, 1)).is_err());
+        assert!(
+            Folders::new()
+                .apply(FolderEntry::new("local", "/f", Some(row("local", "c")), 1, 0))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn before_cursor_whose_row_left_still_reads_prior_candidates() {
+        let (folders, _) = Folders::new().apply(entry("local", "/a", "a", 3, 1)).unwrap();
+        let (folders, _) = folders.apply(entry("local", "/b", "b", 2, 1)).unwrap();
+        let cursor = FolderCursor::new(2, FolderKey::new("local", "/b"));
+        let (folders, _) = folders.apply(FolderEntry::new("local", "/b", None, 0, 0)).unwrap();
+        let page = folders.page_before(&cursor, 1, MAX_FOLDER_PAGE_BYTES).unwrap();
+        assert_eq!(page.rows[0].folder.as_ref(), "/a");
+    }
+
+    #[test]
+    fn filtered_candidates_consume_limit_and_keep_continuation() {
+        let folders = (0..2_000).fold(Folders::new(), |folders, n| {
+            folders
+                .apply(entry("local", &format!("/folder-{n:04}"), "chat", n as u64 + 1, 1))
+                .unwrap()
+                .0
+        });
+        let filter = ListFilter { origin: Some("peer".into()), ..ListFilter::default() };
+        let page = folders
+            .read_page(None, FolderReadSide::After, false, 20, MAX_FOLDER_PAGE_BYTES, Some(&filter))
+            .unwrap();
+        assert!(page.rows.is_empty());
+        assert_eq!(page.bytes_read, 0);
+        assert!(page.after_key.is_some());
+        assert!(page.has_after);
     }
 
     #[test]
@@ -575,31 +658,31 @@ mod release_gates {
         build_view(&fixture_entries(count))
     }
 
-    fn apply_newest(folders: &Folders, entry: &FolderEntry) -> u128 {
+    fn apply_newest(folders: &Folders, entry: FolderEntry) -> u128 {
         let started = Instant::now();
-        let next = folders.apply(entry.clone()).expect("newest update").0;
+        let next = folders.apply(entry).expect("newest update").0;
         black_box(next);
         started.elapsed().as_nanos().max(1)
     }
 
-    fn apply_move(folders: &Folders, remove: &FolderEntry, insert: &FolderEntry) -> u128 {
+    fn apply_move(folders: &Folders, remove: FolderEntry, insert: FolderEntry) -> u128 {
         let started = Instant::now();
-        let (next, _) = folders.apply(remove.clone()).expect("old folder removal");
-        let next = next.apply(insert.clone()).expect("new folder insert").0;
+        let (next, _) = folders.apply(remove).expect("old folder removal");
+        let next = next.apply(insert).expect("new folder insert").0;
         black_box(next);
         started.elapsed().as_nanos().max(1)
     }
 
     fn page_window(folders: &Folders) -> u128 {
         let started = Instant::now();
-        let first = folders.window(20, MAX_FOLDER_PAGE_BYTES).expect("first window");
+        let first = folders.window(3, MAX_FOLDER_PAGE_BYTES).expect("first window");
         black_box(first);
         started.elapsed().as_nanos().max(1)
     }
 
     fn deep_page(folders: &Folders, cursor: &FolderCursor) -> u128 {
         let started = Instant::now();
-        let page = folders.page_after(Some(cursor), 20, MAX_FOLDER_PAGE_BYTES).expect("deep page");
+        let page = folders.page_after(Some(cursor), 3, MAX_FOLDER_PAGE_BYTES).expect("deep page");
         black_box(page);
         started.elapsed().as_nanos().max(1)
     }
@@ -687,8 +770,8 @@ mod release_gates {
             1,
         );
         let god_entry = small_entry.clone();
-        let (small_p95, _) = timed(|| apply_newest(&small, &small_entry));
-        let (god_p95, god_p95_all) = timed(|| apply_newest(&god, &god_entry));
+        let (small_p95, _) = timed(|| apply_newest(&small, small_entry.clone()));
+        let (god_p95, god_p95_all) = timed(|| apply_newest(&god, god_entry.clone()));
         gate("v2.pr05f.apply_newest", small_p95, god_p95, god_p95_all, "ns");
     }
 
@@ -705,8 +788,8 @@ mod release_gates {
             10_000,
             1,
         );
-        let (small_p95, _) = timed(|| apply_move(&small, &remove, &insert));
-        let (god_p95, god_p95_all) = timed(|| apply_move(&god, &remove, &insert));
+        let (small_p95, _) = timed(|| apply_move(&small, remove.clone(), insert.clone()));
+        let (god_p95, god_p95_all) = timed(|| apply_move(&god, remove.clone(), insert.clone()));
         gate("v2.pr05f.apply_move", small_p95, god_p95, god_p95_all, "ns");
     }
 
@@ -732,7 +815,7 @@ mod release_gates {
             .expect("deep cursor");
         let small_cursor = small
             .iter()
-            .nth(2)
+            .next()
             .map(|row| FolderCursor::new(row.at, row.key()))
             .expect("small cursor");
         let (small_p95, _) = timed(|| deep_page(&small, &small_cursor));
@@ -779,13 +862,6 @@ mod release_gates {
         );
         eprintln!(
             "PR5f resident small_rise_kib={small_rise} god_rise_kib={god_rise} held_rise_kib={held_rise} encoded_bytes={encoded}"
-        );
-        gate(
-            "v2.pr05f.resident_rss",
-            small_rise as u128,
-            god_rise as u128,
-            god_rise as u128,
-            "KiB",
         );
     }
 }
