@@ -47,6 +47,9 @@ fn text(ptr: *const u8, len: usize) -> serde_json::Value {
 fn json_of(line: &CmuxRdLine) -> serde_json::Value {
     let has = |bit: u32| line.fields & bit != 0;
     let mut out = serde_json::Map::new();
+    if has(CMUX_RD_LINE_FALLBACK_WEBRTC) {
+        out.insert("fallback_webrtc".into(), true.into());
+    }
     if has(CMUX_RD_LINE_KEY) {
         out.insert("key".into(), text(line.key, line.key_len));
     }
@@ -142,23 +145,22 @@ fn a_line_without_its_newline_waits() {
 }
 
 #[test]
-fn fallback_accessor_is_typed_current_and_does_not_advance_the_reader() {
+fn fallback_bit_is_typed_and_does_not_leak_across_lines() {
     let reader = Reader::new();
-    // SAFETY: one live reader, used serially for the whole test.
-    let fallback = || unsafe { cmux_rd_line_reader_fallback(reader.0) };
-    assert_eq!(fallback(), 0);
     assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"timeout\",\"retry\":\"web_rtc\"}}\n{\"ended\":\"revoked\"}\n"), 2);
-    assert!(reader.next().is_some());
-    assert_eq!(fallback(), 1);
-    assert_eq!(fallback(), 1);
+    assert_eq!(reader.next(), Some(serde_json::json!({"fallback_webrtc": true})));
     assert_eq!(reader.next(), Some(serde_json::json!({"ended": "revoked"})));
-    assert_eq!(fallback(), 0);
     assert_eq!(reader.next(), None);
-    assert_eq!(fallback(), 0);
     assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"revoked\",\"retry\":\"web_rtc\"}}\n"), 0);
     assert_eq!(reader.push(b"{\"fallback\":true}\n"), 0);
-    // SAFETY: NULL is a supported error input.
-    assert_eq!(unsafe { cmux_rd_line_reader_fallback(std::ptr::null_mut()) }, CMUX_RD_ERR_NULL);
+    for state in [r#""ended":"revoked""#, r#""error":"denied""#, r#""connected":true"#] {
+        let line = format!(
+            "{{{state},\"fallback\":{{\"carrier\":\"rd_wg\",\"reason\":\"timeout\",\"retry\":\"web_rtc\"}}}}\n"
+        );
+        assert_eq!(reader.push(line.as_bytes()), 1);
+        let value = reader.next().expect("valid non-fallback fields remain visible");
+        assert!(value.get("fallback_webrtc").is_none());
+    }
 }
 
 #[test]

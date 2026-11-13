@@ -55,9 +55,7 @@ public nonisolated final class RemoteRdLineReader {
         lines.reserveCapacity(Int(ready))
         var raw = CmuxRdLine()
         while cmux_rd_line_reader_next(handle, &raw) == 1 {
-            var line = Self.line(raw)
-            line.fallbackToWebRTC = cmux_rd_line_reader_fallback(handle) == 1
-            lines.append(line)
+            lines.append(Self.line(raw))
         }
         return lines
     }
@@ -71,6 +69,7 @@ public nonisolated final class RemoteRdLineReader {
             return String(decoding: UnsafeBufferPointer(start: pointer, count: count), as: UTF8.self)
         }
         var line = Line()
+        line.fallbackToWebRTC = has(CMUX_RD_LINE_FALLBACK_WEBRTC)
         line.key = text(raw.key, raw.key_len, CMUX_RD_LINE_KEY)
         line.candidate = text(raw.candidate, raw.candidate_len, CMUX_RD_LINE_CANDIDATE)
         line.ended = text(raw.ended, raw.ended_len, CMUX_RD_LINE_ENDED)
