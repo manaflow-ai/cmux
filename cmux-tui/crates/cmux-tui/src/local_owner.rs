@@ -817,12 +817,16 @@ const DETACHED_OWNER_IDENTITY_ENV: [&str; 6] = [
     "CMUX_NEXT_CLOUD_LAUNCHER",
 ];
 
-/// Remove terminal identity and agent caller claims
-/// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
-/// preserving configuration and socket variables inherited from the
-/// launching client.
+/// Remove terminal identity and the starting agent's session variables
+/// (`startup_env::agent_caller_keys`, cx-4nar, W5-R) from the detached owner
+/// while preserving configuration and socket variables inherited from the
+/// launching client (an agent caller's app socket and password go: see
+/// `agent_caller_keys`).
 fn configure_detached_owner_environment(command: &mut Command) {
-    for key in DETACHED_OWNER_IDENTITY_ENV.into_iter().chain(crate::startup_env::AGENT_CALLER_ENV) {
+    for key in DETACHED_OWNER_IDENTITY_ENV {
+        command.env_remove(key);
+    }
+    for key in crate::startup_env::agent_caller_keys(std::env::vars_os().map(|(key, _)| key)) {
         command.env_remove(key);
     }
 }
@@ -913,9 +917,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
-    for (key, value) in &spec.carried_env {
-        command.env(key, value);
-    }
+    command.envs(carried_launch::launch_env(&spec.carried_env));
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }

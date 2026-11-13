@@ -27,6 +27,7 @@ import { AgentTag } from "./AgentTag";
 import { useMessageLineLook } from "./messageLineLook";
 import { useMessageRowLook } from "./messageRowLook";
 import { UnverifiedMark } from "./UnverifiedMark";
+import type { SenderProgram } from "./incomingMessage";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import "./AgentMessageRow.css";
 export function AgentMessageRow({
@@ -40,6 +41,8 @@ export function AgentMessageRow({
   nameSlot,
   detail,
   unverified = false,
+  program,
+  claimed,
   preview,
   label,
   open,
@@ -82,6 +85,10 @@ export function AgentMessageRow({
   detail?: ReactNode;
   /// acpmux could not verify the other agent (senderIdentity.ts): the subtle marker by its name.
   unverified?: boolean;
+  /// The program acpmux saw send it (incomingMessage.ts `senderProgram`): the marker says so.
+  program?: SenderProgram;
+  /// The name an unverified sender gave itself: the marker says it is only a claim.
+  claimed?: string;
   /// The message's first line, shown while closed.
   preview: string;
   /// The toggle's label: the line as a sentence.
@@ -132,11 +139,13 @@ export function AgentMessageRow({
   // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const closeToToggle = () => {
-    if (open) toggleRef.current?.focus({ preventScroll: true });
-    collapse.toggle();
+  const closeToToggle = (event?: unknown) => {
+    // The click itself, so a drag across the line toggles nothing (useAnchoredCollapse `deliberateClick`).
+    if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
   };
-  const marker = unverified && <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} />;
+  const marker = unverified && (
+    <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} program={program} claimed={claimed} />
+  );
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();

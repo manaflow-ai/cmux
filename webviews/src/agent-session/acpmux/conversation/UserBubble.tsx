@@ -1,19 +1,21 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// hover), then Copy, Edit, Fork from here and Bookmark, each naming itself on hover. The ellipsis
 // is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
 // Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
 // bubble back. Edit shows only on a prompt the chat can fork before (`editableTurns`), so it is
-// never dead. Retry sends the prompt again (MessageActions.tsx PromptRetry). A prompt with versions
+// never dead. Resend lives in the menu. A prompt with versions
 // (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
 // block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
-// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+// it sent is its poster and length among them, playing on a click (SentVideoTile.tsx), frames or not.
+// A Cloud chat's prompt whose turn has a machine checkpoint taken before it ran adds Back to before
+// this turn after Fork (MessageActions.tsx RewindButton): one click puts the machine back there.
 import {
   Fragment,
   memo,
@@ -25,19 +27,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { PresentationContext } from "./presentationContextModel";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { DeliveryMark } from "./PromptDelivery";
+import { PendingDelivery, usePendingShown } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
-import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
+import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
@@ -46,11 +47,9 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
-import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
-import { NO_RETRY_TARGET, retryPlacement } from "./turns";
-import { useTranscriptReadOnly } from "./readOnly";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
@@ -87,29 +86,15 @@ export function UserBubble({
     [givenText, given, skills],
   );
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry: canResend } = useContext(TurnActionsContext);
-  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
-  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
-  const messagesView = useContext(PresentationContext) === "messages";
-  const retryTarget = useContext(RetryTargetContext);
-  const readOnly = useTranscriptReadOnly();
-  // In the transcript, this prompt draws the chat's one Retry when turns.ts retryPlacement puts it
-  // under the prompt: its turn's footer does not draw it (a turn of tool calls alone, history with no
-  // turn result, a turn still running).
-  const promptRetry =
-    retryTarget?.promptId === row.id &&
-    retryPlacement(retryTarget ?? NO_RETRY_TARGET, {
-      canRetry: Boolean(canResend),
-      readOnly,
-      messages: messagesView,
-    }) === "prompt";
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
+  // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
+  const pendingShown = usePendingShown(row.delivery);
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
@@ -118,12 +103,9 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
-        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+      : // A video, with its frames or without, is its tile (sentVideos.ts), left out below.
         row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
-            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-            : [],
+          file.kind === "link" ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }] : [],
         )
   )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
@@ -206,19 +188,6 @@ export function UserBubble({
       />
     );
   }
-  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
-  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
-  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
-  // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
-  // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
-  // their Retry; not while one is on its way, as a second send would duplicate it.
-  // An attachment-only prompt retries only when every attachment can go again: a Retry that sent
-  // none of them would send an empty prompt.
-  const retryAttachments = resendsAttachments(row);
-  const retry =
-    (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
-      <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
-    ) : null;
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
@@ -226,39 +195,19 @@ export function UserBubble({
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
   const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
-  // Without a bubble, the sending clock sits beside the last attachment band drawn, as it sits
-  // beside a bubble, and takes no line of its own (model.ts reserves none).
-  const sendingMark =
-    !hasBubble && row.delivery?.state === "sending" && !row.steer ? <DeliveryMark delivery={row.delivery} /> : null;
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
-  const lastBand =
-    stripMedia.length > 0
-      ? "strip"
-      : showsLegacyFiles
-        ? "files"
-        : looseImages.length > 0
-          ? "loose"
-          : showsLegacyImages
-            ? "images"
-            : undefined;
-  const markIn = (band: typeof lastBand) => (band === lastBand ? sendingMark : null);
   return (
     <>
       {showsLegacyImages && (
-        <SentImages
-          images={row.images ?? []}
-          leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null}
-          trailing={markIn("images")}
-        />
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
       )}
-      {looseImages.length > 0 && <SentImages images={looseImages} trailing={markIn("loose")} />}
+      {looseImages.length > 0 && <SentImages images={looseImages} />}
       {showsLegacyFiles && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
-          {markIn("files")}
         </div>
       )}
       {stripMedia.length > 0 && (
@@ -274,7 +223,6 @@ export function UserBubble({
               </Fragment>
             ),
           )}
-          {markIn("strip")}
         </div>
       )}
       <div className="cv-user__body">
@@ -291,22 +239,20 @@ export function UserBubble({
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
-            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-            {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        ) : sendingMark && !lastBand ? (
-          <div className="cv-user__bubble-wrap is-empty">{sendingMark}</div>
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
         {!row.failed && (text || hasAttachment || pending) && (
           <UserFooter
-            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+            className={
+              (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
+              (pendingShown ? " cv-user__actions--pending" : "")
+            }
             pending={
               pending &&
               ((actions) =>
                 pending(actions, {
-                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} held />,
                   fork: forkButton,
                 }))
             }
@@ -346,7 +292,11 @@ export function UserBubble({
                   </button>
                 </span>
               )}
-              <MessageTime at={row.at} className="cv-user__time" />
+              {pendingShown && row.delivery ? (
+                <PendingDelivery delivery={row.delivery} queued={Boolean(row.steer || row.delivery.queued)} />
+              ) : (
+                <MessageTime at={row.at} className="cv-user__time" />
+              )}
               <MessageCopy text={row.text ?? text} />
               {through !== undefined && (
                 <button
@@ -359,8 +309,8 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {retry}
               {forkButton}
+              <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
@@ -404,13 +354,10 @@ export const SentImages = memo(function SentImages({
   images,
   className,
   leading,
-  trailing,
 }: {
   images: readonly PromptImage[];
   className?: string;
   leading?: ReactNode;
-  /// Drawn after the images: an attachment-only prompt's sending clock, positioned beside the band.
-  trailing?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
@@ -418,13 +365,12 @@ export const SentImages = memo(function SentImages({
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
-      {trailing}
     </div>
   );
 });
 
 /// A prompt's videos, each at a sent image's height in its own shape.
-function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
     <SentVideoTile
       key={`${video.name}\n${video.path}`}

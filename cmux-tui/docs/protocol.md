@@ -383,7 +383,8 @@ When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
 that has had no tab placement for the reap grace period and emits
 `terminal-reaped`, but only when the owner was started with
 `--terminal-reap-grace-seconds` (`identify` then also advertises
-`terminal-reaper-active-v1`). Every owner a local client starts (`cmux`,
+`terminal-reaper-active-v1`, from the first answer the owner's socket gives
+until the reaper stops). Every owner a local client starts (`cmux`,
 `cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
 client names another, and so do the mux owner `remote-link` starts on an
 SSH remote and the owner the chatmux relay starts (when its cmux-tui lists
@@ -399,7 +400,13 @@ parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
 ends every terminal before the handoff; add `"keep_layout":true`
 (`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
 for the next owner (a quitting frontend that restarts shells in the same
-layout). To close many tabs at once, send
+layout). Without `keep_layout`, the answer carries `session_dir`, the
+session's saved-state directory: nothing is left to resume, and
+`cmux daemon stop --end-terminals` removes its terminal and resume state (the
+launch snapshot and the terminal-host records) once the owner released its
+session locks. The registry, the Chief store, conversations, git checkpoints,
+diff comments and session settings stay (an older owner answers no
+`session_dir`, and all its state stays). To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same

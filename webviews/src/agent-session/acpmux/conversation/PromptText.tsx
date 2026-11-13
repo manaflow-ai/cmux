@@ -35,7 +35,7 @@ import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
 import { cmuxLinkTarget } from "./cmuxLinks";
-import { SkillWordsContext } from "./skillWords";
+import { leadCommand, SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./withSkillWords";
 import { Bot } from "./icons";
 import { agentText } from "../agentText";
@@ -43,6 +43,12 @@ import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 import { SentPromptFoldContext, SentUIPicks } from "./SentUIPick";
 import { sentUIPickSegments } from "./sentUIPickModel";
+
+/// Whether a prompt's text is long, by its row and the bubble's width, for the text it was measured
+/// with: a remount (a row scrolled out and back) reads it instead of laying the text out again.
+/// Bounded: the oldest prompts go first.
+const longPrompts = new Map<string, { text: string; join: unknown; widths: Map<number, boolean> }>();
+const LONG_PROMPTS_KEPT = 2000;
 
 export function PromptText({
   rowId,
@@ -94,10 +100,28 @@ export function PromptText({
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const head = huge && collapsed;
   const body = useRef<HTMLDivElement>(null);
+  /// Whether this mount has measured once: only its first measure may read a kept answer.
+  const measuredHere = useRef(false);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
-    const measure = () => {
+    // A measure kept from an earlier mount of the same text at the same bubble width (a row
+    // scrolled out and back): the fold is known without laying the text out again. Only a mount's
+    // first measure reads it. A later one means the bubble changed while drawn (a sent pick
+    // opened, say), so it lays the text out, and the kept answers of that row are dropped.
+    const kept = (width: number) => {
+      const entry = width > 0 ? longPrompts.get(rowId) : undefined;
+      return entry && entry.text === text && entry.join === join ? entry.widths.get(width) : undefined;
+    };
+    const measure = (width: number) => {
+      const first = !measuredHere.current;
+      measuredHere.current = true;
+      const known = first ? kept(width) : undefined;
+      if (known !== undefined) {
+        setMeasured((last) => ((last?.parts === parts ? last.long : guess) === known ? last : { parts, long: known }));
+        return;
+      }
+      if (!first) longPrompts.delete(rowId);
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
@@ -116,17 +140,34 @@ export function PromptText({
       // to the head again, and loop until React's update limit. Only the whole text, drawn open or
       // unfolded, can measure short. One rule for typed and pasted parts.
       if (!next && (head || node.querySelector("[data-prompt-head]"))) return;
+      if (first && width > 0) {
+        let entry = longPrompts.get(rowId);
+        if (!entry || entry.text !== text || entry.join !== join) entry = { text, join, widths: new Map() };
+        longPrompts.delete(rowId);
+        longPrompts.set(rowId, entry);
+        entry.widths.set(width, next);
+        if (longPrompts.size > LONG_PROMPTS_KEPT) longPrompts.delete(longPrompts.keys().next().value!);
+      }
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
       // change that disagrees still updates the fold synchronously before paint.
       setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
     };
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    // Measured from the observer's delivery, after the frame's layout and before its paint, never
+    // in this commit: a layout read here forced a layout of the transcript in the middle of the
+    // commit that mounts rows, once per prompt a scroll brings in (Leo, 2026-11-11: "scrolling up
+    // is slow and it layout shift and everythng lag"). A test DOM with no observer measures here.
+    if (typeof ResizeObserver !== "function") {
+      measure(0);
+      return;
+    }
+    const observer = new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+      const entry = entries?.[entries.length - 1];
+      measure(Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0));
+    });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, guess, long, open, children, head]);
+  }, [parts, guess, long, open, children, head, rowId, text, join]);
   const shownParts = useMemo(
     () =>
       head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
@@ -232,6 +273,7 @@ export function PromptText({
                     show={show}
                     plain={"huge" in part && part.huge === true}
                     slot={`typed:${index}`}
+                    lead={index === 0}
                   />
                 ) : (
                   <PastedText key={index} text={part.text} collapsed={collapsed} />
@@ -295,8 +337,12 @@ export function PromptTyped({
   show,
   plain,
   slot = "typed:0",
+  lead = false,
 }: {
   text: string;
+  /// It starts the prompt: its first word draws as a command when it names any (skillWords.ts
+  /// leadCommand), as the composer draws the prompt's first word.
+  lead?: boolean;
   show: (text: string) => string;
   /// Which typed part of the prompt it is, keying its picks' disclosures (SentUIPick.tsx).
   slot?: string;
@@ -305,7 +351,21 @@ export function PromptTyped({
 }) {
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
-  const skills = useContext(SkillWordsContext).words;
+  // The prompt's first word lights for any command, as in the composer (a sent `/compact`).
+  const { words: skills, leading: allCommands } = useContext(SkillWordsContext);
+  const leading = lead ? allCommands : undefined;
+  // The Markdown renderer reads skills by name in its own text runs: the command the prompt starts
+  // with joins them for this prompt (a later mid-prompt `/name` of it lights too, the cost of a
+  // renderer that does not know where the prompt starts).
+  const first = useMemo(
+    () =>
+      lead && !plain && !isHugePrompt(text) && isPromptMarkdown(text) ? leadCommand(shown, allCommands) : undefined,
+    [lead, plain, text, shown, allCommands],
+  );
+  const markdownSkills = useMemo(
+    () => (first && !skills.has(first.word) ? new Map(skills).set(first.word, first.description) : skills),
+    [first, skills],
+  );
   // An inspector pick the composer sent draws as its chip, opening its report in place (SentUIPick.tsx),
   // in a huge prompt too: the chip draws a line, never the report, and the text around it stays
   // literal (`plain` passed on, and a huge part is still huge).
@@ -315,20 +375,29 @@ export function PromptTyped({
       <SentUIPicks
         segments={picks}
         slot={slot}
-        typed={(part) => <PromptTyped text={part} show={show} plain={plain} />}
+        // The prompt's first words are in its first text segment with any: a pick before it is an
+        // attachment placed in the text, which the composer's first word skips too.
+        typed={(part, index) => (
+          <PromptTyped
+            text={part}
+            show={show}
+            plain={plain}
+            lead={lead && index === picks.findIndex((segment) => segment.kind === "text" && segment.text.trim())}
+          />
+        )}
       />
     );
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false} skills={skills} commonmark>
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} commonmark>
       {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      {skills.size && shown.includes("/") ? (
-        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />)
+      {(skills.size || leading?.size) && shown.includes("/") ? (
+        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />, leading)
       ) : (
         <LiteralText text={shown} />
       )}

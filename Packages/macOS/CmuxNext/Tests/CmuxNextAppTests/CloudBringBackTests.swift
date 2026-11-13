@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSettings
 import CryptoKit
 import Foundation
@@ -18,6 +21,14 @@ import Testing
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloudBringBackTests {
+    @Test func twoChatsWithTimeOrderedIDsGetTheirOwnFoldersOnTheTarget() {
+        // UUIDv7 session ids made seconds apart share their first characters; each chat still gets its own folder.
+        let first = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000a")
+        let second = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000b")
+        let otherMachine = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000002", session: "019a6b2c-1111-7000-8000-00000000000a")
+        #expect(Set([first, second, otherMachine]).count == 3)
+    }
+
     @Test func aChatStartedInACopiedSubfolderCanComeBackAndUseLocalAccess() async throws {
         try await Self.withRoundTrip("started", fromStart: true) { trip in
             let record = try #require(trip.machineChat()?.agentSession)
@@ -66,6 +77,64 @@ struct CloudBringBackTests {
             let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
             try await trip.waitUntil { trip.accessCalls().contains(revoke) }
             #expect(trip.accessCalls().contains(revoke), "the bring back left the chat's grants: \(trip.accessCalls())")
+        }
+    }
+
+    /// `cmux cloud bring-back --focus` ends with the window showing the chat that came back, in a workspace whose only
+    /// tab is that chat: no terminal is made beside it, so none takes the window or focus. The cloud-ergo-handoff
+    /// capture at baf4f76ab502 ended on a new "~/Library/Application Support/…" shell, the workspace's first tab, with
+    /// the chat a background tab beside it (and `debug.agent_pane`: "no pane shows an agent tab").
+    @Test func aFocusedBringBackShowsTheChatAloneAndNoTerminal() async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let services = trip.services
+            let controller = try #require(services.windows.active)
+            if let error = await trip.bringBack(focus: true) { Issue.record("cmux cloud bring-back --focus: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let local = try #require(trip.localChat(), "no chat tab on this Mac")
+            let pane = try #require(services.daemon.store.pane(holding: local))
+            let workspace = try #require(services.daemon.store.workspace(containing: pane.handle))
+            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            #expect(tabs.map(\.id) == [local.id], "the chat's workspace holds more than the chat: \(tabs.map { "\($0.kind) \($0.titleText)" })")
+            #expect(!tabs.contains { $0.kind == .pty }, "a terminal was made beside the chat that came back")
+            try await trip.waitUntil {
+                controller.content?.contentView.layoutSubtreeIfNeeded()
+                return controller.state.workspaceID == workspace.id && controller.focusedPane?.stripModel.selectedID?.rawValue == local.id
+            }
+            #expect(controller.state.workspaceID == workspace.id, "the window does not show the chat's workspace")
+            #expect(controller.focusedPane?.stripModel.selectedID?.rawValue == local.id, "the focused tab is not the chat that came back")
+        }
+    }
+
+    /// Bring Back Local with no `--focus` keeps the chat on screen in the window that drew it: the window then draws the
+    /// chat's tab on this Mac. A window that only remembers the chat (a top page over it, another screen, another
+    /// workspace) keeps what it draws (the review of #39834).
+    @Test(arguments: [nil] + CloudMoveTests.Hidden.allCases.map(Optional.some))
+    func aCLIBringBackKeepsTheChatOnScreenOnlyWhereItWasDrawn(_ hidden: CloudMoveTests.Hidden?) async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let services = trip.services
+            let (controller, chat, pane, workspace) = try await CloudMoveTests.putOnScreen(trip.machineKey, machine: trip.machine.daemon, services: services)
+            var screen: LayoutScreenID?
+            if let hidden { screen = try await CloudMoveTests.hide(chat, in: pane, of: workspace, hidden, controller: controller, daemon: trip.machine.daemon) }
+            let (shown, page) = (controller.state.workspaceID, controller.state.page)
+
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let local = try #require(trip.localChat(), "no chat tab on this Mac")
+            let localPane = try #require(services.daemon.store.pane(holding: local))
+            guard hidden != nil else {
+                try await trip.waitUntil {
+                    controller.content?.contentView.layoutSubtreeIfNeeded()
+                    return controller.showsOnScreen(local.id, in: localPane)
+                }
+                #expect(controller.showsOnScreen(local.id, in: localPane), "the window does not draw the chat that came back")
+                return
+            }
+            // A workspace the chat had alone (the machine's, under a top page) closes with it: the window keeps its page over another.
+            if shown.map({ services.machines.workspace(id: $0) != nil }) ?? true {
+                #expect(controller.state.workspaceID == shown, "the bring back changed the window's workspace")
+            }
+            #expect(controller.state.page == page, "the bring back changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the bring back changed the window's screen") }
         }
     }
 
@@ -427,14 +496,17 @@ struct CloudBringBackTests {
             return await model.respond(to: AgentPaneRequest(body: ["method": "chat.upload", "params": ["files": files]]))
         }
 
-        /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
-        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true) async -> ControlError? {
-            await CloudCLIActionRun(services: services)(["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
-                                                         "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)])
+        /// `cmux <action>` on tab `tab`, as the CLI sends it (`focus`: with `--focus`); its error when it stopped.
+        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true,
+                 focus: Bool = false) async -> ControlError? {
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                                 "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
+            if focus { params["focus"] = .bool(true) }
+            return await CloudCLIActionRun(services: services)(params)
         }
 
-        /// `cmux cloud bring-back` on the machine's chat tab.
-        func bringBack() async -> ControlError? { await run("cloud bring-back", tab: machineKey) }
+        /// `cmux cloud bring-back` on the machine's chat tab (`focus`: `cmux cloud bring-back --focus`).
+        func bringBack(focus: Bool = false) async -> ControlError? { await run("cloud bring-back", tab: machineKey, focus: focus) }
 
         /// Polls `condition` for up to a minute.
         func waitUntil(_ condition: () -> Bool) async throws {

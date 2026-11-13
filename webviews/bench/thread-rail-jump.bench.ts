@@ -8,7 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
-import { chromium, type Page, type CDPSession } from "playwright";
+import { chromium } from "./browsers";
+import type { Page, CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS } from "./perfRow";
@@ -580,9 +581,6 @@ async function main() {
     },
   });
   const browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
   });
   try {

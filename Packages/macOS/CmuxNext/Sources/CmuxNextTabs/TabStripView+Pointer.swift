@@ -335,11 +335,14 @@ extension TabStripView {
         hoverCards.dismiss(.action)
         let anchor = anchor ?? newTabButton
         let fromChooser = anchor === newTabMenuButton
+        // Runs last (defers run in reverse): a ⌄ shown only on hover hides again once the menu and its light are gone.
+        defer { updateChooserReveal() }
         if fromChooser { newTabMenuButton.isHighlighted = true }
         defer { if fromChooser { newTabMenuButton.isHighlighted = false } }
         let origin = CmuxPopoverAnchor.menuPoint(for: anchor, in: self, gap: 2)
         // Only the control that opened the menu stays lit: the + for hold/right-click, the chooser for its own press.
         menuTracking.begin(menu, fromNewTabButton: !fromChooser)
+        updateChooserReveal()
         presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }

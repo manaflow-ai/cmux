@@ -22,7 +22,7 @@ public nonisolated struct RemoteRdByteStream: Sendable {
 /// both directions; either direction ending ends the path (`.closed(reason:)`), so the pane says why and
 /// never waits.
 public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
-    private let open: @Sendable () async throws -> RemoteRdByteStream
+    private let open: @Sendable (_ progress: @escaping @Sendable (String) -> Void) async throws -> RemoteRdByteStream
     private let outgoing: AsyncStream<Data>
     private let outbox: AsyncStream<Data>.Continuation
     private let state = Mutex(State())
@@ -37,7 +37,12 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
         var closedHere = false
     }
 
-    public init(open: @escaping @Sendable () async throws -> RemoteRdByteStream) {
+    public convenience init(open: @escaping @Sendable () async throws -> RemoteRdByteStream) {
+        self.init(reportingOpen: { _ in try await open() })
+    }
+
+    /// `reportingOpen` gets a sink for its progress text while it opens (``RemoteRdCarrierEvent/progress(_:)``).
+    public init(reportingOpen open: @escaping @Sendable (_ progress: @escaping @Sendable (String) -> Void) async throws -> RemoteRdByteStream) {
         self.open = open
         // concurrency-allow: the transport's frames in send order; the transport paces them as it does for NWConnection's send queue
         (outgoing, outbox) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
@@ -53,7 +58,7 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
         let task = Task { [open] in
             let stream: RemoteRdByteStream
             do {
-                stream = try await open()
+                stream = try await open { [weak self] text in self?.emit(.progress(text)) }
             } catch {
                 // The open's own error (no link, a refused lookup or dial) is why the pane says the
                 // connection was lost: the closed event carries it to the session snapshot.

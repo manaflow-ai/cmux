@@ -43,9 +43,24 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
+        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, linux-macos-arm64 (both Linux musl targets and aarch64-apple-darwin), or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
+        type: string
+      # The Cloud machine channel's Linux musl legs (cmux-tui-artifacts.yml build-linux) build with thin
+      # LTO: about 8.5 min a leg against 24.5 fat (runs 43239073532, 43317570784). Every other caller,
+      # and so every shipped app, npm, PyPI, release and R2 artifact, keeps the fat profile in
+      # cmux-tui/Cargo.toml (#41963). thin needs target_set linux and an artifact_prefix, so its
+      # binaries never stand in for the shipped ones.
+      lto:
+        description: "Release LTO: fat (cmux-tui/Cargo.toml, every shipped artifact) or thin (the Cloud machine channel's Linux legs only)"
+        required: false
+        default: fat
+        type: string
+      artifact_prefix:
+        description: "Prefix of every uploaded artifact name; thin builds need one so no shipped-artifact pattern matches them"
+        required: false
+        default: ""
         type: string
       verify_linux_arm64:
         description: "Run package entrypoint verification on native Linux ARM64"
@@ -169,6 +184,8 @@ jobs:
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
+          LTO: ${{ inputs.lto }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
         shell: bash
         run: |
           python3 <<'PY' >> "$GITHUB_OUTPUT"
@@ -249,6 +266,13 @@ jobs:
                   target for target in targets
                   if target["target"] == "aarch64-apple-darwin"
               ]
+          elif target_set == "linux-macos-arm64":
+              # cmux-tui-artifacts.yml's fat build off main and rc/**: every shipped
+              # Linux target and the arm64 Mac, no Intel (CMUX_TUI_DARWIN_X86_64).
+              selected = [
+                  target for target in targets
+                  if target["target"].endswith("-unknown-linux-musl") or target["target"] == "aarch64-apple-darwin"
+              ]
           elif target_set == "macos-x86_64":
               selected = [
                   target for target in targets
@@ -267,6 +291,12 @@ jobs:
           )
           if packages_requested and target_set != "all":
               raise SystemExit("npm and PyPI packaging require target_set=all")
+          lto = os.environ["LTO"]
+          if lto not in ("fat", "thin"):
+              raise SystemExit(f"unsupported lto: {lto!r}")
+          if lto == "thin" and (target_set != "linux" or packages_requested or not os.environ["ARTIFACT_PREFIX"]):
+              # Thin is only for the Cloud machine channel's own copy of the Linux binaries.
+              raise SystemExit("lto=thin needs target_set=linux, no packages and an artifact_prefix")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
           print("unix_targets=" + ("true" if selected else "false"))
@@ -428,7 +458,7 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-linux-${{ matrix.target }}
+          shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build cmux-tui (Linux cross)
@@ -436,6 +466,7 @@ jobs:
         env:
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
+          LTO: ${{ inputs.lto }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -449,19 +480,40 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
+          # lto=thin (the Cloud machine channel's legs only): release LTO off and 16 codegen units
+          # for the three crates on the critical path. Real thin LTO left every crate's machine code
+          # to the final link: the cmux-tui and acpmux "bin" units took 107-175 s each, last on
+          # both groups (cargo timings, runs 43445027590 and 43447122933); with LTO off each crate
+          # compiles its own code in parallel and the link only links. lto=fat changes nothing:
+          # cmux-tui/Cargo.toml's release profile applies.
+          # --timings (thin only): cargo-groups.sh prints each group's slowest and last units, so a
+          # slow leg says where its time went.
+          profile=""
+          if [[ "$LTO" == thin ]]; then
+            export CARGO_PROFILE_RELEASE_LTO=off
+            for pkg in cmux-tui cmux-tui-core acpmux; do
+              profile+=" --config profile.release.package.$pkg.codegen-units=16"
+            done
+            profile+=" --timings"
+          fi
           # One cargo per package, all at once, each in its own target directory
           # (building them in one cargo would unify their features). The
           # binaries end up in target/<triple>/release for "Stage binary".
+          # The bundled agent screen-detection plugin (its own Cargo workspace)
+          # is one of the groups, as in scripts/ci/macos-cross.sh: built after
+          # the others it added 25-30 s to every leg (runs 42653261844 to
+          # 42654596743), and the Cloud machine channel waits for these legs.
           t=${{ matrix.build_target }}
           # cargo-zigbuild writes its zig wrapper scripts in place (truncate,
           # then write) when they are missing: each group gets its own copy.
-          zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild --release --locked --target $t"; }
+          zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux" "$(zb 5) -p acpmux --bin acpmux"
+            "acpmux" "$(zb 5) -p acpmux --bin acpmux" \
+            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -549,14 +601,13 @@ jobs:
         # rides the cmux-tui artifact as cmux-tui-agent-screen-detection-<target>
         # for every macOS and Linux musl target (Unix only: the daemon runs no
         # plugin on Windows). scripts/ci/macos-cross.sh hosts build the macOS
-        # targets on Linux. Required: a failure fails the build, and the
+        # targets on Linux, and the Linux musl legs build it as a cargo group of
+        # "Build cmux-tui (Linux cross)". Required: a failure fails the build, and the
         # cmux-tui manifest checks (cmux-tui-artifacts.yml) and package_npm.py
         # refuse a macOS or Linux musl target without it.
-        if: runner.os == 'macOS' || (runner.os == 'Linux' && matrix.cross == true && !matrix.darwin_on_linux)
+        if: runner.os == 'macOS'
         env:
-          AGENT_PLUGIN_CROSS: ${{ matrix.cross }}
           AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
-          RUNNER_OS: ${{ runner.os }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -565,13 +616,8 @@ jobs:
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
           # A cached copy from an earlier build must not be staged after a failure.
           rm -f "$CARGO_TARGET_DIR/$AGENT_PLUGIN_TARGET/release/cmux-agent-screen-detection"
-          if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
-            cargo zigbuild --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-              --release --locked --target "$AGENT_PLUGIN_TARGET"
-          else
-            cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-              --release --locked --target "$AGENT_PLUGIN_TARGET"
-          fi
+          cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+            --release --locked --target "$AGENT_PLUGIN_TARGET"
 
       # The macOS legs built on Linux get the same warm start as the Linux musl
       # legs: their own cache per target, saved only by feat-cmux-next pushes. Its
@@ -779,7 +825,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
-          name: cmux-tui-dsyms-${{ matrix.target }}
+          name: ${{ inputs.artifact_prefix }}cmux-tui-dsyms-${{ matrix.target }}
           path: cmux-tui/target/${{ matrix.target }}/release/*.dSYM
           if-no-files-found: warn
 
@@ -787,7 +833,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
-          name: cmux-tui-${{ matrix.target }}
+          name: ${{ inputs.artifact_prefix }}cmux-tui-${{ matrix.target }}
           path: dist/cmux-tui-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -795,7 +841,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
-          name: cmux-relay-${{ matrix.target }}
+          name: ${{ inputs.artifact_prefix }}cmux-relay-${{ matrix.target }}
           path: dist/cmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -803,7 +849,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
-          name: chatmux-relay-${{ matrix.target }}
+          name: ${{ inputs.artifact_prefix }}chatmux-relay-${{ matrix.target }}
           path: dist/chatmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -812,7 +858,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
-          name: cmux-agent-screen-detection-${{ matrix.target }}
+          name: ${{ inputs.artifact_prefix }}cmux-agent-screen-detection-${{ matrix.target }}
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -928,10 +974,13 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           cargo test --release --locked --target x86_64-pc-windows-gnu \
+            --config 'profile.release.package.cmux-tui-core.codegen-units=16' \
             -p cmux-tui-core --lib normalize_long_windows
           cargo test --release --locked --target x86_64-pc-windows-gnu \
+            --config 'profile.release.package.cmux-tui-core.codegen-units=16' \
             -p cmux-tui-core --lib registry_opens_and_persists_under_a_long_windows_state_root
           cargo test --release --locked --target x86_64-pc-windows-gnu \
+            --config 'profile.release.package.cmux-tui-core.codegen-units=16' \
             -p cmux-tui-core --lib socket_start_lock_acquires_a_new_lock_file
 
       - name: Verify long Windows state path
@@ -1284,7 +1333,7 @@ jobs:
             --version "$PYPI_VERSION" \
             --notices-dir dist/package-notices
           for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+            python3 -m zipfile -l "$wheel" >"$RUNNER_TEMP/$(basename "$wheel").list"
           done
           python3 - <<'PY'
           import glob

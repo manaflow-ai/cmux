@@ -12,7 +12,10 @@
 //!
 //! A read answers the call's body; a mutation answers it as a mutation result (revision `0`,
 //! never replayed: the daemon keeps no ledger of Cloud calls, and a call that must not run twice
-//! carries the Cloud API's own idempotency key in `args`, as `cloud.runs.create` does). A refusal
+//! carries its own idempotency key in `args`, as `cloud.runs.create` does). `cloud.runs.*` are the
+//! daemon's own sandboxed Runs (`cloud_runs.rs`): a Cloud chat on a machine made for the task, no
+//! classic call, but for an incognito send's, which classic Cloud runs with no chat in the app
+//! (`cmux_cloud_api::classic_runs`). A refusal
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
 //! credential is ever in it. Each call runs on a worker thread (32 at most).
@@ -60,10 +63,15 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerHandoffBeginTurn
             | Op::CloudOwnerHarnessLoginCopy
             | Op::CloudOwnerGithubApp
+            | Op::CloudOwnerTurnCheckpoint
+            | Op::CloudOwnerTurnRewind
+            | Op::CloudOwnerTurns
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink
             | Op::CloudMachineIo
+            | Op::CloudMachineChatAccess
+            | Op::CloudMachineShareChat
     )
 }
 pub(super) fn handle(
@@ -227,10 +235,28 @@ mod calls {
         request: &Request,
         key: Zeroizing<Vec<u8>>,
     ) -> Result<Value, ResourceError> {
-        let result = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
-            Err(e) => Err(Failure::Transport(e.to_string())),
-        };
+        let result =
+            if cmux_cloud_api::classic_runs::is_incognito_create(&request.call, &request.args) {
+                // An incognito send's Run: classic Cloud runs it with no chat in the app, so its prompt
+                // and reply never show outside the incognito window (classic_runs.rs). Never the daemon's.
+                // It goes only while the app is still on the account the send was made under.
+                super::super::cloud_runs::engine(mux)
+                    .check_account(&request.args)
+                    .and_then(|_| block_on(cmux_cloud_api::classic_runs::drain(request)))
+            } else if request.call.starts_with("runs.") {
+                // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
+                // signed-in account, never from this call; its credential is not used.
+                match super::super::cloud_runs::engine(mux).perform(&request.call, &request.args) {
+                    // A wait or cancel of a Run the daemon never made: one the app followed from before
+                    // the upgrade, which classic Cloud drains to its end (never a record dropped as gone).
+                    Err(failure) if never_made(&request.call, &failure) => {
+                        block_on(cmux_cloud_api::classic_runs::drain(request))
+                    }
+                    own => own,
+                }
+            } else {
+                block_on(cmux_cloud_api::perform(request, key))
+            };
         let result = result.and_then(|body| {
             let size = serde_json::to_vec(&body).map_or(usize::MAX, |bytes| bytes.len());
             if size <= MAX_REPLY_BYTES {
@@ -253,6 +279,21 @@ mod calls {
     }
 
     /// `operation.failed` for `failure`, with neither credential in it.
+    /// One library call on a runtime of its own (this is a worker thread).
+    fn block_on(future: impl Future<Output = Result<Value, Failure>>) -> Result<Value, Failure> {
+        match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime.block_on(future),
+            Err(e) => Err(Failure::Transport(e.to_string())),
+        }
+    }
+
+    /// The daemon's answer to a wait or cancel of a Run it has no record of (`run_not_found`):
+    /// never one it made, so a Run from before the upgrade.
+    pub(super) fn never_made(call: &str, failure: &Failure) -> bool {
+        matches!(call, "runs.wait" | "runs.cancel")
+            && matches!(failure, Failure::Http { status: 404, code: Some(code), .. } if code == "run_not_found")
+    }
+
     pub(super) fn refusal(
         operation: ResourceOperation,
         request: &Request,

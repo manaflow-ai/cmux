@@ -353,11 +353,16 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
         .tempdir()
         .map_err(|e| format!("cannot spool message: {e}"))?;
     let path = spool.path().join("message.txt");
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true).write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    let mut file = open.open(&path).map_err(|e| format!("cannot spool message: {e}"))?;
+    // A temporary folder, not the home: `home_fs` opens it by path, as before. The detector
+    // reads the spool's path as the home's (#41462 review F2), and going through `home_fs`
+    // keeps it a rule with no exception.
+    let mut file = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|e| format!("cannot spool message: {e}"))?;
     // The MCP parser already owns text. Move it here, without another full copy,
     // then release it as soon as the spool is ready for the chunked uploader.
     for chunk in text.as_bytes().chunks(crate::hub::file_uploads::CHUNK_BYTES) {
@@ -457,7 +462,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
     let (prompt, queued) = match queue(daemon, &target, sub).await {
         Ok(sent) => sent,
         Err(e) => {
-            return match relay(&target, &e).await {
+            return match relay(&target, &e, sub).await {
                 Some(row) if row_ok(&row) => {
                     let text_of = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or_default();
                     ok(
@@ -559,7 +564,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target, sub).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => match relay(target, &e).await {
+                Err(e) => match relay(target, &e, sub).await {
                     Some(row) => row,
                     None => target.row(false, "failed", Some(format!("{e:#}"))),
                 },
@@ -739,7 +744,11 @@ const RELAY_WAIT: Duration = Duration::from_secs(45);
 /// carries text only). The relay's sender is the session this tool runs for, and the send is a
 /// line in the cross-host audit log. Leo, 2026-11-05, on sends between lane machines: "Just do
 /// what's expected. Just do the magic."
-pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
+pub(super) async fn relay(
+    target: &Target,
+    e: &anyhow::Error,
+    sub: Option<&Value>,
+) -> Option<Value> {
     if target.file.is_some() || !format!("{e:#}").to_lowercase().contains("no session") {
         return None;
     }
@@ -754,6 +763,8 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
     let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
         std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
+    // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
+    let from = crate::cli::send_relay::RelaySender::new(from, sub);
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {
@@ -761,12 +772,12 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
             &relay,
             &session,
             &text,
-            from.as_deref(),
+            &from,
             true,
             Some(deadline),
         );
         if let Ok(done) = &done {
-            crate::cli::send_relay::audit_sent(&session, &text, from.as_deref(), done);
+            crate::cli::send_relay::audit_sent(&session, &text, &from, done);
         }
         done
     })
