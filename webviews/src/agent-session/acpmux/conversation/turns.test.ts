@@ -97,6 +97,31 @@ test("a partial refresh keeps a reply when its body is empty or its id is recrea
   expect(rekeyed.rows.some((row) => row.kind === "assistant" && row.text === "Keep this answer.")).toBe(true);
 });
 
+test("an activity-only update does not duplicate an unchanged reply", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 1, at: 2_000, kind: "assistant", text: "Keep one copy." },
+      { id: "tool-1", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+      { id: "tool-2", version: 1, at: 4_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  const refreshed = turnViewFrom(
+    [
+      user(1_000),
+      previous.source[1]!,
+      previous.source[2]!,
+      { id: "tool-2", version: 2, at: 4_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+    {},
+    previous,
+  );
+  expect(refreshed.rows.filter((row) => row.kind === "assistant")).toHaveLength(1);
+});
+
 test("the line under a streaming answer keeps the live turn start", () => {
   const shown = turnView(
     [

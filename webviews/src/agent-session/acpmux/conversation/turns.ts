@@ -437,7 +437,12 @@ const retainVisibleReplies = (
   const changedRows = rows.slice(changedAt);
   if (!changedRows.some((row) => row.kind === "activity")) return rows;
   const currentIds = new Set(changedRows.map((row) => row.id));
-  const missingReplyIds = new Set(previousVisibleIds);
+  const missingReplyIds = new Set<string>();
+  for (let index = changedAt; index < previous.length; index += 1) {
+    const row = previous[index]!;
+    if (row.kind === "assistant" && previousVisibleIds.has(row.id) && !isVisiblyEmptyMessage(row))
+      missingReplyIds.add(row.id);
+  }
   for (const row of changedRows)
     if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) missingReplyIds.delete(row.id);
   if (missingReplyIds.size === 0) return rows;
