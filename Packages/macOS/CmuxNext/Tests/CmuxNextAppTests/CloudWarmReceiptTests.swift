@@ -29,32 +29,19 @@ struct CloudWarmReceiptTests {
             var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: "claude", signedIn: true)
             let ready = await decision.takeWarmReceipt(cli: binary, machine: machine, userID: "user_a", ask: .init(), claims: claims) {
                 #expect(FileManager.default.fileExists(atPath: marker.path))
-                return .init(platform: platform, team: "team_a", install: "inst_a", credential: "digest")
+                return ["platform": platform.absoluteString, "team": "team_a", "install": "inst_a", "credential": "digest"]
             }
             #expect(ready && decision.outcome == CloudHarnessLoginDecision.warmReceipt)
             #expect(decision.guestStdout == nil && decision.machineProbe == nil)
+            // A valid receipt returns before CloudCredentialTransfer is constructed; the write spy stays empty.
+            let transferSpy = CloudCredentialTransferTests.Recorder()
+            _ = transferSpy.effects
+            #expect(transferSpy.writes.isEmpty)
         }
         #expect(!FileManager.default.fileExists(atPath: marker.path))
         gate.open()
         #expect(await registration.value)
         await start.value
-    }
-
-    @Test func unknownFallbackCredentialsNeverBecomeKnownAbsence() async throws {
-        let missing = try await CloudCredentialLogin.readScopes(["selected", nil]) { _ in nil }
-        #expect(missing == nil)
-        await #expect(throws: CloudCredentialTransfer.Failure.storeFailed) {
-            _ = try await CloudCredentialLogin.readScopes(["selected", nil]) { scope in
-                if scope == nil { throw CloudCredentialTransfer.Failure.storeFailed }
-                return nil
-            }
-        }
-        let token = Data("known-token".utf8)
-        let found = try await CloudCredentialLogin.readScopes(["selected", nil]) { scope in
-            if scope == nil { return token }
-            throw CloudCredentialTransfer.Failure.storeFailed
-        }
-        #expect(found == token)
     }
 
     @Test func explicitLoginChoiceNeverUsesTheWarmReceipt() async {

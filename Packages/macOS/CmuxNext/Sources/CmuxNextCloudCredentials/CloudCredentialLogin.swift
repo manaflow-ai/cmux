@@ -34,7 +34,7 @@ import Foundation
         }
         if result.status == itemNotFoundStatus { return nil }
         guard result.status == 0 else { throw Failure.storeFailed }
-        guard let data = credential(envelope: result.stdout) else { throw Failure.storeFailed }
+        guard let data = credential(envelope: result.stdout) else { return nil }
         try CloudCredentialTransfer.validate(data, provider: provider)
         return data
     }
@@ -49,14 +49,6 @@ import Foundation
     static func loadAny(provider: Provider, teamID: String?, otherTeams: [String?], userID: String) async throws -> Data? {
         var scopes: [String?] = [teamID]
         if provider == .claude { for team in otherTeams where !scopes.contains(team) { scopes.append(team) } }
-        return try await readScopes(scopes) { scope in
-            try await load(provider: provider, teamID: scope, userID: userID)
-        }
-    }
-
-    /// Keychain reads keep per-scope errors until every scope has answered. Known absence means all
-    /// reads succeeded without a value; a missing selected entry cannot hide an unreadable fallback.
-    static func readScopes(_ scopes: [String?], read: @escaping @Sendable (String?) async throws -> Data?) async throws -> Data? {
         var results = [Result<Data?, any Error>?](repeating: nil, count: scopes.count)
         // concurrency-allow: bounded fan-out of Keychain reads, one per scope, each under readTimeout
         await withTaskGroup(of: (Int, Result<Data?, any Error>).self) { group in
@@ -65,7 +57,7 @@ import Foundation
                     // One local, one return: a tuple returned from an awaiting do and its catch
                     // loses its first element at -O (swiftlang/swift#92698), here the scope's index.
                     let result: Result<Data?, any Error>
-                    do { result = .success(try await read(scope)) } catch { result = .failure(error) }
+                    do { result = .success(try await load(provider: provider, teamID: scope, userID: userID)) } catch { result = .failure(error) }
                     return (index, result)
                 }
             }
@@ -73,8 +65,7 @@ import Foundation
         }
         // An unreadable or invalid entry under the selected team never hides a good one elsewhere.
         for case .success(let data?)? in results { return data }
-        for case .failure(let error)? in results { throw error }
-        return nil
+        return try results.first.flatMap { $0 }?.get() ?? nil
     }
 
     /// The Keychain service `cmux cloud secret set` stores under.

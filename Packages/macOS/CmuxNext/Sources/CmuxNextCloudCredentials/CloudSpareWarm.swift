@@ -34,9 +34,9 @@ public import os
         guard let userID = auth.user?.id, (claimed ?? ready) == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         let ask: @MainActor @Sendable () async -> Asked? = { [self] in
-            let scope = await CloudWarmLoginScope().read(platform: platform, identity: installIdentity, userID: userID, teamID: teamID, otherTeams: auth.loginScopes)
-            guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed, ready: ready, scope: scope) else { return nil }
+            guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken() else { return nil }
+            let scope = await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
+            guard let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed, ready: ready, scope: scope) else { return nil }
             return Asked(copy: copy, token: token, install: install, scope: scope)
         }
         let answer = (claimed ?? ready).map { claims.register($0, ask) }
@@ -48,7 +48,7 @@ public import os
             let (copy, token, install) = (asked.copy, asked.token, asked.install)
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
             let result = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
-            let currentScope = await CloudWarmLoginScope().read(platform: platform, identity: installIdentity, userID: userID, teamID: teamID, otherTeams: auth.loginScopes)
+            let currentScope = await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
             let end: CloudMoveCLI.SpareWarmEnd = (try? await still()) == true ? result : .abandoned(copy.machineID)
             _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end,
                                             generation: copy.generation, scope: asked.scope, currentScope: currentScope)
@@ -56,7 +56,7 @@ public import os
     }
 
     /// Rust's answer to a warm or a claim that hands the App a copy, and the tokens that report its end.
-    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String; var scope: CloudMoveCLI.SpareLoginScope? }
+    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String; var scope: [String: String]? }
 
     /// The start's Claude copy with no prompt: only a verdict that installs as is (a cached login, consent given) copies;
     /// never as a team guest. Rust also recognizes a verified existing login; never throws.
@@ -107,18 +107,18 @@ public extension CloudHarnessLoginDecision {
     /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
     @MainActor mutating func takeWarmReceipt(cli binary: URL?, machine: String, ask: CloudHarnessLoginAsk, auth: CloudAuth,
                                              platform: URL?, identity: MacInstallIdentity, claims: CloudClaimedCopyRegistrations) async -> Bool {
-        guard let platform, let userID = auth.user?.id else { return false }
-        let teamID = auth.teamID, otherTeams = auth.loginScopes
+        guard let platform, let userID = auth.user?.id, let install = try? await identity.installToken() else { return false }
+        let teamID = auth.teamID
         let ready = await takeWarmReceipt(cli: binary, machine: machine, userID: userID, ask: ask, claims: claims) {
-            await CloudWarmLoginScope().read(platform: platform, identity: identity, userID: userID, teamID: teamID, otherTeams: otherTeams)
+            await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
         }
         return ready && auth.user?.id == userID && auth.teamID == teamID
     }
 
-    /// The same receipt lookup with the host's local scope read injected.
+    /// The same receipt lookup with the opaque local fingerprint supplied by the caller.
     mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk,
                                   claims: CloudClaimedCopyRegistrations,
-                                  readScope: @MainActor @Sendable () async -> CloudMoveCLI.SpareLoginScope?) async -> Bool {
+                                  readScope: @MainActor @Sendable () async -> [String: String]?) async -> Bool {
         guard ask.requested == nil, let binary, let userID, let provider = verdict.transferProvider else { return false }
         let cli = CloudMoveCLI(binary: binary)
         await claims.registered(machine)
@@ -142,4 +142,15 @@ public extension CloudHarnessLoginDecision {
     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
         cancelled || error is CancellationError ? loginCancelled : loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
     }
+}
+
+/// The daemon owns validation and binding. Swift can only supply the opaque Keychain fingerprint;
+/// Rust reads the install token and rejects a scope whose team does not match it.
+@MainActor private func warmReceiptScope(platform: URL, teamID: String?, install: String, userID: String,
+                                         otherTeams: [String?]) async -> [String: String]? {
+    guard let teamID,
+          let credential = try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID),
+          let credential,
+          let fingerprint = CloudMachineLogin.fingerprint(credential) else { return nil }
+    return ["platform": platform.absoluteString, "team": teamID, "install": install, "credential": fingerprint]
 }
