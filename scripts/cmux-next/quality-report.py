@@ -50,6 +50,7 @@ Tests: scripts/cmux-next/tests/test_quality_report.py (python3 -m unittest, no n
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -59,6 +60,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCHEMA = 1
@@ -77,10 +79,13 @@ STICKY_TITLE = "cmux NEXT nightly quality report"
 STICKY_MARK = "<!-- cmux-next-quality-report -->"
 HISTORY_RE = re.compile(r"<!-- quality-history: (\[.*?\]) -->", re.S)
 HISTORY_KEEP = 60
-# scripts/ci/nightly_speed.py's issue and its hidden history (ISSUE_TITLE, ISSUE_MARK, HISTORY_RE, BUDGET_MIN there).
+# scripts/ci/nightly_speed.py's issue and its hidden history (ISSUE_TITLE, ISSUE_MARK, HISTORY_Z_RE, HISTORY_RE,
+# INFLATE_CAP, BUDGET_MIN there): compressed and base64, or the plain JSON of the first form.
 SPEED_TITLE = "cmux NEXT nightly speed budget"
 SPEED_MARK = "<!-- cmux-next-nightly-speed -->"
 SPEED_HISTORY_RE = re.compile(r"<!-- nightly-speed-history: (\{.*?\}) -->", re.S)
+SPEED_HISTORY_Z_RE = re.compile(r"<!-- nightly-speed-history-z: (.*?) -->", re.S)
+SPEED_INFLATE_CAP = 4_000_000
 SPEED_BUDGET_MIN = 30.0
 GOD_SMALL_LIMIT = 1.2
 TOP_SIGNATURES = 15
@@ -441,7 +446,12 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
         ratio = r.get("ratio")
         if not isinstance(ratio, (int, float)):
             ratio = round(god / small, 3) if isinstance(small, (int, float)) and small > 0 and isinstance(god, (int, float)) else None
-        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio})
+        status = r.get("status")
+        if not isinstance(status, str):
+            status = "skipped" if ratio is None else ("ok" if ratio <= GOD_SMALL_LIMIT else "red")
+        reason = r.get("reason")
+        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio,
+                     "status": status, "reason": reason if isinstance(reason, str) else None})
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
             "failing": [r["name"] for r in rows if isinstance(r["ratio"], (int, float)) and r["ratio"] > GOD_SMALL_LIMIT],
@@ -609,14 +619,26 @@ def gh_speed_history(repo: str = HQ_REPO, run: Callable = subprocess.run) -> Dic
     own = [i for i in issues if i.get("title") == SPEED_TITLE and SPEED_MARK in (i.get("body") or "")]
     if not own:
         raise SourceError(f"no open {repo} issue \"{SPEED_TITLE}\" (nightly-speed.yml has not written it)")
-    m = SPEED_HISTORY_RE.search(min(own, key=lambda i: i["number"])["body"])
+    body = min(own, key=lambda i: i["number"])["body"]
     try:
-        doc = json.loads(m.group(1)) if m else None
-    except ValueError:
+        z = SPEED_HISTORY_Z_RE.search(body)
+        if z:
+            inflate = zlib.decompressobj()
+            raw = inflate.decompress(base64.b64decode(z.group(1), validate=True), SPEED_INFLATE_CAP)
+            doc = None if inflate.unconsumed_tail or not inflate.eof else json.loads(raw)
+        else:
+            m = SPEED_HISTORY_RE.search(body)
+            doc = json.loads(m.group(1)) if m else None
+    except (ValueError, zlib.error, RecursionError):
         doc = None
-    if not isinstance(doc, dict):
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
         raise SourceError("the speed issue has no readable history")
     return doc
+
+
+def speed_num(v: Any) -> bool:
+    """A number of minutes (nightly_speed.py is_num): no bool, NaN, infinity, or integer too large for a float."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and -1e9 < v < 1e9
 
 
 def quantile(values: List[float], p: float) -> Optional[float]:
@@ -634,16 +656,19 @@ def nightly_speed(doc: Any, why: Optional[str], since: dt.datetime) -> Dict[str,
     """Nightlies whose feed upload is in the window, against the budget."""
     empty = {"source": None, "published": 0, "p50_min": None, "p95_min": None, "over_budget": None,
              "budget_min": SPEED_BUDGET_MIN, "largest_stage": None, "largest_stage_p50_min": None}
-    if not isinstance(doc, dict):
+    # The document is text in an issue: valid JSON of another shape is no history and a value of another type is
+    # skipped, never an exception in the report.
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
         return {**empty, "why": why or "no speed history"}
-    budget = doc.get("budget_min") if isinstance(doc.get("budget_min"), (int, float)) else SPEED_BUDGET_MIN
-    recs = [r for r in doc.get("records") or [] if isinstance(r, dict) and (parse_time(r.get("feed_at")) or since) > since]
-    mtf = [r["merge_to_feed"] for r in recs if isinstance(r.get("merge_to_feed"), (int, float))]
+    budget = doc.get("budget_min") if speed_num(doc.get("budget_min")) else SPEED_BUDGET_MIN
+    recs = [r for r in doc["records"] if isinstance(r, dict) and isinstance(r.get("feed_at"), str)
+            and (parse_time(r["feed_at"]) or since) > since]
+    mtf = [r["merge_to_feed"] for r in recs if speed_num(r.get("merge_to_feed"))]
     # The top-level stages only (a step inside a stage, or a job wall, would double count).
-    top = doc.get("top_stages") or []
+    top = [k for k in doc.get("top_stages") or [] if isinstance(k, str)] if isinstance(doc.get("top_stages"), list) else []
     p50s = {}
     for k in top:
-        vals = [r["stages"][k] for r in recs if isinstance((r.get("stages") or {}).get(k), (int, float))]
+        vals = [r["stages"][k] for r in recs if isinstance(r.get("stages"), dict) and speed_num(r["stages"].get(k))]
         if vals:
             p50s[k] = quantile(vals, 0.5)
     largest = max(p50s, key=lambda k: p50s[k]) if p50s else None
@@ -787,6 +812,10 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     g = r["god_vs_small"]
     if g["failing"]:
         out += ["", f"God over {g['limit']}x small: " + ", ".join(f"`{n}`" for n in g["failing"][:10])]
+    skipped = [row for row in g["rows"] if row.get("status") == "skipped"]
+    if skipped:
+        out += ["", "God-vs-small rows skipped: " + ", ".join(
+            f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in skipped)]
     out += ci_markdown(r.get("ci_health") or {})
     return "\n".join(out) + "\n"
 
