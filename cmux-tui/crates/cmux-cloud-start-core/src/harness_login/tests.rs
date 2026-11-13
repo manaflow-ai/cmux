@@ -47,7 +47,10 @@ fn warm_readiness_requires_successful_raw_probe_output() {
                 machine_probe: Some(crate::machine_login::Probe { exit_code, stdout: word.into() }),
                 ..owner()
             };
-            assert_eq!(decide(&input).warm_verified, exit_code == 0);
+            assert_eq!(
+                serde_json::to_value(decide(&input)).unwrap()["warmVerified"],
+                exit_code == 0
+            );
         }
     }
     for word in ["working", "", "unknown", "rejected"] {
@@ -55,7 +58,7 @@ fn warm_readiness_requires_successful_raw_probe_output() {
             machine_probe: Some(crate::machine_login::Probe { exit_code: 0, stdout: word.into() }),
             ..owner()
         };
-        assert!(!decide(&input).warm_verified);
+        assert_ne!(serde_json::to_value(decide(&input)).unwrap()["warmVerified"], true);
     }
 }
 
