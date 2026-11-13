@@ -513,6 +513,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The phone started this session moments ago (``AcpmuxHub/noteStartedHere(_:)``).
     public var isStarting: Bool { hub?.startedHere.contains(sessionID) == true }
     public var awaitsFirstPrompt: Bool { hub?.firstPromptsInFlight.contains(sessionID) == true }
+    /// The hub's link to the Mac is down (it is reconnecting): observed through `isReady`.
+    public var isOffline: Bool { hub?.isReady != true }
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []

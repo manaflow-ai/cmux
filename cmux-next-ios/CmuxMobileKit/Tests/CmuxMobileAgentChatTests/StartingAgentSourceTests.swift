@@ -66,6 +66,28 @@ import Testing
         func send(_ intent: AgentClientIntent) {}
     }
 
+    /// Live run 12: a task that never left the phone (the Mac's agent server went away) left its
+    /// chat on "Starting <agent>…" for good. Once its send is over, a chat whose Mac is unreachable
+    /// says it is connecting.
+    @Test func aChatWhoseMacDroppedSaysConnectingOnceItsSendIsOver() {
+        final class Dropped: AgentSessionSource {
+            let summary = AgentSessionSummary(id: "t", name: "New session", harness: "claude", agentName: "Claude", cwd: "~/p",
+                                              workspaceTitle: "w", macName: "Mac")
+            var inFlight = true
+            var awaitsFirstPrompt: Bool { inFlight }
+            var isOffline: Bool { true }
+            var isStarting: Bool { true }
+            var loadsHistory: Bool { true }
+            func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+            func send(_ intent: AgentClientIntent) {}
+        }
+        let source = Dropped()
+        let store = AgentChatStore(source: source)
+        #expect(AgentChatLoadingState.text(store) == "Starting Claude…")
+        source.inFlight = false
+        #expect(AgentChatLoadingState.text(store) == "Connecting to Mac…")
+    }
+
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {
         let source = Source()
         let store = AgentChatStore(source: source)

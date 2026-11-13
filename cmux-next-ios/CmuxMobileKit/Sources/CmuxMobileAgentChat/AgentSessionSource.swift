@@ -275,6 +275,9 @@ public protocol AgentSessionSource: AnyObject {
     /// This phone is sending the chat's first message (New Task): until it shows in the
     /// transcript, the chat is still starting, never the empty new-chat prompt. Observable.
     var awaitsFirstPrompt: Bool { get }
+    /// The source can't reach its Mac now (a dropped link): a chat still loading says it is
+    /// connecting, not starting. Observable.
+    var isOffline: Bool { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -309,6 +312,7 @@ extension AgentSessionSource {
     public var loadsHistory: Bool { false }
     public var isStarting: Bool { false }
     public var awaitsFirstPrompt: Bool { false }
+    public var isOffline: Bool { false }
 }
 
 extension AgentSessionSource {

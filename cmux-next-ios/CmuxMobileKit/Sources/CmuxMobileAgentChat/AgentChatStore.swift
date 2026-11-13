@@ -216,6 +216,8 @@ public final class AgentChatStore {
     /// The first message this phone is sending has not shown in the transcript yet (New Task):
     /// the chat still says it is starting. Read live: the source's note goes once the send ends.
     public var awaitsFirstPrompt: Bool { !hasTurns && source.awaitsFirstPrompt }
+    /// The source can't reach its Mac now (``AgentSessionSource/isOffline``). Read live.
+    public var isOffline: Bool { source.isOffline }
 
     /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
     /// read once, so its loading state says so until the history comes, whatever the source
