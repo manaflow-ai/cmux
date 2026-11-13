@@ -265,7 +265,9 @@ async fn with_neither_login_the_action_fails_closed_and_says_to_connect_github()
     let v = mac_answers(&mut app, "unlent", read.clone()).await;
     assert_eq!(v["error"]["data"]["reason"], "github.not_connected", "{v}");
     let message = v["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.contains("connect GitHub in cmux Settings"), "{v}");
+    assert!(message.contains("Connect GitHub"), "{v}");
+    assert!(message.contains("`cmux accounts github-connect`"), "{v}");
+    assert_eq!(v["error"]["data"]["retryable"], true, "{v}");
 
     // Only the app's own unix-socket connection lends a sign-in: not its pane over the
     // WebSocket, nor another process on the socket that did not prove the person.

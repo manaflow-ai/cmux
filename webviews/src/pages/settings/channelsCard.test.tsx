@@ -324,3 +324,115 @@ test("Install an Earlier Nightly… opens the page at ?focus=channels[:N], which
     view.scrollIntoView = original;
   }
 });
+
+test("a switch's stages show on its row with a bar, every other button waits, and null clears it", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channelSwitch = mockGoBack;
+    },
+  });
+  await settle();
+  await run(() => page.store.set("updates.channel", "nightly"));
+  await settle();
+  const element = card(page.container)!;
+  const row = element.querySelector<HTMLElement>('[data-channel="nightly"] [data-channel-build="3422"]')!;
+  const enabled = () =>
+    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build], [data-channel-go-back]")].filter(
+      (button) => !button.disabled,
+    );
+  expect(enabled().length).toBeGreaterThan(1);
+  await run(() => page.provider.setSwitchProgress({ build: "3422", label: "Downloading… 42%", fraction: 0.42 }));
+  const button = row.querySelector<HTMLButtonElement>("[data-channel-switch-build]")!;
+  expect(row.dataset.running).toBe("");
+  expect(button.dataset.busy).toBe("");
+  expect(button.textContent).toBe("Downloading… 42%");
+  expect(row.querySelector<HTMLElement>("[data-channel-progress]")?.dataset.channelProgress).toBe("42");
+  // Only the followed track's row shows it, though Dev lists the same build; every button waits.
+  expect(element.querySelectorAll("[data-running]").length).toBe(1);
+  expect(element.querySelectorAll("[data-channel-progress]").length).toBe(1);
+  expect(enabled()).toEqual([]);
+  // The checks: no share, so the bar sweeps.
+  await run(() => page.provider.setSwitchProgress({ build: "3422", label: "Checking the download…", fraction: null }));
+  expect(button.textContent).toBe("Checking the download…");
+  expect(row.querySelector<HTMLElement>("[data-channel-progress]")?.dataset.channelProgress).toBe("indeterminate");
+  await run(() => page.provider.setSwitchProgress(null));
+  expect(element.querySelector("[data-running]")).toBeNull();
+  expect(element.querySelector("[data-channel-progress]")).toBeNull();
+  expect(button.textContent).toBe("Switch");
+  expect(enabled().length).toBeGreaterThan(1);
+  page.unmount();
+});
+
+test("a Go Back's stages show on the way back's row, not the kept build's Switch", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channelSwitch = mockGoBack;
+    },
+  });
+  await settle();
+  await run(() => page.store.set("updates.channel", "nightly"));
+  await settle();
+  const element = card(page.container)!;
+  await run(() => page.provider.setSwitchProgress({ build: "3418", label: "Restarting…", fraction: null }));
+  const way = element.querySelector<HTMLElement>('[data-channel-switch="nightly"]')!;
+  expect(way.querySelector("[data-channel-go-back]")?.textContent).toBe("Restarting…");
+  expect(way.querySelector("[data-channel-progress]")).not.toBeNull();
+  expect(element.querySelectorAll("[data-running]").length).toBe(1);
+  page.unmount();
+});
+
+test("a card opened mid-switch shows the read's progress", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, progress: { build: "3420", label: "Restarting…", fraction: null } };
+    },
+  });
+  await settle();
+  const element = card(page.container)!;
+  const running = [...element.querySelectorAll<HTMLElement>("[data-running]")];
+  expect(running.map((row) => row.dataset.channelBuild)).toEqual(["3420"]);
+  expect(running[0]!.closest<HTMLElement>("[data-channel]")?.dataset.channel).toBe("nightly");
+  expect(running[0]!.querySelector("[data-channel-switch-build]")?.textContent).toBe("Restarting…");
+  expect(
+    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((button) => button.disabled),
+  ).toBe(true);
+  page.unmount();
+});
+
+test("a click shows busy at once, on the clicked row, before the host's first stage", async () => {
+  let release!: () => void;
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.switchHold = new Promise<void>((resolve) => (release = resolve));
+      provider.switchRefusal = "The download failed its signature check.";
+    },
+  });
+  await settle();
+  const element = card(page.container)!;
+  // Dev's copy of the build, though Nightly (followed) lists it too: the clicked one shows it.
+  const row = element.querySelector<HTMLElement>('[data-channel="dev"] [data-channel-build="3422"]')!;
+  const button = row.querySelector<HTMLButtonElement>("[data-channel-switch-build]")!;
+  await run(() => button.click());
+  expect(row.dataset.running).toBe("");
+  expect(button.dataset.busy).toBe("");
+  expect(button.querySelector(".cv-spinner")).not.toBeNull();
+  expect(button.textContent).toBe("Switch");
+  expect(
+    [...element.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")].every((other) => other.disabled),
+  ).toBe(true);
+  await run(() => page.provider.setSwitchProgress({ build: "3422", label: "Downloading… 7%", fraction: 0.07 }));
+  expect(button.textContent).toBe("Downloading… 7%");
+  expect(element.querySelectorAll("[data-running]").length).toBe(1);
+  // The host refuses: its stages end and its reason shows in that row; every button is back.
+  await run(() => page.provider.setSwitchProgress(null));
+  await run(() => release());
+  await settle();
+  expect(row.dataset.running).toBeUndefined();
+  expect(row.querySelector(".row-error")?.textContent).toBe("The download failed its signature check.");
+  expect(button.disabled).toBe(false);
+  page.unmount();
+});

@@ -30,3 +30,11 @@ export function splitForMiddleTruncation(value: string): [string, string] {
   const tail = separator > 0 && word >= 3 && word <= 10 ? word : Math.min(6, Math.max(3, Math.floor(chars.length / 3)));
   return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
 }
+
+/// The folder chip's face while no folder is picked, on every target (This Mac, Cloud, another
+/// machine): No folder, a settled choice in the same weight as a picked folder. The chat starts
+/// in a folder of its own there (this Mac's private agent-home folder, the machine's work folder),
+/// and Choose folder stays an optional row in the chip's menu. Leo, 2026-11-09: "this no folder
+/// selected should be, like, good as well." test/composer-no-folder-chip.test.tsx keeps the old
+/// placeholder face from coming back.
+export const emptyFolderLabel = CONTEXT_LABELS.noProject;

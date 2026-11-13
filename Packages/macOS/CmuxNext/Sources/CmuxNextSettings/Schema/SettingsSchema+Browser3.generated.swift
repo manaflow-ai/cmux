@@ -91,6 +91,16 @@ extension BrowserSettingsSchema {
                 default: .string(BrowserLinkClickSetting.middleClickDefault.rawValue),
                 keywords: ["link", "middle", "wheel"]
             ),
+            SettingDescriptor(
+                BrowserVimKeysSetting.configPath,
+                section: .browser,
+                group: group,
+                title: SettingsText.keyed("settings.browser.vimKeys", "Vim Keys in Pages"),
+                help: SettingsText.keyed("settings.browser.vimKeys.help", "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."),
+                kind: .toggle,
+                default: .bool(BrowserVimKeysSetting.fallback),
+                keywords: ["vim", "vimium", "link hints", "keyboard", "scroll", "hjkl"]
+            ),
         ]
     }
 }

@@ -46,7 +46,9 @@ last 7 days is held. It deletes most of what that pull request added, and puts b
 it replaced. This is how a stale-base squash silently undoes other work: one (50a0c607aee, #21194)
 undid #21199, #21369 and #21384. The check names the pull request. To clear it, merge the base
 and push. If it's on purpose, add a line `Takes back #N: <why>` to the description. An agent
-clears this; no person is needed.
+clears this; no person is needed. The check's error names that line with its number filled in, so a
+deliberate revert (the fast route back from a change that broke base) is cleared from the refusal
+itself, without opening the job summary (cmux#41154).
 
 ### What is deliberately not high
 

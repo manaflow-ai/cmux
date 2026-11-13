@@ -30,7 +30,7 @@ import Testing
         service.route(.sessionTicket(ticket("s1", scope: .full)))
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
         #expect(viewer.screen != nil)
-        // The signaling goes to the stream once: a reconnect would need a new ticket.
+        // The signaling goes to the stream once; a reconnect obtains a fresh ticket.
         #expect(viewer.takeSignaling() != nil)
         #expect(viewer.takeSignaling() == nil)
         #expect(viewer.screen?.reconnectLimit == 0)
@@ -113,22 +113,27 @@ import Testing
         #expect(second.phase == .streaming(sessionID: "new", scope: .full))
     }
 
-    @Test func aDroppedStreamEndsTheHubSessionAndOffersToConnectAgain() async throws {
+    @Test func aDroppedStreamReattachesWithTheRoamingBackoffAndKeepsTheScreenView() async throws {
         let (service, ends) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .full))
         viewer.requestAnswered(.success(HubSession(id: "s7", state: .approved, scope: .full)), scope: .full)
         service.route(.sessionTicket(ticket("s7", scope: .full)))
+        let screen = try #require(viewer.screen)
+        let reattach = Reattachments()
+        viewer.reattachSession = { _, id in
+            await reattach.record(id)
+            return self.ticket(id, scope: .full)
+        }
+        let droppedAt = ContinuousClock.now
         viewer.streamDropped("s7")
-        #expect(viewer.phase == .ended(reason: "failed"))
-        #expect(viewer.screen == nil)
-        await ends.wait(for: 1)
-        #expect(ends.calls == [Ends.Call(session: "s7", reason: "failed")])
-        // The Mac's own reason, arriving after the drop, replaces "failed" on the card.
-        service.route(.sessionRevoked(sessionID: "s7", reason: "sharing_off"))
-        #expect(viewer.phase == .ended(reason: "sharing_off"))
-        // A late drop of an older stream changes nothing.
-        viewer.streamDropped("s0")
-        #expect(viewer.phase == .ended(reason: "sharing_off"))
+        #expect(viewer.phase == .reconnecting(sessionID: "s7", scope: .full))
+        #expect(viewer.screen === screen)
+        let id = await reattach.wait()
+        #expect(id == "s7")
+        #expect(ContinuousClock.now - droppedAt >= .seconds(1))
+        #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
+        #expect(viewer.screen === screen)
+        #expect(ends.calls.isEmpty)
     }
 
     @Test func aFailedSignOutEndsTheSessionAndStopSignsOutAgain() async throws {
@@ -305,6 +310,25 @@ import Testing
     func wait(for count: Int) async {
         guard calls.count < count else { return }
         await withCheckedContinuation { waiters.append((count, $0)) }
+    }
+}
+
+@MainActor final class Reattachments {
+    private var ids: [String] = []
+    private var waiters: [CheckedContinuation<String, Never>] = []
+
+    func record(_ id: String) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: id)
+        } else {
+            ids.append(id)
+        }
+    }
+
+    func wait() async -> String {
+        if !ids.isEmpty { return ids.removeFirst() }
+        return await withCheckedContinuation { waiters.append($0) }
     }
 }
 

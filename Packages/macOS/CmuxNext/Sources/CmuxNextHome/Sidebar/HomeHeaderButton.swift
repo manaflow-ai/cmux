@@ -70,7 +70,7 @@ final class HomeHeaderButton: ClickableButton {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
         renderSymbol()
     }
 
