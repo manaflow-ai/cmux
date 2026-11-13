@@ -110,4 +110,44 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
       await page.close();
     });
   }
+  test("a fast first scrub does not rebound to the tail while an older page is pending", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __offsets: number[] }).__offsets = [];
+      addEventListener(
+        "scroll",
+        (event) => {
+          const target = event.target;
+          if (target instanceof HTMLElement && target.classList.contains("acpmux-scroll"))
+            (window as unknown as { __offsets: number[] }).__offsets.push(target.scrollTop);
+        },
+        true,
+      );
+    });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html?tail=90&prompts&latency=5000`);
+    await page.waitForFunction(() => document.querySelectorAll(".acpmux-row").length > 20);
+    await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
+    for (let frame = 0; frame < 12; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    await page.evaluate(() => ((window as unknown as { __offsets: number[] }).__offsets = []));
+    await page.mouse.move(450, 350);
+    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    // A rail-sized scrub reaches the reserve in one native step. The page remains pending long
+    // enough to expose any write that sends the reader back to the loaded tail.
+    await page.mouse.wheel(0, -100_000);
+    await page.evaluate(() => window.cmuxPaintFrame());
+    for (let frame = 0; frame < 6; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+    const offsets = await page.evaluate(() => (window as unknown as { __offsets: number[] }).__offsets);
+    const end = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    const min = Math.min(...offsets);
+    const minAt = offsets.indexOf(min);
+    const rebound = offsets.slice(minAt + 1).some((offset) => offset > min + 100);
+    console.log(`transcript-older-scroll fast scrub: ${JSON.stringify({ start, min, end, offsets })}`);
+    expect(offsets.length).toBeGreaterThan(0);
+    expect(rebound).toBe(false);
+    expect(end).toBeLessThanOrEqual(min + 1);
+    expect(start - end).toBeGreaterThan(500);
+    await page.close();
+  });
 });

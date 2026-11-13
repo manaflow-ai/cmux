@@ -395,6 +395,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
       const driftLog: string[] = [];
       const roundLog: string[] = [];
+      const gapLog: unknown[] = [];
       try {
         // On up to the chat's first prompt: every older page lands under the wheel, the last one
         // included, which gives back whatever room the estimate left over.
@@ -406,6 +407,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
             }),
           );
           const trace = traces.at(-1)!;
+          for (const sample of trace.samples)
+            if ((sample.unexpectedRowBoxGap > 1 / 64 || sample.missingRow) && gapLog.length < 12)
+              gapLog.push({ round, ...sample });
           for (const sample of trace.samples)
             if (sample.drift !== null && Math.abs(sample.drift) > 1 && driftLog.length < 8)
               driftLog.push(
@@ -445,6 +449,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         pages,
         reachedFirst,
         driftLog,
+        gapLog,
         roundLog,
         streamed,
         anchors,
