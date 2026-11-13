@@ -18,11 +18,11 @@ import Testing
         return CmuxMobileMacTheme(defaults: defaults, cache: cache)
     }
 
-    static let palette8 = #"["#000000","#cc0000","#00cc00","#cccc00","#0000cc","#cc00cc","#00cccc","#cccccc"]"#
+    static let palette8 = ##"["#000000","#cc0000","#00cc00","#cccc00","#0000cc","#cc00cc","#00cccc","#cccccc"]"##
 
     static func frame(background: String, wallpaper: (id: String, bytes: Int)? = nil) -> Data {
         let picture = wallpaper.map { #"{"id":"\#($0.id)","bytes":\#($0.bytes),"tint_opacity":0.6}"# } ?? "null"
-        return Data(#"{"theme":{"background":"\#(background)","foreground":"#eeeeee","palette":\#(palette8),"accent":"neutral","background_opacity":1},"wallpaper":\#(picture)}"#.utf8)
+        return Data(##"{"theme":{"background":"\##(background)","foreground":"#eeeeee","palette":\##(palette8),"accent":"neutral","background_opacity":1},"wallpaper":\##(picture)}"##.utf8)
     }
 
     static func id(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

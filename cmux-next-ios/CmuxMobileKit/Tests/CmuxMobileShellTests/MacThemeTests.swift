@@ -69,12 +69,12 @@ import UIKit
     }
 
     @Test func theWireFrameDecodesAndABadOneDoesNot() throws {
-        let frame = #"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"magenta","background_opacity":0.9,"selection_background":"#585b70"},"wallpaper":{"id":"ab12","bytes":3,"tint_opacity":0.62}}"#
+        let frame = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"magenta","background_opacity":0.9,"selection_background":"#585b70"},"wallpaper":{"id":"ab12","bytes":3,"tint_opacity":0.62}}"##
         let appearance = try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8)))
         #expect(appearance.theme.accent == "magenta")
         #expect(appearance.theme.selectionBackground == "#585b70")
         #expect(appearance.wallpaper == .init(id: "ab12", bytes: 3, tintOpacity: 0.62))
-        #expect(CmuxMobileMacAppearance.decode(Data(#"{"theme":{"background":"red","foreground":"#ffffff","palette":[],"accent":"neutral","background_opacity":1},"wallpaper":null}"#.utf8)) == nil)
+        #expect(CmuxMobileMacAppearance.decode(Data(##"{"theme":{"background":"red","foreground":"#ffffff","palette":[],"accent":"neutral","background_opacity":1},"wallpaper":null}"##.utf8)) == nil)
     }
 
     /// Launch and offline: the last theme and wallpaper are read from disk before any link.
