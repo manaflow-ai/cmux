@@ -24,10 +24,13 @@
 //!
 //! A call's path is resolved the way Rust does: through `use` imports (an alias, a group, a glob,
 //! one written `self::`, `super::` or through another import), `crate::`, `self::` and `super::`
-//! into modules in this file or another, and down each `cfg` arm of a gated item. It fails
-//! closed: a call it cannot settle to a known item that is not a read (a path into a module it
-//! cannot read, a `super::` past the root, a loop of imports, or another crate's `metadata`,
-//! `exists`, `try_exists` or `symlink_metadata`) is a row, never skipped (#42003 review).
+//! into modules in this file or another, through a type alias or a `const` bound to a path,
+//! `Self` and `<T>::`, every glob a glob reaches, a local bound to a path, and down each `cfg`
+//! arm of a gated item; a path used as a value (`.map(std::fs::metadata)`) is judged as a call
+//! is. It fails closed: a call or value it cannot settle to a known item that is not a read (a
+//! path into a module it cannot read, a `super::` past the root, a loop of imports, or another
+//! crate's `metadata`, `exists`, `try_exists` or `symlink_metadata`) is a row, never skipped
+//! (#42003 review).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -185,8 +188,38 @@ enum Binding {
     Import(Vec<String>),
     /// A `mod` defined here.
     Module,
-    /// A function, type, trait, const or static defined here: this crate's own item.
+    /// Another name for a path, followed to what it names like an import: a type alias of a path
+    /// type (`type Path = std::path::Path;`), or a `const` or `static` bound to a path
+    /// (`const PROBE: fn(..) = std::fs::metadata;`; #42352 review F1).
+    Alias(Vec<String>),
+    /// A function, struct, enum, union, trait, or a type alias, const or static of anything but
+    /// a path, defined here: this crate's own item.
     Item,
+}
+
+/// The path a type names (`std::path::Path` for `std::path::Path` or `(Path)`), if it is a
+/// plain path.
+fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
+    match ty {
+        syn::Type::Paren(p) => type_path(&p.elem),
+        syn::Type::Group(g) => type_path(&g.elem),
+        syn::Type::Path(p) if p.qself.is_none() => {
+            Some(p.path.segments.iter().map(|s| s.ident.to_string()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// The path an expression is (`std::fs::metadata`), if it is a plain path.
+fn expr_path(expr: &syn::Expr) -> Option<Vec<String>> {
+    match expr {
+        syn::Expr::Paren(p) => expr_path(&p.expr),
+        syn::Expr::Group(g) => expr_path(&g.expr),
+        syn::Expr::Path(p) if p.qself.is_none() => {
+            Some(p.path.segments.iter().map(|s| s.ident.to_string()).collect())
+        }
+        _ => None,
+    }
 }
 
 /// The names one module or block brings in: each name's bindings (`use` imports and the items it
@@ -226,9 +259,15 @@ impl Scope {
                 syn::Item::Enum(e) => (&e.attrs, &e.ident, Binding::Item),
                 syn::Item::Union(u) => (&u.attrs, &u.ident, Binding::Item),
                 syn::Item::Trait(t) => (&t.attrs, &t.ident, Binding::Item),
-                syn::Item::Type(t) => (&t.attrs, &t.ident, Binding::Item),
-                syn::Item::Const(c) => (&c.attrs, &c.ident, Binding::Item),
-                syn::Item::Static(s) => (&s.attrs, &s.ident, Binding::Item),
+                syn::Item::Type(t) => {
+                    (&t.attrs, &t.ident, type_path(&t.ty).map_or(Binding::Item, Binding::Alias))
+                }
+                syn::Item::Const(c) => {
+                    (&c.attrs, &c.ident, expr_path(&c.expr).map_or(Binding::Item, Binding::Alias))
+                }
+                syn::Item::Static(s) => {
+                    (&s.attrs, &s.ident, expr_path(&s.expr).map_or(Binding::Item, Binding::Alias))
+                }
                 _ => continue,
             };
             if !is_test_attr(attrs) {
@@ -413,12 +452,28 @@ impl Modules {
     }
 }
 
+impl Modules {
+    /// The variants of the enum at `path`, if `path` names one.
+    fn enum_variants(&self, path: &[String]) -> Option<HashSet<String>> {
+        let (name, parent) = path.split_last()?;
+        if parent.is_empty() {
+            return None;
+        }
+        self.decls(parent).iter().flat_map(|decl| decl.items.iter()).find_map(|item| match item {
+            syn::Item::Enum(e) if e.ident == name => {
+                Some(e.variants.iter().map(|v| v.ident.to_string()).collect())
+            }
+            _ => None,
+        })
+    }
+}
+
 fn parse_file_at(path: &Path) -> Option<syn::File> {
     syn::parse_file(&std::fs::read_to_string(path).ok()?).ok()
 }
 
 /// Where a call's path leads, in one build.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Settled {
     /// A path in std, core or alloc.
     Std(Vec<String>),
@@ -443,6 +498,8 @@ enum Found {
 struct At {
     module: Vec<String>,
     scopes: Vec<Rc<Scope>>,
+    /// What `Self` names here: the self type of the `impl` around it, if a path.
+    self_ty: Option<Vec<String>>,
 }
 
 /// How many imports a path is followed through before it counts as a loop.
@@ -466,7 +523,14 @@ impl Resolver<'_> {
         };
         match first.as_str() {
             "std" | "core" | "alloc" => vec![Settled::Std(path.to_vec())],
-            "Self" => vec![Settled::Own(path.to_vec())],
+            // `Self` is the impl's self type, followed like any path (an impl for std's `Path`
+            // too); with none known (a trait's default method) it is no item of this crate.
+            "Self" => match &at.self_ty {
+                Some(ty) if ty.first().is_some_and(|s| s != "Self") => {
+                    self.resolve(at, &[&ty[..], &path[1..]].concat(), steps)
+                }
+                _ => vec![Settled::Outside(path.to_vec())],
+            },
             "crate" => self.in_module(&["crate".into()], &path[1..], steps),
             "self" | "super" => {
                 let lead = path.iter().take_while(|s| *s == "self" || *s == "super").count();
@@ -486,7 +550,7 @@ impl Resolver<'_> {
                 let mut out = Vec::new();
                 for found in self.lookup(at, name, steps) {
                     out.extend(match found {
-                        Found::Binding(Binding::Import(full)) => {
+                        Found::Binding(Binding::Import(full) | Binding::Alias(full)) => {
                             self.resolve(at, &[&full[..], rest].concat(), steps)
                         }
                         Found::Binding(Binding::Module) => {
@@ -515,7 +579,7 @@ impl Resolver<'_> {
         let Some(scope) = self.modules.scope(module) else {
             return vec![Settled::Lost(full.join("::"))];
         };
-        let at = At { module: module.to_vec(), scopes: vec![scope] };
+        let at = At { module: module.to_vec(), scopes: vec![scope], self_ty: None };
         // In a module path, a name that only some builds bind is in every build that compiles
         // the call: the build without it does not compile, so it is no fallthrough.
         let mut found = self.lookup(&at, name, steps);
@@ -525,7 +589,7 @@ impl Resolver<'_> {
         let mut out = Vec::new();
         for found in found {
             out.extend(match found {
-                Found::Binding(Binding::Import(path)) => {
+                Found::Binding(Binding::Import(path) | Binding::Alias(path)) => {
                     self.resolve(&at, &[&path[..], &rest[1..]].concat(), steps)
                 }
                 Found::Binding(Binding::Module) => {
@@ -552,7 +616,7 @@ impl Resolver<'_> {
             }
             if !settled {
                 for (glob, gated) in &scope.globs {
-                    if self.glob_has(at, glob, name, steps) {
+                    if self.glob_has(at, glob, name, steps, &mut HashSet::new()) {
                         found.push(Found::Glob(glob.clone()));
                         settled |= !gated;
                     }
@@ -569,27 +633,66 @@ impl Resolver<'_> {
         found
     }
 
-    /// Whether `use glob::*;` brings in `name`: std::fs's public items, `Path` and `PathBuf` from
-    /// std::path, a crate module's names; one the lint cannot read, any name it reads by.
-    fn glob_has(&self, at: &At, glob: &[String], name: &str, steps: usize) -> bool {
-        let glob: Vec<&str> = glob.iter().map(String::as_str).collect();
-        match glob.as_slice() {
-            ["std", "fs"] => return STD_FS_ITEMS.contains(&name),
-            ["std", "path"] => return matches!(name, "Path" | "PathBuf"),
-            ["std" | "core" | "alloc", ..] => return false,
-            _ => {}
+    /// Whether `use glob::*;`, written at `at`, brings in `name`, followed through every glob it
+    /// reaches (#42352 review F2: `pub use crate::a::*;` of a module that re-exports
+    /// `std::fs::metadata as probe`). std::fs's public items and std::path's `Path` and `PathBuf`;
+    /// a crate module's names and those of the globs in it; an enum's variants; another crate's,
+    /// any name it reads by. A glob the lint cannot follow into this crate brings in any name, so
+    /// a call through it is unresolved (fail closed). `seen`: the modules already asked, so a
+    /// cycle of globs ends.
+    fn glob_has(
+        &self,
+        at: &At,
+        glob: &[String],
+        name: &str,
+        steps: usize,
+        seen: &mut HashSet<Vec<String>>,
+    ) -> bool {
+        if let Some(has) = std_glob_has(glob, name) {
+            return has;
         }
-        let glob: Vec<String> = glob.iter().map(|s| s.to_string()).collect();
-        let module = self.resolve(at, &glob, steps).into_iter().find_map(|settled| match settled {
-            Settled::Own(path) => self.modules.scope(&path),
-            _ => None,
-        });
-        match module {
-            Some(scope) => {
-                scope.names.contains_key(name) || (!scope.globs.is_empty() && READS.contains(&name))
-            }
-            None => READS.contains(&name),
+        let Some(steps) = steps.checked_sub(1) else { return true };
+        self.resolve(at, glob, steps).into_iter().any(|settled| match settled {
+            Settled::Std(path) => std_glob_has(&path, name).unwrap_or(false),
+            Settled::Own(path) => self.module_has(&path, name, steps, seen),
+            Settled::Outside(_) => READS.contains(&name),
+            Settled::Lost(_) => true,
+        })
+    }
+
+    /// Whether the module (or enum) at `module` has `name`: by name, or through its globs.
+    fn module_has(
+        &self,
+        module: &[String],
+        name: &str,
+        steps: usize,
+        seen: &mut HashSet<Vec<String>>,
+    ) -> bool {
+        if !seen.insert(module.to_vec()) {
+            return false;
         }
+        let Some(scope) = self.modules.scope(module) else {
+            return self
+                .modules
+                .enum_variants(module)
+                .is_none_or(|variants| variants.contains(name));
+        };
+        if scope.names.contains_key(name) {
+            return true;
+        }
+        let at = At { module: module.to_vec(), scopes: vec![Rc::clone(&scope)], self_ty: None };
+        scope.globs.iter().any(|(glob, _)| self.glob_has(&at, glob, name, steps, seen))
+    }
+}
+
+/// Whether a glob of a std module brings in `name`; `None` for a path not in std.
+fn std_glob_has(glob: &[String], name: &str) -> Option<bool> {
+    let glob: Vec<&str> = glob.iter().map(String::as_str).collect();
+    match glob.as_slice() {
+        ["std", "fs"] => Some(STD_FS_ITEMS.contains(&name)),
+        ["std", "path"] => Some(matches!(name, "Path" | "PathBuf")),
+        ["std" | "core" | "alloc", ..] => Some(false),
+        _ => None,
     }
 }
 
@@ -674,6 +777,10 @@ struct Scan<'a> {
     paths: HashSet<String>,
     module: Vec<String>,
     scopes: Vec<Rc<Scope>>,
+    self_ty: Option<Vec<String>>,
+    /// The function's locals bound so far: a name bound to a path (`let f = std::fs::metadata;`)
+    /// maps to where that path leads, any other local to nothing.
+    locals: HashMap<String, Rc<Vec<Settled>>>,
     resolver: Resolver<'a>,
     rows: Vec<String>,
 }
@@ -710,22 +817,85 @@ impl Scan<'_> {
     fn row(&mut self, span: proc_macro2::Span, what: String) {
         self.rows.push(format!("{}:{} {what}", self.rel, span.start().line));
     }
+
+    /// Where `segments`, written here, leads in every build: a local's binding, or the path
+    /// resolved through the scopes around it.
+    fn settle(&self, segments: &[String]) -> Vec<Settled> {
+        if let [name] = segments
+            && let Some(local) = self.locals.get(name)
+        {
+            return local.as_ref().clone();
+        }
+        let at = At {
+            module: self.module.clone(),
+            scopes: self.scopes.clone(),
+            self_ty: self.self_ty.clone(),
+        };
+        self.resolver.resolve(&at, segments, STEPS)
+    }
+
+    /// The path `f` is, with `<T>::` followed to `T` (#42352 review F1's class), and how it is
+    /// written.
+    fn path_of(f: &syn::ExprPath) -> (Vec<String>, String) {
+        let mut segments: Vec<String> =
+            f.path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let mut written = segments.join("::");
+        if let Some(q) = &f.qself
+            && q.position == 0
+            && let Some(ty) = type_path(&q.ty)
+        {
+            written = format!("<{}>::{written}", ty.join("::"));
+            segments = [ty, segments].concat();
+        }
+        (segments, written)
+    }
+
+    /// A row when the path `f`, called (`call`) or used as a value, leads to a read in some build
+    /// or cannot be settled (fail closed). Judged by where the path leads: `metadata(p)` after
+    /// `use std::fs::metadata;` is std's, after a local `fn metadata` it is not.
+    fn judge(&mut self, f: &syn::ExprPath, call: bool) {
+        let (segments, written) = Self::path_of(f);
+        let settled = self.settle(&segments);
+        let Some(shown) = settled.iter().find_map(offends) else { return };
+        let written = if call { format!("{written}(..)") } else { format!("{written} as a value") };
+        let what = if shown.starts_with("unresolved: ")
+            || segments.len() == 1
+            || matches!(segments.first().map(String::as_str), Some("self" | "super"))
+        {
+            format!("{written} ({shown})")
+        } else {
+            written
+        };
+        self.row(f.span(), what);
+    }
+
+    /// Runs `visit` with the locals as they are now, and puts them back after: a binding made in
+    /// it (a block's, a closure's, an arm's) ends with it.
+    fn scoped(&mut self, visit: impl FnOnce(&mut Self)) {
+        let outer = self.locals.clone();
+        visit(self);
+        self.locals = outer;
+    }
 }
 
 impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item_fn(&mut self, f: &'ast syn::ItemFn) {
         if !is_test_attr(&f.attrs) {
-            // A fresh scope per function: a local's path shape stays in it.
+            // A fresh scope per function: a local's path shape and binding stay in it.
             let outer = std::mem::take(&mut self.paths);
+            let locals = std::mem::take(&mut self.locals);
             syn::visit::visit_item_fn(self, f);
             self.paths = outer;
+            self.locals = locals;
         }
     }
     fn visit_impl_item_fn(&mut self, f: &'ast syn::ImplItemFn) {
         if !is_test_attr(&f.attrs) {
             let outer = std::mem::take(&mut self.paths);
+            let locals = std::mem::take(&mut self.locals);
             syn::visit::visit_impl_item_fn(self, f);
             self.paths = outer;
+            self.locals = locals;
         }
     }
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
@@ -744,12 +914,21 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             _ => None,
         });
         self.scopes.push(Rc::new(Scope::of(items, false)));
-        syn::visit::visit_block(self, b);
+        self.scoped(|scan| syn::visit::visit_block(scan, b));
         self.scopes.pop();
     }
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
         if !is_test_attr(&i.attrs) {
+            let outer = std::mem::replace(&mut self.self_ty, type_path(&i.self_ty));
             syn::visit::visit_item_impl(self, i);
+            self.self_ty = outer;
+        }
+    }
+    fn visit_item_trait(&mut self, t: &'ast syn::ItemTrait) {
+        if !is_test_attr(&t.attrs) {
+            let outer = self.self_ty.take();
+            syn::visit::visit_item_trait(self, t);
+            self.self_ty = outer;
         }
     }
     fn visit_stmt(&mut self, s: &'ast syn::Stmt) {
@@ -774,7 +953,11 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             m.parse_body_with(Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
         {
             for arg in &args {
-                self.visit_expr(arg);
+                // A named format argument (`name = value`): only its value is an expression.
+                match arg {
+                    syn::Expr::Assign(a) => self.visit_expr(&a.right),
+                    _ => self.visit_expr(arg),
+                }
             }
         }
         syn::visit::visit_macro(self, m);
@@ -807,31 +990,61 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         {
             self.paths.insert(ident.to_string());
         }
-        syn::visit::visit_local(self, l);
-    }
-    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(f) = &*c.func {
-            let segments: Vec<String> =
-                f.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            // Judged by where the path leads in every build: `metadata(p)` after
-            // `use std::fs::metadata;` is std's, after a local `fn metadata` it is not, and one
-            // the resolver cannot settle is a row (fail closed).
-            let at = At { module: self.module.clone(), scopes: self.scopes.clone() };
-            let settled = self.resolver.resolve(&at, &segments, STEPS);
-            if let Some(shown) = settled.iter().find_map(offends) {
-                let written = segments.join("::");
-                let what = if shown.starts_with("unresolved: ")
-                    || segments.len() == 1
-                    || matches!(segments.first().map(String::as_str), Some("self" | "super"))
-                {
-                    format!("{written}(..) ({shown})")
-                } else {
-                    format!("{written}(..)")
-                };
-                self.row(c.span(), what);
+        // The value first, then the names it binds: `let metadata = metadata(p)?;` calls the
+        // import, and a name bound to a path (`let f = std::fs::metadata;`) leads where it does.
+        let bound = l.init.as_ref().and_then(|init| expr_path(&init.expr)).map(|p| self.settle(&p));
+        if let Some(init) = &l.init {
+            self.visit_expr(&init.expr);
+            if let Some((_, diverge)) = &init.diverge {
+                self.visit_expr(diverge);
             }
         }
-        syn::visit::visit_expr_call(self, c);
+        self.visit_pat(&l.pat);
+        if let (Some(ident), Some(bound)) = (ident, bound) {
+            self.locals.insert(ident.to_string(), Rc::new(bound));
+        }
+    }
+    fn visit_pat_ident(&mut self, i: &'ast syn::PatIdent) {
+        self.locals.insert(i.ident.to_string(), Rc::new(Vec::new()));
+        syn::visit::visit_pat_ident(self, i);
+    }
+    fn visit_expr_let(&mut self, l: &'ast syn::ExprLet) {
+        self.visit_expr(&l.expr);
+        self.visit_pat(&l.pat);
+    }
+    fn visit_expr_if(&mut self, i: &'ast syn::ExprIf) {
+        self.scoped(|scan| syn::visit::visit_expr_if(scan, i));
+    }
+    fn visit_expr_while(&mut self, w: &'ast syn::ExprWhile) {
+        self.scoped(|scan| syn::visit::visit_expr_while(scan, w));
+    }
+    fn visit_expr_for_loop(&mut self, f: &'ast syn::ExprForLoop) {
+        self.visit_expr(&f.expr);
+        self.scoped(|scan| {
+            scan.visit_pat(&f.pat);
+            scan.visit_block(&f.body);
+        });
+    }
+    fn visit_expr_closure(&mut self, c: &'ast syn::ExprClosure) {
+        self.scoped(|scan| syn::visit::visit_expr_closure(scan, c));
+    }
+    fn visit_arm(&mut self, a: &'ast syn::Arm) {
+        self.scoped(|scan| syn::visit::visit_arm(scan, a));
+    }
+    fn visit_expr_path(&mut self, p: &'ast syn::ExprPath) {
+        // A path as a value (`.map(std::fs::metadata)`, a field set to `fs::metadata`): a read
+        // passed on is a read. A callee is judged in `visit_expr_call`.
+        self.judge(p, false);
+        syn::visit::visit_expr_path(self, p);
+    }
+    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
+        match &*c.func {
+            syn::Expr::Path(f) => self.judge(f, true),
+            func => self.visit_expr(func),
+        }
+        for arg in &c.args {
+            self.visit_expr(arg);
+        }
     }
     fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
         let method = m.method.to_string();
@@ -868,6 +1081,8 @@ fn rows_in_module(
             paths: HashSet::new(),
             module: module.to_vec(),
             scopes: vec![Rc::clone(&root)],
+            self_ty: None,
+            locals: HashMap::new(),
             resolver: Resolver { modules },
             rows: Vec::new(),
         };
@@ -1425,6 +1640,194 @@ fn the_lint_reports_a_call_it_cannot_resolve() {
             "q(..) (unresolved: crate::gone::probe)",
             "crate::inner::metadata(..)",
             "a(..) (unresolved: a loop of imports)",
+        ],
+    );
+}
+
+/// #42352 review F1: "a type alias is treated as the item's own path. With `type Path =
+/// std::path::Path`, `Path::exists(p)` settles as Own and gives no row." The class: a name bound
+/// to another path (a type alias, a `const` or `static` bound to a function, `Self` in an impl, a
+/// `<T>::` qualified path) is followed to what it names, never settled as this crate's own item.
+/// An alias of this crate's own type gives no row.
+#[test]
+fn the_lint_follows_type_aliases_and_other_names_for_a_path() {
+    let rows = rows_of(
+        r#"
+        mod aliased {
+            type Path = std::path::Path;
+            fn a(p: &Path) -> bool { Path::exists(p) }
+        }
+        mod relative {
+            use std::path;
+            pub type P = path::PathBuf;
+        }
+        mod through_import {
+            use crate::relative::P;
+            fn a(p: &std::path::Path) -> bool { P::try_exists(p).unwrap_or(false) }
+        }
+        mod fn_const {
+            const PROBE: fn(&std::path::Path) -> std::io::Result<std::fs::Metadata> =
+                std::fs::metadata;
+            fn a(p: &std::path::Path) -> bool { PROBE(p).is_ok() }
+        }
+        mod self_type {
+            trait Probe { fn probe(&self) -> bool; }
+            impl Probe for std::path::Path {
+                fn probe(&self) -> bool { Self::exists(self) }
+            }
+        }
+        mod qualified {
+            type P = std::path::Path;
+            fn a(p: &std::path::Path) -> bool { <P>::exists(p) }
+        }
+        mod own_alias {
+            struct LocalStore;
+            impl LocalStore { fn exists(_: &str) -> bool { true } }
+            type Store = LocalStore;
+            fn a() -> bool { Store::exists("x") && Self_::ok() }
+            struct Self_;
+            impl Self_ { fn ok() -> bool { Self::exists_here() } fn exists_here() -> bool { true } }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "Path::exists(..)",
+            "P::try_exists(..)",
+            "std::fs::metadata as a value",
+            "PROBE(..) (std::fs::metadata)",
+            "Self::exists(..)",
+            "<P>::exists(..)",
+        ],
+    );
+}
+
+/// #42352 review F2: "nested glob re-exports aren't followed. `mod a { pub use std::fs::metadata
+/// as probe; } mod b { pub use crate::a::*; } use b::*;` then `probe(p)` gives no row." A glob is
+/// followed through the globs it reaches, an `as` rename too; a glob into a module the lint
+/// cannot read brings in any name, so the call is unresolved; a cycle of globs ends.
+#[test]
+fn the_lint_follows_nested_glob_re_exports() {
+    let rows = rows_of(
+        r#"
+        mod a { pub use std::fs::metadata as probe; }
+        mod b { pub use crate::a::*; }
+        use b::*;
+        fn review(p: &Path) -> bool { probe(p).is_ok() }
+        mod c { pub use super::b::*; }
+        mod deeper {
+            use crate::c::*;
+            fn f(p: &Path) -> bool { probe(p).is_ok() }
+        }
+        mod gone;
+        mod into_unreadable {
+            use crate::gone::*;
+            fn f(p: &Path) -> bool { look(p) }
+        }
+        mod x { pub use super::y::*; }
+        mod y { pub use super::x::*; }
+        mod cycle {
+            use crate::x::*;
+            fn f(p: &Path) -> Result<bool, ()> { Ok(p.is_absolute()) }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "probe(..) (std::fs::metadata)",
+            "probe(..) (std::fs::metadata)",
+            "look(..) (unresolved: crate::gone::look)",
+        ],
+    );
+}
+
+/// A read bound to a local is still a read: `let f = std::fs::metadata; f(p)`, and `let f =
+/// metadata;` after `use std::fs::metadata;`, are rows at the binding (a read as a value) and at
+/// the call. A local bound later does not hide an earlier call of the import it shadows, and
+/// locals named like a read (`exists`, `metadata`, a closure's `try_exists`) are none.
+#[test]
+fn the_lint_follows_a_read_bound_to_a_local() {
+    let rows = rows_of(
+        r#"
+        mod direct {
+            fn a(p: &Path) -> bool {
+                let f = std::fs::metadata;
+                f(p).is_ok()
+            }
+        }
+        mod imported {
+            use std::fs::metadata;
+            fn a(p: &Path) -> bool {
+                let f = metadata;
+                f(p).is_ok()
+            }
+        }
+        mod shadowed_later {
+            use std::fs::metadata;
+            fn a(p: &Path) -> bool {
+                let ok = metadata(p).is_ok();
+                let metadata = 1;
+                ok && metadata == 1
+            }
+        }
+        mod plain_locals {
+            fn a(exists: bool, p: &Path) -> bool {
+                let metadata = p.as_os_str().len();
+                let f = |try_exists: bool| try_exists;
+                exists && metadata > 0 && f(exists)
+            }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "std::fs::metadata as a value",
+            "f(..) (std::fs::metadata)",
+            "metadata as a value (std::fs::metadata)",
+            "f(..) (std::fs::metadata)",
+            "metadata(..) (std::fs::metadata)",
+        ],
+    );
+}
+
+/// A read passed as a value is a read: `.map(std::fs::metadata)`, `.and_then(fs::symlink_metadata)`,
+/// `.map(Path::exists)`, a struct field set to `fs::metadata`, `home_fs::exists_nofollow` as an
+/// argument. Functions that are not reads (`Result::is_ok`, `Path::to_path_buf`, a local fn) and a
+/// parameter called as a function are none.
+#[test]
+fn the_lint_reports_a_read_passed_as_a_value() {
+    let rows = rows_of(
+        r#"
+        use std::fs;
+        use std::path::Path;
+        struct Probe { read: fn(&Path) -> std::io::Result<fs::Metadata> }
+        fn a(paths: Vec<&Path>) -> usize {
+            paths.into_iter().map(std::fs::metadata).filter(Result::is_ok).count()
+        }
+        fn b(p: Option<&Path>) -> bool {
+            p.map(Path::exists).unwrap_or(false)
+        }
+        fn c(p: &Path) -> bool {
+            Some(p).ok_or(()).and_then(fs::symlink_metadata).is_ok()
+        }
+        fn d() -> Probe { Probe { read: fs::metadata } }
+        fn e(p: &Path) -> bool { run(crate::home_fs::exists_nofollow, p) }
+        fn run(f: fn(&Path) -> bool, p: &Path) -> bool { f(p) }
+        fn known(p: &Path) -> bool { Some(p).map(Path::to_path_buf).is_some() && run(own, p) }
+        fn own(_: &Path) -> bool { true }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "std::fs::metadata as a value",
+            "Path::exists as a value",
+            "fs::symlink_metadata as a value",
+            "fs::metadata as a value",
+            "crate::home_fs::exists_nofollow as a value",
         ],
     );
 }
