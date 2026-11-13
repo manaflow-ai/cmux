@@ -198,12 +198,13 @@ impl V1PageProvider {
 }
 
 impl acpmux_core::hub::PageProvider for V1PageProvider {
-    fn row(&self, key: &RowKey) -> Option<Arc<Summary>> {
+    fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>> {
         if key.origin.as_ref() != "local" {
-            return None;
+            return Ok(None);
         }
         session_by_id(&self.hub, &key.chat_id)
-            .and_then(|session| summary_from_session(&self.hub, &session).ok().map(Arc::new))
+            .map(|session| summary_from_session(&self.hub, &session).map(Arc::new))
+            .transpose()
     }
 }
 

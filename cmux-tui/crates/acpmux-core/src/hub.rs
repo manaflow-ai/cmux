@@ -282,7 +282,7 @@ pub struct Hub {
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
 pub trait PageProvider: Send + Sync {
-    fn row(&self, key: &RowKey) -> Option<Arc<Summary>>;
+    fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -594,7 +594,7 @@ impl Hub {
                 if let Some(row) = index.get_row(&row_key) {
                     rows.push(row);
                 } else if let Some(row) =
-                    provider.as_ref().and_then(|provider| provider.row(&row_key))
+                    provider.as_ref().map(|provider| provider.row(&row_key)).transpose()?.flatten()
                 {
                     rows.push(row);
                 } else if key.origin == "local" {

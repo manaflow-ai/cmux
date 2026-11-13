@@ -1004,13 +1004,13 @@ async fn expired_list_resume_and_live_lag_open_the_head() {
 async fn keyed_pages_reach_the_hub_through_the_connection() {
     struct Provider;
     impl crate::hub::PageProvider for Provider {
-        fn row(&self, key: &acpmux_book::index::RowKey) -> Option<Arc<Summary>> {
+        fn row(&self, key: &acpmux_book::index::RowKey) -> std::io::Result<Option<Arc<Summary>>> {
             if key.origin.as_ref() == "local" && key.chat_id.as_ref() == "cold" {
                 let mut row = Summary::new("cold");
                 row.state = "closed".into();
-                Some(Arc::new(row))
+                Ok(Some(Arc::new(row)))
             } else {
-                None
+                Ok(None)
             }
         }
     }
