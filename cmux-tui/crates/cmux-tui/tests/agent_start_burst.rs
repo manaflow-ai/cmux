@@ -715,9 +715,10 @@ fn process_counts(daemon: &Daemon) -> String {
 
 /// The program of a terminal that asks for a long connection above the
 /// bound, then makes a typed command. It keeps the exit code of each one.
-fn over_the_bound_script(dir: &Path) -> String {
+/// It waits behind `gate` first, as a holder does (`Holders`).
+fn over_the_bound_script(dir: &Path, gate: &str) -> String {
     format!(
-        "D='{dir}/over'; \
+        "D='{dir}/over'; exec 3<'{dir}/held/{gate}'; : >\"$D/ready\"; /bin/cat <&3 >/dev/null; \
          '{tui}' --jsonl session current events >\"$D/events.out\" 2>\"$D/events.err\"; \
          echo $? >\"$D/events.rc\"; \
          '{tui}' --json terminal \"$CMUX_TUI_TERMINAL_ID\" show \
@@ -778,7 +779,14 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
     );
 
     let over = daemon.dir.join("over");
-    control.run_in_terminal("over", &over_the_bound_script(&daemon.dir));
+    let gate = Gate::new(&daemon.dir.join("held"), "gate-over");
+    control.run_in_terminal("over", &over_the_bound_script(&daemon.dir, "gate-over"));
+    let ready = wait_until(test_timeout(Duration::from_secs(60)), || over.join("ready").exists());
+    assert!(ready, "setup: the terminal above the bound did not start");
+    let read = Control::admitted(&daemon.socket);
+    assert!(read.is_some(), "setup: the daemon refused the test's connection");
+    drop(read);
+    gate.open();
     let ended =
         wait_until(test_timeout(Duration::from_secs(60)), || over.join("typed.rc").exists());
     let file = |name: &str| fs::read_to_string(over.join(name)).unwrap_or_default();
