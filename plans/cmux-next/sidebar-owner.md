@@ -2127,7 +2127,9 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
   fill (`passOverCover`, one render-server keyframe that removes itself), so no crossed title shows through a
   translucent fill. Over the plain sidebar the row looks the same either way.
 - In a see-through window (translucent, frosted, glass, a picture) no opaque color matches what is behind the rows,
-  so there the crossed rows still hide and fade back as before.
+  so there the crossed rows still hide and fade back as before. "Opaque" is the scope's backdrop as a terminal's
+  ground reads it (its picture and tint too), so a picture under a full tint counts as opaque; the cover runs only
+  where the window's moves animate (`animatesMovement(in:)`), as the hide it replaces does (2026-11-13 port).
 - Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
   group and opaque), red commit first.
 

@@ -299,7 +299,7 @@ struct RowMotion {
             view.displayIfNeeded()
             let fill = layer.backgroundColor
             let cover = fill.flatMap(Self.rgb).map { $0.composited(over: ground) } ?? ground
-            if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill) {
+            if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill, in: list.window) {
                 layer.add(hold, forKey: "cmux.passOverCover")
             }
             return
@@ -321,8 +321,10 @@ struct RowMotion {
     /// matches it.
     private static func rowGround(of list: SidebarListView) -> ThemeRGB? {
         list.performWithTheme {
-            let tokens = list.themeTokens
-            guard WindowBackdrop.current(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled).isOpaque else { return nil }
+            let scope = list.themeScope, tokens = scope.tokens
+            let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                          selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
+            guard backdrop.isOpaque else { return nil }
             var fills: [CGColor] = []
             var ancestor = list.superview
             while let view = ancestor {
