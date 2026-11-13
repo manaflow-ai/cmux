@@ -29,6 +29,8 @@ package final class SessionVault {
     @ObservationIgnored package let copyText: @MainActor (String) -> Void
     @ObservationIgnored package let openURL: @MainActor (URL) -> Void
     @ObservationIgnored private let title: @MainActor (AgentSession) -> String
+    /// The reload that ``cameBackOnScreen()`` started last.
+    @ObservationIgnored private var backOnScreen: Task<Void, Never>?
 
     /// - Parameters:
     ///   - source: The sessions (`AgentHistorySource` in the app).
@@ -53,6 +55,15 @@ package final class SessionVault {
     /// when a list that is not complete is read again.
     package func reload() async {
         await reads.reload(source) { rebuild() }
+    }
+
+    /// A window is on screen again: out of the Dock, after Hide, uncovered, or its Space shows. The list's view
+    /// gets no sign of that, and the reads of a list that is not complete ended when its surface left the
+    /// screen: one reload starts them again. Nothing for a complete list, while a reload reads, and while no
+    /// surface shows the list. The caller does not wait: the reload runs in its own task.
+    package func cameBackOnScreen() {
+        guard reads.endedBeforeComplete else { return }
+        backOnScreen = Task { [weak self] in await self?.reload() }
     }
 
     /// Rebuilds the rows from what the source already holds.

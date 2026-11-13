@@ -29,6 +29,11 @@ package final class VaultListReads {
         return surfaces.contains { $0() == true }
     }
 
+    /// The reads of a list that is not complete ended (its surface left the screen, or ``readLimit`` reads were
+    /// made) and a surface shows the list now: its owner reloads. False for a complete list, while a reload
+    /// reads, and while no surface shows the list.
+    package var endedBeforeComplete: Bool { isPartial && !isLoading && !isReadingAgain && isShown }
+
     /// Reads `source` and runs `took` after each read (the owner rebuilds its rows from the source).
     package func reload(_ source: any VaultSessionSource, took: () -> Void) async {
         isLoading = true

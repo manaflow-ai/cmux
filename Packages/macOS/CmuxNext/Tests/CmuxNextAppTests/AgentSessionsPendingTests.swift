@@ -115,6 +115,23 @@ import Testing
         #expect(source.refreshes == 3, "a complete list is not read again")
     }
 
+    /// A reload that ended at the bound of reads waits for the person's reload, as before: a window is covered and
+    /// shown many times an hour, and a daemon that stays behind must not get 40 reads at each one.
+    @Test func aWindowThatComesBackOnScreenStartsNoReadAfterAReloadThatEndedAtTheBound() async throws {
+        let source = Source([([SessionVaultTests.session("s-old")], false)])
+        let (services, vault) = Self.vault(source, onScreen: true)
+        await vault.reload()
+        #expect(source.refreshes == 40, "the reads end at the bound")
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"vault-bound","workspace_key":"vb2"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services, frame: NSRect(x: 200, y: 200, width: 900, height: 600))
+        controller.windowDidChangeOcclusionState(Notification(name: NSWindow.didChangeOcclusionStateNotification, object: controller.window))
+        await Self.turns { false }
+        #expect(source.refreshes == 40, "the window's change starts no read: the bound waits for the person's reload")
+        #expect(vault.isPartial)
+        await vault.reload()
+        #expect(source.refreshes == 80, "the person's reload reads again")
+    }
+
     @Test func afterTheBoundAnIdThatIsNotInTheListIsStillLoadingAndTheNextReloadReadsAgain() async {
         let source = Source([([SessionVaultTests.session("s-old")], false)])
         let (services, vault) = Self.vault(source, onScreen: true)
