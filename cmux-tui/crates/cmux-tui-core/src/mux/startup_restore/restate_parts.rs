@@ -225,8 +225,8 @@ impl Mux {
             return Ok(PartStep::Done);
         }
         if waiters > 0 && parts.deferred < RESTATE_MAX_DEFERS {
-            parts.deferred += 1;
-            parts.tally.defers += 1;
+            parts.deferred = parts.deferred.saturating_add(1);
+            parts.tally.defers = parts.tally.defers.saturating_add(1);
             return Ok(PartStep::Deferred);
         }
         parts.deferred = 0;
@@ -317,7 +317,7 @@ impl Mux {
             Err(error) => match error.downcast_ref::<NoPart>() {
                 Some(NoPart::Nothing) => Ok(PartStep::Passed),
                 Some(NoPart::Escaped) => {
-                    parts.tally.skipped += 1;
+                    parts.tally.skipped = parts.tally.skipped.saturating_add(1);
                     eprintln!("cmux-tui: session restate: a part was not stated: {error:#}");
                     Ok(PartStep::Passed)
                 }
@@ -340,7 +340,7 @@ impl Mux {
 /// The worker: wait for ready as a start's adoptions do, take the turn after them, then one
 /// step at a time. It holds the mux only for a step, so a mux that its owner dropped ends it.
 fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
-    let deadline = Instant::now() + terminal_adoption::STARTUP_READY_WAIT;
+    let started = Instant::now();
     loop {
         let Some(mux) = mux.upgrade() else { return };
         if mux.shutting_down.load(Ordering::Acquire) {
@@ -348,7 +348,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
         }
         if mux.server_lifecycle_ready()
             || mux.startup_adoptions_released.load(Ordering::Acquire)
-            || Instant::now() >= deadline
+            || started.elapsed() >= terminal_adoption::STARTUP_READY_WAIT
         {
             break;
         }
@@ -392,7 +392,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
         drop(mux);
         if !pause.is_zero() {
             std::thread::sleep(pause);
-            parts.tally.pause += pause;
+            parts.tally.pause = parts.tally.pause.saturating_add(pause);
         }
     }
 }

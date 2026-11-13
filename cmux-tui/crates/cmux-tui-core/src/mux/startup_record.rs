@@ -47,8 +47,10 @@ impl Mux {
         let mut line = timings.to_line(pid, at_ms);
         let mut after_ready =
             self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(laps) = after_ready.laps.clone() {
-            line["after_ready"] = laps;
+        if let Some(laps) = after_ready.laps.clone()
+            && let Some(fields) = line.as_object_mut()
+        {
+            fields.insert("after_ready".into(), laps);
         }
         match append_startup_timings(session_dir, &line) {
             Ok(()) => after_ready.line = Some((session_dir.to_path_buf(), pid, at_ms)),

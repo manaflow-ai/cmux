@@ -228,14 +228,15 @@ pub fn add_after_ready(
             let Ok(mut value) = serde_json::from_str::<serde_json::Value>(line) else {
                 return line.to_string();
             };
-            if found
-                || value["pid"].as_u64() != Some(u64::from(pid))
-                || value["at_ms"].as_u64() != Some(at_ms)
-            {
+            let number = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
+            if found || number("pid") != Some(u64::from(pid)) || number("at_ms") != Some(at_ms) {
                 return line.to_string();
             }
+            let Some(fields) = value.as_object_mut() else {
+                return line.to_string();
+            };
             found = true;
-            value["after_ready"] = laps.clone();
+            fields.insert("after_ready".into(), laps.clone());
             value.to_string()
         })
         .collect::<Vec<_>>();

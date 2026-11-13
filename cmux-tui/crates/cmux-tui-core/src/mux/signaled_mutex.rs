@@ -184,8 +184,9 @@ impl<T> SignaledMutex<T> {
     /// Work that can wait reads this before it takes the lock and stands back while a locker
     /// waits (`mux/startup_restore/restate_parts.rs`).
     pub(crate) fn waiters(&self) -> usize {
-        self.interactive_waiters.load(Ordering::Acquire)
-            + self.plain_waiters.load(Ordering::Acquire)
+        self.interactive_waiters
+            .load(Ordering::Acquire)
+            .saturating_add(self.plain_waiters.load(Ordering::Acquire))
     }
 
     /// An interactive locker waits and has not used up its streak.
