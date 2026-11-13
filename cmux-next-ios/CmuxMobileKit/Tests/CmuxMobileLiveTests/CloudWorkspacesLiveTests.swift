@@ -488,10 +488,15 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         // The same listing read again: still held.
         live.applyCloudMachines([machine(.running)])
         #expect(live.isCloudRefused(vm))
-        // The listing changed (it reported in): dialed again.
-        cloud.refuse(vm, nil)
+        // Only its last-active time moved (the phone's own asks touch it): still held, so the
+        // phone doesn't ask for a grant at every list read.
         live.applyCloudMachines([MacDevice(cloudMachine: vm, name: "Build box", state: CloudMachineState(status: .running),
                                            lastActiveAt: Date(timeIntervalSince1970: 5_000))])
+        #expect(live.isCloudRefused(vm))
+        // Its state moved (it restarted: starting, then running again): dialed again.
+        cloud.refuse(vm, nil)
+        live.applyCloudMachines([machine(.starting)])
+        live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
         #expect(!live.isCloudRefused(vm))
     }
