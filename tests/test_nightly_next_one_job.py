@@ -251,7 +251,12 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(split_restore["with"], steps[restore]["with"])
         self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")
         deps = one_line(steps[names.index("Install compilation dependencies")]["run"])
-        self.assertIn('[ -x "${CMUX_VT_ZIG:-}" ]', deps)
+        self.assertEqual(deps, "bash scripts/ci/nightly-steps/one-job-compile-deps.sh")
+        script = (ROOT / "scripts/ci/nightly-steps/one-job-compile-deps.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -x "${CMUX_VT_ZIG:-}" ]; then', script)
+        for command in ("./scripts/install-rust-ci.sh", "ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh",
+                        "./scripts/download-prebuilt-ghosttykit.sh"):
+            self.assertIn(command, script)
         self.assertLess(names.index("Install Zig"), names.index("Install compilation dependencies"))
 
     def test_the_kept_zig_cache_marker(self) -> None:

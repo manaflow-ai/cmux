@@ -1691,13 +1691,12 @@ jobs:
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
 
-      - &x3
-        name: Cache Zig packages
+      - name: Cache Zig packages
         if: inputs.nightly_next_unsigned_run == ''
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
+        with: &zig-cache
           path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          key: &zig-key zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
       - name: Key the Ghostty CLI helper cache
@@ -2496,8 +2495,7 @@ jobs:
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
-      - &x17
-        name: Install compilation dependencies
+      - name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
@@ -3331,9 +3329,7 @@ jobs:
           BUILD_SHA: ${{ steps.build.outputs.build_sha }}
           ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: bash scripts/ci/nightly-steps/chief-input-key.sh
-      # A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer
-      # push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047
-      # of the older c31b2b678). It runs before any build job starts. A push run leaves it only with the variable.
+      # Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '')
@@ -7101,10 +7097,7 @@ jobs:
 
       - *wipe-owned-credentials
 
-  # nightly-next on one Mac, end to end (Leo, 2026-11-12: "Why isn't it just like the single machine does the
-  # thing end to end?"). With vars.NIGHTLY_NEXT_ONE_JOB=on, decide sets one_job and the split jobs skip: this one
-  # job compiles warm, prepares, signs, notarizes, verifies and writes the feed in one workspace, with the split
-  # jobs' own steps (YAML aliases) and no artifact between them. tests/test_nightly_next_one_job.py.
+  # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
@@ -7187,21 +7180,16 @@ jobs:
       - *x13
       - *x1
       - *x2
-      # The Mac keeps ~/.cache/zig. "Cache Zig packages" restored 647 MB over it in 69-81 s on every run (runs 43390156751,
-      # 43395323737); it is skipped once a source archive of this key completed with that cache (zig-cache-kept.sh).
+      # Why: docs/ci/nightly-workflow-notes.md#note-15
       - name: Read whether the kept Zig package cache is complete
         id: zig-kept
         if: inputs.nightly_next_unsigned_run == ''
-        env:
-          KEY: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+        env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh check
       - name: Cache Zig packages
         if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
+        with: *zig-cache
       - name: Key the Ghostty CLI helper cache
         id: helper-cache-key
         if: steps.reuse.outputs.hit != 'true'
@@ -7219,12 +7207,10 @@ jobs:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
         run: bash scripts/ci/nightly-steps/helper-build.sh && strip -S -x nightly-helper/ghostty
       - *x4
-      # Only after the source archive ran and passed (it blocks: a failure fails the job before this step).
       - name: Mark the kept Zig package cache complete
         if: success() && inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true')
         continue-on-error: true
-        env:
-          KEY: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+        env: {KEY: *zig-key}
         run: bash scripts/ci/nightly-steps/zig-cache-kept.sh mark
       - *x5
       - name: Compile this build (no product reuse)
@@ -7233,20 +7219,11 @@ jobs:
       - *x14
       - *x15
       - *x16
-      # As build-nightly-app's step, without a second download of ghostty-next's Zig (20 s): "Install Zig" above
-      # already installed it in this job and published CMUX_VT_ZIG.
+      # Why: docs/ci/nightly-workflow-notes.md#note-15
       - name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          ./scripts/install-rust-ci.sh
-          if [ -x "${CMUX_VT_ZIG:-}" ]; then
-            echo "ghostty-next's Zig is already installed: $CMUX_VT_ZIG ($("$CMUX_VT_ZIG" version))"
-          else
-            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
-          fi
-          ./scripts/download-prebuilt-ghosttykit.sh
-      # The notices read no build output (git fetches of the pinned crates' sources, cargo tree): 95-134 s after the
-      # Release build in runs 43390156751 and 43395323737. They run beside it into the hand-off the notices step takes.
+        run: bash scripts/ci/nightly-steps/one-job-compile-deps.sh
+      # Why: docs/ci/nightly-workflow-notes.md#note-17
       - name: Start the third-party notices (they need no build output)
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
         env:
@@ -7274,7 +7251,7 @@ jobs:
       - *x35
       - *x36
       - *x37
-      # A failed background run packs no hand-off: the notices step then generates them itself, as before.
+      # Why: docs/ci/nightly-workflow-notes.md#note-17
       - name: Finish the third-party notices
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
         continue-on-error: true
