@@ -2414,9 +2414,13 @@ pre.cv-math-source {
   opacity: 0;
 }
 .cv-worked-row:hover > .cv-turn-actions,
+.cv-worked-row > .cv-worked:hover ~ .cv-turn-actions,
+.cv-worked-row > .cv-worked:has([data-popup-open]) ~ .cv-turn-actions,
 :root:not([data-page-inactive]) .cv-worked-row:has(:focus-visible) > .cv-turn-actions,
 .cv-worked-row:has([data-popup-open]) > .cv-turn-actions,
 .cv-worked-row:hover .cv-turn-time,
+.cv-worked-row > .cv-worked:hover ~ .cv-turn-actions .cv-turn-time,
+.cv-worked-row > .cv-worked:has([data-popup-open]) ~ .cv-turn-actions .cv-turn-time,
 :root:not([data-page-inactive]) .cv-worked-row:has(:focus-visible) .cv-turn-time,
 .cv-worked-row:has([data-popup-open]) .cv-turn-time {
   opacity: 1;
