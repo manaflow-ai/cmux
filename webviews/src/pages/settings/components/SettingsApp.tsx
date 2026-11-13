@@ -102,6 +102,12 @@ export function SettingsApp() {
   );
   // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
   const section = shownSection(location.section, state.host?.dev_build === true);
+  // The category the page opened on draws still: no entrance on the open, whose first shown frame is
+  // the settled page (Leo, 2026-10-20: "the settings flicker is bad when you load it";
+  // settings-open-frames). A category picked later fades in (layout.css `settings-enter`).
+  const [openedOn] = useState(section);
+  const [switched, setSwitched] = useState(false);
+  if (!switched && section !== openedOn) setSwitched(true);
   // A click on the category already shown takes its page back to the top (Lucas 2026-11-11), as a
   // second click on a native sidebar's current item or a browser's tab does.
   const content = useRef<HTMLElement>(null);
@@ -121,7 +127,7 @@ export function SettingsApp() {
   };
 
   return (
-    <div className="settings" ref={keyboardRef}>
+    <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
       <aside className="sidebar">
         <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />

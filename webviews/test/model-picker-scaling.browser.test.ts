@@ -45,7 +45,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
     page.evaluate(() => {
       const box = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
       return {
-        model: box(".acpmux-cols-body > [role=listbox]").width,
+        model: box(".acpmux-cols-lists > [role=listbox]").width,
         height: box(".acpmux-cols-frame").height,
         rail: box(".acpmux-cols-rail").width,
       };
@@ -104,7 +104,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           installScrollers(document);
         `,
         });
-        const column = page.locator(".acpmux-cols-body > [role=listbox]");
+        const column = page.locator(".acpmux-cols-lists > [role=listbox]");
         expect(await column.getAttribute("data-cmux-scrolling")).toBeNull();
         const thumbColor = () =>
           column.evaluate((node) => getComputedStyle(node, "::-webkit-scrollbar-thumb").backgroundColor);
@@ -115,7 +115,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.wheel(0, 10_000);
         await page.waitForFunction(() => {
-          const node = document.querySelector<HTMLElement>(".acpmux-cols-body > [role=listbox]")!;
+          const node = document.querySelector<HTMLElement>(".acpmux-cols-lists > [role=listbox]")!;
           return node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
         });
         const scroll = await column.evaluate((list) => {
@@ -136,11 +136,11 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect(scroll.scrollbarWidth).toBe("auto");
         expect(scroll.lastBottom).toBeLessThanOrEqual(scroll.bottom + 1);
         await page.waitForFunction(() =>
-          document.querySelector(".acpmux-cols-body > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
+          document.querySelector(".acpmux-cols-lists > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
         );
         expect(await thumbColor()).not.toBe("rgba(0, 0, 0, 0)");
         await page.waitForFunction(
-          () => !document.querySelector(".acpmux-cols-body > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
+          () => !document.querySelector(".acpmux-cols-lists > [role=listbox]")!.hasAttribute("data-cmux-scrolling"),
         );
         const bounds = (await column.boundingBox())!;
         await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height - 12);
@@ -173,7 +173,10 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           expect(layout.width).toBeLessThanOrEqual(520 * scale + 0.5);
           expect(layout.clipped).toBe(false);
           expect(layout.ellipsis).toBe("clip");
-          expect(layout.rowTitle).toContain(layout.name!);
+          // The whole name shows, wrapped: no tooltip repeats it (#41208: a model's tooltip is its name,
+          // only when the row cuts it off).
+          expect(layout.name).toContain("A model with a very long name");
+          expect(layout.rowTitle === "" || layout.rowTitle.includes(layout.name!)).toBe(true);
         }
       } finally {
         await page.close();
@@ -186,7 +189,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect((await geometry(page)).model).toBeGreaterThanOrEqual(185);
         expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(520.5);
         const labels = await page
-          .locator(".acpmux-cols-body > [role=listbox] [role=option] .acpmux-cols-name")
+          .locator(".acpmux-cols-lists > [role=listbox] [role=option] .acpmux-cols-name")
           .evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, content: node.scrollWidth })));
         expect(labels.length).toBeGreaterThan(4);
         expect(labels.every((label) => label.content <= label.width + 1)).toBe(true);
@@ -210,7 +213,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           document.documentElement.style.setProperty("--text-body", "20px");
         });
         await page.waitForFunction(
-          () => document.querySelector(".acpmux-cols-body > [role=listbox]")!.getBoundingClientRect().width > 285,
+          () => document.querySelector(".acpmux-cols-lists > [role=listbox]")!.getBoundingClientRect().width > 285,
         );
         expect((await geometry(page)).model).toBeGreaterThan(initial.model * 1.45);
       } finally {
