@@ -119,6 +119,11 @@ pub const HOT_WINDOW_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 /// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
 pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
+
+/// Returns whether a v1 list state belongs to the live view.
+pub fn is_live_state(state: &str) -> bool {
+    state != "closed"
+}
 static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
 static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
 static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
@@ -236,7 +241,7 @@ impl Summary {
     }
 
     pub fn is_live(&self) -> bool {
-        self.state != "closed"
+        is_live_state(&self.state)
     }
 
     pub fn is_hot_at(&self, now: u64) -> bool {

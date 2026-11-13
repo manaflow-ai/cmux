@@ -622,11 +622,8 @@ where
         serde_json::to_value(row).ok().and_then(|value| Self::row_key(&value))
     }
 
-    fn summary_is_live<U: Serialize>(row: &U) -> bool {
-        serde_json::to_value(row)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Summary>(value).ok())
-            .is_none_or(|summary| summary.is_live())
+    fn summary_is_live(value: &Value) -> bool {
+        value.get("state").and_then(Value::as_str).is_some_and(acpmux_book::index::is_live_state)
     }
 
     fn row_identity(key: &ListKey) -> (String, String) {
@@ -888,9 +885,25 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
+                let mut retry_wanted = None;
                 let restart_walk = if method == "page" {
                     sid.as_deref().and_then(|sid| {
                         self.pages.remove(sid).and_then(|state| {
+                            if matches!(state.purpose, PagePurpose::Wanted) {
+                                if let Some(sub) = self.subscriptions.get_mut(sid)
+                                    && let Some(mirror) = sub.mirror.as_mut()
+                                {
+                                    if let Some(request) = state.request
+                                        && let Some(keys) = request.keys
+                                    {
+                                        for key in keys.into_iter().rev() {
+                                            mirror.pending_wanted.push_front(key);
+                                        }
+                                    }
+                                }
+                                retry_wanted = Some(sid.to_owned());
+                                return None;
+                            }
                             (matches!(state.purpose, PagePurpose::MirrorWalk)
                                 && self
                                     .subscriptions
@@ -926,6 +939,9 @@ where
                 );
                 if let Some(sid) = restart_walk {
                     self.start_mirror_walk(&sid);
+                }
+                if let Some(sid) = retry_wanted {
+                    self.maybe_start_wanted(&sid);
                 }
             }
             FrameKind::Unknown(kind) => {
@@ -1169,8 +1185,9 @@ where
                     charged = true;
                     emitted = true;
                     self.note_page_summary(&sid, &summary);
-                    let key = Self::value_key(&summary);
-                    let live = Self::summary_is_live(&summary);
+                    let value = serde_json::to_value(&summary).ok();
+                    let key = value.as_ref().and_then(Self::row_key);
+                    let live = value.as_ref().is_some_and(Self::summary_is_live);
                     let left = self.subscriptions.get(&sid).is_some_and(|sub| {
                         Self::sub_view_is_live(sub)
                             && !live
@@ -1865,6 +1882,61 @@ tail"#;
         assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
     }
 
+    #[test]
+    fn live_mirror_emits_left_for_closed_and_malformed_rows() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("m", "list");
+        sub.view = Some(wire::ListView::Live);
+        client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+        while client.take_send().is_some() {}
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"m","cursor":1,"rows":[{"chatId":"a","origin":"local","lastActivity":1,"state":"idle"}],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        let _ = client.next_change();
+        let _ = client.take_send();
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"m","ops":[
+                {"op":"summary","seq":2,"summary":{"chatId":"a","origin":"local","lastActivity":2,"state":"closed"}},
+                {"op":"summary","seq":3,"summary":{"chatId":"a","origin":"local","lastActivity":3}}
+            ]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        assert!(matches!(client.next_change(), Some(Change::Left { .. })));
+        assert!(matches!(client.next_change(), Some(Change::Left { .. })));
+    }
+
+    #[test]
+    fn mirror_request_can_select_v1_rows() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("m", "list");
+        sub.rows = Some("v1".into());
+        client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+        let request = client.take_send().unwrap();
+        let value: Value = Frame::from_encoded(&request).unwrap().decode_json().unwrap();
+        assert_eq!(value.pointer("/params/rows"), Some(&Value::String("v1".into())));
+    }
+
     fn ready_mirror() -> Client<Value> {
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
@@ -2038,6 +2110,35 @@ tail"#;
         let retry_frame = Frame::from_encoded(&retry).unwrap();
         let retry_value: Value = retry_frame.decode_json().unwrap();
         assert_eq!(retry_value.pointer("/params/keys/0/chatId"), Some(&Value::String("b".into())));
+    }
+
+    #[test]
+    fn wanted_page_error_requeues_its_keys() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
+        let _ = client.take_send();
+        let key = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
+        client.want("m", [key.clone()]).unwrap();
+        let _ = client.take_send().expect("wanted page");
+        let error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"m","code":"request_failed"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&error);
+        assert!(matches!(client.next_change(), Some(Change::Error { .. })));
+        let retry = client.take_send().expect("wanted page retry");
+        let value: Value = Frame::from_encoded(&retry).unwrap().decode_json().unwrap();
+        assert_eq!(value.pointer("/params/keys/0/chatId"), Some(&Value::String("a".into())));
     }
 
     #[test]
