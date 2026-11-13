@@ -101,7 +101,7 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
     match std::fs::symlink_metadata(&path) {
         Ok(meta) => {
             anyhow::ensure!(meta.file_type().is_file(), "node key is not a regular file");
-            std::fs::remove_file(&path).context("remove the copied node key")?;
+            crate::home_fs::remove_file(&path).context("remove the copied node key")?;
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -145,7 +145,7 @@ pub(crate) fn read_pending_held(
 pub(crate) fn promote_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
     let pending = KeyFile::NodePending.path_in(state_dir);
     holder.open(KeyFile::Node, state_dir, |path| -> Result<()> {
-        std::fs::rename(&pending, path).context("put the pending node key in place")?;
+        crate::home_fs::rename(&pending, path).context("put the pending node key in place")?;
         sync_parent(path)
     })
 }
@@ -182,14 +182,14 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
     let temporary = write_temporary(path, bytes)?;
     // Only remove a temporary file after this invocation created it.
     let result: Result<()> = (|| {
-        match std::fs::hard_link(&temporary, path) {
+        match crate::home_fs::hard_link(&temporary, path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
         sync_parent(path)
     })();
-    let _ = std::fs::remove_file(&temporary);
+    let _ = crate::home_fs::remove_file(&temporary);
     result
 }
 
@@ -198,8 +198,7 @@ fn write_temporary(path: &Path, bytes: &[u8; 32]) -> Result<std::path::PathBuf> 
     let temporary = path.with_extension(format!("wg-key-{}", uuid::Uuid::new_v4()));
     #[cfg(unix)]
     let mut file = {
-        use std::os::unix::fs::OpenOptionsExt;
-        std::fs::OpenOptions::new()
+        crate::home_fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
@@ -215,7 +214,7 @@ fn write_temporary(path: &Path, bytes: &[u8; 32]) -> Result<std::path::PathBuf> 
     })();
     drop(file);
     if let Err(error) = written {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = crate::home_fs::remove_file(&temporary);
         return Err(error);
     }
     Ok(temporary)

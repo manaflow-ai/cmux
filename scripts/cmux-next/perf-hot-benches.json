@@ -31,6 +31,11 @@
       "bench": "scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing"
     },
+    "terminal-output-scan": {
+      "what": "the byte scanners every terminal output chunk runs in the host and in the daemon mirror: the title tracker (terminal_title.rs TitleTracker::rewrite), the OSC metadata collector (terminal_metadata.rs OscCollector::observe) and the prompt mark search (prompt_mode_reset.rs); each jumps over the bytes no state can change on",
+      "bench": "cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture (64 KiB colored log and box-drawing TUI output; prints ns per byte, jumping scan and byte-at-a-time reference)",
+      "owner": "cmux-tui"
+    },
     "home-key": {
       "what": "Home composer key to frame",
       "bench": "scripts/cmux-next/home-perf.py (home.typing.* rows)",
@@ -150,6 +155,11 @@
       "what": "one new workspace put at its sidebar slot once the daemon reports it (WindowManager.applyPendingPlacements -> SidebarBridge.place): the rows it maps from their stores. It maps the new row only, at 60 workspaces as at 826. Still O(session) per placement and not covered by this budget: the two rows passes (structure walk and SidebarModel.setSections), the document projection in the Rust mirror, and the slot rule's copy of every row (SidebarSection.withoutPlaceholders, counted as slot_rows).",
       "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspacePlacementCostTests (on a build mini; rows_made, doc_reshows, project, slot_rows per placement)",
       "owner": "WORKSPACE LIST 800"
+    },
+    "command-stats": {
+      "what": "the session daemon's count of one request by command name and client kind (diagnostics/command_stats.rs: CommandStats::start, start_line, Cell::record; server/connection_frame.rs handle_connection_frame and handle_request_with_cancellation): three clock reads, one probe of a fixed table, four relaxed atomic updates, no lock, no allocation after the first request of a name",
+      "bench": "cargo test --release -p cmux-tui-core --lib bench_command_stats_cost_per_request -- --ignored --nocapture (in cmux-tui, on a build mini; prints COMMAND-STATS-BENCH with ping_with_ns, ping_without_ns and added_ns for 1 000 000 ping requests, same binary)",
+      "owner": "COMMAND STATS"
     }
   }
 }

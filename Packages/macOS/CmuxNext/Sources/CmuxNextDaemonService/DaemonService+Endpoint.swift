@@ -22,10 +22,10 @@ extension DaemonService {
     public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapability.terminalInputWhileCreating.rawValue) }
 
     /// The input of a view whose terminal `terminalID` is still being created goes to this daemon
-    /// by that id until `targetKnown` (cx-wb5.78); nil when the daemon does not queue such input.
+    /// by that id until `targetKnown` (cx-wb5.78), and a close of the view cancels it (`creating-input-cancel-v1`); nil when the daemon does not queue such input.
     public func creatingInput(_ terminalID: TerminalID?, targetKnown: @escaping @Sendable () -> Bool) -> CreatingTerminalInput? {
         guard let id = terminalID?.rawValue, let connection, queuesCreatingInput else { return nil }
-        return CreatingTerminalInput(terminalID: id, connection: connection, targetKnown: targetKnown)
+        return CreatingTerminalInput(terminalID: id, connection: connection, cancels: supports(DaemonCapability.creatingInputCancel.rawValue), targetKnown: targetKnown)
     }
 }
 

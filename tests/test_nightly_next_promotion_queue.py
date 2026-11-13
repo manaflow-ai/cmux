@@ -33,6 +33,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from test_nightly_trusted_routing import evaluate, parse_expression
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 # Linear feat-cmux-next history, oldest first. nightly-next starts at BASE.
@@ -201,8 +203,7 @@ def substitute(text: str, sha: str) -> str:
     """Evaluate the actual expression, including inactive NEXT admission branches."""
     context = {"inputs.promote_nightly_next_sha": sha, "github.repository": "manaflow-ai/cmux",
                "github.ref": "refs/heads/main", "github.event_name": "workflow_dispatch"}
-    return re.sub(r"\$\{\{(.*?)\}\}",
-                  lambda match: str(evaluate(parse_expression(match.group(1)), context)), text, flags=re.S)
+    return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match.group(1)), context)), text)
 
 
 def concurrency_group(sha: str) -> str:

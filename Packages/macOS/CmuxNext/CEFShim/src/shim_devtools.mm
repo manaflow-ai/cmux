@@ -16,6 +16,7 @@
 #include "include/base/cef_callback.h"
 #include "include/cef_command_ids.h"
 #include "include/wrapper/cef_closure_task.h"
+#include "devtools_call_target.h"
 #include "devtools_dock_state.h"
 #include "shim_internal.h"
 
@@ -124,7 +125,7 @@ void RevealDevTools(CefRefPtr<CefBrowser> browser) {
 }
 
 class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKeyboardHandler, public CefLoadHandler,
-                       public CefDisplayHandler {
+                       public CefDisplayHandler, public CefDevToolsMessageObserver {
  public:
   DevToolsClient(int inspected, void* parent_view)
       : inspected_(inspected), docked_(parent_view != nullptr), parent_view_(parent_view) {}
@@ -179,6 +180,8 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     if (map.count(inspected_) == 0) {
       map[inspected_] = browser;
     }
+    // Answers to the shim's own calls to the frontend (cmux_shim_devtools_call: a window image's picture of it).
+    registration_ = browser->GetHost()->AddDevToolsMessageObserver(this);
     Emit(CMUX_SHIM_DEVTOOLS_OPENED, inspected_, 0, browser->GetIdentifier(), docked_ ? 1 : 0);
   }
 
@@ -195,7 +198,19 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     return docked_;
   }
 
+  bool OnDevToolsMessage(CefRefPtr<CefBrowser> browser, const void* message, size_t message_size) override {
+    return ForwardDevToolsMessage(browser->GetIdentifier(), message, message_size);
+  }
+
+  void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser, int message_id, bool success, const void* result,
+                              size_t result_size) override {
+    std::string json(static_cast<const char*>(result), result_size);
+    Emit(CMUX_SHIM_DEVTOOLS_RESULT, browser->GetIdentifier(), message_id, success ? 1 : 0, 0, json);
+  }
+
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+    registration_ = nullptr;
+    ForgetDevToolsProtocol(browser->GetIdentifier());
     HiddenDevTools().erase(browser->GetIdentifier());
     auto& map = devtools_browsers();
     auto it = map.find(inspected_);
@@ -219,6 +234,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
   int inspected_;
   bool docked_;
   void* parent_view_;  // NSView*, the host view DevTools docks over; nullptr for Chromium's own window
+  CefRefPtr<CefRegistration> registration_;  // the frontend's message observer, until it closes
   IMPLEMENT_REFCOUNTING(DevToolsClient);
 };
 
@@ -254,6 +270,10 @@ void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<C
     // Never a Views-hosted popup: the window info above decides.
     *use_default_window = true;
   }
+}
+
+CefRefPtr<CefBrowser> DevToolsFrontendById(int browser_id) {
+  return DevToolsFrontendIn<CefRefPtr<CefBrowser>>(devtools_browsers(), browser_id);
 }
 
 void ForgetDevTools(int inspected) {

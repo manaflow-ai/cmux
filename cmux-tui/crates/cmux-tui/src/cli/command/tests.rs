@@ -1399,6 +1399,7 @@ fn agent_plugin_management_stays_local_and_can_be_disabled() {
 
 mod argv_tail_tests;
 mod name_source_tests;
+mod split_fit_tests;
 mod split_focus_tests;
 mod transport_path_coverage_tests;
 

@@ -4,7 +4,7 @@
 // (Leo, on a chat message that said only "Nothing new for you yet.": "why do you guys keep sending
 // me this/get pinged to send this"). The person's own turns, and a log from before acpmux wrote
 // these records, draw exactly as before.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
@@ -27,6 +27,15 @@ import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import { gridMark, layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { TRANSCRIPT_TURN_GAP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
 const say = (text: string): Step => [

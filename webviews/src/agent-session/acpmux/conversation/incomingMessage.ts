@@ -40,15 +40,25 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
+import {
+  bareSender,
+  hostTokenVerified,
+  provenanceAuthenticated,
+  relayAddress,
+  senderRecord,
+  senderUnverified,
+} from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
+  automatedNotice,
   legacyNotice,
+  isSystemSender,
   noticeBody,
-  noticeMarkdown,
   noticeRowText,
   provenanceNotice,
   renderedNotice,
+  shownNoticeBody,
+  shownSender,
   type AgentNotice,
 } from "./agentNotice";
 
@@ -451,7 +461,7 @@ function withSender(
   // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
   // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
   const unverified =
-    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    !(record === undefined && (provenanceAuthenticated(provenance) || hostTokenVerified(provenance))) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
   // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
@@ -510,6 +520,15 @@ function promptOf(
     const notice = inboxNotice(text, provenance);
     return notice ? { kind: "inbox", notice } : { kind: "hidden" };
   }
+  // acpmux's own prompts that carry words for the agent (hub/inbox.rs `persons_prompt`: the turn
+  // cap's notice, an inbox digest) name no sender, yet are never the person's: they draw as
+  // acpmux's message (Leo, 2026-11-12, on a prompt acpmux sent in his chat: "i didnt send it myself").
+  if (
+    typeof provenance?.kind === "string" &&
+    ACPMUX_MESSAGE_KINDS.has(provenance.kind) &&
+    provenance.from === undefined
+  )
+    return { kind: "message", message: { name: ACPMUX_SENDER, ...remote, text: text.trim(), raw: text } };
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
@@ -554,31 +573,26 @@ function promptOf(
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
   // hub/digest.rs `agent_digest`): one card from their senders, every message in it as sent.
   if (provenance?.kind === "agent_digest" && Array.isArray(provenance.messages)) {
-    const senders = [
-      ...new Set(
-        provenance.messages
-          .map((m) => (m as { from?: unknown } | null)?.from)
-          .filter((from): from is string => typeof from === "string" && from.trim() !== "")
-          .map((from) => from.trim()),
-      ),
-    ];
-    if (senders.length > 0) {
-      const parts = digestParts(text, provenance.messages);
+    const from = provenance.messages
+      .map((m) => (m as { from?: unknown } | null)?.from)
+      .filter((from): from is string => typeof from === "string" && from.trim() !== "");
+    // cmux's own parts are named by nothing, never acpmux or cmux (agentNotice.ts `shownSender`).
+    const senders = [...new Set(from.map((name) => shownSender(name.trim())).filter(Boolean))];
+    if (from.length > 0) {
+      // A task end the person never needs to see (agentNotice.ts `orphan`) leaves the card.
+      const read = digestParts(text, provenance.messages);
+      const parts = read.filter((part) => part.notice?.orphan !== "none");
+      if (read.length > 0 && parts.length === 0) return { kind: "hidden" };
       // Tools' notices alone (a background command's end, acpmux hub/bg_notify.rs, waited behind a
       // busy turn with another): one notice, the most severe, the rest counted and opened below it.
       const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
       if (notices.length && notices.length === parts.length) {
         const first = mostSevere(notices);
-        // Several: each notice under its own title, with its own links (noticeMarkdown), so no
-        // notice's links push out another's; the line's notice then carries none of its own.
-        const body =
-          parts.length === 1
-            ? parts[0]!.text
-            : parts
-                .map((part) =>
-                  `**${escapeTitle(part.notice!.title)}**\n${noticeMarkdown(part.text, part.notice!.links)}`.trim(),
-                )
-                .join("\n\n");
+        // The line's notice then carries none of its own links.
+        // Several: one line per notice, what finished and how it ended, never a card of each body
+        // (Leo, 2026-11-12, on such a group opened into cards: "Even though I intentionally, like,
+        // opened this, it's just, like... but why though?").
+        const body = parts.length === 1 ? parts[0]!.text : parts.map((part) => noticeLine(part.notice!)).join("\n");
         const more = notices.length - 1;
         return {
           kind: "message",
@@ -611,16 +625,31 @@ function promptOf(
   // body without the head and the Links line the row draws itself.
   // acpmux's own who-else notice (hub/touched.rs) carries a notice's fields under its own kind.
   if (provenance?.kind === "notice" || provenance?.kind === "who_else") {
-    const notice = provenanceNotice(provenance);
-    if (notice)
+    const notice = provenanceNotice(provenance, text);
+    // A background task's end that came to the lead because its subagent ended (agentNotice.ts
+    // `orphan`): nothing when it went well and wrote nothing, else one quiet line whose output is
+    // all it opens to, with no Details of the text the agent read.
+    if (notice?.orphan === "none") return { kind: "hidden" };
+    if (notice) {
+      const body = shownNoticeBody(notice, noticeBody(text));
       return {
         kind: "message",
-        message: { name: notice.sender, notice, ...remote, ...harness, text: noticeBody(text), raw: text },
+        message: {
+          name: notice.sender,
+          notice,
+          ...remote,
+          ...harness,
+          text: body,
+          // The text the agent read; an orphan end's is its body alone, so it opens no Details.
+          raw: notice.orphan ? body : text,
+        },
       };
+    }
   }
-  // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
-  // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
-  // itself, never the person's own prompt in the pane.
+  // A notice an older acpmux kept no provenance for, tell-coordinator's page (agentNotice.ts
+  // `legacyNotice`) and a reconciler's or hook's plain-text notice (`automatedNotice`): only from
+  // `acpmux send` at a shell or its outbox, or a sender that named itself, never the person's own
+  // prompt in the pane.
   // The person's own record (`ownerRecord`) is none of those, whatever its client.
   const owner = ownerRecord(msg);
   const viaSend =
@@ -630,11 +659,18 @@ function promptOf(
       (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client))) ||
     (provenance?.kind === "agent_message" && provenance.from === NAMED_SENDER);
   if (viaSend) {
-    const read = renderedNotice(text) ?? legacyNotice(text);
+    const read = renderedNotice(text) ?? legacyNotice(text) ?? automatedNotice(text);
     if (read && "notice" in read)
       return {
         kind: "message",
-        message: { name: read.notice.sender, notice: read.notice, ...remote, ...harness, text: read.body, raw: text },
+        message: {
+          name: read.notice.sender,
+          notice: read.notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(read.notice, read.body),
+          raw: text,
+        },
       };
     if (read)
       return { kind: "message", message: { name: read.sender, ...remote, ...harness, text: read.text, raw: text } };
@@ -741,6 +777,17 @@ function promptOf(
     const agent = agentSigned(body, [name]);
     if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
+  // A reconciler's or hook's plain-text notice in the history (agentNotice.ts `automatedNotice`):
+  // its line, which opens to the whole text. acpmux's inbox notice read back from the history keeps
+  // no provenance there, so its threads are not known for sure (a topic may hold spaces): it is the
+  // inbox's notice line, its text whole behind the chevron, never parsed into thread rows that could
+  // come out empty.
+  const automated = automatedNotice(rest) ?? historyInbox(rest);
+  if (automated)
+    return {
+      kind: "message",
+      message: { name: automated.notice.sender, notice: automated.notice, text: automated.body, raw: text },
+    };
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
     const summary = tag(notification[0], "summary") || tag(notification[0], "status");
@@ -801,6 +848,13 @@ const KNOWN_KINDS = new Set([
   "trigger",
   "workflow",
 ]);
+
+/// acpmux's own prompts with words for the agent and no sender of their own (hub/turn_cap.rs
+/// `NOTICE_KIND`, hub/inbox_digest.rs `KIND`). Its other own prompts draw nothing: a continuation
+/// (subagents/retryState.ts) and the cache timer's `/compact` (cacheCompaction.ts).
+const ACPMUX_MESSAGE_KINDS = new Set(["turn_cap", "inbox_digest"]);
+/// The name acpmux's own messages draw under.
+const ACPMUX_SENDER = "acpmux";
 
 /// The clients `acpmux send` records: at a shell here, and relayed from a peer machine.
 const CLI_CLIENT = /^acpmux-(?:cli|peer)#/;
@@ -954,17 +1008,24 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const parts = [...rest.matchAll(DIGEST_PART)];
   if (!parts.length || parts[0]!.index !== 0) return [];
   return parts.map((part, index) => {
-    const sender = part[1]!.trim();
+    const sender = shownSender(part[1]!.trim());
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
-    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
-    if (notice) return { sender, notice, text: noticeBody(body) };
+    const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent, body) : undefined;
+    if (notice)
+      return {
+        sender: notice.system ? notice.sender : sender,
+        notice,
+        text: shownNoticeBody(notice, noticeBody(body)),
+      };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
-    // (agentNotice.ts): read from its head, as a turn of its own reads it.
-    const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
+    // (agentNotice.ts): read from its head, as a turn of its own reads it. cmux's own parts' text
+    // is always read so: its `[notice from acpmux]` head never shows as words.
+    const named =
+      !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER) || isSystemSender(part[1]!.trim());
     const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
-    if (read && "notice" in read) return { sender, notice: read.notice, text: read.body };
+    if (read && "notice" in read) return { sender, notice: read.notice, text: shownNoticeBody(read.notice, read.body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
@@ -976,11 +1037,23 @@ type DigestPart = { sender: string; text: string; notice?: AgentNotice };
 /// sender's name (a notice under its title too).
 function digestBody(parts: readonly DigestPart[]): string {
   if (parts.length === 1) return parts[0]!.notice ? noticeRowText(parts[0]!.notice, parts[0]!.text) : parts[0]!.text;
+  // A notice among messages is one line under its sender, never its body.
   return parts
     .map(({ sender, text, notice }) =>
-      notice ? `**${sender}**\n${noticeRowText(notice, text)}` : `**${sender}**\n${text}`,
+      notice
+        ? sender
+          ? `**${sender}** · ${escapeTitle(notice.title)}`
+          : escapeTitle(notice.title)
+        : `**${sender}**\n${text}`,
     )
     .join("\n\n");
+}
+
+/// A notice as one Markdown list line: its title, which names what finished and how it ended,
+/// then its own links, so no notice's links push out another's.
+function noticeLine(notice: AgentNotice): string {
+  const links = notice.links.map((link) => `[${escapeTitle(link.label ?? link.url)}](${link.url})`).join(", ");
+  return `- ${escapeTitle(notice.title)}${links ? ` · ${links}` : ""}`;
 }
 
 const SEVERITY_RANK: Record<AgentNotice["severity"], number> = { info: 0, warn: 1, fire: 2 };
@@ -996,6 +1069,22 @@ const escapeTitle = (title: string) => title.replace(/[\\`*_[\]<>]/g, "\\$&");
 const DIGEST_LEAD =
   /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;
 const DIGEST_PART = /^\[agent message \d+ of \d+\] from ([^\n]+)$/gm;
+
+/// acpmux's inbox notice as the agent reads it (hub/inbox.rs `render`): `[inbox] New messages from
+/// other agents …`.
+const INBOX_RELAY = /^\[inbox\][ \t]+(New messages from other agents\b[\s\S]*)$/;
+
+/// acpmux's inbox notice in a Claude session's history, as an info notice from `inbox`: its first
+/// line the title, the rest the body; undefined for any other text.
+function historyInbox(text: string): { notice: AgentNotice; body: string } | undefined {
+  const inbox = INBOX_RELAY.exec(text);
+  if (!inbox) return undefined;
+  const words = inbox[1]!.trim();
+  const first = words.split("\n", 1)[0]!.trim();
+  const title = first.length <= 200 ? first.replace(/\.$/, "") : `${first.slice(0, 199).trimEnd()}…`;
+  const body = first.length <= 200 ? words.slice(first.length).trim() : words;
+  return { notice: { sender: "inbox", severity: "info", title, links: [] }, body };
+}
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
