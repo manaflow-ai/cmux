@@ -57,6 +57,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// awaited: the App reads whether its machine still holds the owner's model credential and sends
     /// it again when that machine's acpmux lost it (`CloudAgentCredentials.reattach`).
     public typealias Attached = @Sendable () async -> Void
+    /// The ``Attached`` of a chat on tab `surface`: `check` for that surface; nil without one.
+    public static func attached(_ check: (@Sendable (_ surface: UInt64) async -> Void)?, surface: UInt64) -> Attached? {
+        guard let check else { return nil }
+        return { await check(surface) }
+    }
     /// A one-shot Cloud repository request on the tab's owning daemon connection.
     public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
     public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
