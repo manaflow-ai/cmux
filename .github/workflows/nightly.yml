@@ -3453,6 +3453,8 @@ jobs:
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         id: signing-inputs-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash -e scripts/ci/nightly-steps/prepare-download-signing-inputs.sh
@@ -4057,6 +4059,8 @@ jobs:
       - name: Download prepared app (parallel)
         id: prepared-app-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4851,6 +4855,8 @@ jobs:
         id: signed-app-parallel
         if: inputs.nightly_next_sign_stage != ''
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5895,6 +5901,8 @@ jobs:
       - name: Download nightly variant artifacts (parallel)
         id: variants-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           VARIANT_PATTERN: ${{ steps.source.outputs.variant_pattern }}
@@ -6561,6 +6569,8 @@ jobs:
       - name: Download the published build's dSYMs from the run that compiled it (parallel)
         id: dsyms-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
@@ -6678,6 +6688,8 @@ jobs:
       - name: Download published variant (parallel)
         id: variant-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
@@ -6829,6 +6841,8 @@ jobs:
       - name: Download published variant (parallel)
         id: variant-parallel
         continue-on-error: true
+        # Its own bound: a range that trickles under the stall bound must not outlast the job and skip the fallback.
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}

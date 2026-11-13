@@ -107,6 +107,16 @@ class ModeTests(unittest.TestCase):
             download.main()
             self.assertTrue((Path(out) / "nightly-next-dsyms-abc/cmux.app.dSYM/Contents/Info.plist").is_file())
 
+    def test_every_ranged_download_with_a_fallback_has_its_own_step_timeout(self) -> None:
+        # A range that trickles under the stall bound could hold the step past the job's timeout; the job is then
+        # cancelled and the download-artifact fallback (no always()) never runs (Codex review of #42332).
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        unbounded = [f"{job}: {step.get('name')}" for job, spec in jobs.items() for step in spec.get("steps") or []
+                     if str(step.get("name", "")).startswith("Download") and "(parallel" in str(step.get("name", ""))
+                     and step.get("continue-on-error") and not step.get("timeout-minutes")]
+        self.assertEqual(unbounded, [])
+
 
 if __name__ == "__main__":
     unittest.main()
