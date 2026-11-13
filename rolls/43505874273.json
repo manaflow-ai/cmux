@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43505874273",
+  "recorded_at": "2026-11-13T21:03:56Z",
+  "reason": "cmux-tui d4b46451332c changes the image's cmux-tui (pinned 048243858780)",
+  "dry_run": false,
+  "cmux_tui": "d4b46451332c40ea72de0459ef28f018d84cf045",
+  "fixes": [
+    {
+      "sha": "d4b46451332c40ea72de0459ef28f018d84cf045",
+      "mergedAt": "2026-11-13T12:26:14-08:00",
+      "subject": "Browser import step A: Rust readers and the browser_import.read op (#42635)"
+    },
+    {
+      "sha": "d526730cf9adcb2ea94bc1bc751e5e66d1e5469f",
+      "mergedAt": "2026-11-13T20:19:35Z",
+      "subject": "cmux chat send --help shows the session form; --on cloud's help says it is --on vm today (#40222)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T21:03:56Z",
+    "snapshot_id": "sh-b5675fb15ce74677ad0cae43dd7b7e6c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43505874273): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "566b9efeeffa9c89175f46053c34f8fa8e8e4c11",
+    "image": "cloud-native-auto-d4b46451-43505874273-1",
+    "revision": "ci-43505874273-1",
+    "at": "2026-11-13T21:03:56Z"
+  },
+  "rolled_back": false
+}
