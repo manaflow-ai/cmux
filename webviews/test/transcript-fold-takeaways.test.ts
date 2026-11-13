@@ -204,6 +204,11 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("l", "Let me check. The cache is stale."))).toBe(true);
   expect(isTakeaway(say("m", "Small is slower because startup dominates."))).toBe(true);
   expect(isTakeaway(say("n", "lane | time\n--- | ---\nsmall | 14s"))).toBe(true);
+  expect(isTakeaway(say("o", "Running two tasks is faster than one."))).toBe(true);
+  expect(isTakeaway(say("p", "Reading from cache is faster than disk."))).toBe(true);
+  expect(isTakeaway(say("q", "Let me check the logs; the cache is stale."))).toBe(true);
+  expect(isTakeaway(say("r", "Both audits are running."))).toBe(false);
+  expect(isTakeaway(say("s", "Running the tests."))).toBe(false);
 });
 
 test("Find opens the right fold past a prompt that failed to send mid-turn", () => {

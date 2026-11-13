@@ -41,6 +41,8 @@ Used for the cmux-next agent pane and Home Chief chat ("Worked for" fold in
   three lines, and prose that is not recognizable short work narration. Only up to two short
   narration sentences ("Let me check…", "Running the tests.") fold. The same classifier feeds
   live runs and completed turns, including cold transcript reloads.
+- An action word at the start is insufficient: assertion or extra clauses such as "Running two
+  tasks is faster than one" and "Let me check; the cache is stale" remain visible.
 - Detector: `webviews/test/answer-before-tool-replay.test.ts` exercises answer → tool → receipt
   through the direct client while live, completed, opened, and reloaded. The
   `agent-pane.substantive-answer-fold` gallery covers the table, work narration, and answer-only states.

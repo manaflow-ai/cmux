@@ -52,6 +52,14 @@ const cases = [
     name: "short",
     answer: "Small is slower because startup dominates.",
   },
+  {
+    name: "gerund finding",
+    answer: "Running two tasks is faster than one.",
+  },
+  {
+    name: "narration with finding",
+    answer: "Let me check the logs; the cache is stale.",
+  },
 ] as const;
 
 function eventsFor(answer: string, ended: boolean): EventRecord[] {

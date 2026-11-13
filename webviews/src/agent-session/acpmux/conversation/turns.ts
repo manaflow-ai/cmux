@@ -2813,11 +2813,21 @@ function isWorkNarration(text: string): boolean {
   return (
     sentences.length > 0 &&
     sentences.length <= 2 &&
-    sentences.every((part) =>
-      /^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)\b|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting)\b|(?:both|the|all) .+\b(?:still running|still pending|are running|are pending)\b)[^|]*$/i.test(
-        part.trim(),
-      ),
-    )
+    sentences.every((part) => {
+      const note = part.trim();
+      if (/^(?:both|the|all) [^,;:|]+\b(?:still running|still pending|are running|are pending)$/i.test(note))
+        return true;
+      const action =
+        /^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting))\b/i.exec(
+          note,
+        );
+      if (!action) return false;
+      // An action prefix alone does not make a progress note: "Running two tasks is faster"
+      // and "Let me check; the cache is stale" contain answers. Ambiguous clauses stay visible.
+      return !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?)\b/i.test(
+        note.slice(action[0].length),
+      );
+    })
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the
