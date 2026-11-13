@@ -44,12 +44,6 @@ fn v1_corpus() -> Vec<String> {
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n > 0 && n.is_multiple_of(1000) {
-        return format!(
-            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"blob\",\"content\":\"{}\"}}]}}}}\n",
-            "b".repeat(5 * 1024 * 1024)
-        );
-    }
     let line = &lines[n % lines.len()];
     if harness == Harness::V1 {
         line.replacen("\"seq\":0", &format!("\"seq\":{}", n + 1), 1)
@@ -58,9 +52,6 @@ fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
     }
 }
 fn sample_line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n > 0 && n.is_multiple_of(1000) {
-        return lines[n % lines.len()].clone();
-    }
     line_at(harness, lines, n)
 }
 fn full_state() -> State {
@@ -93,11 +84,11 @@ fn p95(samples: &mut [u128]) -> u128 {
     samples.sort_unstable();
     samples[samples.len() * 95 / 100]
 }
-fn rss() -> u64 {
+fn resident_kib(field: &str) -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
     status
         .lines()
-        .find(|l| l.starts_with("VmHWM:"))
+        .find(|l| l.starts_with(field))
         .unwrap()
         .split_whitespace()
         .nth(1)
@@ -119,13 +110,44 @@ fn measure_child() {
         Harness::Claude
     };
     let lines = corpus(harness);
+    // Both resident-size runs own and translate the same largest input. Only
+    // history length differs; constructing it per use would time the fixture's
+    // allocations and make the small side miss its peak entirely.
+    let large_result = (harness == Harness::Claude).then(|| {
+        let prefix = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":""#;
+        let suffix = "\"}]}}\n";
+        let length = 5 * 1024 * 1024;
+        let mut line = String::with_capacity(prefix.len() + length + suffix.len());
+        line.push_str(prefix);
+        line.extend(std::iter::repeat_n('b', length));
+        line.push_str(suffix);
+        line
+    });
+    let resident = |point| {
+        println!(
+            "RSS {count} {point}: VmHWM={} KiB VmRSS={} KiB",
+            resident_kib("VmHWM:"),
+            resident_kib("VmRSS:")
+        );
+    };
+    resident("before_translate");
+    let before_translate_peak = resident_kib("VmHWM:");
     let mut state = State::default();
     let mut bytes = 0usize;
     for n in 0..count {
+        // Index 2 follows tool_use (index 1) in the four-line Claude mix.
+        // The 40-line child pays once, the god child once per 1,000 lines.
+        if n % 1000 == 2
+            && let Some(line) = &large_result
+        {
+            bytes += line.len();
+            black_box(t(&mut state, harness, line.as_bytes()).unwrap());
+        }
         let line = line_at(harness, &lines, n);
         bytes += line.len();
         black_box(t(&mut state, harness, line.as_bytes()).unwrap());
     }
+    resident("after_history");
     assert_eq!(state.open_rows().count(), 0);
     for row in state.stored_rows() {
         assert_ne!(row.fields.get("state").map(String::as_str), Some("queued"));
@@ -170,7 +192,12 @@ fn measure_child() {
         cold_best = cold_best.min(p95(&mut cold));
         cold_all.extend(cold);
     }
-    let peak = rss();
+    resident("after_rounds");
+    let peak = resident_kib("VmHWM:");
+    assert!(
+        peak > before_translate_peak,
+        "translation must set the resident peak, not the fixture builder"
+    );
     let full = full_state_p95(harness, &lines, cursor, true);
     let queue_empty = full_state_p95(harness, &lines, cursor, false);
     println!(
@@ -224,6 +251,12 @@ fn god_vs_small() {
             assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
         }
         assert!(god[6] * 1024 < 64_000_000);
+        let rss_ratio = god[6] as f64 / small[6] as f64;
+        println!(
+            "peak RSS: small={} KiB god={} KiB ratio={rss_ratio:.3} gate=1.2",
+            small[6], god[6]
+        );
+        assert!(rss_ratio <= 1.2, "peak RSS: {rss_ratio} exceeds 1.2");
         assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
         if harness == "claude"
             && let Ok(path) = std::env::var("V2_GATE_OUT")
