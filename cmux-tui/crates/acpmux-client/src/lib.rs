@@ -1221,6 +1221,8 @@ tail"#;
     #[test]
     fn folder_subscription_strips_resume_fields_and_uses_head_anchor() {
         let mut client = Client::<Value>::connected_v2();
+        let hello_request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        assert!(matches!(hello_request.decode_json::<Request>().unwrap(), Request::Hello(_)));
         let hello = Frame::json(
             FrameKind::Hello,
             &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
@@ -1243,6 +1245,8 @@ tail"#;
     #[test]
     fn folders_reconnect_and_drop_start_fresh_and_discard_old_pages() {
         let mut client = Client::<Value>::connected_v2();
+        let hello_request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        assert!(matches!(hello_request.decode_json::<Request>().unwrap(), Request::Hello(_)));
         let hello = Frame::json(
             FrameKind::Hello,
             &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
