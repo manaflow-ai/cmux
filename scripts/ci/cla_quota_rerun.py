@@ -21,6 +21,8 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
 3. The open pull requests into main and feat-cmux-next (a page or a few), so a run counts
    only at the head its pull request still has. Fork pull requests are matched by head
    SHA: GitHub lists no pull request on a fork's run.
+   A run already re-run that failed again waits its backoff first (`due`, BACKOFF_FIRST doubling
+   to BACKOFF_MAX): the free read above can miss the budget CLA Assistant is refused on.
 4. Only each head's newest run counts. A CLA Assistant run is re-run when its failed
    job's log says the API rate limit was exceeded. A CLA policy guard run reports every
    error, a spent budget included, as "rejected the proposed policy" (validate-cla-policy.rb
@@ -101,6 +103,15 @@ WAIT_FOR_RESET = dt.timedelta(minutes=40)
 RESET_GRACE = dt.timedelta(seconds=20)
 MAX_AGE = dt.timedelta(hours=24)
 MAX_ATTEMPT = 20
+# A run this janitor re-ran that failed again waits BACKOFF_FIRST, doubling each attempt up to
+# BACKOFF_MAX, from its last attempt's end before the next re-run. The workflow token's free
+# rate_limit read does not always see the budget CLA Assistant is refused on (2026-11-13: 4133 of
+# 5000 left while every attempt of #42487's run failed "for installation"), and each failed
+# re-run starts a pass, so without a wait the attempts ran out in 8 minutes, before the reset.
+# Twenty attempts now span about seven hours, several resets. The 10-minute cron re-runs a
+# run once it is due.
+BACKOFF_FIRST = dt.timedelta(minutes=1)
+BACKOFF_MAX = dt.timedelta(minutes=30)
 MAX_GUARD_ATTEMPT = 8
 MAX_LOG_READS = 12  # CLA Assistant logs per sweep
 MAX_GUARD_READS = 12  # CLA policy guard logs, and CLA Assistant logs read as their evidence
@@ -293,6 +304,16 @@ def workflow_runs(gh: GitHub, workflow: str) -> list[dict[str, Any]]:
     return gh.request("GET", f"/repos/{gh.repo}/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
 
 
+def due(run: dict[str, Any], now: dt.datetime) -> bool:
+    """A first attempt is due at once; a re-run that failed again, after its backoff."""
+    attempt = int(run.get("run_attempt") or 1)
+    if attempt <= 1:
+        return True
+    wait = min(BACKOFF_FIRST * 2 ** min(attempt - 2, 16), BACKOFF_MAX)
+    finished = when(run.get("updated_at"))
+    return finished is None or now - finished >= wait
+
+
 def latest_failures(runs: list[dict[str, Any]], heads: dict[str, set[int]], now: dt.datetime) -> list[dict[str, Any]]:
     """Each pull request head's newest run, when that run failed at the head an open pull
     request into BASES still has. An older failure whose head was re-run since (passed,
@@ -304,7 +325,8 @@ def latest_failures(runs: list[dict[str, Any]], heads: dict[str, set[int]], now:
             newest[head] = run
     return [run | {"number": pull_number(run, heads)} for run in newest.values()
             if run.get("status") == "completed" and run.get("conclusion") == "failure"
-            and recent(run, now) and pull_number(run, heads) is not None and int(run.get("run_attempt") or 1) < MAX_ATTEMPT]
+            and recent(run, now) and pull_number(run, heads) is not None and int(run.get("run_attempt") or 1) < MAX_ATTEMPT
+            and due(run, now)]
 
 
 def failed_job(gh: GitHub, run: dict[str, Any]) -> tuple[str, dt.datetime | None]:
