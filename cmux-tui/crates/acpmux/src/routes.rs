@@ -155,6 +155,10 @@ pub enum RouteKind {
     /// and refreshes in `<acpmux home>/chatgpt/<id>.json`. Served only through the inference
     /// gateway (`_acpmux/connections/chatgpt.token`); a local spawn never runs on it.
     ChatgptPlan,
+    /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
+    /// (`_acpmux/connections/claude_token.add`). Delivered to a Cloud machine's agent as
+    /// `CLAUDE_CODE_OAUTH_TOKEN` (`_acpmux/connections/credential`); a local spawn never runs on it.
+    ClaudeToken,
 }
 
 impl RouteKind {
@@ -168,6 +172,7 @@ impl RouteKind {
         Self::CustomAnthropic,
         Self::CustomOpenai,
         Self::ChatgptPlan,
+        Self::ClaudeToken,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -181,6 +186,7 @@ impl RouteKind {
             Self::CustomAnthropic => "custom-anthropic",
             Self::CustomOpenai => "custom-openai",
             Self::ChatgptPlan => "chatgpt-plan",
+            Self::ClaudeToken => "claude-token",
         }
     }
 
@@ -196,7 +202,7 @@ impl RouteKind {
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
-            Self::DirectSubscription | Self::ChatgptPlan => Auth::Subscription,
+            Self::DirectSubscription | Self::ChatgptPlan | Self::ClaudeToken => Auth::Subscription,
             Self::DirectApiKey => Auth::ApiKey,
             Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
@@ -340,6 +346,7 @@ impl Route {
         match self.file.kind {
             RouteKind::DirectSubscription | RouteKind::DirectApiKey => true,
             RouteKind::ChatgptPlan => !is_anthropic_family(family),
+            RouteKind::ClaudeToken => is_anthropic_family(family),
             _ => {
                 if is_anthropic_family(family) {
                     self.file.anthropic_base_url.is_some() || self.file.kind.relayed()
@@ -566,6 +573,13 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         return Err(RouteError::BadParams(
             "a chatgpt-plan route holds no secret or header: its tokens are the daemon's own"
                 .into(),
+        ));
+    }
+    if file.kind == RouteKind::ClaudeToken
+        && (file.secret.is_none() || file.families.as_slice() != ["claude"])
+    {
+        return Err(RouteError::BadParams(
+            "a claude-token route serves claude and needs secret (keychain:ITEM)".into(),
         ));
     }
     crate::route_account::validate(file)
@@ -1009,9 +1023,9 @@ pub fn local_router_with(
 
 /// The env a route gives a spawn of `family`.
 pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, RouteError> {
-    if route.file.kind == RouteKind::ChatgptPlan {
+    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
         return Err(RouteError::Unavailable(format!(
-            "route {} is a ChatGPT plan sign-in: it serves Cloud threads through the inference gateway, not a chat on this Mac",
+            "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
             route.id
         )));
     }

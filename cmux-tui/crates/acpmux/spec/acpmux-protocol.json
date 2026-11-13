@@ -1931,6 +1931,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/claude_token.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/credential",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/web_modes",
       "params": true,
       "result": true

@@ -224,3 +224,10 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   once one is added. Without a credential the machine falls back to today's coderouter path.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
+
+Lane A, Revision 2 as implemented: `claude_token.add` makes route `claude-token[-N]` (route kind
+`claude-token`, secret reference only; an inline value is `route.secret_inline`). `serves_cloud` is
+true for `chatgpt-plan`, `claude-token` and `api-key` with provider anthropic or openai, else false.
+`credential` errors carry `data.reason` `connections.not_cloud`, `connections.secret_unresolved`,
+`connections.no_secret` or `chatgpt.<code>`; a `claude-token` or `chatgpt-plan` route never runs a
+chat on this Mac and cannot be a `route/default.set` default.

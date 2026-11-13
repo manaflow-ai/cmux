@@ -40,6 +40,8 @@ pub const SCOPES: &str =
 pub const RESOURCE: &str = "https://api.openai.com/v1";
 /// How long an access token must still be good for `token` to hand it out unrefreshed.
 pub const REFRESH_MARGIN_SECS: i64 = 300;
+/// How long a token `_acpmux/connections/credential` hands a Cloud machine must still be good for.
+pub const CREDENTIAL_MARGIN_SECS: i64 = 600;
 /// How long a sign-in waits for its callback.
 const ATTEMPT_TTL: Duration = Duration::from_secs(15 * 60);
 /// How long a finished attempt stays readable by `wait`.
@@ -254,6 +256,17 @@ impl Service {
     /// when needed. One refresh per account at a time: concurrent callers wait for it and
     /// read its result.
     pub async fn token(&self, home: &Path, id: &str) -> Result<(String, i64), Failure> {
+        self.token_lasting(home, id, REFRESH_MARGIN_SECS).await
+    }
+
+    /// `token`, good for at least `margin` seconds (a machine launch asks for
+    /// [`CREDENTIAL_MARGIN_SECS`]).
+    pub async fn token_lasting(
+        &self,
+        home: &Path,
+        id: &str,
+        margin: i64,
+    ) -> Result<(String, i64), Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
         let mut record = store::read(home, id)
@@ -262,7 +275,7 @@ impl Service {
         if !record.signed_in() {
             return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
         }
-        if !record.access_token.is_empty() && record.expires_at - now_unix() > REFRESH_MARGIN_SECS {
+        if !record.access_token.is_empty() && record.expires_at - now_unix() > margin {
             return Ok((record.access_token, record.expires_at));
         }
         match self.oauth.refresh(&record).await {

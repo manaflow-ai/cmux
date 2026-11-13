@@ -698,6 +698,9 @@ pub mod method {
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
+    pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
     /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
     pub const MUX_CONNECTIONS_CHANGED: &str = "_acpmux/connections.changed";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
