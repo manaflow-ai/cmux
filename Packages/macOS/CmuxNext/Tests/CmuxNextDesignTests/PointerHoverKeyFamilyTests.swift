@@ -222,7 +222,8 @@ import Testing
         PointerHover.setDebugPointer(NSPoint(x: 50, y: 20), in: window)
         #expect(hover.isHovering)
         Self.key(leaves: nil, goesTo: window)
-        #expect(try #require(PointerHover.keyObserver).knownHome(of: page) == nil)
+        let observer = try #require(PointerHover.keyObserver)
+        #expect(observer.knownHome(of: page) == nil)
 
         hoverable = false
         Self.key(leaves: window, goesTo: page)
