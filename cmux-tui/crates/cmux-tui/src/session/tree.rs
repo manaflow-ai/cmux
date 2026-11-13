@@ -605,14 +605,16 @@ impl PaneView {
     }
 }
 
-/// `attention`: the attention marks of live tabs by public tab id, as the
-/// mux's presentation snapshot holds them (`tab-attention-v1`).
+/// `presentation`: the mux's presentation snapshot. It holds the attention
+/// marks of live tabs by public tab id (`tab-attention-v1`) and the rule for
+/// what a tab shows of its title.
 pub fn tree_from_state_with_notifications(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
-    attention: &HashMap<String, cmux_tui_core::TabAttentionRecord>,
+    presentation: &cmux_tui_core::PresentationSnapshot,
     git_branches: &HashMap<SurfaceId, String>,
 ) -> TreeView {
+    let attention = &presentation.tab_attention;
     let ids = state
         .workspaces
         .iter()
@@ -662,7 +664,7 @@ pub fn tree_from_state_with_notifications(
                     title: state
                         .surfaces
                         .get(sid)
-                        .map(|s| s.shown_title().text.to_string())
+                        .map(|s| presentation.shown_title(s).text.to_string())
                         .unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                     browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
@@ -748,6 +750,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                divider_hidden: false,
                 id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,

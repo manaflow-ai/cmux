@@ -138,7 +138,8 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
  *   project(request)     view's request -> {sections, machines, items, machine_sections, machine_order,
- *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group}
+ *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group,
+ *                        group_row_limits?, group_revealed?}
  *                        (the rows regrouped as the list draws them; its rows are the last view's)
  *   plan(request)        {plan:"subgroup", parent, id, name, color?} | {plan:"host_group", session, on?, title?}
  *                        -> {"ok":true,"ops":[op]} | {"refusal":"unknown_group"|"too_deep"}
@@ -531,6 +532,179 @@ uint32_t cmux_close_focus_workspace(uint32_t shown, const uint32_t *old, size_t 
 /* writes the live opener of order[i] (Chrome's FixOpeners) to parent_out[i], CMUX_FOCUS_NONE for none; 0 ok */
 int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *parents, size_t count,
                                       const uint32_t *order, size_t order_count, uint32_t *parent_out);
+
+/*
+ * The one close-selection rule (cmux-focus-core close_selection): the opener
+ * relations of tabs or of workspaces and the item selected after a close.
+ * One handle holds the relations of every strip of one kind (every pane's
+ * tabs, or every window's workspaces); each call names its strip by its
+ * items. Ids are the caller's own uint32_t numbering, stable for the
+ * handle's life; CMUX_FOCUS_NONE is none. A handle is used by one thread; a
+ * null handle is no relation. A null array with a nonzero count changes
+ * nothing (a pick: CMUX_FOCUS_NONE; the slot: `opener`). An item that is
+ * CMUX_FOCUS_NONE changes nothing.
+ */
+typedef struct CmuxCloseSelection CmuxCloseSelection;
+enum {
+    CMUX_CLOSE_SELECTION_QUICK = 0, /* a person's new item: forgotten when the selection leaves it */
+    CMUX_CLOSE_SELECTION_TASK = 1,  /* a link's or a tab action's new tab */
+};
+CmuxCloseSelection *cmux_close_selection_new(void);
+void cmux_close_selection_free(CmuxCloseSelection *handle);
+/* `item` was made while `opener` was the strip's selected item; foreground: the new item is selected */
+void cmux_close_selection_made(CmuxCloseSelection *handle, uint32_t item, uint32_t opener, uint8_t kind, uint8_t foreground,
+                               const uint32_t *strip, size_t strip_count);
+/* the strip's selection moved; gesture: a person chose it (not a close's own selection, not automation) */
+void cmux_close_selection_selected(CmuxCloseSelection *handle, uint32_t old, uint32_t new_item, uint8_t gesture,
+                                   const uint32_t *strip, size_t strip_count);
+/* a typed navigation (not a link click) in `tab` */
+void cmux_close_selection_typed_navigation(CmuxCloseSelection *handle, uint32_t tab, const uint32_t *strip, size_t strip_count);
+/* any other navigation committed in `tab`: its next typed navigation is not a just-made tab's first */
+void cmux_close_selection_navigated(CmuxCloseSelection *handle, uint32_t tab);
+/* `item` left its strip (closed or moved); after the pick for a close, for every item that closes */
+void cmux_close_selection_left(CmuxCloseSelection *handle, uint32_t item);
+void cmux_close_selection_forget_all(CmuxCloseSelection *handle, const uint32_t *strip, size_t strip_count);
+/* nonzero while a relation is held, in any strip; while zero, cmux_close_selection_selected changes nothing */
+uint8_t cmux_close_selection_has_relations(CmuxCloseSelection *handle);
+uint32_t cmux_close_selection_opener(CmuxCloseSelection *handle, uint32_t item);
+/* the tab selected after `selected` closed: a child, a sibling, the opener, the group's neighbor, the next shown tab, else the previous */
+uint32_t cmux_close_selection_tab(CmuxCloseSelection *handle, uint32_t selected, const uint32_t *old, size_t old_count,
+                                  const uint32_t *surviving, size_t surviving_count,
+                                  const uint32_t *shown, size_t shown_count,
+                                  const uint32_t *group_tabs, const uint32_t *group_ids, size_t group_count);
+/* the workspace shown after `shown` left, by the same ranks over the sidebar's row orders (order i holds order_lengths[i] ids) */
+uint32_t cmux_close_selection_workspace(CmuxCloseSelection *handle, uint32_t shown, const uint32_t *old, size_t old_count,
+                                        const uint32_t *surviving, size_t surviving_count,
+                                        const uint32_t *orders, const uint32_t *order_lengths, size_t order_count,
+                                        const uint32_t *group_rows, const uint32_t *group_ids, size_t group_count);
+/* the item a background child of `opener` goes after */
+uint32_t cmux_close_selection_slot(CmuxCloseSelection *handle, uint32_t opener, const uint32_t *order, size_t order_count,
+                                   const uint32_t *pinned, size_t pinned_count);
+
+/*
+ * The close-selection state of every window's workspaces (cmux-focus-core
+ * close_selection::windows::WindowCloseSelection): the creates a window
+ * waits for, the window of each workspace with an opener relation, the
+ * selection repairs that run, and the opener relations. Rust holds the state
+ * and takes every decision; the caller reports facts and applies the pick.
+ * One handle for the app, used by one thread. Workspace ids and window ids
+ * are the caller's own uint32_t numberings (two separate ones), stable while
+ * cmux_window_close_selection_holds_ids is nonzero; CMUX_FOCUS_NONE is none
+ * and 0 is an id like any other. A null handle holds nothing: every pick is
+ * by position. A null array with a nonzero count, a null struct, or a
+ * workspace or window that is CMUX_FOCUS_NONE where one is needed changes
+ * nothing (a pick: CMUX_FOCUS_NONE).
+ *
+ * Cost: while cmux_window_close_selection_holds_ids is zero, every call is
+ * O(1), allocates nothing and reads no array, except the pick, which is the
+ * positional rule over its arrays. With relations held, a call reads the
+ * workspaces of those relations only, never a window's members (the pick
+ * reads the arrays it is given).
+ */
+typedef struct CmuxWindowCloseSelection CmuxWindowCloseSelection;
+enum {
+    CMUX_WINDOW_CLOSE_RELATION_NONE = 0,  /* the create starts no relation */
+    CMUX_WINDOW_CLOSE_RELATION_QUICK = 1, /* the quick look-up: ends when the window's selection leaves the new workspace */
+    CMUX_WINDOW_CLOSE_RELATION_TASK = 2,  /* lasts as a link tab's: until the person selects an unrelated workspace */
+};
+/* One close: `shown` left the window. `previous`: its members before; `members`: its members now; `order_count` row
+ * orders before the close, most preferred first (the rows as drawn, then the model's), flattened into `orders`
+ * (order i holds order_lengths[i] ids). */
+typedef struct {
+    uint32_t shown;
+    const uint32_t *previous;
+    size_t previous_count;
+    const uint32_t *members;
+    size_t member_count;
+    const uint32_t *orders;
+    const uint32_t *order_lengths;
+    size_t order_count;
+} CmuxWindowClosePick;
+/* One selection repair: the window showed `shown` (CMUX_FOCUS_NONE: nothing) and will show `pick`. `gesture`
+ * nonzero: the caller says a person asked, in this turn, for the selection of a `preferred` workspace. `pressed`
+ * nonzero: the repair runs at the press of a close that hid rows and that can still be cancelled or refused (the
+ * app's InstantClose); zero for a daemon delta, a move, a room change and every other repair. `members`: the
+ * window's members now; `preferred`: the workspaces just moved in. */
+typedef struct {
+    uint32_t shown;
+    uint32_t pick;
+    uint8_t gesture;
+    uint8_t pressed;
+    const uint32_t *members;
+    size_t member_count;
+    const uint32_t *preferred;
+    size_t preferred_count;
+} CmuxWindowCloseRepair;
+/* The answers to cmux_window_close_selection_settle_questions for `window`: workspaces[i] is listed now by window
+ * owners[i] (CMUX_FOCUS_NONE: by none) and claimed[i] is nonzero when it is a create its window waits for;
+ * windows[j] is registered when exists[j] is nonzero. A question with no answer reads as: listed by none, not
+ * claimed, not registered. */
+typedef struct {
+    uint32_t window;
+    const uint32_t *workspaces;
+    const uint32_t *owners;
+    const uint8_t *claimed;
+    size_t workspace_count;
+    const uint32_t *windows;
+    const uint8_t *exists;
+    size_t window_count;
+} CmuxWindowCloseSettle;
+/* the relation a create into a window starts (no handle): CMUX_WINDOW_CLOSE_RELATION_NONE unless the create opens
+ * the New Tab page in a run that is the person's action and may change the view; then TASK when the placement
+ * setting puts the row after the current one, else QUICK. Each fact: nonzero is true. */
+uint8_t cmux_window_close_selection_relation(uint8_t opens_new_tab_page, uint8_t persons_action, uint8_t may_change_view,
+                                             uint8_t after_current);
+CmuxWindowCloseSelection *cmux_window_close_selection_new(void);
+void cmux_window_close_selection_free(CmuxWindowCloseSelection *handle);
+/* nonzero while no opener relation is held (also for a null handle): every pick is by position */
+uint8_t cmux_window_close_selection_is_empty(CmuxWindowCloseSelection *handle);
+/* nonzero while the handle holds any workspace or window id (a create it waits for, a relation, a repair that
+ * runs). While zero: cmux_window_close_selection_shown, _left, _renamed and _settle change nothing and may be left
+ * out, and the caller may forget its numbering. Read it after a call, never inside a repair. */
+uint8_t cmux_window_close_selection_holds_ids(CmuxWindowCloseSelection *handle);
+/* a create of `workspace` into `window` starts `relation` (the result of cmux_window_close_selection_relation; NONE
+ * changes nothing). Call it before the window can show the workspace: it gets its opener when the window shows it. */
+void cmux_window_close_selection_expect(CmuxWindowCloseSelection *handle, uint32_t workspace, uint32_t window, uint8_t relation);
+/* `window` now shows `new_workspace`; it showed `old` (CMUX_FOCUS_NONE: nothing) before. gesture: the code running
+ * at the change is a person's own action (not the CLI, the socket, MCP or a script). Report every selection change
+ * of a window. A change inside a repair is never a gesture, whatever `gesture` says. */
+void cmux_window_close_selection_shown(CmuxWindowCloseSelection *handle, uint32_t new_workspace, uint32_t old, uint32_t window,
+                                       uint8_t gesture);
+/* `workspace` closed or left its window; after the pick for the close */
+void cmux_window_close_selection_left(CmuxWindowCloseSelection *handle, uint32_t workspace);
+/* window `old_window` took the identity `new_window`: its creates and relations follow it */
+void cmux_window_close_selection_renamed(CmuxWindowCloseSelection *handle, uint32_t old_window, uint32_t new_window);
+/* the selection that needs no pick (no handle): the first of `preferred` that is a member, else `current` when it
+ * is a member, else CMUX_FOCUS_NONE: then build the row orders and call cmux_window_close_selection_pick */
+uint32_t cmux_window_close_selection_kept(uint32_t current, const uint32_t *members, size_t member_count,
+                                          const uint32_t *preferred, size_t preferred_count);
+/* the workspace the window shows after close->shown left it: a workspace it opened, one its opener opened, its
+ * opener (also one that is a member and that no order lists), else the next row below as drawn, the row above only
+ * for the last row; `previous` is read as the last order. A close of several workspaces in one gesture (a
+ * multi-selection, Close Others, a group close) is this same call: `members` holds the survivors, so an opener that
+ * closes with it is no candidate. There is no batch flag. A `shown` that is a member stays; CMUX_FOCUS_NONE when
+ * no member is left. Call it before cmux_window_close_selection_left for the closed workspaces. */
+uint32_t cmux_window_close_selection_pick(CmuxWindowCloseSelection *handle, const CmuxWindowClosePick *close);
+/* a selection repair starts: call it when repair->pick differs from repair->shown, select the pick (the window
+ * reports it through cmux_window_close_selection_shown), then call cmux_window_close_selection_repair_end. The
+ * selection is the close's, not a person's, unless `gesture` is set and `pick` is one of `preferred`. With
+ * `pressed` set, a `shown` that is not in `members` (the press hid its row) keeps a QUICK relation through this
+ * repair: the committed close (cmux_window_close_selection_left, or the settle) ends it, and so does the window's
+ * next selection of any workspace but `shown`; a cancelled close shows the row again with its opener. Without
+ * `pressed`, a QUICK relation ends when the selection leaves its workspace. Repairs may nest. A null `repair` or a
+ * null array still starts a repair (with no member and no preferred workspace), so each begin has its end. */
+void cmux_window_close_selection_repair_begin(CmuxWindowCloseSelection *handle, const CmuxWindowCloseRepair *repair);
+void cmux_window_close_selection_repair_end(CmuxWindowCloseSelection *handle);
+/* after the repair of `window`: the facts Rust needs to end the creates and relations of workspaces that closed,
+ * moved, or whose window is gone. Writes up to `capacity` workspace ids to `workspaces` and up to `capacity` window
+ * ids to `windows`, the number of window ids to *window_count, and returns the number of workspace ids. Both zero
+ * (always, while nothing is held: O(1), no allocation, no walk of members): the settle is done, make no second
+ * call. A number above `capacity`: call again with larger arrays. Else answer with cmux_window_close_selection_settle. */
+size_t cmux_window_close_selection_settle_questions(CmuxWindowCloseSelection *handle, uint32_t window, uint32_t *workspaces,
+                                                    uint32_t *windows, size_t capacity, size_t *window_count);
+/* ends what the answers say is gone: a workspace of `window` that no window lists (and that is no waiting create)
+ * or that another window lists, and every workspace of a window that is not registered */
+void cmux_window_close_selection_settle(CmuxWindowCloseSelection *handle, const CmuxWindowCloseSettle *answers);
 
 /*
  * Agent cursor visibility (cmux-focus-core agent_cursor_visibility), typed:
@@ -1121,5 +1295,50 @@ int32_t cmux_shown_resize_dock_width(const CmuxShownResizeDock *docks, size_t co
 int32_t cmux_shown_resize_trade(const CmuxShownResizeTrade *input, CmuxShownResizeTradeAnswer *out);
 /* writes every row's height (out_count == input->count) */
 int32_t cmux_shown_resize_row_heights(const CmuxShownResizeRows *input, int64_t *out, size_t out_count);
+
+/* Per-project caps and the "Needs you" section (cmux_layout_reducer::sidebar_caps, Leo 2026-11-10).
+ * flags: PINNED 1, WAITING 2 (yellow), UNREAD 4 (blue), RUNNING 8, KEEP 16 (selected, renamed, dragged).
+ * A project passes its member count and only its active members, ascending by index. */
+enum {
+    CMUX_SIDEBAR_ACTIVE_PINNED = 1,
+    CMUX_SIDEBAR_ACTIVE_WAITING = 2,
+    CMUX_SIDEBAR_ACTIVE_UNREAD = 4,
+    CMUX_SIDEBAR_ACTIVE_RUNNING = 8,
+    CMUX_SIDEBAR_ACTIVE_KEEP = 16,
+    CMUX_SIDEBAR_TAIL_NONE = 0,
+    CMUX_SIDEBAR_TAIL_SHOW_MORE = 1,
+    CMUX_SIDEBAR_TAIL_SHOW_LESS = 2,
+};
+
+typedef struct CmuxSidebarActive {
+    uint32_t index;
+    uint8_t flags;
+    uint8_t reserved[3];
+} CmuxSidebarActive;
+
+typedef struct CmuxSidebarCaps {
+    uint32_t cap; /* 0: All */
+    uint32_t revealed;
+    uint8_t floats;
+    uint8_t include_working;
+    uint8_t reserved[2];
+} CmuxSidebarCaps;
+
+typedef struct CmuxSidebarProjectTail {
+    uint8_t kind;
+    uint8_t reserved[3];
+    uint32_t hidden;
+    uint32_t next;
+    uint32_t floated;
+    uint32_t rows; /* written, or needed on ERR_BUFFER */
+    uint32_t revealed_after_press;
+} CmuxSidebarProjectTail;
+
+int32_t cmux_sidebar_project_rows(uint32_t count, const CmuxSidebarActive *active, size_t active_len,
+                                  const CmuxSidebarCaps *caps, uint32_t *out, size_t out_capacity,
+                                  CmuxSidebarProjectTail *tail);
+/* rows: the sidebar's active rows in drawn order; limit 0 is three */
+int32_t cmux_sidebar_needs_you(const CmuxSidebarActive *rows, size_t rows_len, uint8_t include_working, uint32_t limit,
+                               uint32_t *out, size_t out_capacity, size_t *out_len, uint32_t *more);
 
 #endif

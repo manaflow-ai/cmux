@@ -2510,265 +2510,265 @@
       }
     },
     "create.limit": {
-      "comment": "Plan limit; {used} and {limit} are numbers, {plan} is the plan name",
+      "comment": "Create sheet: machines running now of the most the plan runs at once; {used} and {limit} are numbers, {plan} is the plan name",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} من {limit} أجهزة في خطة {plan}"
+            "value": "{used} من {limit} أجهزة قيد التشغيل في خطة {plan}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} od {limit} mašina u planu {plan}"
+            "value": "{used} od {limit} mašina radi u planu {plan}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} af {limit} maskiner på {plan}-abonnementet"
+            "value": "{used} af {limit} maskiner kører på {plan}-abonnementet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} von {limit} Maschinen im Tarif {plan}"
+            "value": "{used} von {limit} Maschinen laufen im Tarif {plan}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{used} of {limit} machines on the {plan} plan"
+            "value": "{used} of {limit} machines running on the {plan} plan"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} de {limit} máquinas en el plan {plan}"
+            "value": "{used} de {limit} máquinas en ejecución en el plan {plan}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} machines sur {limit} avec le forfait {plan}"
+            "value": "{used} machines en marche sur {limit} avec le forfait {plan}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} di {limit} macchine nel piano {plan}"
+            "value": "{used} di {limit} macchine in esecuzione nel piano {plan}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{plan} プラン：{limit} 台中 {used} 台"
+            "value": "{plan} プラン：{limit} 台中 {used} 台が稼働中"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} ក្នុងចំណោម {limit} ម៉ាស៊ីន នៅលើគម្រោង {plan}"
+            "value": "ម៉ាស៊ីន {used} ក្នុងចំណោម {limit} កំពុងដំណើរការ នៅលើគម្រោង {plan}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 요금제: 머신 {limit}대 중 {used}대"
+            "value": "{plan} 요금제: 머신 {limit}대 중 {used}대 실행 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} av {limit} maskiner på {plan}-abonnementet"
+            "value": "{used} av {limit} maskiner kjører på {plan}-abonnementet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} z {limit} maszyn w planie {plan}"
+            "value": "Działa {used} z {limit} maszyn w planie {plan}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} de {limit} máquinas no plano {plan}"
+            "value": "{used} de {limit} máquinas em execução no plano {plan}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} из {limit} машин в тарифе {plan}"
+            "value": "Работает {used} из {limit} машин в тарифе {plan}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} จาก {limit} เครื่องในแพ็กเกจ {plan}"
+            "value": "กำลังทำงาน {used} จาก {limit} เครื่องในแพ็กเกจ {plan}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} planında {limit} makineden {used} tanesi"
+            "value": "{plan} planında {limit} makineden {used} tanesi çalışıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} з {limit} машин у тарифі {plan}"
+            "value": "Працює {used} з {limit} машин у тарифі {plan}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{used} trên {limit} máy trong gói {plan}"
+            "value": "{used} trên {limit} máy đang chạy trong gói {plan}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 套餐：已用 {used} 台，共 {limit} 台"
+            "value": "{plan} 套餐：{limit} 台中有 {used} 台在运行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 方案：已用 {used} 台，共 {limit} 台"
+            "value": "{plan} 方案：{limit} 台中有 {used} 台執行中"
           }
         }
       }
     },
     "create.limitReached": {
-      "comment": "Plan limit reached; same placeholders",
+      "comment": "Create sheet at the running-machines limit: a create still works, because cmux pauses an idle machine of the person or asks which to pause; same placeholders",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جميع أجهزة خطة {plan} البالغ عددها {limit} قيد الاستخدام ({used}). احذف جهازًا أو رقِّ الخطة."
+            "value": "جميع الأجهزة الـ{limit} التي تشغّلها خطة {plan} في وقت واحد قيد التشغيل ({used}). لإفساح المجال، يوقف cmux مؤقتًا أحد أجهزتك الخاملة أو يعرض عليك إيقاف أحدها مؤقتًا. الجهاز المتوقف مؤقتًا يحتفظ بملفاته وعملياته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svih {limit} mašina plana {plan} je u upotrebi ({used}). Izbrišite mašinu ili nadogradite plan."
+            "value": "Svih {limit} mašina koje plan {plan} pokreće istovremeno radi ({used}). Da napravi mjesta, cmux pauzira vašu neaktivnu mašinu ili nudi da pauzira jednu. Pauzirana mašina zadržava svoje datoteke i procese."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner på {plan}-abonnementet er i brug ({used}). Slet en maskine, eller opgrader abonnementet."
+            "value": "Alle {limit} maskiner, som {plan}-abonnementet kører samtidig, kører ({used}). For at gøre plads sætter cmux en af dine inaktive maskiner på pause eller tilbyder at sætte en på pause. En maskine på pause beholder sine filer og processer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} Maschinen des Tarifs {plan} sind belegt ({used}). Lösche eine Maschine oder wechsle den Tarif."
+            "value": "Alle {limit} Maschinen, die der Tarif {plan} gleichzeitig ausführt, laufen ({used}). Um Platz zu schaffen, pausiert cmux eine deiner inaktiven Maschinen oder bietet an, eine zu pausieren. Eine pausierte Maschine behält ihre Dateien und Prozesse."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All {limit} machines of the {plan} plan are in use ({used}). Delete a machine or upgrade the plan."
+            "value": "All {limit} machines the {plan} plan runs at once are running ({used}). To make room, cmux pauses an idle machine of yours or offers to pause one. A paused machine keeps its files and processes."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las {limit} máquinas del plan {plan} están en uso ({used}). Elimina una máquina o mejora el plan."
+            "value": "Las {limit} máquinas que el plan {plan} ejecuta a la vez están en ejecución ({used}). Para hacer sitio, cmux pausa una de tus máquinas inactivas o te ofrece pausar una. Una máquina en pausa conserva sus archivos y procesos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les {limit} machines du forfait {plan} sont utilisées ({used}). Supprimez une machine ou changez de forfait."
+            "value": "Les {limit} machines que le forfait {plan} fait tourner en même temps sont en marche ({used}). Pour faire de la place, cmux met en pause l’une de vos machines inactives ou vous propose d’en mettre une en pause. Une machine en pause conserve ses fichiers et ses processus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutte le {limit} macchine del piano {plan} sono in uso ({used}). Elimina una macchina o aggiorna il piano."
+            "value": "Tutte le {limit} macchine che il piano {plan} esegue contemporaneamente sono in esecuzione ({used}). Per fare spazio, cmux mette in pausa una tua macchina inattiva o ti propone di metterne una in pausa. Una macchina in pausa conserva file e processi."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "{plan} プランの {limit} 台をすべて使用中です（{used}）。マシンを削除するか、プランをアップグレードしてください。"
+            "state": "needs_review",
+            "value": "{plan} プランで同時に稼働できる {limit} 台がすべて稼働中です（{used}）。空きを作るため、cmux はアイドル状態のあなたのマシンを一時停止するか、1 台の一時停止を提案します。一時停止したマシンのファイルとプロセスは保持されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនទាំង {limit} នៃគម្រោង {plan} កំពុងប្រើ ({used})។ លុបម៉ាស៊ីនមួយ ឬដំឡើងគម្រោង។"
+            "value": "ម៉ាស៊ីនទាំង {limit} ដែលគម្រោង {plan} ដំណើរការក្នុងពេលតែមួយ កំពុងដំណើរការ ({used})។ ដើម្បីទុកកន្លែង cmux ផ្អាកម៉ាស៊ីនទំនេររបស់អ្នក ឬស្នើឱ្យផ្អាកមួយ។ ម៉ាស៊ីនដែលបានផ្អាករក្សាឯកសារ និងដំណើរការរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 요금제의 머신 {limit}대를 모두 사용 중입니다({used}). 머신을 삭제하거나 요금제를 업그레이드하세요."
+            "value": "{plan} 요금제에서 동시에 실행할 수 있는 머신 {limit}대가 모두 실행 중입니다({used}). 자리를 만들기 위해 cmux가 유휴 상태인 내 머신을 일시 정지하거나 머신 하나를 일시 정지하도록 제안합니다. 일시 정지된 머신은 파일과 프로세스를 그대로 유지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner på {plan}-abonnementet er i bruk ({used}). Slett en maskin eller oppgrader abonnementet."
+            "value": "Alle {limit} maskiner som {plan}-abonnementet kjører samtidig, kjører ({used}). For å gjøre plass setter cmux en av dine inaktive maskiner på pause eller tilbyr å sette en på pause. En maskin på pause beholder filene og prosessene sine."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszystkie {limit} maszyn planu {plan} są w użyciu ({used}). Usuń maszynę lub zmień plan na wyższy."
+            "value": "Działają wszystkie maszyny, które plan {plan} uruchamia jednocześnie: {limit} ({used}). Aby zrobić miejsce, cmux wstrzymuje Twoją bezczynną maszynę albo proponuje wstrzymanie jednej. Wstrzymana maszyna zachowuje pliki i procesy."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas as {limit} máquinas do plano {plan} estão em uso ({used}). Exclua uma máquina ou faça upgrade do plano."
+            "value": "Todas as {limit} máquinas que o plano {plan} executa ao mesmo tempo estão em execução ({used}). Para abrir espaço, o cmux pausa uma máquina sua que esteja ociosa ou oferece pausar uma. Uma máquina pausada mantém seus arquivos e processos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все {limit} машин тарифа {plan} заняты ({used}). Удалите машину или повысьте тариф."
+            "value": "Работают все машины, которые тариф {plan} запускает одновременно: {limit} ({used}). Чтобы освободить место, cmux приостановит вашу простаивающую машину или предложит приостановить одну. Приостановленная машина сохраняет файлы и процессы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้เครื่องครบทั้ง {limit} เครื่องของแพ็กเกจ {plan} แล้ว ({used}) ลบเครื่องหรืออัปเกรดแพ็กเกจ"
+            "value": "เครื่องทั้ง {limit} เครื่องที่แพ็กเกจ {plan} ทำงานพร้อมกันได้กำลังทำงานอยู่ ({used}) เพื่อให้มีที่ว่าง cmux จะหยุดเครื่องของคุณที่ไม่ได้ใช้งานไว้ชั่วคราว หรือเสนอให้หยุดเครื่องหนึ่งชั่วคราว เครื่องที่หยุดชั่วคราวยังเก็บไฟล์และโปรเซสไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} planının {limit} makinesinin tümü kullanımda ({used}). Bir makineyi silin veya planı yükseltin."
+            "value": "{plan} planının aynı anda çalıştırdığı {limit} makinenin tümü çalışıyor ({used}). Yer açmak için cmux boştaki bir makinenizi duraklatır veya birini duraklatmayı önerir. Duraklatılan makine dosyalarını ve işlemlerini korur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі {limit} машин тарифу {plan} зайняті ({used}). Видаліть машину або підвищте тариф."
+            "value": "Працюють усі машини, які тариф {plan} запускає одночасно: {limit} ({used}). Щоб звільнити місце, cmux призупинить вашу неактивну машину або запропонує призупинити одну. Призупинена машина зберігає файли та процеси."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã dùng hết {limit} máy của gói {plan} ({used}). Hãy xóa một máy hoặc nâng cấp gói."
+            "value": "Cả {limit} máy mà gói {plan} chạy cùng lúc đều đang chạy ({used}). Để lấy chỗ, cmux tạm dừng một máy đang rảnh của bạn hoặc đề nghị tạm dừng một máy. Máy tạm dừng vẫn giữ tệp và tiến trình."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 套餐的 {limit} 台机器都在使用中（{used}）。请删除一台机器或升级套餐。"
+            "value": "{plan} 套餐可同时运行的 {limit} 台机器都在运行（{used}）。为腾出位置，cmux 会暂停你的一台空闲机器，或提议暂停其中一台。暂停的机器会保留文件和进程。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 方案的 {limit} 台機器都在使用中（{used}）。請刪除一台機器或升級方案。"
+            "value": "{plan} 方案可同時執行的 {limit} 台機器都在執行中（{used}）。為了騰出位置，cmux 會暫停你的一台閒置機器，或提議暫停其中一台。暫停的機器會保留檔案和處理程序。"
           }
         }
       }
@@ -21518,133 +21518,133 @@
       }
     },
     "store.availabilityFull": {
-      "comment": "Storefront text when the plan's active machine limit is reached; {limit} is a number",
+      "comment": "Storefront text when every machine the plan runs at once is running: Get still works and pauses one of the person's machines; {limit} is a number",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All {limit} machines on your plan are active"
+            "value": "All {limit} machines are running; a new one pauses one of yours"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جميع الأجهزة الـ{limit} في خطتك نشطة"
+            "value": "جميع الأجهزة الـ{limit} قيد التشغيل؛ جهاز جديد يوقف أحد أجهزتك مؤقتًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svih {limit} mašina u vašem planu je aktivno"
+            "value": "Svih {limit} mašina radi; nova pauzira jednu od vaših"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner i din plan er aktive"
+            "value": "Alle {limit} maskiner kører; en ny sætter en af dine på pause"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} Maschinen Ihres Plans sind aktiv"
+            "value": "Alle {limit} Maschinen laufen; eine neue pausiert eine von deinen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las {limit} máquinas de tu plan están activas"
+            "value": "Las {limit} máquinas están en ejecución; una nueva pausa una de las tuyas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les {limit} machines de votre forfait sont actives"
+            "value": "Les {limit} machines sont en marche ; une nouvelle met l’une des vôtres en pause"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutte le {limit} macchine del tuo piano sono attive"
+            "value": "Tutte le {limit} macchine sono in esecuzione; una nuova mette in pausa una delle tue"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "プランの {limit} 台すべてが稼働中です"
+            "value": "{limit} 台すべてが稼働中です。新しいマシンを作ると、あなたのマシンが 1 台一時停止します"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនទាំង {limit} ក្នុងគម្រោងរបស់អ្នកកំពុងសកម្ម"
+            "value": "ម៉ាស៊ីនទាំង {limit} កំពុងដំណើរការ ម៉ាស៊ីនថ្មីនឹងផ្អាកម៉ាស៊ីនមួយរបស់អ្នក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "요금제의 머신 {limit}대가 모두 사용 중입니다"
+            "value": "머신 {limit}대가 모두 실행 중입니다. 새 머신을 만들면 내 머신 하나가 일시 정지됩니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskinene i planen din er aktive"
+            "value": "Alle {limit} maskiner kjører; en ny setter en av dine på pause"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszystkie maszyny w Twoim planie ({limit}) są aktywne"
+            "value": "Działają wszystkie maszyny ({limit}); nowa wstrzyma jedną z Twoich"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas as {limit} máquinas do seu plano estão ativas"
+            "value": "Todas as {limit} máquinas estão em execução; uma nova pausa uma das suas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все {limit} машин вашего тарифа активны"
+            "value": "Работают все машины ({limit}); новая приостановит одну из ваших"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องทั้ง {limit} เครื่องในแผนของคุณใช้งานอยู่"
+            "value": "เครื่องทั้ง {limit} เครื่องกำลังทำงาน เครื่องใหม่จะหยุดเครื่องหนึ่งของคุณไว้ชั่วคราว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Planınızdaki {limit} makinenin tümü etkin"
+            "value": "{limit} makinenin tümü çalışıyor; yeni bir makine sizinkilerden birini duraklatır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі {limit} машин вашого тарифу активні"
+            "value": "Працюють усі машини ({limit}); нова призупинить одну з ваших"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cả {limit} máy trong gói của bạn đang hoạt động"
+            "value": "Cả {limit} máy đang chạy; máy mới sẽ tạm dừng một máy của bạn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "套餐内的 {limit} 台机器都在使用"
+            "value": "{limit} 台机器都在运行；新建一台会暂停你的一台机器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "方案內的 {limit} 台機器都在使用中"
+            "value": "{limit} 台機器都在執行中；新增一台會暫停你的一台機器"
           }
         }
       }
@@ -31149,6 +31149,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "刪除 {name} 並建立"
+          }
+        }
+      }
+    },
+    "cap.pauseAndCreate": {
+      "comment": "Create sheet at the running-machines limit when none of the person's machines is idle: pause the named running machine (its files and processes are kept), then create",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause {name} and create"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أوقف {name} مؤقتًا ثم أنشئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pauziraj {name} i kreiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt {name} på pause, og opret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} pausieren und erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar {name} y crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre {name} en pause et créer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti in pausa {name} e crea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} を一時停止して作成"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្អាក {name} ហើយបង្កើត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} 일시 중지 후 만들기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett {name} på pause, og opprett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wstrzymaj {name} i utwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar {name} e criar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приостановить {name} и создать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุด {name} ชั่วคราวแล้วสร้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} duraklat ve oluştur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Призупинити {name} і створити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạm dừng {name} rồi tạo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂停 {name} 并创建"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暫停 {name} 並建立"
           }
         }
       }

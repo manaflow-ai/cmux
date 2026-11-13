@@ -158,7 +158,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
     /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
-    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)

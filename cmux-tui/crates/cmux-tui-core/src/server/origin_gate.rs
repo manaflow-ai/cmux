@@ -323,8 +323,8 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
     }
 }
 
-/// The conversation events a page-bound connection of the Channels or
-/// Messages page hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
+/// The conversation events a page-bound connection of the Channels page
+/// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
 static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
     [
@@ -348,8 +348,8 @@ pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [Stri
     let state = mux.control_clients.state.lock().recover_poison();
     let origin = &state.clients.get(&client)?.origin;
     if origin.scoped_page {
-        let home = matches!(origin.page.as_deref(), Some("home-channels" | "home-messages"));
-        return Some(if home { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
+        let channels = origin.page.as_deref() == Some("home-channels");
+        return Some(if channels { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
     }
     (origin.role == HelloRole::PageRelay).then(|| {
         origin
@@ -407,8 +407,15 @@ pub(super) fn set_peer_identity_at_accept(
     client: u64,
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
-) {
+) -> crate::diagnostics::ClientKind {
+    use crate::diagnostics::ClientKind;
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    // What the peer is for the request counters, before it declares a kind.
+    let kind = match &local_peer {
+        LocalPeer::Terminal(_) => ClientKind::Terminal,
+        LocalPeer::Other => ClientKind::Local,
+        LocalPeer::Unknown => ClientKind::Unknown,
+    };
     let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
         .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
@@ -417,6 +424,7 @@ pub(super) fn set_peer_identity_at_accept(
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
     }
+    kind
 }
 
 /// Name of the phone host beside the daemon's executable

@@ -586,18 +586,18 @@
   }
  },
  {
-  "name": "escaped '_acpmux/presets' refused",
-  "text": "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0070\\u0072\\u0065\\u0073\\u0065\\u0074\\u0073\",\"params\":{}}",
+  "name": "escaped '_acpmux/tag' refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":502,\"method\":\"\\u005f\\u0061\\u0063\\u0070\\u006d\\u0075\\u0078\\u002f\\u0074\\u0061\\u0067\",\"params\":{}}",
   "first": false,
   "token": null,
   "expect": {
    "refuse": "transport.method_refused",
-   "method": "_acpmux/presets",
+   "method": "_acpmux/tag",
    "id": "502"
   }
  },
  {
-  "name": "notification '_acpmux/presets' refused",
+  "name": "notification '_acpmux/presets' refused (only its request is allowed)",
   "text": "{\"jsonrpc\":\"2.0\",\"method\":\"_acpmux/presets\",\"params\":{}}",
   "first": false,
   "token": null,

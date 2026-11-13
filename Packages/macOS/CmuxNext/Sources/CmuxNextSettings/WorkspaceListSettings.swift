@@ -4,13 +4,16 @@ public import CmuxNextDesign
 /// sidebar when its entry point names no place (Cmd-N, the palette, the
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace,
 /// a link or an agent opening one).
-/// `afterCurrent` (the default, as in cmux classic; the daemon places a new
-/// workspace by the same rule in its create): right after the workspace the
+/// `top` (the default; the daemon and the Chief place a new workspace by the
+/// same rule): first in the group of the workspace the window shows when that
+/// one is in a group, else first below Pinned and Home (Lawrence 2026-11-12:
+/// "by default all new workspaces should go to the top").
+/// `afterCurrent`: right after the workspace the
 /// window shows, inside its group when it has one, and where that one was when
 /// it closes during the create; from a group's own + with none of its members
 /// shown, last in that group; top when that workspace is pinned, Home, or on
 /// another machine, never the end of the sidebar (Leo 2026-11-06: "you should
-/// just have it right next to it"). `top`: first in the group of the workspace
+/// just have it right next to it"). `top` in full: first in the group of the workspace
 /// the window shows when that one is in a group, and first in a group the new
 /// workspace is made in (its header's +, a Chief subagent's group; Lawrence
 /// 2026-10-28); outside a group, first in the workspace list, below the Pinned
@@ -24,9 +27,9 @@ public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseI
 }
 
 /// The workspace list's shape (Lawrence 2026-10-08, cx-plf5): new workspaces
-/// right after the current one (`workspaces.newPlacement`; #23014 made it
-/// afterCurrent on 2026-10-20, back to top the same day at Lawrence's ask, and
-/// afterCurrent again on 2026-11-06 at Leo's) and one list without computer
+/// first (`workspaces.newPlacement`; #23014 made it afterCurrent on 2026-10-20,
+/// back to top the same day at Lawrence's ask, afterCurrent again on 2026-11-06
+/// at Leo's, and top again on 2026-11-12 at Lawrence's) and one list without computer
 /// headers unless `sidebar.groupByComputer` is on
 /// (`SidebarSectionsPreferences.groupsByComputer`). A workspace the user
 /// never named takes its front tab's name unless `workspaces.autoName` is

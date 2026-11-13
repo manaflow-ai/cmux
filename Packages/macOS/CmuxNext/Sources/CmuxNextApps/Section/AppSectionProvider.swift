@@ -6,7 +6,10 @@ import CmuxNextDesign
 /// `<app id>#<section id>`). One mount per section, rendered from the app
 /// supervisor's scene stream (`apps-scene`); the view stays alive while the
 /// sidebar shows it. While the supervisor is unreachable the section shows
-/// the disconnected reason.
+/// the disconnected reason; while apps cannot run here at all (a daemon with no
+/// app host, or apps turned off) it draws nothing (Lawrence 2026-11-12: "get rid
+/// of “Needs a newer cmux”"): the sidebar has nothing to offer about it, and the
+/// Apps page says why.
 @MainActor
 public final class AppSectionProvider {
     let client: AppsClient
@@ -31,6 +34,10 @@ public final class AppSectionProvider {
     }
 
     public func makeView(for contribution: String) -> NSView? {
+        if appsCannotRunHere {
+            release(contribution)
+            return nil
+        }
         if let existing = mounts[contribution] {
             // A section mounted before the list landed: drop it once the list says it does not show.
             guard client.isListed, resolve(contribution) == nil else { return existing.view }
@@ -53,6 +60,13 @@ public final class AppSectionProvider {
         return view.preferredHeight(width: width)
     }
 
+    /// Apps cannot run on this daemon (no app host beside it) or a policy turned them off: no
+    /// connect or retry changes that, so a section is not worth a card.
+    private var appsCannotRunHere: Bool {
+        guard let reason = client.unavailableReason else { return false }
+        return !reason.daemonUnreachable
+    }
+
     /// Unmounts a section the sidebar no longer shows (the supervisor stops
     /// the app host when nothing else shows that app).
     public func release(_ contribution: String) {
@@ -66,8 +80,7 @@ public final class AppSectionProvider {
     private func resolve(_ contribution: String) -> (app: String, section: AppImplementation)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
         guard parts.count == 2, isPresented(parts[0]), let app = client.app(parts[0]) else { return nil }
-        let sections = app.manifest.sections.filter(\.hasScene)
-        guard let section = sections.first(where: { $0.id == parts[1] }) ?? (sections.count == 1 ? sections.first : nil) else { return nil }
+        guard let section = app.manifest.sceneSection(parts[1]) else { return nil }
         return (app.id, section)
     }
 
