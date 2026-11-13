@@ -253,6 +253,17 @@ fn paused_desktopless_machine_offers_desktop_recovery() {
 }
 
 #[test]
+fn unavailable_desktopless_machine_offers_desktop_recovery() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "offline", "title": "Offline", "status": "offline", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, Some(PaletteTargetIntent::CreateDesktop));
+}
+
+#[test]
 fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_empty() {
     let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
         {"id": "unknown", "title": "", "status": "offline", "desktop": false},

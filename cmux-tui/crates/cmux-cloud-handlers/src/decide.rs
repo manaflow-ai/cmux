@@ -282,7 +282,11 @@ fn palette_status(
         }
         _ => (
             PaletteTargetState::Unavailable,
-            (!wants_desktop).then_some(PaletteTargetIntent::Choose),
+            if wants_desktop && !desktop {
+                Some(PaletteTargetIntent::CreateDesktop)
+            } else {
+                (!wants_desktop).then_some(PaletteTargetIntent::Choose)
+            },
         ),
     }
 }
