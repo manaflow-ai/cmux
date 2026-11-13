@@ -516,8 +516,14 @@ impl Resolver<'_> {
             return vec![Settled::Lost(full.join("::"))];
         };
         let at = At { module: module.to_vec(), scopes: vec![scope] };
+        // In a module path, a name that only some builds bind is in every build that compiles
+        // the call: the build without it does not compile, so it is no fallthrough.
+        let mut found = self.lookup(&at, name, steps);
+        if found.len() > 1 {
+            found.retain(|f| !matches!(f, Found::Nothing));
+        }
         let mut out = Vec::new();
-        for found in self.lookup(&at, name, steps) {
+        for found in found {
             out.extend(match found {
                 Found::Binding(Binding::Import(path)) => {
                     self.resolve(&at, &[&path[..], &rest[1..]].concat(), steps)
@@ -615,6 +621,53 @@ fn offends(settled: &Settled) -> Option<String> {
     }
 }
 
+/// The attributes on `e`, whatever kind of expression it is.
+fn expr_attrs(e: &syn::Expr) -> &[syn::Attribute] {
+    use syn::Expr as E;
+    match e {
+        E::Array(x) => &x.attrs,
+        E::Assign(x) => &x.attrs,
+        E::Async(x) => &x.attrs,
+        E::Await(x) => &x.attrs,
+        E::Binary(x) => &x.attrs,
+        E::Block(x) => &x.attrs,
+        E::Break(x) => &x.attrs,
+        E::Call(x) => &x.attrs,
+        E::Cast(x) => &x.attrs,
+        E::Closure(x) => &x.attrs,
+        E::Const(x) => &x.attrs,
+        E::Continue(x) => &x.attrs,
+        E::Field(x) => &x.attrs,
+        E::ForLoop(x) => &x.attrs,
+        E::Group(x) => &x.attrs,
+        E::If(x) => &x.attrs,
+        E::Index(x) => &x.attrs,
+        E::Infer(x) => &x.attrs,
+        E::Let(x) => &x.attrs,
+        E::Lit(x) => &x.attrs,
+        E::Loop(x) => &x.attrs,
+        E::Macro(x) => &x.attrs,
+        E::Match(x) => &x.attrs,
+        E::MethodCall(x) => &x.attrs,
+        E::Paren(x) => &x.attrs,
+        E::Path(x) => &x.attrs,
+        E::Range(x) => &x.attrs,
+        E::RawAddr(x) => &x.attrs,
+        E::Reference(x) => &x.attrs,
+        E::Repeat(x) => &x.attrs,
+        E::Return(x) => &x.attrs,
+        E::Struct(x) => &x.attrs,
+        E::Try(x) => &x.attrs,
+        E::TryBlock(x) => &x.attrs,
+        E::Tuple(x) => &x.attrs,
+        E::Unary(x) => &x.attrs,
+        E::Unsafe(x) => &x.attrs,
+        E::While(x) => &x.attrs,
+        E::Yield(x) => &x.attrs,
+        _ => &[],
+    }
+}
+
 /// One function's checks: the names bound to a path in it, and the scopes its names resolve in.
 struct Scan<'a> {
     rel: &'a str,
@@ -700,21 +753,18 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         }
     }
     fn visit_stmt(&mut self, s: &'ast syn::Stmt) {
-        if let syn::Stmt::Local(l) = s
-            && is_test_attr(&l.attrs)
-        {
-            return;
-        }
-        syn::visit::visit_stmt(self, s);
-    }
-    fn visit_expr(&mut self, e: &'ast syn::Expr) {
-        let attrs = match e {
-            syn::Expr::Block(b) => &b.attrs[..],
-            syn::Expr::Call(c) => &c.attrs[..],
-            syn::Expr::MethodCall(m) => &m.attrs[..],
+        let attrs = match s {
+            syn::Stmt::Local(l) => &l.attrs[..],
+            syn::Stmt::Macro(m) => &m.attrs[..],
             _ => &[][..],
         };
         if !is_test_attr(attrs) {
+            syn::visit::visit_stmt(self, s);
+        }
+    }
+    fn visit_expr(&mut self, e: &'ast syn::Expr) {
+        // Test-only code of any kind (`#[cfg(test)] if .. { .. }` too) is left out.
+        if !is_test_attr(expr_attrs(e)) {
             syn::visit::visit_expr(self, e);
         }
     }
@@ -1312,7 +1362,8 @@ fn the_lint_follows_a_cfg_gated_import_alias() {
 /// `metadata`, a module the lint cannot read, an import into one and a loop of imports are rows,
 /// and a `crate::` path is followed to what it names. A call it settles on a known item that is
 /// not a read (the prelude's, another crate's other functions, a local fn, `Self::`,
-/// `crate::home_fs`) is none.
+/// `crate::home_fs`, a fn or module defined once per `cfg` arm) is none, and so is test-only
+/// code (`#[cfg(test)] if ..`).
 #[test]
 fn the_lint_reports_a_call_it_cannot_resolve() {
     let rows = rows_of(
@@ -1346,6 +1397,23 @@ fn the_lint_reports_a_call_it_cannot_resolve() {
             fn helper(_: &Path) -> bool { true }
         }
         fn helper(_: &Path) -> bool { true }
+        mod arms {
+            #[cfg(unix)]
+            pub fn probe(_: &Path) -> bool { true }
+            #[cfg(not(unix))]
+            pub fn probe(_: &Path) -> bool { false }
+        }
+        #[cfg(windows)]
+        mod win {
+            pub fn open(_: &Path) -> bool { true }
+        }
+        fn per_platform(p: &Path) -> bool { crate::arms::probe(p) && crate::win::open(p) }
+        fn test_only(p: &Path) {
+            #[cfg(test)]
+            if p.is_absolute() {
+                gone::probe(p);
+            }
+        }
         "#,
     );
     assert_eq!(
