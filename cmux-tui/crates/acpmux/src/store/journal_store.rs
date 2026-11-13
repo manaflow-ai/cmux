@@ -639,6 +639,19 @@ impl JournalStore {
     }
 }
 
+
+fn diag_scan(method: &str, id: &str, after: u64) {
+    let Some(path) = std::env::var_os("ACPMUX_DIAG_SCAN_LOG") else { return };
+    use std::io::Write as _;
+    let bt = if after <= 1 { format!("{}", std::backtrace::Backtrace::force_capture()) } else { String::new() };
+    let short: String = bt.lines().filter(|l| l.contains("acpmux::")).take(14).collect::<Vec<_>>().join("\n");
+    let t = std::thread::current();
+    let line = format!("DIAGSCAN {} {method} id={id} after={after} thread={:?}\n{short}\n", crate::store::now_ms(), t.id());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
 impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         self.inner.list_metas()
@@ -735,9 +748,11 @@ impl Store for JournalStore {
     // #35400, F1). A read that sends as it reads stops at the chat's `last_seq` instead
     // (`Hub::scan_events`).
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        diag_scan("events", id, after);
         self.inner.fenced(|| Store::events(&self.inner.local, id, after, limit))
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        diag_scan("scan", id, after);
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
     fn scan_matching(
@@ -747,6 +762,7 @@ impl Store for JournalStore {
         may_match: &dyn Fn(&[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_matching", id, after);
         self.inner.fenced(|| Store::scan_matching(&self.inner.local, id, after, may_match, visit))
     }
     fn scan_strict(
@@ -755,6 +771,7 @@ impl Store for JournalStore {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_strict", id, after);
         self.inner.fenced(|| Store::scan_strict(&self.inner.local, id, after, visit))
     }
     fn scan_back(
@@ -765,6 +782,7 @@ impl Store for JournalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_back", id, after);
         self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
     }
     fn scan_back_indexed(
@@ -775,6 +793,7 @@ impl Store for JournalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_back_indexed", id, after);
         self.inner
             .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
     }
@@ -787,6 +806,7 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_kinds", id, 0);
         self.inner.fenced(|| Store::scan_kinds(&self.inner.local, id, kinds, visit))
     }
     fn scan_kinds_strict(
@@ -795,9 +815,11 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        diag_scan("scan_kinds_strict", id, 0);
         self.inner.fenced(|| Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        diag_scan("scan_heads", id, 0);
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
     }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
