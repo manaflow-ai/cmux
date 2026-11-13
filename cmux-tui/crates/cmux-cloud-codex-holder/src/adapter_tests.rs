@@ -4,8 +4,6 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use futures_util::FutureExt as _;
-
 use super::*;
 use crate::broker_files::OWN;
 use crate::target::{ACCESS_PATH, MODE_PATH};

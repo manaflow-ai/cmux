@@ -116,7 +116,7 @@ impl LogLinearHistogram {
     pub fn record(&self, value: u64) {
         self.buckets[Self::bucket_index(value)].fetch_add(1, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
-        let _ = self.sum.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |sum| {
+        let _ = self.sum.try_update(Ordering::Relaxed, Ordering::Relaxed, |sum| {
             Some(sum.saturating_add(value))
         });
         self.max.fetch_max(value, Ordering::Relaxed);
@@ -592,7 +592,7 @@ impl JournalWriterStats {
     pub(crate) fn drained(&self, lane: JournalLane, count: usize) {
         // Saturate so a miscounted path degrades to a wrong gauge, never a
         // wrapped one.
-        let _ = self.queued(lane).fetch_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
+        let _ = self.queued(lane).try_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
             Some(depth.saturating_sub(count))
         });
     }
@@ -811,9 +811,9 @@ impl ConnectionStats {
     /// was refused (#27669).
     pub fn try_claim(&self, limit: u64) -> bool {
         let claim = |count: u64| (count < limit).then_some(count + 1);
-        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        let mut claimed = self.active.try_update(Ordering::AcqRel, Ordering::Acquire, claim);
         if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
-            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+            claimed = self.active.try_update(Ordering::AcqRel, Ordering::Acquire, claim);
         }
         match claimed {
             Ok(previous) => {

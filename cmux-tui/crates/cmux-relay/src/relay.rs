@@ -312,7 +312,7 @@ impl Relay {
         if self
             .inner
             .active_connections
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.inner.config.max_connections).then_some(active + 1)
             })
             .is_err()
@@ -1318,7 +1318,7 @@ impl OutboundSender {
     fn send_binary(&self, bytes: Bytes) -> Result<(), RelayError> {
         let size = bytes.len();
         self.queued_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
                 queued.checked_add(size).filter(|next| *next <= self.maximum_queue_bytes)
             })
             .map_err(|_| {

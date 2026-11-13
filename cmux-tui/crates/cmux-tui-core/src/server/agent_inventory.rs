@@ -176,7 +176,7 @@ pub(super) fn reserve(mux: &Arc<Mux>) -> Result<ReadSlot, Failure> {
         .control_clients
         .agent_sessions
         .inventory_reads
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_READS).then_some(n + 1))
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_READS).then_some(n + 1))
         .is_err()
     {
         return Err(Failure::Busy);

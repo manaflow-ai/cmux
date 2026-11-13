@@ -163,13 +163,13 @@ impl PendingSessionMutation {
 
     pub(super) fn supersede(self) {
         if !self.0.settled.swap(true, Ordering::AcqRel) {
-            let _ = self.0.pending_mutations.fetch_update(
+            let _ = self.0.pending_mutations.try_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
             if self.0.impact.blocks_pointer() {
-                let _ = self.0.pending_pointer_mutations.fetch_update(
+                let _ = self.0.pending_pointer_mutations.try_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
                     |pending| pending.checked_sub(1),
@@ -200,13 +200,13 @@ impl Drop for PendingSessionMutationState {
             {
                 Ok(()) => {}
                 Err(SessionTrySendError::Full | SessionTrySendError::Disconnected) => {
-                    let _ = self.pending_mutations.fetch_update(
+                    let _ = self.pending_mutations.try_update(
                         Ordering::AcqRel,
                         Ordering::Acquire,
                         |pending| pending.checked_sub(1),
                     );
                     if self.impact.blocks_pointer() {
-                        let _ = self.pending_pointer_mutations.fetch_update(
+                        let _ = self.pending_pointer_mutations.try_update(
                             Ordering::AcqRel,
                             Ordering::Acquire,
                             |pending| pending.checked_sub(1),

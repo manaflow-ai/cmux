@@ -49,7 +49,7 @@ impl MeshHub for FakeHub {
                 return Err(e);
             }
             let lose = &self.lose;
-            if lose.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
+            if lose.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
                 return Err(HubError::unavailable("the connection reset"));
             }
             Ok(receipt("queued", message.to.clone()))

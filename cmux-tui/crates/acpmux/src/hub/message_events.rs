@@ -767,7 +767,7 @@ mod message_recovery_tests {
         fn append(&self, id: &str, record: &crate::store::EventRecord) -> anyhow::Result<()> {
             use std::sync::atomic::Ordering::SeqCst;
             if record.kind == "_acpmux/message"
-                && self.fail.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
+                && self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
             {
                 anyhow::bail!("no space left on device");
             }

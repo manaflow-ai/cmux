@@ -440,7 +440,7 @@ impl ServiceMultiplexer {
     ) -> Result<ServiceStream, ServiceError> {
         let stream = self
             .next_stream
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(2))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| value.checked_add(2))
             .map_err(|_| ServiceError::StreamIdsExhausted)?;
         let (sender, receiver) = mpsc::channel(STREAM_CHUNK_CHANNEL_CAPACITY);
         let generation = generation_for_service(service, *self.generation.borrow());

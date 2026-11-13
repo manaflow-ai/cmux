@@ -211,7 +211,7 @@ impl TerminalRespawns {
     /// Whether this launch fails on purpose ([`LAUNCH_FAILURES_ENV`]).
     fn take_injected_launch_failure(&self) -> bool {
         self.injected_launch_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
             .is_ok()
     }
 
@@ -219,7 +219,7 @@ impl TerminalRespawns {
     /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
     fn take_injected_launch_error(&self) -> bool {
         self.injected_launch_errors
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
             .is_ok()
     }
 

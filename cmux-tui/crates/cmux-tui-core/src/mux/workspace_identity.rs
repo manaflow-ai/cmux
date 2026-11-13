@@ -23,7 +23,7 @@ impl Mux {
     /// the mux lifecycle rather than durable workspace identity.
     pub fn allocate_in_process_resize_owner(&self) -> u64 {
         self.next_in_process_resize_owner
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                 Some(owner.wrapping_add(1).max(1))
             })
             .expect("in-process resize owner allocation cannot fail")

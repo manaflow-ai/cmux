@@ -851,9 +851,7 @@ impl ClientConnection {
         // retrying a generation the daemon now considers stale.
         let generation = self
             .next_generation
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |generation| {
-                generation.checked_add(1)
-            })
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |generation| generation.checked_add(1))
             .map_err(|_| ConnectionError::GenerationExhausted)?;
         let mut reconnect_config = self.config.clone();
         reconnect_config.expected_daemon = Some(self.daemon_public_key);
