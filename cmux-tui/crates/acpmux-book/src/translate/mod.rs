@@ -610,8 +610,37 @@ impl State {
             return Ok(());
         }
         if let Some(entry) = self.queue.get(&hash).copied() {
-            self.mark_steer();
+            let already_steer = self
+                .prompts
+                .get(&hash)
+                .is_some_and(|prompt| prompt.row.fields.contains_key("steer"));
+            if !already_steer {
+                self.mark_steer();
+            }
             self.queue_remove(key, out);
+            if let Some(mut prompt) = self.prompts.remove(&hash) {
+                if !prompt.read {
+                    prompt.row.turn = self.turn;
+                }
+                prompt.read = true;
+                debug_assert!(!prompt.row.field("state", "sent"));
+                prompt.row.fields.insert("steer".into(), "true".into());
+                out.row(&prompt.row);
+                if !prompt.has_body {
+                    out.raw_body(
+                        prompt.row.id,
+                        BodyField::Content,
+                        false,
+                        entry.place,
+                        u64::from(entry.span),
+                    );
+                }
+                prompt.row.open = false;
+                out.row(&prompt.row);
+                self.fold.extra(prompt.row.id);
+                self.settled_prompt(hash);
+                return Ok(());
+            }
             let mut row = self.row(RowKind::User, out)?;
             row.turn = self.turn;
             debug_assert!(!row.field("state", "sent"));
