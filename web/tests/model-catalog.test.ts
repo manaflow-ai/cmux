@@ -107,10 +107,17 @@ describe("projectCatalog", () => {
       { id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen", family: "gemini-hydrogen", release_date: "2026-11-12" },
       { id: "gemini-4-carbon", name: "Gemini 4 Carbon", family: "gemini-carbon", release_date: "2026-11-10" },
     ];
+    // Persisted JSON objects may return in a different key order; arrays keep their order.
+    const rows = JSON.parse(JSON.stringify(seedRows())) as ReturnType<typeof seedRows>;
+    for (const row of rows) {
+      if (row.value.familyNames) {
+        row.value.familyNames = Object.fromEntries(Object.entries(row.value.familyNames).sort());
+      }
+    }
     const projected = projectCatalog({
       ...feed,
       google: { id: "google", name: "Google", models: Object.fromEntries(models.map((model) => [model.id, model])) },
-    }, NOW);
+    }, NOW, overridesFromRows(rows));
     const menu = harness(projected, "gemini");
     expect(menu.models.map(({ id, shortName, family }) => ({ id, shortName, family }))).toEqual([
       { id: "gemini-4-carbon", shortName: "4 Carbon", family: "Carbon" },
