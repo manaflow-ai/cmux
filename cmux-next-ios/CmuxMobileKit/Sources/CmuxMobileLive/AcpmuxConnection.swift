@@ -309,7 +309,9 @@ public actor AcpmuxConnection {
         }
 
         private static func decode(_ data: Data) -> JSONValue? {
-            try? JSONDecoder().decode(JSONValue.self, from: data)
+            // `JSONSerialization` parses without a thrown error per value (`JSONValue`'s own
+            // `Decodable` tries each JSON type in turn); `JSONDecoder` reads what it refuses.
+            JSONValue(jsonData: data) ?? (try? JSONDecoder().decode(JSONValue.self, from: data))
         }
     }
 
