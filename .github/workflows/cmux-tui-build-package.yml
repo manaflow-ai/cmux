@@ -468,7 +468,8 @@ jobs:
       # restored held dependency builds only (all 138 workspace crates built every time), and
       # was stale or evicted on 12 of 16 legs (2026-11-13). Only feat-cmux-next pushes write
       # the disk the machines' binaries build from; every other ref gets its own pair of
-      # disks. A failed mount is a cold build, never a failure.
+      # disks. A failed mount is a cold build, never a failure. The build step's log says which:
+      # "warm target: hit, built from <sha>" or "warm target: miss (...)".
       - name: Mount the warm machine-channel target (feat-cmux-next, x86_64)
         if: inputs.lto == 'thin' && matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux && startsWith(runner.name, 'blacksmith') && matrix.target == 'x86_64-unknown-linux-musl' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
         continue-on-error: true
