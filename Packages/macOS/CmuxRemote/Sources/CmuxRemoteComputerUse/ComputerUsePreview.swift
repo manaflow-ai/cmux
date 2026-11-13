@@ -69,22 +69,13 @@ enum ComputerUsePreview {
     }
 
     /// One JPEG of window `id` at most `longSide` pixels on its long side, without the pointer.
-    /// Runs on the calling thread (never main), bounded by ``ScreenCapture/deadline``.
-    static func capture(window id: UInt32, longSide: Int) -> Result<(jpeg: Data, width: Int, height: Int), Refusal> {
+    /// Async: nothing waits on a thread for it, and the caller keeps one at a time.
+    static func still(window id: UInt32, longSide: Int) async -> Result<(jpeg: Data, width: Int, height: Int), Refusal> {
         guard CGPreflightScreenCaptureAccess() else { return .failure(.permission) }
-        let box = OSAllocatedUnfairLock<Result<(jpeg: Data, width: Int, height: Int), Refusal>?>(initialState: nil)
-        let done = DispatchSemaphore(value: 0)
-        // task-owner: one still; this control thread waits for it below, bounded by the capture deadline.
-        Task.detached(priority: .userInitiated) {
-            let result = await still(window: id, longSide: longSide)
-            box.withLock { $0 = result }
-            done.signal()
-        }
-        guard done.wait(timeout: .now() + ScreenCapture.deadline) == .success else { return .failure(.captureFailed) }
-        return box.withLock { $0 } ?? .failure(.captureFailed)
+        return await capturedStill(window: id, longSide: longSide)
     }
 
-    private static func still(window id: UInt32, longSide: Int) async -> Result<(jpeg: Data, width: Int, height: Int), Refusal> {
+    private static func capturedStill(window id: UInt32, longSide: Int) async -> Result<(jpeg: Data, width: Int, height: Int), Refusal> {
         do {
             // The cached listing while the window is where it was (4 frames a second need no fresh one).
             let content: SCShareableContent

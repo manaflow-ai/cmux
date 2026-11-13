@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxRemoteComputerUse
 import CmuxRemoteWire
 import Foundation
+import os
 import Testing
 import VideoToolbox
 
@@ -92,6 +93,68 @@ import VideoToolbox
         _ = fcntl(peer, F_SETFL, O_NONBLOCK)
         var byte: UInt8 = 0
         #expect(read(peer, &byte, 1) == -1 && errno == EAGAIN, "nothing reached the reused descriptor")
+    }
+
+    /// ScreenCaptureKit slow on the stills path: the session never starts a second still while one
+    /// is being captured, however many looks pass, and closing the channel does not wait for it
+    /// (round-3 review of a245191: queued captures held `writes`, and the close waited on all of them).
+    @Test func aSlowStillNeverPilesUpAndDoesNotHoldTheClose() throws {
+        let textEdit = textEdit
+        let looks = OSAllocatedUnfairLock(initialState: 0)
+        let stills = OSAllocatedUnfairLock(initialState: 0)
+        let lookedEnough = DispatchSemaphore(value: 0)
+        let (release, releaser) = AsyncStream.makeStream(of: Void.self)
+        let capture = PreviewCapture(
+            owner: { _ in
+                if looks.withLock({ $0 += 1; return $0 }) == 60 { lookedEnough.signal() }
+                return textEdit
+            },
+            bounds: { _ in nil },
+            window: { id in throw ScreenCapture.Failure.noWindow(id) }, // no stream: the stills path
+            still: { _, _ in
+                stills.withLock { $0 += 1 }
+                for await _ in release {} // ScreenCaptureKit never answers until the test ends
+                return .failure(.captureFailed)
+            })
+        var fds: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        let request = try #require(PreviewStreamWire.Request(["session": "s1", "long_side": 400]))
+        let session = PreviewStreamSession(
+            channel: LineChannel(socket: fds[0]), request: request,
+            windowOf: { _ in ComputerUsePreview.SessionWindow(window: 9, app: textEdit) }, blocked: { _, _ in false },
+            capture: capture,
+            timing: PreviewTiming(look: .milliseconds(5), still: 0.001, retryBase: 0.001, retryMax: 0.002, keyframeGap: 0.3))
+        let returned = DispatchSemaphore(value: 0)
+        Thread { session.run(); returned.signal() }.start()
+        #expect(lookedEnough.wait(timeout: .now() + 20) == .success)
+        #expect(stills.withLock { $0 } == 1, "one still at a time while it is slow")
+        close(fds[1])
+        #expect(returned.wait(timeout: .now() + 5) == .success, "the close does not wait for the stuck capture")
+        releaser.finish()
+    }
+
+    /// Keyframes: always the first after a start or a new encoder; asked ones at most every 300 ms.
+    @Test func askedKeyframesAreThrottled() {
+        var policy = PreviewKeyframePolicy(gap: 0.3)
+        let start = Date(timeIntervalSince1970: 100)
+        var forced: [Bool] = []
+        forced.append(policy.force(now: start)) // a new stream starts with a keyframe
+        forced.append(policy.force(now: start.addingTimeInterval(0.01)))
+        policy.asked = true
+        forced.append(policy.force(now: start.addingTimeInterval(0.1))) // asked within 300 ms: not yet
+        forced.append(policy.force(now: start.addingTimeInterval(0.31))) // then once the gap passed
+        forced.append(policy.force(now: start.addingTimeInterval(0.32))) // the ask is taken
+        policy.required = true
+        forced.append(policy.force(now: start.addingTimeInterval(0.33))) // a new encoder forces one whatever the gap
+        #expect(forced == [true, false, false, true, false, true])
+    }
+
+    @Test func theAppAsksForAnotherSizeWithAnLLine() {
+        #expect(PreviewStreamWire.longSide(Data("L 800".utf8)) == 800)
+        #expect(PreviewStreamWire.longSide(Data("L 99999".utf8)) == PreviewStreamWire.Request.maximumLongSide)
+        #expect(PreviewStreamWire.longSide(Data("L 1".utf8)) == PreviewStreamWire.Request.minimumLongSide)
+        #expect(PreviewStreamWire.longSide(Data("K".utf8)) == nil)
+        #expect(PreviewStreamWire.longSide(Data("L wide".utf8)) == nil)
     }
 
     @Test func aBlockedOrUnnamedAppIsNeverShown() {

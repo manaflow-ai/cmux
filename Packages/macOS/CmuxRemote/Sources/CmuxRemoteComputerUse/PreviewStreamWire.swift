@@ -23,6 +23,13 @@ enum PreviewStreamWire {
     /// The one line the app sends after its request: `K`, when it dropped frames and needs a
     /// keyframe to decode again. Any other line is ignored.
     static let keyframeRequest = Data("K".utf8)
+
+    /// The long side an `L <side>` line asks for (clamped as a request's), nil for any other line.
+    static func longSide(_ line: Data) -> Int? {
+        guard let text = String(data: line, encoding: .utf8), text.hasPrefix("L "),
+              let side = Int(text.dropFirst(2).trimmingCharacters(in: .whitespaces)) else { return nil }
+        return min(max(side, Request.minimumLongSide), Request.maximumLongSide)
+    }
     /// The largest message either side accepts.
     static let maximumPayload = 8 * 1024 * 1024
 
