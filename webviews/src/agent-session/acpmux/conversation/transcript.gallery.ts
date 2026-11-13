@@ -333,6 +333,7 @@ const openEditedDiff = async (ctx: PlayContext) => {
   (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
     show: "never",
   });
+  await openEndedStretch(ctx);
   await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool[data-tool-id]"));
   await ctx.click({ selector: "button.cv-tool[data-tool-id]" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
