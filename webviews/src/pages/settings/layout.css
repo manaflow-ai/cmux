@@ -466,7 +466,7 @@
 .button:not(.ui-btn) {
   border-color: var(--border);
   background: var(--input-bg);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1) var(--ds-space-3);
 }
 
@@ -1019,6 +1019,13 @@
 .host-form,
 .domain-panel {
   animation: settings-enter var(--motion-in) var(--motion-ease) backwards;
+}
+
+/* The category the page opens on only fades (SettingsApp `data-section-switched`): no 4 px slide,
+   so its rows draw where they settle from the first frame (settings-open-frames), and the fade
+   still covers the rows that land as the page's data arrives (gallery health's layout shift). */
+.settings:not([data-section-switched]) .section {
+  animation-name: settings-pop;
 }
 
 /* Inline override notes, MDM locks and section badges arrive, not appear. */

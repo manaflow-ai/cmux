@@ -36,6 +36,14 @@ public struct TerminalDemoRoot: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) {
+            // The driver's last step, for UI tests (`kbtui`).
+            Text(model.demoNote)
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("debug.terminal-demo")
+        }
         .task {
             // The host grid demo is a still: no scripted phases.
             guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
@@ -112,6 +120,7 @@ struct TerminalDemoDriver {
         }
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
+        if selected.contains("kbtui") { await keyboardOverTUI() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -205,6 +214,39 @@ struct TerminalDemoDriver {
     /// keyboard is still moving), the same calls a tap on each makes; then the
     /// keyboard key twice 0.1 s apart. Each second action reverses the first
     /// from where the keyboard is, never after it settles.
+    /// `kbtui` (opt-in; Leo, 2026-11-12: "the resizing is so wack when j tap
+    /// the thijg"): vim, then the keyboard key pressed to show and hide the
+    /// keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
+    /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
+    private func keyboardOverTUI() async {
+        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        // Past the resize settle (250 ms), so every size before the toggles is counted.
+        await wait(2.5)
+        guard model.isTUI else {
+            note("done.notui")
+            return
+        }
+        let before = model.ptyResizesSent
+        note("tui.rz\(before)")
+        // Keyboard down, vim settled: the UI test's first screenshot.
+        await wait(1.6)
+        for round in 0..<5 {
+            note("show\(round)")
+            model.toggleKeyboard()
+            await wait(1.6)
+            note("hide\(round)")
+            model.toggleKeyboard()
+            await wait(1.6)
+        }
+        await wait(0.5)
+        note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    private func note(_ label: String) {
+        mark(label)
+        model.demoNote = label
+    }
+
     private func keyboardInterrupt() async {
         model.controller?.focusTerminal()
         await wait(1.5)

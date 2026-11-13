@@ -13,7 +13,9 @@ reading the helper that looked right. The sweep found three more in tests/.
           intended re-use of a name and are skipped.
 
 A redefinition that is meant (a deliberate override in the same body) has no reason to exist: keep
-the one that should win, delete the other. Exits 1 with one line per hit; 0 when clean.
+the one that should win, delete the other. Exits 1 with one line per hit; 0 when clean; 2 when a file
+does not parse (`path:line: does not parse: ...`): the file was not read, so that is no verdict, and the
+pre-push gate refuses it rather than pass a file it could not judge.
 
   python3 scripts/cmux-next/check-test-redefinitions.py [--root DIR] [FILE ...]
 
@@ -32,6 +34,12 @@ ROOT = Path(__file__).resolve().parents[2]
 INPUTS = ("tests/**/*.py",)
 INTENDED_REUSE = frozenset({"overload", "setter", "getter", "deleter"})
 DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+# Blocks a scope can sit in. `match` cases are ast.match_case, which Python 3.9 (macOS /usr/bin/python3, which
+# install-git-hooks.sh accepts) does not have: getattr, so 3.9 builds this tuple too (a 3.9 parse has no match).
+BLOCKS = (ast.stmt, ast.excepthandler, getattr(ast, "match_case", ()))
+# A file the check could not read: its line, and the exit that says "no verdict" (not 1, a verdict).
+UNPARSED = ": does not parse: "
+UNPARSED_EXIT = 2
 
 
 def _reuses_its_name(node: ast.AST) -> bool:
@@ -43,20 +51,28 @@ def _reuses_its_name(node: ast.AST) -> bool:
     return False
 
 
+def _scopes(node: ast.AST):
+    """Each `def`, `async def` or `class` that opens a scope directly under NODE's scope, at any depth of `if`,
+    `try`/`except`/`else`/`finally`, `with`, `for`, `while` or `match` blocks, never inside another scope."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, DEFINITIONS):
+            yield child
+        elif isinstance(child, BLOCKS):
+            yield from _scopes(child)
+
+
 def _bodies(tree: ast.Module):
-    """Each module or class body, with the dotted scope name a finding reports."""
+    """Each module or class body, with the dotted scope name a finding reports: one recursive visit, so each class
+    is read once, under the scope it sits in (a class in a method of a class is `Outer.method.Inner.`)."""
+    def visit(prefix: str, node: ast.AST):
+        for child in _scopes(node):
+            scope = f"{prefix}{child.name}."
+            if isinstance(child, ast.ClassDef):
+                yield scope, child.body
+            yield from visit(scope, child)
+
     yield "", tree.body
-    stack = [("", node) for node in tree.body]
-    while stack:
-        prefix, node = stack.pop()
-        if isinstance(node, ast.ClassDef):
-            scope = f"{prefix}{node.name}."
-            yield scope, node.body
-            stack.extend((scope, child) for child in node.body)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            stack.extend((f"{prefix}{node.name}.", child) for child in ast.walk(node) if isinstance(child, ast.ClassDef) and child is not node)
-        elif isinstance(node, (ast.If, ast.Try, ast.With)):
-            stack.extend((prefix, child) for child in ast.iter_child_nodes(node) if isinstance(child, ast.ClassDef))
+    yield from visit("", tree)
 
 
 def scan_source(source: str, path: str) -> list[str]:
@@ -64,7 +80,7 @@ def scan_source(source: str, path: str) -> list[str]:
     try:
         tree = ast.parse(source, path)
     except SyntaxError as error:
-        return [f"{path}:{error.lineno}: does not parse: {error.msg}"]
+        return [f"{path}:{error.lineno or 1}{UNPARSED}{error.msg}"]
     hits = []
     for scope, body in _bodies(tree):
         first: dict[str, int] = {}
@@ -72,11 +88,13 @@ def scan_source(source: str, path: str) -> list[str]:
             if not isinstance(node, DEFINITIONS) or _reuses_its_name(node):
                 continue
             if node.name in first:
-                hits.append(f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
-                            "Python keeps only this one, so the first is dead code. Keep one.")
+                hits.append((node.lineno, f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
+                             "Python keeps only this one, so the first is dead code. Keep one."))
             else:
                 first[node.name] = node.lineno
-    return sorted(hits, key=lambda hit: (hit.split(":")[0], int(hit.split(":")[1])))
+    # Sorted by line before it is text: a path may hold `:` (`tests/a:b.py`), so a line number is never read back out
+    # of a hit (#41827 review: that read crashed the checker on such a path).
+    return [hit for _, hit in sorted(hits)]
 
 
 def test_files(root: Path) -> list[Path]:
@@ -95,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         hits += scan_source(path.read_text(encoding="utf-8"), str(shown))
     for hit in hits:
         print(hit)
+    if any(UNPARSED in hit for hit in hits):
+        print("a tests/ file does not parse, so it was not checked: no verdict.", file=sys.stderr)
+        return UNPARSED_EXIT
     if hits:
         print(f"{len(hits)} redefinition(s) in tests/ (ruff F811): the earlier definition never runs.", file=sys.stderr)
         return 1

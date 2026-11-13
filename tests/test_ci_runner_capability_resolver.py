@@ -24,6 +24,8 @@ RESOLVER = ROOT / "scripts" / "ci" / "resolve_runners.py"
 REAL_MAP = ROOT / ".github" / "runners.json"
 REUSABLE_WORKFLOW = ROOT / ".github" / "workflows" / "resolve-runners.yml"
 PROOF_WORKFLOW = ROOT / ".github" / "workflows" / "ios-app-store.yml"
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("resolve_runners", RESOLVER)
 assert spec and spec.loader
@@ -336,8 +338,8 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
-                    job["runs-on"],
-                    '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+                    workflow_jobs.runs_on_cells(job),
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
                 )
 
 
