@@ -74,7 +74,7 @@ async fn client_and_daemon_resume_after_a_disconnect() {
     assert_eq!(frame.kind, FrameKind::Request);
     let value: Value = frame.decode_json().unwrap();
     assert_eq!(value.get("method"), Some(&Value::String("sub".into())));
-    assert_eq!(value.pointer("/params/cursor"), Some(&Value::from(0_u64)));
+    assert_eq!(value.pointer("/params/cursor"), Some(&Value::from(1_u64)));
     send_bytes(&mut stream, request).await;
     let first = read_frame(&mut stream).await;
     assert!(matches!(first.kind, FrameKind::Window | FrameKind::Delta));
