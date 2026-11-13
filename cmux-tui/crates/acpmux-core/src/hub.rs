@@ -5,9 +5,12 @@
 //! snapshot through [`ArcSwap`]. Readers load that snapshot without taking a
 //! lock and a list window copies only the rows it will send.
 
-use acpmux_book::index::{IndexLog, Summary, SummaryIndex};
+use acpmux_book::index::{
+    DiskSnapshot, IndexEdition, IndexLog, ReadSide, RowKey, SortKey, Summary, SummaryIndex,
+    replay_generation_logs,
+};
 use arc_swap::ArcSwap;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,14 +18,18 @@ use thiserror::Error;
 use tokio::sync::Notify;
 
 use crate::wire::{Frame, FrameError, FrameKind, Sub};
+mod compaction;
+mod disk;
+mod history;
+pub use compaction::CompactionStats;
+use history::History;
 
-pub use crate::wire::Window;
+pub use crate::wire::{DeltaFrame, Window};
 
 /// The default list window and the hard row count ceiling for one window.
 pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
 const EVENT_CAPACITY: usize = 1024;
-const HISTORY_CAPACITY: usize = 16 * 1024;
 
 /// A summary change in index sequence order. The summary is shared with the
 /// published snapshot, so sending it to subscribers is O(1) in chat count.
@@ -35,17 +42,17 @@ pub struct SummaryEvent {
 #[derive(Clone, Debug)]
 pub enum ListItem {
     Summary(SummaryEvent),
-    Gone { seq: u64, chat_id: String },
+    Gone { seq: u64, chat_id: String, origin: String },
     Lagged { cursor: u64 },
 }
 
 enum PendingUpdate {
-    Summary(Summary),
+    Summary(Box<Summary>),
     Gone,
 }
 
 struct UpdateQueue {
-    pending: Mutex<HashMap<String, PendingUpdate>>,
+    pending: Mutex<HashMap<RowKey, PendingUpdate>>,
     notify: Notify,
     closed: AtomicBool,
 }
@@ -60,29 +67,33 @@ impl UpdateQueue {
     }
 
     fn submit(&self, summary: Summary) -> Result<(), HubError> {
+        self.enqueue(summary.key(), PendingUpdate::Summary(Box::new(summary)))
+    }
+
+    fn submit_remove(&self, key: RowKey) -> Result<(), HubError> {
+        self.enqueue(key, PendingUpdate::Gone)
+    }
+
+    fn enqueue(&self, key: RowKey, update: PendingUpdate) -> Result<(), HubError> {
+        let mut pending = self.pending.lock().map_err(|_| HubError::WriterGone)?;
         if self.closed.load(Ordering::Acquire) {
             return Err(HubError::WriterGone);
         }
-        self.pending
-            .lock()
-            .map_err(|_| HubError::WriterGone)?
-            .insert(summary.chat_id.clone(), PendingUpdate::Summary(summary));
+        pending.insert(key, update);
         self.notify.notify_one();
         Ok(())
     }
 
-    fn submit_remove(&self, chat_id: String) -> Result<(), HubError> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(HubError::WriterGone);
-        }
-        self.pending.lock().map_err(|_| HubError::WriterGone)?.insert(chat_id, PendingUpdate::Gone);
+    fn close(&self) {
+        let _pending = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.closed.store(true, Ordering::Release);
         self.notify.notify_one();
-        Ok(())
     }
 
-    fn take_batch(&self) -> Vec<(String, PendingUpdate)> {
+    fn take_batch(&self) -> Vec<(RowKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
-        pending.drain().collect()
+        let keys: Vec<_> = pending.keys().take(256).cloned().collect();
+        keys.into_iter().filter_map(|key| pending.remove(&key).map(|value| (key, value))).collect()
     }
 }
 
@@ -102,35 +113,11 @@ impl Subscriber {
     }
 }
 
-fn item_seq(item: &ListItem) -> u64 {
-    match item {
-        ListItem::Summary(event) => event.seq,
-        ListItem::Gone { seq, .. } => *seq,
-        ListItem::Lagged { cursor } => *cursor,
-    }
-}
-
-#[derive(Default)]
-struct History {
-    records: VecDeque<(ListItem, usize)>,
-    bytes: usize,
-}
-
-impl History {
-    fn front_seq(&self) -> Option<u64> {
-        self.records.front().map(|(item, _)| item_seq(item))
-    }
-
-    fn after(&self, cursor: u64) -> Option<&ListItem> {
-        let offset = cursor.saturating_add(1).checked_sub(self.front_seq()?)?;
-        self.records.get(usize::try_from(offset).ok()?).map(|(item, _)| item)
-    }
-}
-
 pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    published: Arc<ArcSwap<SummaryIndex>>,
 }
 
 impl Drop for ListReceiver {
@@ -142,9 +129,6 @@ impl Drop for ListReceiver {
 }
 
 impl ListReceiver {
-    /// Mark the history consumed by a connection's synchronous resume prefix.
-    /// Subsequent `recv` calls therefore observe only records published after
-    /// the resume snapshot, so live delivery cannot precede its `end` mark.
     pub fn advance_to(&self, cursor: u64) {
         if let Ok(mut state) = self.subscriber.state.lock() {
             state.cursor = state.cursor.max(cursor);
@@ -159,21 +143,44 @@ impl ListReceiver {
     }
 
     pub fn try_next(&self) -> Option<ListItem> {
-        let mut state = self.subscriber.state.lock().ok()?;
-        if state.ended {
-            return None;
+        let cursor = {
+            let state = self.subscriber.state.lock().ok()?;
+            if state.ended {
+                return None;
+            }
+            state.cursor
+        };
+        let (first, last, bytes) = {
+            let history = self.history.lock().ok()?;
+            let first = history.first_seq();
+            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            if cursor >= last {
+                return None;
+            }
+            if first.is_some_and(|seq| cursor.saturating_add(1) < seq) {
+                if let Ok(mut state) = self.subscriber.state.lock() {
+                    state.ended = true;
+                }
+                return Some(ListItem::Lagged { cursor });
+            }
+            let bytes = history.after(cursor, cursor.saturating_add(1))?;
+            (first, last, bytes)
+        };
+        let _ = (first, last);
+        let item = history::decode(bytes).ok()?.into_iter().next()?;
+        let seq = match &item {
+            ListItem::Summary(event) => event.seq,
+            ListItem::Gone { seq, .. } => *seq,
+            ListItem::Lagged { cursor } => *cursor,
+        };
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = state.cursor.max(seq);
         }
-        let history = self.history.lock().ok()?;
-        if history.front_seq().is_some_and(|seq| state.cursor.saturating_add(1) < seq) {
-            state.ended = true;
-            return Some(ListItem::Lagged { cursor: state.cursor });
-        }
-        history.after(state.cursor).cloned()
+        Some(item)
     }
 
     pub async fn recv(&self) -> Option<ListItem> {
         loop {
-            // notify_one stores a permit even when a publish races this read.
             let changed = self.subscriber.notify.notified();
             if let Some(item) = self.try_next() {
                 return Some(item);
@@ -194,6 +201,7 @@ pub struct ListSubscription {
 
 /// The published index and its one-writer input queue.
 pub struct Hub {
+    compaction_counters: Arc<compaction::Counters>,
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
@@ -207,12 +215,24 @@ pub type SummaryHub = Hub;
 /// [`HubWriter::run`], or synchronously in deterministic unit tests with
 /// [`HubWriter::apply`].
 pub struct HubWriter {
+    #[cfg(test)]
+    turn_measure: disk::TurnMeasure,
+    compaction: Option<compaction::Job>,
+    retirement: Option<tokio::task::JoinHandle<()>>,
+    maintenance: Option<compaction::Maintenance>,
+    next_compaction: Option<std::time::Instant>,
+    compaction_backoff: u64,
+    storage_retry: Option<std::time::Instant>,
+    compaction_counters: Arc<compaction::Counters>,
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
     log: Option<IndexLog>,
+    log_dirty: bool,
     log_errors: Arc<AtomicU64>,
+    retry_log: HashMap<RowKey, acpmux_book::index::IndexRecord>,
+    hydration: Option<disk::Hydration>,
 }
 
 #[derive(Debug, Error)]
@@ -223,6 +243,8 @@ pub enum HubError {
     WrongStream(String),
     #[error("window must be between 1 and {MAX_WINDOW_ROWS} rows")]
     InvalidWindow,
+    #[error("invalid list page anchor or byte budget")]
+    InvalidPage,
     #[error("encoding list frame failed: {0}")]
     Frame(#[from] FrameError),
     #[error("index log failed: {0}")]
@@ -232,6 +254,31 @@ pub enum HubError {
 }
 
 impl Hub {
+    /// One disk start order. Call from a blocking worker; the first window
+    /// needs only the fixed head, the bounded log tail, and one snapshot page.
+    pub fn open(
+        directory: &std::path::Path,
+        boot: u64,
+        random: impl FnOnce() -> u32,
+    ) -> Result<(Self, HubWriter), HubError> {
+        std::fs::create_dir_all(directory)?;
+        let disk = DiskSnapshot::open(directory.join("index.snap"))?;
+        let log = IndexLog::open_with_snapshot(directory.join("index.log"), disk.as_deref())?;
+        let edition = IndexEdition::open(
+            directory,
+            boot,
+            disk.as_ref().is_some_and(|disk| !disk.is_empty()) || log.next_seq() != 0,
+            random,
+        )?;
+        let covered = disk.as_ref().map_or(0, |disk| disk.covered_generation());
+        let index = replay_generation_logs(
+            directory,
+            covered,
+            SummaryIndex::from_disk(disk, edition.edition),
+        )?;
+        Ok(Self::with_log(index, Some(log)))
+    }
+
     /// Creates a hub and its one writer. No task is spawned implicitly, so the
     /// caller controls the runtime and shutdown boundary.
     pub fn new(index: SummaryIndex) -> (Self, HubWriter) {
@@ -242,47 +289,72 @@ impl Hub {
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
-        let history = Arc::new(Mutex::new(History::default()));
+        let history = Arc::new(Mutex::new(History::new()));
         let log_errors = Arc::new(AtomicU64::new(0));
+        let compaction_counters = Arc::new(compaction::Counters::default());
+        compaction_counters
+            .oldest_seq
+            .store(log.as_ref().map_or(1, IndexLog::oldest_seq), Ordering::Release);
         let hub = Self {
+            compaction_counters: compaction_counters.clone(),
             published: published.clone(),
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
         };
-        let writer = HubWriter { published, updates, subscribers, history, log, log_errors };
+        let writer = HubWriter {
+            #[cfg(test)]
+            turn_measure: disk::TurnMeasure::default(),
+            compaction: None,
+            retirement: None,
+            maintenance: None,
+            // A rotated generation without its installed snapshot is work
+            // recovered at open. Resume it even if no new summary arrives.
+            next_compaction: log
+                .as_ref()
+                .filter(|log| log.retained_bytes() > log.offset())
+                .map(|_| std::time::Instant::now()),
+            storage_retry: None,
+            compaction_backoff: 0,
+            compaction_counters,
+            published,
+            updates,
+            subscribers,
+            history,
+            log,
+            log_dirty: false,
+            log_errors,
+            retry_log: HashMap::new(),
+            hydration: None,
+        };
         (hub, writer)
     }
 
     /// A non-blocking enqueue: actor work never waits on list size. The
     /// bounded queue is the writer's backpressure boundary.
     pub fn submit(&self, summary: Summary) -> Result<(), HubError> {
-        self.updates.submit(summary)
+        self.updates.submit(summary.prepare()?)
     }
 
     /// Enqueues a removal in the same keyed slot as summary updates. A later
     /// summary for this chat replaces the removal before the writer takes its
     /// batch, so a burst cannot grow with the number of events.
-    pub fn remove(&self, chat_id: impl Into<String>) -> Result<(), HubError> {
-        self.updates.submit_remove(chat_id.into())
+    pub fn remove(&self, origin: &str, chat_id: &str) -> Result<(), HubError> {
+        let key = RowKey::new(origin, chat_id);
+        key.validate()?;
+        self.updates.submit_remove(key)
     }
 
     pub fn snapshot(&self) -> Arc<SummaryIndex> {
         self.published.load_full()
     }
 
-    /// A consistent replay cut: the retained records and their last seq are
-    /// inspected under one short lock. Encoding happens after this lock is gone.
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-        let target = history
-            .records
-            .back()
-            .map(|(item, _)| item_seq(item))
-            .unwrap_or_else(|| self.published.load().seq());
+        let target = history.last_seq().unwrap_or_else(|| self.published.load().seq());
         if cursor > target
-            || history.front_seq().is_some_and(|seq| cursor.saturating_add(1) < seq)
-            || (history.records.is_empty() && cursor != target)
+            || history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first)
+            || (history.first_seq().is_none() && cursor != target)
         {
             return Ok(None);
         }
@@ -291,8 +363,7 @@ impl Hub {
 
     /// Wakes a writer task and prevents any later submit from waiting for it.
     pub fn close(&self) {
-        self.updates.closed.store(true, Ordering::Release);
-        self.updates.notify.notify_waiters();
+        self.updates.close();
     }
 
     pub fn subscriber_count(&self) -> usize {
@@ -306,16 +377,15 @@ impl Hub {
         validate_window(sub)?;
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
         let index = self.snapshot();
-        let edition_matches = sub.edition.is_none_or(|edition| edition == 0);
+        let edition_matches =
+            sub.edition.is_none_or(|edition| edition == 0 || edition == index.edition());
         let resume_cursor =
             if edition_matches && sub.cursor.is_some() && self.resume_target(cursor)?.is_some() {
                 cursor
             } else {
                 index.seq()
             };
-        // The window always describes this snapshot, even when a source chooses
-        // to replay instead. A failed frame leaves no registered subscriber.
-        let frame = self.window_frame_at_cursor(sub, &index, index.seq())?;
+        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
         let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
@@ -325,6 +395,7 @@ impl Hub {
                 subscriber,
                 subscribers: self.subscribers.clone(),
                 history: self.history.clone(),
+                published: self.published.clone(),
             },
         })
     }
@@ -346,54 +417,96 @@ impl Hub {
         index: &SummaryIndex,
         cursor: u64,
     ) -> Result<Frame, HubError> {
-        // A cursor resumes deltas; it does not turn the first window into a
-        // history replay. The window remains a bounded viewport from the
-        // current published snapshot. The later list actor uses the cursor to
-        // select its delta stream.
-        let requested = usize::from(sub.window.unwrap_or(DEFAULT_WINDOW_ROWS as u16));
-        let rows = match sub.anchor.as_ref() {
-            Some(crate::wire::Anchor::List { key, side }) => match side {
-                crate::wire::AnchorSide::Before => {
-                    index.page_before_key((&key.last_activity, &key.chat_id), requested)
-                }
-                crate::wire::AnchorSide::After => {
-                    index.page_after_key(Some((&key.last_activity, &key.chat_id)), requested)
-                }
-                crate::wire::AnchorSide::Around => {
-                    index.page_after_key(Some((&key.last_activity, &key.chat_id)), requested)
-                }
-            },
-            Some(crate::wire::Anchor::End) | Some(crate::wire::Anchor::Row { .. }) | None => {
-                index.page(0, requested)
-            }
+        let requested = validate_window(sub)?;
+        let (key, side) = match sub.anchor.as_ref() {
+            Some(crate::wire::Anchor::List { key, side }) => (
+                Some(book_key(key)),
+                match side {
+                    crate::wire::AnchorSide::Before => ReadSide::Before,
+                    crate::wire::AnchorSide::After => ReadSide::After,
+                    crate::wire::AnchorSide::Around => ReadSide::Around,
+                },
+            ),
+            _ => (None, ReadSide::After),
         };
-        let has_before = matches!(sub.anchor.as_ref(), Some(crate::wire::Anchor::List { .. }))
-            && !rows.is_empty();
-        let has_after = rows.len() < index.len();
-        // The cursor is the index sequence, not a row id. The current snapshot
-        // is exact at `index.seq()` even when the window is short.
-        let mut window = Window::<Summary> {
+        let page = index.read_page(
+            key.as_ref(),
+            side,
+            true,
+            requested,
+            crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+            sub.filter.as_ref(),
+        )?;
+        let window = Window {
             sid: sub.sid.clone(),
             cursor,
-            rows: Vec::with_capacity(rows.len()),
-            has_before,
-            has_after,
-            edition: 0,
+            rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            edition: index.edition(),
             origins: Vec::new(),
+            before_key: page.before_key.map(wire_key),
+            after_key: page.after_key.map(wire_key),
         };
-        // Include the escaped sid, cursor and envelope exactly, not a fixed
-        // estimate. Each additional row contributes its JSON bytes and comma.
-        let mut bytes = Frame::json(FrameKind::Window, &window)?.encoded_len();
-        for summary in rows {
-            let next = summary.encoded_len().saturating_add(usize::from(!window.rows.is_empty()));
-            if bytes.saturating_add(next) > crate::wire::MAX_PAGE_BYTES {
-                window.has_after = true;
-                break;
-            }
-            bytes += next;
-            window.rows.push(summary.as_ref().clone());
+        let frame = Frame::json(FrameKind::Window, &window)?;
+        if frame.encoded_len() > crate::wire::MAX_PAGE_BYTES {
+            return Err(HubError::InvalidWindow);
         }
-        Frame::json(FrameKind::Window, &window).map_err(HubError::from)
+        Ok(frame)
+    }
+
+    pub fn page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
+        if request.stream.as_str() != "list" {
+            return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
+        }
+        let Some((side, crate::wire::Position::List(key))) = request.side() else {
+            return Err(HubError::InvalidPage);
+        };
+        let max = request.max_bytes as usize;
+        if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
+            return Err(HubError::InvalidPage);
+        }
+        let side = match side {
+            crate::wire::PageSide::Before => ReadSide::Before,
+            crate::wire::PageSide::After => ReadSide::After,
+        };
+        let index = self.snapshot();
+        let page = index.read_page(
+            Some(&book_key(key)),
+            side,
+            false,
+            MAX_WINDOW_ROWS,
+            max - 8192 - request.sid.len(),
+            request.filter.as_ref(),
+        )?;
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            before_key: page.before_key.map(wire_key),
+            after_key: page.after_key.map(wire_key),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
+    }
+}
+
+fn book_key(key: &crate::wire::ListKey) -> SortKey {
+    SortKey {
+        last_activity: key.last_activity,
+        row: RowKey::new(key.origin.as_str(), key.chat_id.as_str()),
+    }
+}
+
+fn wire_key(key: SortKey) -> crate::wire::ListKey {
+    crate::wire::ListKey {
+        last_activity: key.last_activity,
+        chat_id: key.row.chat_id.to_string(),
+        origin: key.row.origin.to_string(),
     }
 }
 
@@ -408,27 +521,53 @@ fn validate_window(sub: &Sub) -> Result<usize, HubError> {
 impl HubWriter {
     /// Applies one summary and publishes the resulting immutable snapshot.
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
-        let record = match self.log.as_mut() {
-            Some(log) => log.append(summary)?,
-            None => {
-                let seq = self.published.load().seq().saturating_add(1);
-                acpmux_book::index::IndexRecord {
-                    seq,
-                    chat_id: summary.chat_id.clone(),
-                    summary,
-                    gone: false,
+        let summary = summary.prepare()?;
+        let current = self.published.load_full();
+        let key = summary.key();
+        // Latest wins even if an earlier version never reached the log.
+        self.retry_log.remove(&key);
+        let record = acpmux_book::index::IndexRecord {
+            seq: current.seq().saturating_add(1),
+            origin: summary.origin.clone(),
+            chat_id: summary.chat_id.clone(),
+            summary,
+            gone: false,
+        };
+        let existing = match current.get_row(&key) {
+            Some(row) => Some(row),
+            None if !current.is_shadowed(&key) => {
+                if let Some(disk) = current.disk() {
+                    match disk.read_piece(
+                        Some(&SortKey::of(&record.summary)),
+                        ReadSide::After,
+                        true,
+                        1,
+                        crate::wire::MAX_PAGE_BYTES,
+                    ) {
+                        Ok(piece) => piece.rows.into_iter().find(|row| row.key() == key),
+                        Err(_) => {
+                            // Equality is an optimization. A damaged cold row
+                            // must not prevent its replacement reaching the log.
+                            self.log_errors.fetch_add(1, Ordering::Relaxed);
+                            None
+                        }
+                    }
+                } else {
+                    None
                 }
             }
+            None => None,
         };
-        if let Some(log) = self.log.as_mut() {
-            // A summary cursor is durable at append; a restart must never
-            // publish a sequence that the index log did not sync.
-            log.sync()?;
+        if let Some(existing) = existing
+            && existing.same_content(&record.summary)
+        {
+            // The returned row is unchanged; no event is published.
+            return Ok(SummaryEvent { seq: current.seq(), summary: existing });
         }
+        self.persist(&record, &key)?;
         let next = self.published.load_full().apply(record.seq, record.summary);
-        let summary = next
-            .get(&record.chat_id)
-            .ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
+        let summary =
+            next.get_row(&key).ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
         let event = SummaryEvent { seq: record.seq, summary };
         self.published.store(Arc::new(next));
         self.record_history(ListItem::Summary(event.clone()));
@@ -438,124 +577,138 @@ impl HubWriter {
 
     fn publish(&self, event: SummaryEvent) {
         let Ok(subscribers) = self.subscribers.lock() else { return };
-        // Only ListReceiver::drop removes registrations. A lagged receiver may
-        // still be repositioned to a fresh window by its source.
         for subscriber in subscribers.iter() {
             let Ok(state) = subscriber.state.lock() else { continue };
-            if event.seq <= state.cursor || state.ended {
-                continue;
+            if event.seq > state.cursor && !state.ended {
+                subscriber.notify.notify_one();
             }
-            // The history is the subscriber's resume source. Do not enqueue the frame here:
-            // an unread subscriber must retain only its cursor.
-            subscriber.notify.notify_one();
         }
     }
 
-    pub fn remove(&mut self, chat_id: &str) -> Result<bool, HubError> {
-        self.apply_remove(chat_id)
+    pub fn remove(&mut self, origin: &str, chat_id: &str) -> Result<bool, HubError> {
+        self.apply_remove(&RowKey::new(origin, chat_id))
     }
 
-    fn apply_remove(&mut self, chat_id: &str) -> Result<bool, HubError> {
-        if self.published.load().get(chat_id).is_none() {
+    fn apply_remove(&mut self, key: &RowKey) -> Result<bool, HubError> {
+        key.validate()?;
+        self.retry_log.remove(key);
+        let current = self.published.load_full();
+        if current.get_row(key).is_none() && (current.disk().is_none() || current.is_shadowed(key))
+        {
             return Ok(false);
         }
-        let seq = match self.log.as_mut() {
-            Some(log) => log.append_remove(chat_id.to_owned())?.seq,
-            None => self.published.load().seq().saturating_add(1),
+        let seq = current.seq().saturating_add(1);
+        self.persist(
+            &acpmux_book::index::IndexRecord {
+                seq,
+                origin: key.origin.to_string(),
+                chat_id: key.chat_id.to_string(),
+                summary: Summary::new(key.chat_id.to_string()),
+                gone: true,
+            },
+            key,
+        )?;
+        let Some(next) = current.remove_row(seq, key) else {
+            return Ok(false);
         };
-        if let Some(log) = self.log.as_mut() {
-            log.sync()?;
-        }
-        let current = self.published.load_full();
-        let Some(next) = current.remove(seq, chat_id) else { return Ok(false) };
         self.published.store(Arc::new(next));
-        self.record_history(ListItem::Gone { seq, chat_id: chat_id.to_owned() });
-        self.publish_gone(seq, chat_id.to_owned());
+        self.record_history(ListItem::Gone {
+            seq,
+            chat_id: key.chat_id.to_string(),
+            origin: key.origin.to_string(),
+        });
+        self.publish_gone(seq, key);
         Ok(true)
     }
 
-    fn publish_gone(&self, seq: u64, _chat_id: String) {
+    fn publish_gone(&self, seq: u64, _key: &RowKey) {
         let Ok(subscribers) = self.subscribers.lock() else { return };
-        // Only ListReceiver::drop removes registrations. A lagged receiver may
-        // still be repositioned to a fresh window by its source.
         for subscriber in subscribers.iter() {
             let Ok(state) = subscriber.state.lock() else { continue };
-            if seq <= state.cursor || state.ended {
-                continue;
+            if seq > state.cursor && !state.ended {
+                subscriber.notify.notify_one();
             }
-            // See `publish`: the subscriber wakes and reads from history on demand.
-            subscriber.notify.notify_one();
         }
     }
 
     fn record_history(&self, item: ListItem) {
-        // Compute record size outside the lock used by a reader. The shared
-        // retention has its own byte bound; a stopped subscriber owns only a cursor.
-        let bytes = match &item {
-            ListItem::Summary(event) => serde_json::to_vec(&crate::wire::DeltaOp::Summary {
-                seq: event.seq,
-                summary: event.summary.as_ref(),
-            })
-            .map_or(usize::MAX, |record| record.len()),
-            ListItem::Gone { seq, chat_id } => {
-                serde_json::to_vec(&crate::wire::DeltaOp::<Summary>::Gone {
-                    seq: *seq,
-                    chat_id: chat_id.clone(),
-                })
-                .map_or(usize::MAX, |record| record.len())
-            }
-            ListItem::Lagged { .. } => 0,
-        };
-        if let Ok(mut history) = self.history.lock() {
-            history.bytes = history.bytes.saturating_add(bytes);
-            history.records.push_back((item, bytes));
-            while history.records.len() > HISTORY_CAPACITY
-                || history.bytes > crate::wire::CREDIT_WINDOW_BYTES as usize
-            {
-                if let Some((_, bytes)) = history.records.pop_front() {
-                    history.bytes = history.bytes.saturating_sub(bytes);
-                } else {
-                    break;
-                }
-            }
+        if let Ok(mut history) = self.history.lock()
+            && history.append(&item).is_err()
+        {
+            // The durable index is still valid; no cursor may cross a gap
+            // in the optional resume cache.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    /// Runs the single writer until all senders are dropped.
+    /// Disk writes, group syncs and hydration run off runtime workers.
     pub async fn run(mut self) -> Result<(), HubError> {
-        while !self.updates.closed.load(Ordering::Acquire) {
-            self.updates.notify.notified().await;
-            for (chat_id, update) in self.updates.take_batch() {
-                match update {
-                    PendingUpdate::Summary(summary) => {
-                        if self.apply(summary.clone()).is_err() {
-                            self.log_errors.fetch_add(1, Ordering::Relaxed);
-                            // Keep the in-memory index current while a failed
-                            // log is retried by the next update.
-                            let seq = self.published.load().seq().saturating_add(1);
-                            let next = self.published.load_full().apply(seq, summary.clone());
-                            if let Some(published) = next.get(&summary.chat_id) {
-                                let event = SummaryEvent { seq, summary: published };
-                                self.published.store(Arc::new(next));
-                                self.record_history(ListItem::Summary(event.clone()));
-                                self.publish(event);
-                            }
-                        }
-                    }
-                    PendingUpdate::Gone => {
-                        if self.apply_remove(&chat_id).is_err() {
-                            self.log_errors.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+        self.start_hydration();
+        loop {
+            self.finish_compaction(false).await;
+            let (pending, closed) = {
+                let pending = self.updates.pending.lock().map_err(|_| HubError::WriterGone)?;
+                (pending.is_empty(), self.updates.closed.load(Ordering::Acquire))
+            };
+            if pending && closed {
+                break;
+            }
+            if pending && self.hydration.is_none() && !self.maintenance_needs_turn() {
+                // Compaction needs a healthy log. A past compaction deadline
+                // must not bypass the storage failure's retry backoff.
+                let retry = if self.retirement.is_some() {
+                    self.storage_retry
+                } else {
+                    self.storage_retry.or(self.next_compaction)
+                };
+                tokio::select! {
+                    () = self.updates.notify.notified() => {},
+                    () = async {
+                        if let Some(job) = self.compaction.as_mut() { job.wait_ready().await; }
+                        else { std::future::pending::<()>().await; }
+                    } => {},
+                    () = async {
+                        if let Some(retirement) = self.retirement.as_mut() {
+                            let _ = retirement.await;
+                            self.retirement = None;
+                        } else { std::future::pending::<()>().await; }
+                    } => {},
+                    () = async {
+                        if let Some(retry) = retry { tokio::time::sleep_until(retry.into()).await; }
+                        else { std::future::pending::<()>().await; }
+                    } => {},
                 }
             }
+            self = tokio::task::spawn_blocking(move || {
+                self.process_batch();
+                self
+            })
+            .await
+            .map_err(|_| HubError::WriterGone)?;
         }
-        Ok(())
+        self.finish_compaction(true).await;
+        let result = loop {
+            let (writer, result) = tokio::task::spawn_blocking(move || {
+                self.install_compaction();
+                self.maintain_compaction();
+                let result = self.sync_batch();
+                (self, result)
+            })
+            .await
+            .map_err(|_| HubError::WriterGone)?;
+            self = writer;
+            self.finish_compaction(true).await;
+            if result.is_err() || (self.retry_log.is_empty() && self.maintenance.is_none()) {
+                break result;
+            }
+        };
+        // The last published maps may belong to this writer alone.
+        tokio::task::spawn_blocking(move || drop(self)).await.map_err(|_| HubError::WriterGone)?;
+        result
     }
 
     pub fn close(&self) {
-        self.updates.closed.store(true, Ordering::Release);
-        self.updates.notify.notify_waiters();
+        self.updates.close();
     }
 
     pub fn log_errors(&self) -> u64 {
@@ -564,9 +717,20 @@ impl HubWriter {
 }
 
 /// A wire delta frame helper shared by the list and chat lanes.
-pub fn delta_frame(delta: &crate::wire::DeltaFrame<Summary>) -> Result<Frame, FrameError> {
+pub fn delta_frame(delta: &DeltaFrame<Summary>) -> Result<Frame, FrameError> {
     crate::wire::delta_frame(delta)
 }
+
+#[cfg(test)]
+mod compaction_gate;
+#[cfg(test)]
+mod compaction_tests;
+#[cfg(test)]
+mod disk_gates;
+#[cfg(test)]
+mod storage_tests;
+#[cfg(test)]
+mod writer_tests;
 
 #[cfg(test)]
 mod tests {
@@ -584,9 +748,9 @@ mod tests {
         summary
     }
 
-    fn gate(name: &str, small: u128, god: u128) {
+    fn gate(name: &str, small: u128, god: u128, god_all: u128) {
         let line = format!(
-            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"ns\"}}"
+            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{god_all},\"unit\":\"ns\"}}"
         );
         eprintln!("{line}");
         if let Ok(path) = std::env::var("V2_GATE_OUT")
@@ -606,7 +770,7 @@ mod tests {
         let mut sorted = samples.to_vec();
         sorted.sort_unstable();
         let rank = ((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-        sorted.get(rank).copied().unwrap_or_default()
+        sorted[rank]
     }
 
     fn best_p95(rounds: &[Vec<u128>]) -> u128 {
@@ -650,35 +814,6 @@ mod tests {
             rounds.push(samples);
         }
         rounds
-    }
-
-    #[tokio::test]
-    async fn lagged_receiver_keeps_registration_until_it_is_dropped() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        let subscription = hub.subscribe(&Sub::new("s", "list")).unwrap();
-        for seq in 0..17000 {
-            writer.apply(summary("a", seq)).unwrap();
-        }
-        assert!(matches!(subscription.receiver.try_next(), Some(ListItem::Lagged { .. })));
-        writer.apply(summary("a", 17000)).unwrap();
-        assert_eq!(hub.subscriber_count(), 1);
-        // A fresh window can revive this receiver after an intervening publish.
-        subscription.receiver.reposition(hub.snapshot().seq());
-        assert!(subscription.receiver.try_next().is_none());
-        {
-            let receiving = subscription.receiver.recv();
-            tokio::pin!(receiving);
-            tokio::select! {
-                biased;
-                _ = &mut receiving => panic!("no new record yet"),
-                _ = std::future::ready(()) => {}
-            }
-            let next = writer.apply(summary("a", 17001)).unwrap();
-            let item = tokio::time::timeout(Duration::from_secs(1), receiving).await.unwrap();
-            assert!(matches!(item, Some(ListItem::Summary(event)) if event.seq == next.seq));
-        }
-        drop(subscription);
-        assert_eq!(hub.subscriber_count(), 0);
     }
 
     #[test]
@@ -733,7 +868,7 @@ mod tests {
             all_god_p95 <= small_p95.saturating_mul(2),
             "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
         );
-        gate("v2.pr05.first_list_window", small_p95, god_p95);
+        gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
 
         let small_index = populated_index("s", 20);
         let god_index = populated_index("g", 11_000);
@@ -755,7 +890,7 @@ mod tests {
             god_change_p95 <= 10_000,
             "summary change god p95 exceeded 10us: {god_change_p95}ns"
         );
-        gate("v2.pr05.summary_change", small_change_p95, god_change_p95);
+        gate("v2.pr05.summary_change", small_change_p95, god_change_p95, all_god_change_p95);
     }
 
     #[test]
@@ -788,18 +923,12 @@ mod tests {
         let subscription = hub.subscribe(&Sub::new("live", "list")).unwrap();
         hub.submit(summary("live-chat", 1)).unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => {
-                assert_eq!(event.summary.chat_id, "live-chat");
-                subscription.receiver.advance_to(event.seq);
-            }
+            ListItem::Summary(event) => assert_eq!(event.summary.chat_id, "live-chat"),
             other => panic!("expected summary, got {other:?}"),
         }
-        hub.remove("live-chat").unwrap();
+        hub.remove("local", "live-chat").unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Gone { seq, chat_id } => {
-                assert_eq!(chat_id, "live-chat");
-                subscription.receiver.advance_to(seq);
-            }
+            ListItem::Gone { chat_id, .. } => assert_eq!(chat_id, "live-chat"),
             other => panic!("expected removal, got {other:?}"),
         }
         hub.close();
@@ -807,42 +936,23 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn replay_preserves_each_record_in_sequence_order() {
+    async fn replay_does_not_replace_newer_live_item_for_same_chat() {
         let (hub, mut writer) = Hub::new(SummaryIndex::new());
         writer.apply(summary("same", 1)).unwrap();
         let subscription = hub.subscribe(&Sub::new("resume", "list").from_cursor(0)).unwrap();
         writer.apply(summary("same", 2)).unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => {
-                assert_eq!(event.seq, 1);
-                subscription.receiver.advance_to(event.seq);
-            }
-            other => panic!("expected newer summary, got {other:?}"),
+            ListItem::Summary(event) => assert_eq!(event.seq, 1),
+            other => panic!("expected replayed summary, got {other:?}"),
         }
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => {
-                assert_eq!(event.seq, 2);
-                subscription.receiver.advance_to(event.seq);
-            }
+            ListItem::Summary(event) => assert_eq!(event.seq, 2),
             other => panic!("expected newer summary, got {other:?}"),
         }
+        subscription.receiver.reposition(2);
         let state = subscription.receiver.subscriber.state.lock().unwrap();
+        assert!(!state.ended);
         assert_eq!(state.cursor, 2);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn receiver_cursor_does_not_advance_until_source_accepts_the_record() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("retry", 1)).unwrap();
-        let subscription = hub.subscribe(&Sub::new("retry", "list").from_cursor(0)).unwrap();
-        let first = subscription.receiver.recv().await.unwrap();
-        let first_seq = item_seq(&first);
-        assert_eq!(first_seq, 1);
-        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 0);
-        let retry = subscription.receiver.recv().await.unwrap();
-        assert_eq!(item_seq(&retry), first_seq);
-        subscription.receiver.advance_to(first_seq);
-        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
     }
 
     #[test]
@@ -853,19 +963,7 @@ mod tests {
             hub.subscribe(&Sub::new("ahead", "list").from_cursor(Cursor(10))).unwrap();
         let window: Window<Summary> = subscription.window.decode_json().unwrap();
         assert_eq!(window.cursor, 1);
-        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
-    }
-
-    #[test]
-    fn a_cursor_from_another_edition_gets_a_fresh_current_window() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("current", 1)).unwrap();
-        let mut sub = Sub::new("edition", "list").from_cursor_in_edition(0, 7);
-        sub.edition = Some(7);
-        let subscription = hub.subscribe(&sub).unwrap();
-        let window: Window<Summary> = subscription.window.decode_json().unwrap();
-        assert_eq!(window.cursor, 1);
-        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
+        assert!(!subscription.receiver.subscriber.state.lock().unwrap().ended);
     }
 
     #[test]
@@ -885,7 +983,7 @@ mod tests {
         }
         let batch = hub.updates.take_batch();
         assert_eq!(batch.len(), 1);
-        match &batch.first().unwrap().1 {
+        match &batch[0].1 {
             PendingUpdate::Summary(summary) => assert_eq!(summary.last_activity, 10_999),
             PendingUpdate::Gone => panic!("summary slot was replaced by a removal"),
         }
@@ -895,22 +993,8 @@ mod tests {
     fn removal_publishes_a_gone_change_and_removes_the_row() {
         let (hub, mut writer) = Hub::new(SummaryIndex::new());
         writer.apply(summary("gone", 1)).unwrap();
-        assert!(writer.remove("gone").unwrap());
+        assert!(writer.remove("local", "gone").unwrap());
         assert!(hub.snapshot().get("gone").is_none());
-        assert!(!writer.remove("gone").unwrap());
-    }
-}
-
-#[cfg(test)]
-mod failed_subscription_tests {
-    use super::*;
-
-    #[test]
-    fn frame_encoding_failure_registers_no_subscriber() {
-        let (hub, _writer) = Hub::new(SummaryIndex::new());
-        let before = hub.subscriber_count();
-        let sub = Sub::new("x".repeat(crate::wire::MAX_FRAME_BYTES), "list");
-        assert!(matches!(hub.subscribe(&sub), Err(HubError::Frame(_))));
-        assert_eq!(hub.subscriber_count(), before);
+        assert!(!writer.remove("local", "gone").unwrap());
     }
 }

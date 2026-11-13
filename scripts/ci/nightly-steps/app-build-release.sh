@@ -2,6 +2,16 @@
 # nightly.yml build-nightly-app: "Build nightly app (Release)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
+# The asset catalog compile leaves Xcode's ibtoold running, detached, with this job's environment, for about a
+# minute after xcodebuild returns; nightly-next-one's check before the signing secrets then counted two of them
+# (run 43431310245). This step ends the build daemons it started however it exits (refuse_stray_processes.py).
+end_build_daemons_script="$PWD/scripts/ci/refuse_stray_processes.py"
+end_build_daemons() {
+  if [[ -n "${RUNNER_TRACKING_ID:-}" && -f "$end_build_daemons_script" ]]; then
+    python3 "$end_build_daemons_script" --end-build-daemons || true
+  fi
+}
+trap end_build_daemons EXIT
 # cx-f58x: compile out browser-import code as `decide` chose (the
 # notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
