@@ -218,7 +218,8 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         // A terminal of it is open (registered with its session, as an open tab's is).
         let terminal = try #require(live.terminalSession(tabID: "s1", programName: "zsh", macID: vm))
         live.applyCloudMachines([machine(.paused)])
-        await drain()
+        // Its link closes and its rows become last-known (both observed, not a fixed wait).
+        await settle { live.sessions[vm]?.link.target == nil && store.macDataPhase(vm) != .live }
         #expect(live.sessions[vm] === session, "the session stays")
         #expect(live.sessions[vm]?.link.target == nil, "its link closed")
         #expect(live.sessions[vm]?.terminalsOffline == true, "its terminals say it is offline")
@@ -228,7 +229,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(store.workspaces.contains { $0.macID == vm })
         // It runs again: the same session dials again, and its terminal is no longer offline.
         live.applyCloudMachines([machine(.running)])
-        await settle { store.macDataPhase(vm) == .live }
+        await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live && live.sessions[vm]?.link.phase.isConnected == true }
         #expect(live.sessions[vm] === session)
         #expect(cloud.dials(vm) == 2)
         #expect(live.sessions[vm]?.terminalsOffline == false)
@@ -297,7 +298,11 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macDataPhase(vm) == .live }
         let first = try #require(live.sessions[vm]?.servedLink)
         cloud.lastCarrier(vm)?.drop()
-        await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live && live.sessions[vm]?.servedLink !== first }
+        // A new link served (never the moment between links, when there is none).
+        await settle {
+            guard let served = live.sessions[vm]?.servedLink else { return false }
+            return cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live && served !== first
+        }
         let second = try #require(live.sessions[vm]?.servedLink)
         #expect(second !== first)
         // The list and a terminal read the new carrier.
