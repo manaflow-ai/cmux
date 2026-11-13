@@ -1343,11 +1343,11 @@ const NO_DAEMON_STATE: [&str; 5] =
     ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
 
 /// The app methods that place a new tab or report where the caller is: the
-/// app opens an agent's tabs in the column right of its chat
-/// (`beside_caller`) and marks the caller in `snapshot.get` and
-/// `system.identify`.
-const CALLER_METHODS: [&str; 4] =
-    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+/// app opens a caller's tabs, links and files in its own workspace (an
+/// agent's in the column right of its chat, `beside_caller`) and marks the
+/// caller in `snapshot.get` and `system.identify`.
+const CALLER_METHODS: [&str; 5] =
+    ["action.run", "browser.open_split", "file.open", "snapshot.get", "system.identify"];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
@@ -1372,10 +1372,12 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
 }
 
 /// `params` with the caller added for a [`CALLER_METHODS`] method that names
-/// none, and whether it was added. `browser.open_split` names a terminal with
-/// its own `terminal_id`, so it gets only an agent caller. A `caller: null`
-/// means no caller (a request for another session than the caller's,
-/// frontend_browser.rs): it is removed and none is added.
+/// none, and whether it was added. `browser.open_split` and `file.open` name
+/// a terminal with their own `terminal_id`, so they get only a chat caller:
+/// an agent session or a Chief turn, which the app places beside the chat
+/// (a file an agent chat opened went to the focused pane without it). A
+/// `caller: null` means no caller (a request for another session than the
+/// caller's, frontend_browser.rs): it is removed and none is added.
 fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
     if let Some(object) = params.as_object_mut()
         && object.get("caller").is_some_and(Value::is_null)
@@ -1387,7 +1389,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
-    if method == "browser.open_split" && caller.get("agent_session").is_none() {
+    if matches!(method, "browser.open_split" | "file.open") && caller.get("terminal_id").is_some() {
         return (params, false);
     }
     let mut added = false;
@@ -1401,8 +1403,8 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
 }
 
 /// An app from before `caller` refuses it as an unknown param (its
-/// `browser.open_split` takes no unknown params): the request is sent again
-/// without it, so a newer CLI still opens the tab there.
+/// `browser.open_split` and `file.open` take no unknown params): the request
+/// is sent again without it, so a newer CLI still opens the tab there.
 fn refused_caller(response: &Result<Value, Value>) -> bool {
     let Err(error) = response else { return false };
     error_code(error) == Some("invalid_params")
