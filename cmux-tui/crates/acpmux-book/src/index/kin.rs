@@ -87,7 +87,13 @@ impl KinTables {
     /// changed. A title or other non-indexed field update writes no table path.
     pub fn replace(&self, old: Option<&Summary>, new: Option<&Summary>) -> Self {
         let mut next = self.clone();
-        next.mutate(old, new, None);
+        next.mutate(old, new, None, None);
+        next
+    }
+
+    pub fn replace_arc(&self, old: Option<&Arc<Summary>>, new: Option<&Arc<Summary>>) -> Self {
+        let mut next = self.clone();
+        next.mutate(old.map(Arc::as_ref), new.map(Arc::as_ref), new, None);
         next
     }
 
@@ -99,22 +105,27 @@ impl KinTables {
         writes: &AtomicUsize,
     ) -> Self {
         let mut next = self.clone();
-        next.mutate(old, new, Some(writes));
+        next.mutate(old, new, None, Some(writes));
         next
     }
 
     pub fn insert(&mut self, summary: &Summary) {
-        self.mutate(None, Some(summary), None);
+        self.mutate(None, Some(summary), None, None);
+    }
+
+    pub fn insert_arc(&mut self, summary: &Arc<Summary>) {
+        self.mutate(None, Some(summary), Some(summary), None);
     }
 
     pub fn remove(&mut self, summary: &Summary) {
-        self.mutate(Some(summary), None, None);
+        self.mutate(Some(summary), None, None, None);
     }
 
     fn mutate(
         &mut self,
         old: Option<&Summary>,
         new: Option<&Summary>,
+        new_arc: Option<&Arc<Summary>>,
         writes: Option<&AtomicUsize>,
     ) {
         let old_parent = old.map(|row| (row.parent.clone(), row.key()));
@@ -156,13 +167,21 @@ impl KinTables {
         };
         if old_folder != new_folder || folder_content_changed {
             if let Some(Some((folder, sort, _key))) = old_folder.as_ref() {
-                self.remove_folder(folder, sort, writes);
+                if folder_content_changed {
+                    let replacement =
+                        new_arc.cloned().unwrap_or_else(|| Arc::new(new.unwrap().clone()));
+                    self.insert_folder(folder, sort, &replacement, writes);
+                } else {
+                    self.remove_folder(folder, sort, writes);
+                }
             }
-            if let Some(Some((folder, sort, key))) = new_folder.as_ref()
+            if !folder_content_changed
+                && let Some(Some((folder, sort, key))) = new_folder.as_ref()
                 && let Some(row) = new
                 && &row.key() == key
             {
-                self.insert_folder(folder, sort, &Arc::new(row.clone()), writes);
+                let replacement = new_arc.cloned().unwrap_or_else(|| Arc::new(row.clone()));
+                self.insert_folder(folder, sort, &replacement, writes);
             }
         }
     }

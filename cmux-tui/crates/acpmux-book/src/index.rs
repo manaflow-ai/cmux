@@ -462,7 +462,7 @@ impl SummaryIndex {
             self.by_id.insert(key.clone(), row.clone());
             self.ordered.insert(SortKey::of(&row), row);
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert(row);
+                self.kin.insert_arc(&row);
             }
         }
     }
@@ -494,7 +494,7 @@ impl SummaryIndex {
         }
         next.by_id.insert(key, row.clone());
         next.ordered.insert(SortKey::of(&row), row.clone());
-        next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
         next
     }
 
@@ -540,7 +540,7 @@ impl SummaryIndex {
             shadowed.insert(key);
         }
         let mut next = Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
         next
     }
 
