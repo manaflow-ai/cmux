@@ -68,6 +68,36 @@ else
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
 fi
 
+# timings_summary REPORT START: the slowest units of a cargo --timings report
+# written since START (epoch seconds), and the units that ended last. Prints
+# nothing without a fresh report; a report it cannot read is one line, never a
+# failure.
+timings_summary() {
+  [[ -f "$1" ]] || return 0
+  python3 - "$1" "$2" <<'PY' || echo "cargo timings: could not read $1"
+import json, os, re, sys
+
+path, start = sys.argv[1], int(sys.argv[2])
+if os.path.getmtime(path) < start:
+    sys.exit(0)
+text = open(path, encoding="utf-8").read()
+m = re.search(r"\bUNIT_DATA\s*=\s*", text)
+if not m:
+    raise SystemExit(1)
+units, _ = json.JSONDecoder().raw_decode(text, m.end())
+def row(u):
+    end = u["start"] + u["duration"]
+    what = f'{u["name"]} {u.get("target", "").strip()}'.strip()
+    return f'  {u["duration"]:7.1f} s  {u["start"]:6.1f}-{end:6.1f}  {what}'
+print(f"cargo timings: {len(units)} units; slowest:")
+for u in sorted(units, key=lambda u: -u["duration"])[:12]:
+    print(row(u))
+print("cargo timings: last to end:")
+for u in sorted(units, key=lambda u: -(u["start"] + u["duration"]))[:6]:
+    print(row(u))
+PY
+}
+
 for i in "${!commands[@]}"; do
   n=$((i + 1))
   dir="$target_dir"
@@ -107,6 +137,9 @@ for i in "${!pids[@]}"; do
     continue
   fi
   echo "$label: $((end - starts[i])) s"
+  # A group run with `cargo --timings` (the Cloud machine channel's legs) names
+  # its slowest units and its last ones, so a slow leg says where its time went.
+  timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
 done
 
 for i in "${!bins[@]}"; do

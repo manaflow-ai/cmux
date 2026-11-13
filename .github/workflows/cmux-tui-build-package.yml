@@ -480,15 +480,26 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          # lto=thin (the Cloud machine channel's legs only): the profile #41963 measured as its
-          # thin control, release LTO thin and 16 codegen units for the three crates on the critical
-          # path. lto=fat changes nothing: cmux-tui/Cargo.toml's release profile applies.
-          profile=""
+          # lto=thin (the Cloud machine channel's legs only): release LTO thin and 16 codegen units
+          # for every workspace crate. #41963's thin control gave 16 only to cmux-tui, cmux-tui-core
+          # and acpmux; the other workspace crates compiled in one unit each, and they are the ones
+          # every run compiles again (the cargo cache holds dependencies only: a hit still compiles
+          # 136 of a cold leg's 1,177 units, all of them workspace crates). Dependencies keep one
+          # unit, so the cache still matches them. The agent screen-detection plugin is its own
+          # workspace: it gets thin LTO and the timings, not this cmux-tui member list.
+          # --timings: cargo-groups.sh prints each group's slowest units from its report.
+          # lto=fat changes nothing: cmux-tui/Cargo.toml's release profile applies.
+          profile="" members=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=thin
-            for pkg in cmux-tui cmux-tui-core acpmux; do
-              profile+=" --config profile.release.package.$pkg.codegen-units=16"
-            done
+            units="$RUNNER_TEMP/thin-codegen-units.toml"
+            cargo metadata --no-deps --format-version 1 --locked | python3 -c '
+          import json, sys
+          for name in sorted(p["name"] for p in json.load(sys.stdin)["packages"]):
+              print(f"[profile.release.package.{json.dumps(name)}]\ncodegen-units = 16")
+          ' > "$units"
+            grep -q '^\[profile.release.package."cmux-tui-core"\]$' "$units"
+            profile=" --timings" members=" --config $units"
           fi
           # One cargo per package, all at once, each in its own target directory
           # (building them in one cargo would unify their features). The
@@ -500,7 +511,12 @@ jobs:
           t=${{ matrix.build_target }}
           # cargo-zigbuild writes its zig wrapper scripts in place (truncate,
           # then write) when they are missing: each group gets its own copy.
-          zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
+          # Group 6 is the plugin's own workspace: no cmux-tui member list ($members).
+          zb() {
+            local m=$members
+            (($1 == 6)) && m=""
+            echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile$m --release --locked --target $t"
+          }
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
