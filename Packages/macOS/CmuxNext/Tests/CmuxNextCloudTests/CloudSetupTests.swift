@@ -37,7 +37,7 @@ struct CloudSetupTests {
     @Test func aConnectionThatCannotServeDoesNotCount() async {
         let off = CloudSetup.Connection(id: "claude-login", families: ["claude"], enabled: false)
         let signedOut = CloudSetup.Connection(id: "claude-2", families: ["claude"], signedIn: false)
-        let connections = Connections(.init(personal: [off, signedOut], organization: nil))
+        let connections = Connections(.init(personal: [off, signedOut], organization: []))
         #expect(await setup(connections).decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
     }
 
@@ -70,6 +70,17 @@ struct CloudSetupTests {
         #expect(await setup(Connections(.init(personal: [login], organization: []))).choose(harness: "claude", model: "m", account: "claude-login")
             == .setup(family: "claude", model: "m"))
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))
+    }
+
+    /// The team's keys did not read (a failed refresh): a member whose team key may exist is never
+    /// held back, the chat starts as before; a personal connection serving the family still wins.
+    @Test func unreadTeamKeysStartAsBefore() async {
+        let connections = Connections(.init(personal: [], organization: nil))
+        let rule = setup(connections)
+        #expect(await rule.choose(harness: "claude", model: "claude-opus-5-5", account: nil) == .fallback)
+        #expect(await rule.decide(harness: "claude", model: "claude-opus-5-5") == .start)
+        connections.snapshot.personal = [.init(id: "claude-token:1", families: ["claude"])]
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
     }
 
     /// An acpmux that predates `_acpmux/connections` (no daemon either) keeps every start as it was.
