@@ -461,7 +461,7 @@ final class AppServices {
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
-    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in await AcpmuxEnvironment.resolvedApp(build: self?.environment.build, mock: self?.environment.showcase ?? false) })
+    private(set) lazy var harnessIcons = HarnessIconBook(work: work, build: environment.build, mock: environment.showcase)
     let harnessIconArtwork = HarnessIconArtwork()
     /// The drawn harness icons the tab strip and sidebar mappings take.
     var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }

@@ -226,6 +226,37 @@ class RuleTests(Fixture):
         self.commit("a wrapped URL hint")
         self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
 
+    def test_url_hint_is_per_call_and_does_not_match_collection_appending(self):
+        cases = (
+            ('root.appending(path: "one")', 1),
+            ('root.appendingPathComponent("one", isDirectory: false)', 0),
+            ('root.appending(path: "one", directoryHint: .checkFileSystem)', 1),
+            ('root.appending(path: "one", directoryHint: .inferFromPath)', 0),
+            ('root.appendingPathComponent("one").appending(path: "two", directoryHint: .isDirectory)', 1),
+            ('root.appending(path: "one", directoryHint: .isDirectory).appendingPathComponent("two")', 1),
+            ('root.appendingPathComponent(nested.appending(path: "one", directoryHint: .notDirectory).path)', 1),
+            ('items.appending(value)', 0),
+            ('root.appending(\n    path: "one")', 1),
+        )
+        for call, count in cases:
+            with self.subTest(call=call):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", "@MainActor func locate() {\n    " + call + "\n}\n")
+                self.commit("URL append")
+                refusals, warnings = self.check()
+                self.assertFalse(any("failed" in text for kind, text in warnings if kind == "guardrails"), warnings)
+                hits = [h for r, hs in refusals if r.id == "main-actor-url-append" for h in hs]
+                self.assertEqual(len(hits), count)
+
+    def test_removing_only_a_wrapped_hint_is_new_url_debt(self):
+        path = f"{KIT}/Added.swift"
+        hinted = ('@MainActor func locate() {\n    root.appending(\n        path: "one",\n'
+                  '        directoryHint: .notDirectory)\n}\n')
+        self.rebase_on({path: hinted})
+        self.write(path, hinted.replace('path: "one",\n        directoryHint: .notDirectory', 'path: "one"'))
+        self.commit("drop the hint")
+        self.assertIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():
             with self.subTest(rule=rule):
