@@ -392,12 +392,15 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
     // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
     // own Macs), so another user's Mac id finds nothing there.
-    const liveness = await t
-      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
-      .catch((e) => {
-        console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
-        return null
-      })
+    // A service incident has no Mac to ask about.
+    const liveness = report.surface
+      ? null
+      : await t
+          .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
+          .catch((e) => {
+            console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
+            return null
+          })
     const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
     const r = await t.span(
       "desk",

@@ -795,11 +795,24 @@ extension ShellModel {
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
         let service = ScreenSharingService(configuration: configuration)
+        service.onHubConnection = { [weak self] state in self?.hubConnection(state) }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
         #endif
         screenSharing = service
         ScreenSharingService.current = service
+    }
+
+    /// The device hub socket's state, as the connectivity incident detector's `device_hub` surface.
+    private func hubConnection(_ state: DeviceHubSocket.State?) {
+        guard let live else { return }
+        let id = "device-hub"
+        switch state {
+        case .connecting: live.serviceSocket(.deviceHub, id: id, connected: false, newDial: true)
+        case .connected: live.serviceSocket(.deviceHub, id: id, connected: true)
+        case let .reconnecting(reason): live.serviceSocket(.deviceHub, id: id, connected: false, reason: reason, dropReason: reason)
+        case .disconnected, .replaced, .removed, .signedOut, nil: live.serviceSocket(.deviceHub, id: id, connected: nil)
+        }
     }
 }
 #endif

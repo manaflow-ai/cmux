@@ -122,6 +122,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var runner: Task<Void, Never>?
         private var socket: URLSessionWebSocketTask?
         private var closed = false
+        /// This socket's id in ``ChiefCloudSocketSignals``.
+        private let signalID = UUID().uuidString
         /// The wait between dials (``nudge()`` cancels it).
         private var backoff: Task<Void, Never>?
         /// A nudge came: the next dial starts the backoff from the start.
@@ -354,6 +356,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         func close() {
+            if !closed { ChiefCloudSocketSignals.shared.emit(signalID, .closed) }
             closed = true
             runner?.cancel()
             runner = nil
@@ -385,15 +388,18 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             var attempt = 0
             var forceRefresh = false
             while !closed, !Task.isCancelled {
+                ChiefCloudSocketSignals.shared.emit(signalID, .dialing)
                 let end = await connectOnce(forceRefresh: forceRefresh)
                 guard !closed, !Task.isCancelled else { return }
                 resetLive()
                 switch end {
                 case let .refused(reason):
+                    ChiefCloudSocketSignals.shared.emit(signalID, .closed)
                     continuation?.yield(.disconnected(reason: reason))
                     refused(reason)
                     return
                 case let .ended(welcomed, unauthorized, reason):
+                    ChiefCloudSocketSignals.shared.emit(signalID, .ended(wasLive: welcomed, reason: reason))
                     if welcomed { attempt = 0 }
                     forceRefresh = unauthorized
                     continuation?.yield(.disconnected(reason: reason))
@@ -489,7 +495,10 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             do {
                 while !closed, !Task.isCancelled {
                     guard let text = try await Self.receive(task) else { continue }
-                    if try await handle(text, on: task) { welcomed = true }
+                    if try await handle(text, on: task) {
+                        if !welcomed { ChiefCloudSocketSignals.shared.emit(signalID, .connected) }
+                        welcomed = true
+                    }
                 }
                 return .ended(welcomed: welcomed, unauthorized: false, reason: "closed")
             } catch let refusal as Refused {

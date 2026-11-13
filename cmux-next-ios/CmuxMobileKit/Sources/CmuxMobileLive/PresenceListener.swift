@@ -23,6 +23,10 @@ public final class PresenceListener {
         case snapshot([LiveAPI.Mac])
         case mac(LiveAPI.Mac)
         case connected(Bool)
+        /// A socket dial started (the connectivity incident detector counts dials).
+        case dialing
+        /// The socket failed or ended, and why (sent before ``connected(_:)`` false).
+        case failed(String)
     }
 
     private let signalRequest: @MainActor () async throws -> URLRequest
@@ -115,6 +119,7 @@ public final class PresenceListener {
     private func connect() {
         cancelAttempt()
         let generation = generation
+        onUpdate(.dialing)
         // Bounds opening the socket through its first presence snapshot, even
         // when the peer answers pings but never sends hello. Cleared by hello.
         helloTimer = timer(after: Self.helloTimeout, generation: generation) { listener in
@@ -204,6 +209,7 @@ public final class PresenceListener {
         log.error("presence socket: \(reason, privacy: .public)")
         cancelAttempt()
         let recoveryGeneration = self.generation
+        onUpdate(.failed(reason))
         onUpdate(.connected(false))
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1

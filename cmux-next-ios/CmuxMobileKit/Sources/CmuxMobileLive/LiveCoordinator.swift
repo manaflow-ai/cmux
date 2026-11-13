@@ -238,6 +238,7 @@ public final class LiveCoordinator {
         // The default Chief is the account's Cloud Chief (same sign-in);
         // the Mac Chief below stays reachable beside it.
         ChiefSources.shared.start(userID: userID) { try await apiForLink.accessToken($0) }
+        if watchesConnectivity { watchChiefSockets() }
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
@@ -504,6 +505,7 @@ public final class LiveCoordinator {
         teamTask?.cancel()
         presence?.stop()
         presence = nil
+        incidents.serviceSocket(.presence, id: Self.presenceSocketID, connected: nil)
         registeredTeamID = nil
         store.teamDataState = .loading
         closeAllSessions()
@@ -589,6 +591,14 @@ public final class LiveCoordinator {
         switch update {
         case .connected(let connected):
             presenceConnected = connected
+            incidents.serviceSocket(.presence, id: Self.presenceSocketID, connected: connected,
+                                    reason: lastPresenceFailure, dropReason: connected ? nil : lastPresenceFailure)
+            if connected { lastPresenceFailure = nil }
+        case .dialing:
+            lastPresenceFailure = nil
+            incidents.serviceSocket(.presence, id: Self.presenceSocketID, connected: false, newDial: true)
+        case .failed(let reason):
+            lastPresenceFailure = reason
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID, askedAt: removedMacs.mark)
         case .mac(let mac) where mac.removed == true:
@@ -618,6 +628,47 @@ public final class LiveCoordinator {
             }
         }
     }
+
+    @ObservationIgnored private var chiefSocketsTask: Task<Void, Never>?
+
+    /// A service socket the coordinator does not own changed (the device hub's, from the shell):
+    /// see ``ConnectivityIncidentReporter/serviceSocket(_:id:connected:newDial:reason:dropReason:)``.
+    public func serviceSocket(_ surface: ConnectivityIncidentDetector.Surface, id: String, connected: Bool?,
+                              newDial: Bool = false, reason: String? = nil, dropReason: String? = nil) {
+        incidents.serviceSocket(surface, id: id, connected: connected, newDial: newDial, reason: reason, dropReason: dropReason)
+    }
+
+    /// The Cloud Chief sockets' changes go to the incident reporter in the order they happened
+    /// (one stream, read on the main actor), as surface `chief_cloud`.
+    private func watchChiefSockets() {
+        let (stream, continuation) = AsyncStream.makeStream(of: (String, ChiefCloudSocketSignals.Signal).self)
+        ChiefCloudSocketSignals.observe { socket, signal in continuation.yield((socket, signal)) }
+        chiefSocketsTask = Task { [weak self] in
+            for await (socket, signal) in stream {
+                guard let self else { return }
+                self.chiefSocket(socket, signal)
+            }
+        }
+    }
+
+    func chiefSocket(_ socket: String, _ signal: ChiefCloudSocketSignals.Signal) {
+        switch signal {
+        case .dialing:
+            incidents.serviceSocket(.chiefCloud, id: socket, connected: false, newDial: true)
+        case .connected:
+            incidents.serviceSocket(.chiefCloud, id: socket, connected: true)
+        case let .ended(wasLive, reason):
+            incidents.serviceSocket(.chiefCloud, id: socket, connected: false, reason: reason, dropReason: wasLive ? reason : nil)
+        case .closed:
+            incidents.serviceSocket(.chiefCloud, id: socket, connected: nil)
+        }
+    }
+
+    /// The presence socket's id as the incident reporter's service surface (one socket).
+    nonisolated static let presenceSocketID = "presence"
+    /// Why the presence socket last failed, for the incident's last error and as a drop's reason
+    /// (a deliberate replacement, a foreground or a network change, has none: no drop).
+    @ObservationIgnored private var lastPresenceFailure: String?
 
     /// Macs registered by another member (a shared team): listed, never
     /// dialed. Protocol v1 admits only the Mac owner's own phones.
@@ -959,6 +1010,9 @@ public final class LiveCoordinator {
         transcriptCache = nil
         keptSessionIDs = [:]
         ChiefSources.shared.stop()
+        ChiefCloudSocketSignals.shared.observe(nil)
+        chiefSocketsTask?.cancel()
+        chiefSocketsTask = nil
         incidents.stop()
         networkTask?.cancel()
         networkTask = nil
@@ -967,6 +1021,7 @@ public final class LiveCoordinator {
         teamTask?.cancel()
         presence?.stop()
         presence = nil
+        incidents.serviceSocket(.presence, id: Self.presenceSocketID, connected: nil)
         registeredTeamID = nil
         startedTeamID = nil
         closeAllSessions()

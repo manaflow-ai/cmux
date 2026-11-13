@@ -17,8 +17,11 @@ public struct ConnectivityIncidentApp: Sendable, Equatable, Codable {
     public var simulator: Bool
     public var model: String
     public var os: String
+    /// The source commit the build was made from (`CmuxMobileSourceCommit`), when it has one.
+    public var commit: String?
 
-    public init(version: String, build: String, config: String, simulator: Bool, model: String, os: String) {
+    public init(version: String, build: String, config: String, simulator: Bool, model: String, os: String, commit: String? = nil) {
+        self.commit = commit
         self.version = version
         self.build = build
         self.config = config
@@ -53,7 +56,15 @@ public struct ConnectivityIncidentApp: Sendable, Equatable, Codable {
             version: info["CFBundleShortVersionString"] as? String ?? "0",
             build: info["CFBundleVersion"] as? String ?? "0",
             config: config, simulator: simulator, model: model,
-            os: "\(os.majorVersion).\(os.minorVersion)\(os.patchVersion > 0 ? ".\(os.patchVersion)" : "")")
+            os: "\(os.majorVersion).\(os.minorVersion)\(os.patchVersion > 0 ? ".\(os.patchVersion)" : "")",
+            commit: Self.commit(info["CmuxMobileSourceCommit"]))
+    }
+
+    /// A source commit worth sending: hex, 7 to 40 characters (an unset build variable is not one).
+    static func commit(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespaces).lowercased(),
+              (7...40).contains(text.count), text.allSatisfy(\.isHexDigit) else { return nil }
+        return text
     }
 }
 
@@ -278,6 +289,25 @@ public final class ConnectivityIncidentReporter {
 
     public func dropped(macID: String, reason: String) {
         handle(detector.dropped(macID: macID, reason: reason, at: now()))
+    }
+
+    // MARK: Service sockets
+
+    private var serviceSockets: [ConnectivityIncidentDetector.Surface: ServiceSockets] = [:]
+
+    /// One socket of a service surface changed (`nil`: it is no longer wanted). A surface with one
+    /// socket (presence, the device hub) uses one id; Cloud Chief keeps one per open conversation.
+    /// `dropReason` names why a live socket ended (a drop, when no other socket of it is live).
+    public func serviceSocket(_ surface: ConnectivityIncidentDetector.Surface, id: String, connected: Bool?,
+                              newDial: Bool = false, reason: String? = nil, dropReason: String? = nil) {
+        let socket: ServiceSockets.Socket? = connected.map { $0 ? .connected : .trying(reason: reason) }
+        let change = serviceSockets[surface, default: ServiceSockets()].set(id, socket, newDial: newDial, dropReason: dropReason)
+        guard change.changed else { return }
+        let date = now()
+        if let dropReason = change.droppedReason {
+            handle(detector.serviceDropped(surface, reason: dropReason, at: date))
+        }
+        handle(detector.service(surface, change.state, at: date))
     }
 
     /// Time passed (the tick loop calls it; tests call it directly).

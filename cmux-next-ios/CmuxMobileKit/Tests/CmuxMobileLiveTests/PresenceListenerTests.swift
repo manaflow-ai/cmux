@@ -133,6 +133,7 @@ private final class PresenceTestRig {
             case .connected(let connected): events.append("connected:\(connected)")
             case .snapshot(let macs): events.append("snapshot:\(macs.map(\.deviceId).joined(separator: ","))")
             case .mac(let mac): events.append("mac:\(mac.deviceId)")
+            case .dialing, .failed: break
             }
         }
     )
