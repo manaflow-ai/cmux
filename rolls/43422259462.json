@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43422259462",
+  "recorded_at": "2026-11-13T12:12:34Z",
+  "reason": "cmux-tui 76ed30ea57ce changes the image's cmux-tui (pinned b2b7f7eff12d)",
+  "dry_run": false,
+  "cmux_tui": "76ed30ea57ce0dbe2f3e5b8364936d8ad562b100",
+  "fixes": [
+    {
+      "sha": "76ed30ea57ce0dbe2f3e5b8364936d8ad562b100",
+      "mergedAt": "2026-11-13T03:40:25-08:00",
+      "subject": "agent service v2 PR 4: connection, byte credit, drop and resume (#42361)"
+    },
+    {
+      "sha": "c963a7786d1c7d178a6aa20baa1d2abc45b0633f",
+      "mergedAt": "2026-11-13T03:35:49-08:00",
+      "subject": "acpmux: chat watch skips symlinks out of a root; harness watch picks up folders made after start (#42548)"
+    },
+    {
+      "sha": "e5394b6c18cd33735787968cb33062012de43cbf",
+      "mergedAt": "2026-11-13T03:23:38-08:00",
+      "subject": "Cloud: sandboxed Runs run in the daemon, with no classic /api/runs call (#39022)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T12:12:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
