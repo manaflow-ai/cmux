@@ -52,6 +52,7 @@ impl Hub {
             settings.borrow_and_update();
             let on =
                 tokio::task::spawn_blocking(crate::claude_peers::enabled).await.unwrap_or(false);
+            tracing::info!("XDBG bridge read={on}");
             if on != was_on {
                 was_on = on;
                 tracing::info!("desktop bridge: {}", if on { "on" } else { "off" });

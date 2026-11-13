@@ -116,6 +116,7 @@ impl Hub {
                 // slot look again (`subsession_runs.rs`). What waits on a setting with no timer
                 // reads it again (the desktop bridge while off, `desktop_bridge.rs`).
                 if let Some(hub) = hub.upgrade() {
+                    tracing::info!("XDBG settings task: bump");
                     hub.subsession_runs.wake();
                     hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
@@ -237,6 +238,7 @@ fn run(
     };
     while let Ok(first) = rx.recv() {
         let started = Instant::now();
+        tracing::info!("XDBG settings watch: event {first:?}");
         let mut changed = matters(first);
         let mut closed = false;
         loop {
@@ -245,7 +247,10 @@ fn run(
                 break;
             }
             match rx.recv_timeout(QUIET.min(left)) {
-                Ok(event) => changed |= matters(event),
+                Ok(event) => {
+                    tracing::info!("XDBG settings watch: event {event:?}");
+                    changed |= matters(event)
+                }
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {
                     closed = true;
@@ -256,6 +261,7 @@ fn run(
         if changed {
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(files);
+            tracing::info!("XDBG settings watch: watching {:?}", watch.watched.lock().map(|w| w.clone()).unwrap_or_default());
             drop(watch);
             if signal.send(()).is_err() {
                 return;

@@ -369,12 +369,14 @@ fn acpmux_daemon_writes_its_usage_counts_when_it_stops() {
 /// Waits up to 20 s for a daemon log line that holds `text`.
 fn log_line(lines: &std::sync::mpsc::Receiver<String>, text: &str, what: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    static SEEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap();
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         match lines.recv_timeout(left) {
-            Ok(line) if line.contains(text) => return,
-            Ok(_) => {}
-            Err(_) => panic!("{what}: no log line '{text}' within 20 s"),
+            Ok(line) if line.contains(text) => { seen.push(format!("MATCHED {line}")); return },
+            Ok(line) => seen.push(line),
+            Err(_) => panic!("{what}: no log line '{text}' within 20 s; seen: {seen:#?}"),
         }
     }
 }
@@ -425,6 +427,7 @@ fn acpmux_desktop_bridge_follows_its_setting_with_no_restart() {
     log_line(&lines, "desktop bridge: on", "a settings file created later");
     replace(false);
     log_line(&lines, "desktop bridge: off", "a settings file replaced by rename");
+    eprintln!("XDBG in-place write");
     fs::write(&settings, bridge(true)).unwrap();
     log_line(&lines, "desktop bridge: on", "a settings file written in place");
     replace(false);

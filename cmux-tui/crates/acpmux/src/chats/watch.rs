@@ -23,6 +23,13 @@
 //!   hundreds of times a second, and notify's stream (latency 0) woke the daemon for each change.
 //!   The first change after a quiet spell still comes at once. Elsewhere notify's watcher
 //!   (inotify on Linux), as before.
+//! - A folder made in, or moved into, a tree notify watches whole (`Message::Folder`): inotify
+//!   gives each folder a watch of its own, which notify adds only after it handed on the event
+//!   that made the folder, so a file written into a new folder before then has no event (Codex
+//!   makes `sessions/YYYY/MM/DD` and writes the day's first rollout into it at once). The chat
+//!   watch thread first waits until notify's thread has added those watches (`Trees::settle`),
+//!   then lists the folder and hands on each file in it the index reads: a file written before
+//!   the watch is listed, one written after it has its event.
 //! - The chat watch thread coalesces what arrives into one index pass per burst (`coalesce`,
 //!   behind the `Source` seam its tests drive with a script and no clock).
 
@@ -83,6 +90,10 @@ enum Message {
     /// Sent only by the macOS directory watch, so the variant exists only there.
     #[cfg(target_os = "macos")]
     RootEntries(usize),
+    /// A folder made in, or moved into, a tree notify watches whole: what it holds may have no
+    /// event (the module's text).
+    #[cfg(not(target_os = "macos"))]
+    Folder(PathBuf),
     Stop,
 }
 
@@ -171,9 +182,28 @@ impl Filter {
         if matches!(event.kind, notify::EventKind::Access(_)) {
             return None;
         }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(folder) = self.folder_came(&event) {
+            return Some(Message::Folder(folder));
+        }
         let rescan = event.need_rescan();
         let paths = self.keep(event.paths);
         (rescan || !paths.is_empty()).then_some(Message::Paths { paths, rescan })
+    }
+
+    /// The folder `event` made in a root, or moved into one: notify names a folder made, and a
+    /// path moved in with no kind, so that one is looked at.
+    #[cfg(not(target_os = "macos"))]
+    fn folder_came(&self, event: &notify::Event) -> Option<PathBuf> {
+        use notify::event::{CreateKind, ModifyKind, RenameMode};
+        let path = event.paths.last()?;
+        let made = match event.kind {
+            notify::EventKind::Create(CreateKind::Folder) => true,
+            notify::EventKind::Modify(ModifyKind::Name(RenameMode::To)) => path.is_dir(),
+            _ => false,
+        };
+        let inside = self.roots.iter().any(|root| path.starts_with(&root.path) && path != &root.path);
+        (made && inside).then(|| path.clone())
     }
 
     /// What one delivery of the own FSEvents stream hands on, if anything.
@@ -196,7 +226,6 @@ impl Filter {
 /// Starts the watches of folders, whole; each hands what the index reads to the chat watch
 /// thread.
 struct Trees {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     filter: Arc<Filter>,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     tx: Sender<Message>,
@@ -260,6 +289,36 @@ impl Trees {
             }),
         )?;
         Ok(Tree { _stream: stream })
+    }
+
+    /// Returns once notify's thread has handled every event it read before now, and added the
+    /// watches of the folders those events made: notify answers a configure call on that thread,
+    /// after the pass over its queue that handed on a folder's event and then watched it.
+    #[cfg(not(target_os = "macos"))]
+    fn settle(&self) {
+        use notify::Watcher as _;
+        let _ = self
+            .watcher
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .configure(notify::Config::default());
+    }
+
+    /// The files under `folder` (not through a symbolic link) the index reads.
+    #[cfg(not(target_os = "macos"))]
+    fn files_in(&self, folder: &Path, out: &mut Vec<PathBuf>) {
+        let mut pending = vec![folder.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let Ok(kind) = entry.file_type() else { continue };
+                let path = entry.path();
+                if kind.is_dir() {
+                    pending.push(path);
+                } else if self.filter.reads(&path) && !out.contains(&path) {
+                    out.push(path);
+                }
+            }
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -378,6 +437,9 @@ struct Burst {
     rescan: bool,
     /// The roots watched by their folders whose entries changed.
     entries: Vec<usize>,
+    /// Folders made in a tree notify watches whole, to be listed (`Message::Folder`).
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    folders: Vec<PathBuf>,
 }
 
 impl Burst {
@@ -445,6 +507,12 @@ fn coalesce(source: &mut impl Source, mut on_burst: impl FnMut(Burst) -> bool) {
                 }
                 #[cfg(target_os = "macos")]
                 Some(Message::RootEntries(_)) => {}
+                #[cfg(not(target_os = "macos"))]
+                Some(Message::Folder(folder)) => {
+                    if !burst.folders.contains(&folder) {
+                        burst.folders.push(folder);
+                    }
+                }
                 None => {}
                 Some(Message::Stop) => return,
             }
@@ -486,6 +554,14 @@ fn run(
             }
             for file in &watch.files {
                 burst.add_path(file.clone());
+            }
+        }
+        // Folders made in a tree watched whole: listed once notify watches them.
+        #[cfg(not(target_os = "macos"))]
+        if !burst.folders.is_empty() {
+            trees.settle();
+            for folder in std::mem::take(&mut burst.folders) {
+                trees.files_in(&folder, &mut burst.paths);
             }
         }
         let Some(service) = service.upgrade() else { return false };
