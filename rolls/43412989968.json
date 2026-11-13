@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43412989968",
+  "recorded_at": "2026-11-13T11:05:47Z",
+  "reason": "cmux-tui 3a2e70f97b7c changes the image's cmux-tui (pinned 744c1ef77b35)",
+  "dry_run": false,
+  "cmux_tui": "3a2e70f97b7c0d5d6143c84b88d10d2110356df7",
+  "fixes": [
+    {
+      "sha": "3a2e70f97b7c0d5d6143c84b88d10d2110356df7",
+      "mergedAt": "2026-11-13T02:32:35-08:00",
+      "subject": "acpmux: status never waits on a chat's child lock (every pane's \"Waiting for the agent service\") (#41790)"
+    },
+    {
+      "sha": "dbe9a1461838f6e398a6e057f86224ee63a8d803",
+      "mergedAt": "2026-11-13T10:27:31Z",
+      "subject": "fix(ci): short timeout ratchet matches acpmux after #42296 (#42534)"
+    },
+    {
+      "sha": "93e26975f2ba062f7b26c496a444bda9789d9e1b",
+      "mergedAt": "2026-11-13T02:26:59-08:00",
+      "subject": "agent chat notices: a late push older than the list brings back no chat it left out (#42533)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T11:05:47Z",
+    "snapshot_id": "sh-4ea54c8d8ff34d1286eb716e3b62e96e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43412989968): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f1b26392c870c1f7e80d1b85034f8a0ce9d3d3f4",
+    "image": "cloud-native-auto-3a2e70f9-43412989968-1",
+    "revision": "ci-43412989968-1",
+    "at": "2026-11-13T11:05:47Z"
+  },
+  "rolled_back": false
+}
