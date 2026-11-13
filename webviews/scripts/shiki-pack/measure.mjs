@@ -182,7 +182,26 @@ try {
             try {
               return await Promise.race([
                 Promise.all([import(`${base}/baseline/${file}`), import(`${base}/gzip/${file}`)]).then(
-                  ([before, after]) => ({ equal: JSON.stringify(before) === JSON.stringify(after) }),
+                  ([before, after]) => {
+                    // Rolldown can export either a namespace wrapper or its grammar array
+                    // after async-module analysis. Compare data, not private export shapes.
+                    const grammars = (module) => {
+                      const values = [];
+                      const visit = (value) => {
+                        if (!value || typeof value !== "object") return;
+                        if (typeof value.scopeName === "string") values.push(JSON.stringify(value));
+                        else for (const child of Object.values(value)) visit(child);
+                      };
+                      visit(module);
+                      return [...new Set(values)].sort();
+                    };
+                    const original = grammars(before);
+                    const packed = grammars(after);
+                    return {
+                      equal: original.length > 0 && JSON.stringify(original) === JSON.stringify(packed),
+                      grammars: original.length,
+                    };
+                  },
                 ),
                 new Promise((_, reject) => {
                   timer = setTimeout(() => reject(new Error(`grammar import timed out: ${file}`)), 15_000);
@@ -195,7 +214,7 @@ try {
           { base, file },
         );
         assert(equal.equal, `grammar changed: ${file}`);
-        receipt.grammarEquality.push({ engine, file });
+        receipt.grammarEquality.push({ engine, file, grammars: equal.grammars });
       }
       const smoke = {};
       for (const variant of ["baseline", "gzip"]) {
