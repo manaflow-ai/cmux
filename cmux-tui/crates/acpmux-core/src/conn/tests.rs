@@ -938,7 +938,7 @@ async fn expired_list_resume_and_live_lag_open_the_head() {
         &mut client,
         json!({"method":"sub","params":{
             "sid":"anchored", "stream":"list", "window":3,
-            "anchor":{"key":{"lastActivity":10,"chatId":"row-10"},"side":"after"}
+            "anchor":{"key":{"lastActivity":10,"chatId":"row-10","origin":"local"},"side":"after"}
         }}),
     )
     .await;

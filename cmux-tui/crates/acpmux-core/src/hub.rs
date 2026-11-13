@@ -167,7 +167,16 @@ impl ListReceiver {
             (first, last, bytes)
         };
         let _ = (first, last);
-        history::decode(bytes).ok()?.into_iter().next()
+        let item = history::decode(bytes).ok()?.into_iter().next()?;
+        let seq = match &item {
+            ListItem::Summary(event) => event.seq,
+            ListItem::Gone { seq, .. } => *seq,
+            ListItem::Lagged { cursor } => *cursor,
+        };
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = state.cursor.max(seq);
+        }
+        Some(item)
     }
 
     pub async fn recv(&self) -> Option<ListItem> {
@@ -376,7 +385,7 @@ impl Hub {
             } else {
                 index.seq()
             };
-        let frame = self.window_frame_at_cursor(sub, &index, index.seq())?;
+        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
         let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
