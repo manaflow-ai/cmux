@@ -50,12 +50,12 @@ import type {
   AcpmuxRecap,
 } from "./model";
 import {
-  PROMPT_PENDING_AFTER_MS,
   QUEUED_MESSAGE,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxSince,
   type AcpmuxTurnRetry,
+  PROMPT_PENDING_AFTER_MS,
   rowFrameKey,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
@@ -104,13 +104,13 @@ import {
   forgetTail,
   keptEvents,
   keptTail,
-  olderThanShown,
   KEPT_EVENTS,
   type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  olderThanShown,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -154,10 +154,10 @@ import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
-import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
+import { failedSendText, retryHelps, sendCause, heldSendNotice } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
-import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
+import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
@@ -2880,7 +2880,11 @@ export class AcpmuxDirectClient {
   /// never acpmux's resume, whatever their text or client says (mergeQueue).
   private queueEdited = new Set<string>();
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
-  private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
+  /// Its cursor outlives a reconnect, so the next list is the rows changed since (`follows`).
+  private readonly sessionPages = new SessionPager<Session>(
+    (method, params) => this.request(method, params),
+    () => this.sessions,
+  );
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
   /// The pending reread follows a watch lag: once it sets the list, Needs you's asks resync too.
   private sessionRereadResyncsAsks = false;
@@ -3975,6 +3979,7 @@ export class AcpmuxDirectClient {
       );
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
+      this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -6528,11 +6533,20 @@ export class AcpmuxDirectClient {
     const result = this.expectReply(
       id,
       method,
-      deadline ?? (CHAT_OPEN_METHODS.has(method) ? CHAT_OPEN_PROGRESS_MS : undefined),
+      deadline ?? (this.chatOpenMethod(method) ? CHAT_OPEN_PROGRESS_MS : undefined),
       waitsForSlot(method, params) ? send : undefined,
     );
     this.budget.admit(id, method, send, params);
     return result;
+  }
+
+  /// Whether `method` is one a chat open waits on (`CHAT_OPEN_METHODS`). An acpmux that follows the
+  /// list from a cursor answers a reconnect's watch with the changes, and the chat opens on its
+  /// attach, so a slow list there never says "Waiting for the agent service"; an older one's whole
+  /// list (paced, `list.paced`) still counts.
+  private chatOpenMethod(method: string): boolean {
+    if (method === "_acpmux/watch" && this.sessionPages.follows) return false;
+    return CHAT_OPEN_METHODS.has(method);
   }
 
   /// `send` puts the request on the wire again after a busy refusal; without one (a request the
@@ -7295,12 +7309,15 @@ export class AcpmuxDirectClient {
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
+    // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).
+    const listSeq = (params as { listSeq?: unknown } | undefined)?.listSeq;
+    if (!this.sessionPages.fresh(listSeq)) return;
     if (params?.kind === "purged" && session?.sessionId) {
       this.asks.forget(session.sessionId);
       // Nothing of a chat acpmux dropped is drawn again from this page.
       forgetTail(session.sessionId);
       this.forgetReadAhead(session.sessionId);
-      this.sessionPages.purgedSession(session.sessionId);
+      this.sessionPages.purgedSession(session.sessionId, listSeq);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
@@ -7309,7 +7326,7 @@ export class AcpmuxDirectClient {
     }
     if (!session?.sessionId) return;
     this.asks.session(session, typeof params?.kind === "string" ? params.kind : undefined);
-    this.sessionPages.changedSession(session);
+    this.sessionPages.changedSession(session, listSeq);
     // Another chat's summary sent again unchanged (a busy acpmux re-sends them) changes nothing on
     // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
     // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
