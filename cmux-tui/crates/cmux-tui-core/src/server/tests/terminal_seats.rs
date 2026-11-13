@@ -680,3 +680,26 @@ fn an_early_connection_counts_in_its_own_terminals_share() {
     drop((early, other, next, seat, other_seat, reference_other, reference_seats));
     assert_eq!(held(&connections), (0, 0, 0));
 }
+
+/// A daemon for which the system does not keep the process id of an ended
+/// child (`SIGCHLD` ignored) seats no host: the id of a host that ended
+/// could name another process there. The count: 0 seats, and a child of
+/// that process id is an outside client, with no read of its parent.
+#[test]
+fn a_daemon_whose_ended_children_lose_their_ids_seats_no_host() {
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    let unseated = seating.seat_when(HOST, false);
+    let (outside, _outside_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 0, 0), "no seat: a child of that process is outside");
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
+
+    // The count is live: the same call for a daemon that keeps the id.
+    let seated = seating.seat_when(HOST, true);
+    let (inside, _inside_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (2, 1, 0), "the host's seat: its terminal's");
+    drop((unseated, seated));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
+    drop((outside, inside));
+    assert_eq!(held(&connections), (0, 0, 0));
+}

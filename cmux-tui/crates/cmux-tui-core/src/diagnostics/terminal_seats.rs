@@ -15,11 +15,12 @@
 //! slot of the session while hooks and typed commands were refused.
 //!
 //! A terminal now takes a seat here when its runtime is made and leaves it
-//! when the runtime is dropped ([`TerminalSeat`]). The accept loop asks only
-//! this set, under its own lock, held for one insert, remove or lookup. It
-//! never reads the session state. A seat names its terminal, so the accept
-//! also reads from it which terminal a client is in
-//! ([`ConnectionStats::seated_terminal`]).
+//! when the runtime is dropped ([`TerminalSeat`]). The accept loop asks this
+//! set, under its own lock, held for one insert, remove or lookup, and never
+//! the session state. For a session with no seat, while a host starts a
+//! terminal, it also reads the parent of one process (below). A seat names
+//! its terminal, so the accept also reads from it which terminal a client is
+//! in ([`ConnectionStats::seated_terminal`]).
 //!
 //! A terminal's process starts before the daemon has its process id, so it
 //! can connect before the seat is taken. A terminal host that the daemon
@@ -131,8 +132,10 @@ impl Drop for TerminalSeat {
 /// lives ([`HostSeating::seat`]).
 ///
 /// The owner holds it only while it also holds the host's process, not yet
-/// waited for: the system gives a process id to no other process in that
-/// time, so the seat never names another process.
+/// waited for. The system keeps the process id of an ended child for its
+/// parent until the parent waits for it, so the seat never names another
+/// process. A daemon for which the system does not keep that id (`SIGCHLD`
+/// ignored) seats no host ([`HostSeating::seat`]).
 #[derive(Default)]
 #[must_use = "the seat ends when this value is dropped"]
 pub struct HostSeat {
@@ -165,7 +168,20 @@ impl HostSeating {
     /// The seat of the host whose process is `host`. The caller takes it
     /// before it tells the host to start the terminal's child, and holds the
     /// host's process for as long as the seat ([`HostSeat`]).
+    ///
+    /// No seat is taken when the system does not keep the process id of an
+    /// ended child for this process: the id could then name another process
+    /// while the seat is there.
     pub fn seat(&self, host: u32) -> HostSeat {
+        self.seat_when(host, cmux_tui_platform::ended_children::keep_their_ids())
+    }
+
+    /// [`Self::seat`] for a process whose ended children keep their process
+    /// ids (`id_is_kept`) or do not.
+    pub(crate) fn seat_when(&self, host: u32, id_is_kept: bool) -> HostSeat {
+        if !id_is_kept {
+            return HostSeat::default();
+        }
         let Some(connections) = &self.connections else { return HostSeat::default() };
         take(&mut connections.terminal_seats.lock().hosts, host, self.terminal.clone());
         HostSeat { seated: Some((connections.clone(), host, self.terminal.clone())) }
@@ -208,8 +224,10 @@ impl ConnectionStats {
     /// a host that starts and that is the parent of the session's leader.
     /// Nil: the client is in no terminal that has a seat.
     ///
-    /// `parent_of`: the parent of a process. It is asked at most one time,
-    /// only while a host starts a terminal, and not under the seats' lock.
+    /// `parent_of`: the parent of a process. One call asks it at most one
+    /// time, only while a host starts a terminal, and not under the seats'
+    /// lock. A connection makes two calls, one for its lane and one for its
+    /// class, each with its own read.
     /// The leader's process id is the session's id, and the system gives
     /// that id to no other process while the session has a process.
     ///

@@ -127,8 +127,10 @@ impl Drop for InputAckReceipt {
 /// the session's terminals (`diagnostics/terminal_seats.rs`).
 ///
 /// The seat is never held without the process: it ends before the process
-/// is given to the reaper or is waited for. So the host's process id names
-/// this host for as long as its seat is there.
+/// is given to the reaper or is waited for. The system keeps the process id
+/// of an ended child until its parent waits for it, so the host's process
+/// id names this host for as long as its seat is there (a daemon for which
+/// the system does not keep it takes no seat, `HostSeating::seat`).
 pub(crate) struct LaunchedHost {
     seat: crate::diagnostics::HostSeat,
     process: SpawnedHostProcess,
