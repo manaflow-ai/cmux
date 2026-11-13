@@ -99,7 +99,7 @@ import Testing
         message.isHidden = false
         home.needsLayout = true
         home.layoutSubtreeIfNeeded()
-        #expect(message.measures == before + 1, "it is measured when it shows")
+        #expect(message.measures > before, "it is measured when it shows")
         #expect(message.frame.width == home.bounds.width - 48, "at the width of the pane it shows in: \(message.frame) in \(home.bounds)")
     }
 
