@@ -116,7 +116,7 @@ for name, steps in CROSS_RUN.items():
         for step in found:
             with_, env = step.get("with") or {}, step.get("env") or {}
             run_from, token = (str(with_.get("run-id", "")), str(with_.get("github-token", ""))) if "uses" in step \
-                else (str(env.get("SOURCE_RUN", "")), str(env.get("GH_TOKEN", "")))
+                else (str(env.get("SOURCE_RUN", "")), str(env.get("GITHUB_TOKEN", "")))
             if "published-build.outputs.source_run" not in run_from or "github.token" not in token:
                 failures.append(f"{name}: {step.get('name')!r} must download from the published build's run")
 
