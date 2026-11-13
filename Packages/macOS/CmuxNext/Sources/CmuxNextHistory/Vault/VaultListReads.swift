@@ -18,6 +18,8 @@ package final class VaultListReads {
     package private(set) var isPartial = false
     @ObservationIgnored private var surfaces: [@MainActor () -> Bool?] = []
     @ObservationIgnored private var isReadingAgain = false
+    /// The last reload ended with a list that is not complete because no surface showed it.
+    @ObservationIgnored private var endedOffScreen = false
 
     package init() {}
 
@@ -29,9 +31,20 @@ package final class VaultListReads {
         return surfaces.contains { $0() == true }
     }
 
+    /// True one time when the last reload ended with a list that is not complete because no surface showed it,
+    /// and a surface shows it now: the owner reloads. False after an end at ``readLimit`` reads (that list waits
+    /// for the person's reload), for a complete list, while a reload reads, and while no surface shows the list.
+    /// It reads nothing and waits for nothing.
+    package func takeReadsOwedOnScreen() -> Bool {
+        guard endedOffScreen, isPartial, !isLoading, isShown else { return false }
+        endedOffScreen = false
+        return true
+    }
+
     /// Reads `source` and runs `took` after each read (the owner rebuilds its rows from the source).
     package func reload(_ source: any VaultSessionSource, took: () -> Void) async {
         isLoading = true
+        endedOffScreen = false
         await read(source, took)
         isLoading = false
         // One reload reads again at a time; a second one made its one read above.
@@ -43,10 +56,15 @@ package final class VaultListReads {
         while isPartial, reads < Self.readLimit, isShown {
             do { try await source.waitForPending(afterReads: reads) } catch { return }
             // Another reload completed the list during the wait, or the last surface went away.
-            guard isPartial, isShown else { return }
+            guard isPartial, isShown else {
+                endedOffScreen = isPartial
+                return
+            }
             await read(source, took)
             reads += 1
         }
+        // Not at the bound and not complete: no surface showed the list.
+        endedOffScreen = isPartial && reads < Self.readLimit
     }
 
     private func read(_ source: any VaultSessionSource, _ took: () -> Void) async {

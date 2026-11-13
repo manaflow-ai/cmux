@@ -19,6 +19,8 @@ import Testing
         var answers: [(sessions: [AgentSession], complete: Bool)]
         private(set) var refreshes = 0
         private(set) var waits: [Int] = []
+        /// Runs in each wait, with the count of the reads before it.
+        var onWait: (Int) -> Void = { _ in }
         private var held: (sessions: [AgentSession], complete: Bool) = ([], true)
         init(_ answers: [(sessions: [AgentSession], complete: Bool)]) { self.answers = answers }
         func refresh() async {
@@ -28,7 +30,10 @@ import Testing
         func sessions() -> [AgentSession] { held.sessions }
         func isLive(_ session: AgentSession) -> Bool { false }
         var isComplete: Bool { held.complete }
-        func waitForPending(afterReads reads: Int) async throws { waits.append(reads) }
+        func waitForPending(afterReads reads: Int) async throws {
+            waits.append(reads)
+            onWait(reads)
+        }
     }
 
     /// A vault over `source`. `onScreen`: what its one surface answers; nil for a vault with no surface.
@@ -37,7 +42,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         let vault = SessionVault(source: source, copyText: { _ in }, openURL: { _ in })
-        if let onScreen { vault.reads.addSurface { onScreen } }
+        if let onScreen { vault.addSurface { onScreen } }
         services.vault = vault
         return (services, vault)
     }
@@ -92,7 +97,7 @@ import Testing
         let source = Source([([old], false), ([old], false), ([new, old], true)])
         let (services, vault) = Self.vault(source, onScreen: nil)
         let screen = Screen()
-        vault.reads.addSurface { screen.shows }
+        vault.addSurface { screen.shows }
         await vault.reload()
         #expect(source.refreshes == 1, "a vault that is off screen reads one time")
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"vault-back-on-screen","workspace_key":"vb1"}"#.utf8))
@@ -102,8 +107,9 @@ import Testing
         controller.windowDidChangeOcclusionState(changed)
         await Self.turns { false }
         #expect(source.refreshes == 1, "nothing is read while no surface shows the list")
-        // The window is back.
+        // The window is back. AppKit can send the change more than one time: it is one reload.
         screen.shows = true
+        controller.windowDidChangeOcclusionState(changed)
         controller.windowDidChangeOcclusionState(changed)
         await Self.turns { !vault.isPartial }
         #expect(source.refreshes == 3, "the reads start again and go on until the list is complete")
@@ -114,6 +120,51 @@ import Testing
         controller.windowDidChangeOcclusionState(changed)
         await Self.turns { false }
         #expect(source.refreshes == 3, "a complete list is not read again")
+    }
+
+    /// The window goes into the Dock while the reads go on: they end at the next wait, and the window's return
+    /// starts them again.
+    @Test func aSurfaceThatLeavesTheScreenDuringTheReadsEndsThemAndTheWindowsReturnStartsThemAgain() async throws {
+        let (old, new) = (SessionVaultTests.session("s-old", minutesAgo: 60), SessionVaultTests.session("s-new"))
+        let source = Source([([old], false), ([old], false), ([old], false), ([new, old], true)])
+        let (services, vault) = Self.vault(source, onScreen: nil)
+        let screen = Screen()
+        screen.shows = true
+        vault.addSurface { screen.shows }
+        source.onWait = { reads in if reads == 2 { screen.shows = false } }
+        await vault.reload()
+        #expect(source.refreshes == 2, "the reads end when the surface leaves the screen")
+        #expect(source.waits == [1, 2], "at the wait in which it left")
+        #expect(vault.isPartial)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"vault-leaves","workspace_key":"vb3"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services, frame: NSRect(x: 200, y: 200, width: 900, height: 600))
+        let changed = Notification(name: NSWindow.didChangeOcclusionStateNotification, object: controller.window)
+        controller.windowDidChangeOcclusionState(changed)
+        await Self.turns { false }
+        #expect(source.refreshes == 2, "nothing is read while the surface is off screen")
+        screen.shows = true
+        controller.windowDidChangeOcclusionState(changed)
+        await Self.turns { !vault.isPartial }
+        #expect(source.refreshes == 4, "the window's return starts the reads again, to the complete list")
+        #expect(source.waits == [1, 2, 1])
+        #expect(vault.rows.map(\.session.sessionID) == ["s-new", "s-old"])
+    }
+
+    /// A reload that ended at the bound of reads waits for the person's reload, as before: a window is covered and
+    /// shown many times an hour, and a daemon that stays behind must not get 40 reads at each one.
+    @Test func aWindowThatComesBackOnScreenStartsNoReadAfterAReloadThatEndedAtTheBound() async throws {
+        let source = Source([([SessionVaultTests.session("s-old")], false)])
+        let (services, vault) = Self.vault(source, onScreen: true)
+        await vault.reload()
+        #expect(source.refreshes == 40, "the reads end at the bound")
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"vault-bound","workspace_key":"vb2"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services, frame: NSRect(x: 200, y: 200, width: 900, height: 600))
+        controller.windowDidChangeOcclusionState(Notification(name: NSWindow.didChangeOcclusionStateNotification, object: controller.window))
+        await Self.turns { false }
+        #expect(source.refreshes == 40, "the window's change starts no read: the bound waits for the person's reload")
+        #expect(vault.isPartial)
+        await vault.reload()
+        #expect(source.refreshes == 80, "the person's reload reads again")
     }
 
     @Test func afterTheBoundAnIdThatIsNotInTheListIsStillLoadingAndTheNextReloadReadsAgain() async {
@@ -139,6 +190,16 @@ import Testing
         let gone = Self.refusal(services, session: "s-newer")
         #expect(gone?.reason == HistoryAppStrings.noSession)
         #expect(gone?.isNotFound == true)
+    }
+
+    /// The wire link: `pending_kinds` with `agent` in the daemon's answer is a list of agent sessions that is not complete.
+    @Test func theDaemonsAnswerSaysWhetherItsAgentSessionsAreTheWholeList() throws {
+        func isComplete(_ answer: String) throws -> Bool {
+            try JSONDecoder().decode(DaemonHistoryList.self, from: Data(answer.utf8)).agentSessions(machine: "local").isComplete
+        }
+        #expect(try !isComplete(#"{"entries":[],"pending_kinds":["agent"]}"#), "the fold of the agent sessions is behind")
+        #expect(try isComplete(#"{"entries":[],"pending_kinds":["closed"]}"#), "another kind that is behind does not hold the agent sessions")
+        #expect(try isComplete(#"{"entries":[]}"#), "a daemon that names no pending kind gave its whole list")
     }
 
     /// The daemon's fold goes from the oldest record to the newest, so the list of a fold that is behind is short.

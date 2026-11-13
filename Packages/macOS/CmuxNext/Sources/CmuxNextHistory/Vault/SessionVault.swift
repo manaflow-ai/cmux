@@ -17,12 +17,14 @@ package final class SessionVault {
     /// The list's search text.
     package var filter = ""
     /// The reads of the list: one per reload, and again while a list that is not complete shows on screen.
-    @ObservationIgnored package let reads = VaultListReads()
+    @ObservationIgnored private let reads = VaultListReads()
     /// The first read of a reload is running.
     package var isLoading: Bool { reads.isLoading }
     /// The list is not complete yet: the rows are the sessions read so far.
     package var isPartial: Bool { reads.isPartial }
-    /// The source's list is the whole list: a session that the source does not have does not exist.
+    /// The source's list is the whole list: a session that the source does not have does not exist. False while
+    /// the source says that its list is not complete (``VaultSessionSource/isComplete``): a session that it does
+    /// not have can then still exist. It is the state of the source's last read; nothing is read here.
     package var holdsWholeList: Bool { source.isComplete }
     @ObservationIgnored private let source: any VaultSessionSource
     @ObservationIgnored package let pullRequests: VaultPullRequests
@@ -53,6 +55,19 @@ package final class SessionVault {
     /// when a list that is not complete is read again.
     package func reload() async {
         await reads.reload(source) { rebuild() }
+    }
+
+    /// A surface that shows the list says whether it is on screen now (nil: the surface is gone).
+    package func addSurface(_ isOnScreen: @escaping @MainActor () -> Bool?) { reads.addSurface(isOnScreen) }
+
+    /// A window is on screen again: out of the Dock, after Hide, uncovered, or its Space shows. The list's view
+    /// gets no sign of that, and the reads of a list that is not complete ended when its surface left the
+    /// screen: one reload starts them again. Nothing after reads that ended at their bound (the person
+    /// reloads), for a complete list, while a reload reads, and while no surface shows the list. The caller
+    /// does not wait and nothing is read on its turn: the reload runs in its own task.
+    package func cameBackOnScreen() {
+        guard reads.takeReadsOwedOnScreen() else { return }
+        Task { [weak self] in await self?.reload() }
     }
 
     /// Rebuilds the rows from what the source already holds.
