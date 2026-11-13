@@ -5,7 +5,7 @@ import { transcriptColumn } from "../src/agent-session/acpmux/model";
 
 describe("chat column during repeated zoom", () => {
   const steps = Array.from({ length: 16 }, (_, index) => (index + 5) / 10);
-  const zooms = [...steps, ...steps.toReversed()];
+  const zooms = [...steps, ...[...steps].reverse()];
 
   for (const pane of [1288, 1441, 1920]) {
     for (const width of [640, 800, 960]) {
