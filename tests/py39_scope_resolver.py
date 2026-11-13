@@ -261,7 +261,10 @@ class Resolver:
         if top is None:
             raise ScopeResolutionError("could not build the scope table")
         self.root.table = top
-        self._pair(self.root, lines or {})
+        try:
+            self._pair(self.root, lines or {})
+        except RecursionError as exc:
+            raise ScopeResolutionError("could not pair the scope tables: %s" % exc) from exc
 
     @staticmethod
     def _relines(tree, source):
@@ -313,9 +316,7 @@ class Resolver:
         for key, mine in groups.items():
             theirs = tables.get(key, [])
             if len(theirs) != len(mine):
-                for s in mine:
-                    self._break(s)
-                continue
+                raise ScopeResolutionError("could not pair scope %s" % (key,))
             for s, t in zip(mine, theirs):
                 s.table = t
                 self._pair(s, lines)
@@ -766,7 +767,8 @@ class Resolver:
                     return {module.split(".")[0]}, func_complete
                 if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not fromlist.elts:
                     return {module.split(".")[0]}, func_complete
-                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)):
+                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not any(
+                        isinstance(item, ast.Starred) for item in fromlist.elts):
                     return {module}, func_complete
                 return {module.split(".")[0]}, False
         return set(), False
