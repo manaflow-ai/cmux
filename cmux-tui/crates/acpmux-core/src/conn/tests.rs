@@ -625,6 +625,8 @@ impl EditionSource {
                     has_before: false,
                     has_after: false,
                     origins: Vec::new(),
+                    before_key: None,
+                    after_key: None,
                 },
             )
             .unwrap(),

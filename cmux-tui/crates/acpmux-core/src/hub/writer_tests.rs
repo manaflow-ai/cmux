@@ -9,7 +9,7 @@ fn closed(id: &str) -> Summary {
 }
 
 fn assert_no_delta(subscription: &ListSubscription) {
-    assert!(subscription.receiver.subscriber.state.lock().unwrap().pending.is_empty());
+    assert!(subscription.receiver.try_next().is_none());
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
     assert_eq!(hub.snapshot().seq(), 2);
     assert_eq!(hub.snapshot().get("damaged").unwrap().title, "restored from the owning chat");
     assert_eq!(writer.history.lock().unwrap().len(), 1);
-    assert!(!sub.receiver.subscriber.state.lock().unwrap().pending.is_empty());
+    assert!(sub.receiver.try_next().is_some());
     drop((sub, hub, writer));
     let (reopened, _) = Hub::open(dir.path(), 101, || 7).unwrap();
     assert_eq!(reopened.snapshot().get("damaged").unwrap().title, "restored from the owning chat");
