@@ -17,6 +17,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -487,6 +488,37 @@ class RustNoticesTest(unittest.TestCase):
             doc["hasExtractedLicensingInfos"],
             [{"licenseId": "LicenseRef-nolicense-0.1.0", "extractedText": "custom terms nolicense\n"}],
         )
+
+
+class PathDependencyTest(unittest.TestCase):
+    def test_a_workspace_dependency_outside_every_workspace_is_found(self) -> None:
+        # 2026-11-13: the diff sidecar reaches cmux-git by path, and cmux-git's
+        # `cmux-file-lock.workspace = true` failed the nightly notices with "0 matching manifests".
+        import cargo_inputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tui = root / "tui"
+            (tui / "crates" / "git").mkdir(parents=True)
+            (tui / "crates" / "lock").mkdir(parents=True)
+            (root / "side").mkdir()
+            (tui / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nversion = "0.1.0"\n'
+                '[workspace.dependencies]\nlock = { path = "crates/lock" }\n'
+            )
+            (tui / "crates" / "git" / "Cargo.toml").write_text(
+                '[package]\nname = "git"\nversion.workspace = true\n[dependencies]\nlock.workspace = true\n'
+            )
+            (tui / "crates" / "lock" / "Cargo.toml").write_text('[package]\nname = "lock"\nversion = "0.1.0"\n')
+            (root / "side" / "Cargo.toml").write_text(
+                '[package]\nname = "side"\nversion = "1.0.0"\n[dependencies]\ngit = { path = "../tui/crates/git" }\n'
+            )
+            with unittest.mock.patch.dict(os.environ, {"CARGO_HOME": str(root / "cargo")}):
+                sources = cargo_inputs.Sources([], [root / "side"])
+            self.assertEqual(
+                [d for d, _ in sources.path_packages.get("lock", [])],
+                [(tui / "crates" / "lock").resolve()],
+            )
 
 
 if __name__ == "__main__":
