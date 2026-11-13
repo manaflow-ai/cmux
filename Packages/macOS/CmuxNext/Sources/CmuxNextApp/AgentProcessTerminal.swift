@@ -30,7 +30,7 @@ struct AgentProcessTerminal {
         invocation.newColumnBeside = target == nil
         let services = services
         let handle = pane.handle
-        let cwd = tab.cwd
+        let cwd = viewer.session.isEmpty ? nil : tab.cwd // a machine's shell (no process) needs no folder here: the chat's is that machine's
         services.registry.track(Task { @MainActor in
             do {
                 let surface = try await Self.spawn(viewer, in: handle, workspace: workspace, cwd: cwd, connection: connection)

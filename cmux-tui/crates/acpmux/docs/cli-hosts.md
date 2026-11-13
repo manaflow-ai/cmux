@@ -15,6 +15,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | Add a machine that already runs a daemon | `acpmux machine add mini-3` |
 | Tailnet machines that could be added | `acpmux machine candidates` |
 | Remove a machine | `acpmux machine rm mini-3` |
+| A login shell on an added machine, in a folder there (a chat's Terminal runs it) | `acpmux machine shell mini-3 --cwd ~/repo` |
 
 `machine add` returns at once and probes the machine in the background; `acpmux machine ls` shows the result.
 

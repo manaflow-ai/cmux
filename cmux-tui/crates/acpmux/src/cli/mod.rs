@@ -38,6 +38,7 @@ pub mod host_candidates;
 pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
+pub mod host_shell;
 pub mod host_ssh_key;
 pub mod host_steps;
 pub mod host_vault;
