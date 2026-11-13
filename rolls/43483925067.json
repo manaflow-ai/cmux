@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43483925067",
+  "recorded_at": "2026-11-13T18:43:36Z",
+  "reason": "cmux-tui 1d18046714e0 changes the image's cmux-tui (pinned 9d9f4c3f5ca2)",
+  "dry_run": false,
+  "cmux_tui": "1d18046714e0cd7360a8492398082fdd592b4126",
+  "fixes": [
+    {
+      "sha": "eec483fb0f0c88f94a6e840f9a66e60e714f48df",
+      "mergedAt": "2026-11-13T09:19:21-08:00",
+      "subject": "agent service v2: standalone folders projection and wire vocabulary (5f) (#42606)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T18:43:36Z",
+    "snapshot_id": "sh-7883cce4105a4f8ab92aca460cc8c014",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43483925067): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "48672eed34ca9faf3f60f2d7f927471983235ee7",
+    "image": "cloud-native-auto-1d180467-43483925067-1",
+    "revision": "ci-43483925067-1",
+    "at": "2026-11-13T18:43:36Z"
+  },
+  "rolled_back": false
+}
