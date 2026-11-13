@@ -1,6 +1,10 @@
 // The settings schema exported from the Swift descriptors (schemas/settings/settings-schema.json).
 // The page renders one row per schema row; values come from the daemon (settings.list).
-import exported from "../../../../schemas/settings/settings-schema.json";
+// Keep the 1.1 MB page model out of the Settings entry's initial JavaScript. The page's
+// main module is already async (it awaits the settings mount), so a top-level dynamic import
+// makes esbuild emit the schema as a settings-only chunk. Other first-party pages never request
+// this asset; tests still observe the same synchronous exports after this module evaluates.
+const exported = (await import("../../../../schemas/settings/settings-schema.json")).default;
 
 export type LocalizedText = { text: string; key: string | null };
 
