@@ -146,6 +146,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
+        | ResourceOperation::GitFingerprint
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitPush
         | ResourceOperation::GitWorktreeCreate

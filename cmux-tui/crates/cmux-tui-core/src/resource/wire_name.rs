@@ -83,6 +83,7 @@ impl ResourceOperation {
             Self::GitCommit => "git.commit",
             Self::GitDiff => "git.diff",
             Self::GitFilesList => "git.files.list",
+            Self::GitFingerprint => "git.fingerprint",
             Self::GitFilesSearch => "git.files.search",
             Self::GitPush => "git.push",
             Self::GitWorktreeCreate => "git.worktree.create",
