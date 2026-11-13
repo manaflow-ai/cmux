@@ -55,8 +55,10 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
-# Cargo's own words for a Cargo.lock that no longer matches its manifests under --locked.
-STALE_LOCK = re.compile(r"cannot update the lock file (?P<path>\S+) because --locked was passed")
+# Cargo's own words for a Cargo.lock that no longer matches its manifests under --locked: each spelling
+# scripts/cmux-next/cargo-locks.py knows (cargo changed the sentence, and a missing lock is "create").
+STALE_LOCK = re.compile(r"(?:cannot (?:update|create) the lock file|the lock file) (?P<path>\S+) "
+                        r"(?:because|needs to be updated but) --locked was passed")
 
 
 def stale_lock(cargo_log, root):

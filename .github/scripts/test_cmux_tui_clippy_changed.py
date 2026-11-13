@@ -32,7 +32,11 @@ if [[ "$1" == metadata ]]; then
 fi
 printf '%s\\n' "$*" >> "$CARGO_LOG"
 if [[ -n "${STALE_LOCK:-}" ]]; then
-  echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2
+  case "$STALE_LOCK" in
+    create) echo "error: cannot create the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2 ;;
+    needs) echo "error: the lock file $PWD/Cargo.lock needs to be updated but --locked was passed to prevent this" >&2 ;;
+    *) echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2 ;;
+  esac
   exit 101
 fi
 [[ -n "${HEAD_LOG:-}" ]] && git rev-parse HEAD >> "$HEAD_LOG"
@@ -296,6 +300,17 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertIn("`scripts/cmux-next/cargo-locks.py fix`", result.stdout)
         self.assertNotIn("fix each lint", result.stdout)
 
+    def test_each_of_cargos_spellings_of_a_stale_lockfile_is_named(self) -> None:
+        # cargo-locks.py knows three sentences; a detector that knew one called the others lints.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        for spelling in ("create", "needs"):
+            with self.subTest(spelling=spelling):
+                result = self.run_check("--base", self.base, env_extra={"STALE_LOCK": spelling})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("::error title=cmux-tui clippy (stale Cargo.lock)::cmux-tui/Cargo.lock does not match "
+                              "its manifests", result.stdout)
+                self.assertNotIn("fix each lint", result.stdout)
+
     def test_a_stale_lockfile_is_named_instead_of_a_ratchet_hit(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
         out = self.tmp / "out" / "panic-clippy.jsonl"
@@ -481,6 +496,18 @@ class RatchetAgainstBaseTests(unittest.TestCase):
                       result.stderr)
         self.assertIn("`scripts/cmux-next/cargo-locks.py fix`", result.stderr)
         self.assertNotIn("partial build", result.stderr)
+
+    def test_each_of_cargos_spellings_of_a_stale_lockfile_names_the_lockfile(self) -> None:
+        lock = self.tmp / "cmux-tui/Cargo.lock"
+        for words in (f"cannot create the lock file {lock} because --locked was passed to prevent this",
+                      f"the lock file {lock} needs to be updated but --locked was passed to prevent this"):
+            with self.subTest(words=words):
+                (self.tmp / "cargo.log").write_text(f"error: {words}\n")
+                result = self.judge("", cargo_log=self.tmp / "cargo.log")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("::error title=rust panic ratchet (stale Cargo.lock)::cmux-tui/Cargo.lock does not "
+                              "match", result.stderr)
+                self.assertNotIn("partial build", result.stderr)
 
     def test_a_run_that_did_not_finish_for_another_reason_is_still_a_partial_build(self) -> None:
         (self.tmp / "cargo.log").write_text("error: could not compile `acpmux`\n")
