@@ -5959,7 +5959,6 @@ CmuxNextDaemon	struct	ResizeAttachedViewRequest	0	MIRROR	0	100	Packages/macOS/Cm
 CmuxNextDaemon	struct	ResizeSurfaceRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO/Sizing.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	SnapshotRequestRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO/SnapshotRequest.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	extension	DaemonConnection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Terminals/ListTerminals.swift	from struct ListTerminalsRequest:5: hand-written DaemonRequest/response wire type (V-30)
-CmuxNextDaemon	struct	ListTerminalsRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Terminals/ListTerminals.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	TerminalRegistryEntry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Terminals/ListTerminals.swift	from struct ListTerminalsRequest:5: hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	TerminalRegistryList	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Terminals/ListTerminals.swift	from struct ListTerminalsRequest:5: hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	protocol	VerbatimFieldsRequest	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/VerbatimFieldsRequest.swift	verbatim fields protocol

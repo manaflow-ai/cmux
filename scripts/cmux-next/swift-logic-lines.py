@@ -117,6 +117,8 @@ GENERATORS = (
      "scripts/cmux-next/gen-settings-sources.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",
      "scripts/cmux-next/gen-protected-folders.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/*/*.generated.swift",
+     "cmux-tui/bindings/codegen/swift_app"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
      "scripts/cmux-next/gen-protected-folders.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ProtectedFolderEntry.generated.swift",

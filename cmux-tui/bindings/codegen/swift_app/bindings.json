@@ -3,5 +3,61 @@
   "output_root": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests",
   "ids": {},
   "types": {},
-  "families": {}
+  "families": {
+    "Shell": {
+      "$comment": "shell-runs-v1. The replies are hand-written (the schema types them as JSON) in Shell/ShellRunReplies.swift, with the run id and the read timeout.",
+      "requests": {
+        "shell-run": {
+          "name": "ShellRunRequest",
+          "response": "hand-written",
+          "order": [
+            "command",
+            "cwd",
+            "scope",
+            "run"
+          ],
+          "doc": [
+            "`shell-run {command, cwd?, scope?, run?}`: starts `command` in `cwd` on the chat's machine under the id `run`",
+            "(chosen here, so a start whose answer is lost can still be stopped); `{run}` or `{refused}`."
+          ]
+        },
+        "shell-read": {
+          "name": "ShellReadRequest",
+          "response": "hand-written",
+          "order": [
+            "run",
+            "after"
+          ],
+          "fields": {
+            "after": {
+              "type": "Int"
+            }
+          },
+          "doc": [
+            "`shell-read {run, after}`: output after `after`, answered when there is some or the command ended,",
+            "else after 10 s."
+          ]
+        },
+        "shell-stop": {
+          "name": "ShellStopRequest",
+          "response": "hand-written",
+          "doc": [
+            "`shell-stop {run}`: Ctrl-C to the command's process group, then SIGTERM and SIGKILL."
+          ]
+        }
+      }
+    },
+    "Terminals": {
+      "requests": {
+        "list-terminals": {
+          "name": "ListTerminalsRequest",
+          "response": "TerminalRegistryList",
+          "doc": [
+            "`list-terminals`: every terminal in the daemon's registry with its workspace and, once ended, its exit",
+            "record (cmux-tui terminal-host.md)."
+          ]
+        }
+      }
+    }
+  }
 }

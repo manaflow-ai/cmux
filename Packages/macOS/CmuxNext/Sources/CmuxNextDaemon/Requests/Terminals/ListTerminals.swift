@@ -1,13 +1,6 @@
 import Foundation
 
-/// `list-terminals`: every terminal in the daemon's registry with its
-/// workspace and, once ended, its exit record (cmux-tui terminal-host.md).
-public struct ListTerminalsRequest: DaemonRequest {
-    public typealias Response = TerminalRegistryList
-    public static let command = "list-terminals"
-    public init() {}
-}
-
+/// The `list-terminals` reply (``ListTerminalsRequest``, generated).
 public struct TerminalRegistryList: Decodable, Sendable {
     public var terminals: [TerminalRegistryEntry]
 }
