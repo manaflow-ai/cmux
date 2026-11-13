@@ -237,4 +237,50 @@ mod tests {
         assert!(prompt.len() < 2 * EXCERPT_BYTES + 1024);
         assert!(prompt.contains(INSTRUCTION));
     }
+
+    #[test]
+    fn clipped_cuts_on_a_character_boundary_at_each_end() {
+        // 12 bytes: each "a" is 1 byte and each "é" is 2.
+        let text = "aéaéaéaé";
+        assert_eq!(clipped(text, 12, false), text);
+        assert_eq!(clipped(text, 12, true), text);
+        // The limit is on a boundary.
+        assert_eq!(clipped(text, 4, false), "aéa");
+        assert_eq!(clipped(text, 5, true), "éaé");
+        // The limit is in the middle of an "é": the cut moves into the limit.
+        assert_eq!(clipped(text, 5, false), "aéa");
+        assert_eq!(clipped(text, 2, false), "a");
+        assert_eq!(clipped(text, 4, true), "aé");
+        assert_eq!(clipped(text, 0, false), "");
+        assert_eq!(clipped(text, 0, true), "");
+    }
+
+    #[test]
+    fn many_lines_give_the_first_and_the_last_lines() {
+        let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+        let prompt = prompt(&text, "message-0.txt");
+        let first: Vec<String> = (1..=40).map(|n| format!("line {n}")).collect();
+        let last: Vec<String> = (61..=100).map(|n| format!("line {n}")).collect();
+        let first = format!("Its first 40 lines:\n```\n{}\n```", first.join("\n"));
+        let last = format!("Its last 40 lines:\n```\n{}\n```", last.join("\n"));
+        assert!(prompt.contains(&first), "{prompt}");
+        assert!(prompt.contains("\n\n[20 lines not shown]\n\n"), "{prompt}");
+        assert!(prompt.ends_with(&last), "{prompt}");
+        assert!(!prompt.contains("line 41") && !prompt.contains("line 60"), "{prompt}");
+    }
+
+    #[test]
+    fn the_lines_of_a_short_text_are_all_in_its_start() {
+        let text: String = (1..=3).map(|n| format!("line {n}\n")).collect();
+        let prompt = prompt(&text, "message-0.txt");
+        assert!(prompt.contains("Its start:\n```\nline 1\nline 2\nline 3\n```"), "{prompt}");
+        assert!(prompt.ends_with("Its end:\n```\nline 1\nline 2\nline 3\n```"), "{prompt}");
+    }
+
+    #[test]
+    fn the_file_name_has_the_first_12_digits_of_the_hash() {
+        let (hash, name) = file_of("hello");
+        assert_eq!(hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(name, "message-2cf24dba5fb0.txt");
+    }
 }
