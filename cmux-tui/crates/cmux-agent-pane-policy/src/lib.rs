@@ -10,8 +10,9 @@
 //! `AgentPaneTransport.checkOne`, in its order), and relays only the object
 //! it returns ([`check::encode`]). The shared case files in `tests/cases` run
 //! against this crate (`tests/parity.rs`); `tests/swift.rs` checks the
-//! requests and params lists against the Swift host's tables
-//! (`AcpmuxPaneMethods.requests`, `knownParams`), and `tests/typescript.rs`
+//! tables and the click rule against the Swift host's (for example
+//! `AcpmuxPaneMethods.requests`, `knownParams`, `answerAllowed`), and
+//! `tests/typescript.rs`
 //! against what the page sends (webviews/src/agent-session/acpmux).
 //!
 //! Host-owned (state or disk; the Rust host that adopts this crate implements
@@ -36,6 +37,14 @@
 //!   a question's `_acpmux/permission_respond` may carry `answers`, checked by
 //!   [`answers::breaks_answers_rule`] against `policy.json` `question_answers`,
 //!   the same rule as the Swift host's);
+//! - the person's gesture: the host records it from its own input events,
+//!   times it (`policy.json` `click_window_ms`) and tells the check which
+//!   one it holds ([`Gesture`]: none, a key, a click). The check refuses an
+//!   answer method (`policy.json` `click_only`) that needs a gesture unless
+//!   the host holds a click; the host spends that click and its gesture
+//!   grant on a frame whose facts say `needs_click`, so one click answers
+//!   one time ([`check::Facts::needs_click`]; `AgentPaneUserGestures
+//!   .hasFreshAnswerGesture`, `consumeAnswerClick`);
 //! - gesture tickets, records and the mode confirmation sheet
 //!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`), and the folder
 //!   harness sheet (`confirmHarnessEnable`: the user's Enable, the confirmed
@@ -74,4 +83,5 @@ pub use frame::{
     Decision, RefusalNote, Refused, allowlist_check, allowlist_decision, refusal_frame,
     refusal_frame_noted,
 };
+pub use gesture::Gesture;
 pub use sessions::PaneSessions;

@@ -28,7 +28,15 @@ and its jobs last of all; anything unread keeps the run. At most MAX_CANCELS a r
 With --settle, a holder that only lacks its READY_WAIT, or a tip whose run is not listed yet, is judged once
 more after that wait (at most SETTLE_MAX), so the push that starts this workflow clears its own holder.
 
-    nightly_next_supersede.py OWNER/REPO --rules PATH/delivery_workflows.py [--settle] [--dry-run]
+A holder can go stale after that settle: its decide finishes a few minutes after the push, then its build jobs
+queue on a dead label, and only then does its 5-minute READY_WAIT start. This workflow starts only on a
+promotion push or by dispatch (a schedule runs only on the default branch's files, and this file is not on main),
+so such a holder used to wait for the next promotion. Now, with --chain N, a pass that still keeps a holder only
+for its READY_WAIT dispatches this workflow again on nightly-next (chain N+1, at most CHAIN_MAX): the next run waits
+on this one's concurrency group, then settles and judges again. The chain stops as soon as no holder lacks only
+time (it was dropped, it started building, or the waiter went), so it costs nothing while nothing is stuck.
+
+    nightly_next_supersede.py OWNER/REPO --rules PATH/delivery_workflows.py [--settle] [--chain N] [--dry-run]
 Needs gh with GH_TOKEN (actions: write). Exit 0 once the arguments read: its findings are annotations.
 """
 from __future__ import annotations
@@ -56,6 +64,8 @@ MAX_CANCELS = 2  # one push holder and one sign holder
 READY_WAIT = dt.timedelta(minutes=5)
 SETTLE_MAX = dt.timedelta(minutes=6)
 SETTLE_NO_WAITER = dt.timedelta(seconds=45)  # the push's nightly run may not be listed yet
+CHAIN_MAX = 12  # re-dispatches after one push: about 12 x (queue + SETTLE_MAX), over an hour of a holder going stale
+SELF = "nightly-next-supersede.yml"
 SHA = re.compile(r"[0-9a-f]{40}")
 # nightly.yml's run-name for the dispatches its group expression puts in the push and sign groups.
 RETRY_TITLE = re.compile(r"^Retry nightly-next \([12] of 2\)$")
@@ -308,6 +318,10 @@ class Api:
     def cancel(self, run_id: int) -> None:
         self.gh(["api", "-X", "POST", f"repos/{self.repo}/actions/runs/{run_id}/cancel"], True)
 
+    def rearm(self, chain: int) -> None:
+        """Dispatch this workflow again on nightly-next, as link CHAIN of the chain."""
+        self.gh(["workflow", "run", SELF, "-R", self.repo, "--ref", BRANCH, "-f", f"chain={chain}"], True)
+
 
 # ---- one pass
 
@@ -335,9 +349,10 @@ def judge(rules: ModuleType, api: Api, run: Mapping[str, Any], runs: Sequence[Ma
 
 
 def sweep(rules: ModuleType, api: Api, *, dry_run: bool, log: Callable[[str], None], clock: Clock,
-          done: list[int]) -> dt.timedelta | None:
+          done: list[int], waits: list[dt.timedelta] | None = None) -> dt.timedelta | None:
     """Cancel each droppable holder; return how long a kept holder still has to wait (None when none would
-    become droppable by waiting)."""
+    become droppable by waiting). WAITS gets each kept holder's own READY_WAIT remainder (not the brief wait for a
+    tip run not listed yet): what a re-dispatch would wait out."""
     def warn(message: str) -> None:
         log(f"::warning title=nightly-next supersede::{message}")
 
@@ -361,6 +376,8 @@ def sweep(rules: ModuleType, api: Api, *, dry_run: bool, log: Callable[[str], No
             log(f"nightly-next run {run_id} ({group_of(listed)} group, {str(listed.get('head_sha'))[:12]}): kept, {why}")
             if wait is not None:
                 later = wait if later is None else min(later, wait)
+                if waits is not None:
+                    waits.append(wait)
             elif not tip_listed and group_of(listed) == "push":
                 later = SETTLE_NO_WAITER if later is None else min(later, SETTLE_NO_WAITER)
             continue
@@ -406,15 +423,33 @@ def sweep(rules: ModuleType, api: Api, *, dry_run: bool, log: Callable[[str], No
 
 def tick(rules: ModuleType, api: Api, *, dry_run: bool = False, settle: bool = False,
          log: Callable[[str], None] = print, clock: Clock = _utc_now,
-         sleep: Callable[[float], None] = time.sleep) -> list[int]:
-    """One sweep, and with `settle` one more after the shortest wait a kept holder needs (at most SETTLE_MAX)."""
+         sleep: Callable[[float], None] = time.sleep, chain: int | None = None) -> list[int]:
+    """One sweep, and with `settle` one more after the shortest wait a kept holder needs (at most SETTLE_MAX).
+    With CHAIN (this run's link, 0 for a push), a last sweep that still keeps a holder only for its READY_WAIT
+    dispatches the next link, up to CHAIN_MAX; a dry run never does."""
     done: list[int] = []
-    later = sweep(rules, api, dry_run=dry_run, log=log, clock=clock, done=done)
+    waits: list[dt.timedelta] = []
+    later = sweep(rules, api, dry_run=dry_run, log=log, clock=clock, done=done, waits=waits)
     if settle and later is not None and len(done) < MAX_CANCELS:
         pause = min(later, SETTLE_MAX).total_seconds() + 5
         log(f"nightly-next supersede: judging again in {int(pause)} s")
         sleep(pause)
-        sweep(rules, api, dry_run=dry_run, log=log, clock=clock, done=done)
+        waits.clear()
+        sweep(rules, api, dry_run=dry_run, log=log, clock=clock, done=done, waits=waits)
+    if chain is not None and waits and len(done) < MAX_CANCELS:
+        if dry_run:
+            log(f"nightly-next supersede: would dispatch link {chain + 1} (a holder still lacks {min(waits)})")
+        elif chain >= CHAIN_MAX:
+            log(f"::warning title=nightly-next supersede::a holder still lacks {min(waits)} after {CHAIN_MAX} "
+                "re-dispatches; the next promotion or scripts/ci/nightly_now.py judges it again")
+        else:
+            try:
+                api.rearm(chain + 1)
+                log(f"nightly-next supersede: a holder still lacks {min(waits)}; dispatched link {chain + 1} "
+                    f"of at most {CHAIN_MAX}")
+            except Unreadable as error:
+                log(f"::warning title=nightly-next supersede::the re-dispatch was refused ({error}); the next "
+                    "promotion judges it again")
     return done
 
 
@@ -424,13 +459,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--rules", required=True, help="main's scripts/ci/delivery_workflows.py")
     parser.add_argument("--settle", action="store_true", help="judge once more after a kept holder's wait")
     parser.add_argument("--dry-run", action="store_true", help="read and decide only; cancel nothing")
+    parser.add_argument("--chain", type=int, default=None,
+                        help="this run's link of the re-dispatch chain (0 for a push); omitted, never re-dispatch")
     args = parser.parse_args(argv)
     try:
         rules = load_rules(args.rules)
     except (Unreadable, OSError, SyntaxError) as error:
         print(f"::warning title=nightly-next supersede::the stale rule could not be loaded ({error}); nothing cancelled")
         return 0
-    tick(rules, Api(args.repo), dry_run=args.dry_run, settle=args.settle)
+    tick(rules, Api(args.repo), dry_run=args.dry_run, settle=args.settle, chain=args.chain)
     return 0
 
 

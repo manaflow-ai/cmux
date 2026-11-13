@@ -29,6 +29,20 @@ struct CloudPauseStopsCarrierTests {
         try await waitUntil { await resolver.opens > opensWhilePaused }
     }
 
+    /// The server took a person's pause: the session parks the link before the paused record arrives.
+    @Test func aPauseTheServerTookParksBeforeThePausedRecord() async throws {
+        let resolver = ServeRecordingResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "vm-park", status: .running, displayName: "Parked VM"),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: "vm-park"), resolver: resolver),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        session.connect()
+        try await waitUntil { await resolver.opens >= 1 }
+        session.suspend(pausing: true)
+        try await waitUntil { await resolver.closes >= 1 }
+        #expect(session.machine.status == .running, "the record has not said paused yet")
+    }
+
     private func waitUntil(_ condition: @escaping () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(10)
         while !(await condition()) {

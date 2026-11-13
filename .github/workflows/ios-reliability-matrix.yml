@@ -301,11 +301,40 @@ jobs:
           path: logs
           merge-multiple: true
       - name: Matrix table
+        env:
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
         run: |
           set -o pipefail
+          needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 failed="" unjudged="" pair name result; shift
+            for pair in "$@"; do
+              name=${pair%%=*}; result=${pair#*=}
+              if [[ "$name" == *"?" ]]; then name=${name%"?"}; [[ "$result" == skipped ]] && result=success; fi
+              case "${result%%[ :]*}" in
+                success) ;;
+                failure|invalid) failed+=" $name: $result;" ;;
+                *) unjudged+=" $name ${result:-none}," ;;
+              esac
+            done
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
+            if [[ -n "$unjudged" ]]; then
+              echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
+            fi
+            echo "$what: every job passed"
+          }
+          # The jobs' results first (scripts/ci/needs_verdict.py): one that judged nothing is no verdict, never a
+          # table read from a partial log; a red still prints the table, then stays red.
+          verdict=0
+          needs_verdict "iOS reliability matrix" "protocol?=$PROTOCOL_RESULT" "ios?=$IOS_RESULT" || verdict=$?
+          (( verdict != 3 )) || exit 3
           args=()
-          [[ "${{ needs.protocol.result }}" != "skipped" ]] && args+=(--rust logs/rust.log)
-          [[ "${{ needs.ios.result }}" != "skipped" ]] && args+=(--ios logs/ios.log)
+          [[ "$PROTOCOL_RESULT" != "skipped" ]] && args+=(--rust logs/rust.log)
+          [[ "$IOS_RESULT" != "skipped" ]] && args+=(--ios logs/ios.log)
+          if (( verdict )); then
+            python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY" || true
+            exit "$verdict"
+          fi
           python3 scripts/ci/ios_reliability_matrix.py "${args[@]}" --json matrix.json | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

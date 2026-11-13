@@ -121,8 +121,7 @@ extension NewTabPage {
         }
     }
 
-    /// The page chose a terminal or browser: open it, then close the page,
-    /// which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
+    /// The page chose a terminal or browser: open it, then close the page, which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
     /// leaves it, and what was typed, in place. A chat that has a session
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
@@ -160,7 +159,8 @@ extension NewTabPage {
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick lands where links do, in the pane on the right (Lawrence 2026-10-19); the Debug toggle
-        // `newTab.picksFollowLinks` off keeps it in the page's place, like a browser's new tab (Leo 2026-10-20), as do the page's create buttons (`inPlace`).
+        // `newTab.picksFollowLinks` off keeps it in the page's place, like a browser's new tab (Leo 2026-10-20), as do the page's create buttons (`inPlace`)
+        // and a browser pick, a navigation (Lawrence 2026-11-11: `navigatesInPlace`; Option-Return's `beside` opens where links go).
         // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
         // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane"). A setup action's `keep`
         // (Log In, Update, Open in Terminal) goes there too and leaves the page or chat in place.
@@ -168,7 +168,7 @@ extension NewTabPage {
            case .beside(let closesPage) = ChatColumnPlacement.DockPick.resolve(hasStrip: true, keep: keep) {
             return Self.openBeside(key, with: request, cwd: cwd, from: pane, closesPage: closesPage)
         }
-        if !keep, !request.inPlace, Self.opensBeside(key, in: pane, kind: request.kind) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
+        if !keep, !request.inPlace, !request.navigatesInPlace, Self.opensBeside(key, in: pane, kind: request.kind) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
@@ -350,7 +350,7 @@ extension NewTabPage {
         }
         guard let request = NewTabSubmit.nativeRequest(text: trimmed, kind: kind, search: search, cwd: cwd,
                                                        resolver: page.services.cache.suggestionEngine.resolver) else { return false }
-        let besidePage = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page) || key.map { Self.opensBeside($0, in: page, kind: request.kind) } == true
+        let besidePage = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page) || (!request.navigatesInPlace && key.map { Self.opensBeside($0, in: page, kind: request.kind) } == true)
         if request.kind.opensBesideChat && besidePage { return servicesOpenNativeTool(request, from: page) }
         switch (request.kind, request.text.isEmpty) {
         case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: nativeTerminalTyping(request))

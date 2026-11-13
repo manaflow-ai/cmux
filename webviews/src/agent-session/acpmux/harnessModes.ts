@@ -121,6 +121,29 @@ export function remoteStartMode(
   return { id, name: menu.rows.find((row) => row.id === id)?.name ?? name ?? id };
 }
 
+/** The agent a Cloud machine starts when its send names none: acpmux's default, Claude first
+ * (default_harness.rs). */
+export const CLOUD_DEFAULT_AGENT = "claude";
+
+/** The built-in UniiChat harness (acpmux config/discover.rs UNIICHAT_PROFILE): every acpmux bundles
+ * it, so a Mac with no agent CLI shows it in the composer. Its tools run on its own server; it has no
+ * permission modes on a machine. */
+const UNII = "unii";
+
+/** The agent a Cloud start runs for a chat the composer shows on HARNESS, and whether the send names
+ * it. Claude and Codex, and any other agent the person picked (opencode, say: the machine runs it),
+ * are named and run. UniiChat is not a machine agent: the send leaves it out, so the machine starts
+ * its default, Claude, which the Mode chip names. The chip and every Cloud send read this one answer. */
+export function cloudStartAgent(
+  family: string | undefined,
+  harness: string | undefined,
+): { family: string | undefined; harness: string | undefined; named: boolean } {
+  const id = (family ?? harness ?? "").toLowerCase();
+  // No harness yet (none installed, or still listing): the send names none, so the machine's default.
+  if (id && id !== UNII && (harness ?? "").toLowerCase() !== UNII) return { family, harness, named: true };
+  return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
+}
+
 /** The family's own menu whatever the harness reported (none yet: a New Tab before its chat
  * starts), for a pick made before the chat reports its modes. None for a harness this table does
  * not list. */

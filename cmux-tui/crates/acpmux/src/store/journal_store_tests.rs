@@ -15,7 +15,9 @@ use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
+use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1095,6 +1097,9 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
     });
     let journal = SimStorage::new(47);
     let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    // After the store: a panic before the releases lets both holds go before the unwind drops it.
+    let idle_release = super::journal_store::Release::new(idle_release);
+    let touch_release = super::journal_store::Release::new(touch_release);
     // The checkpointer found nothing to do, marked itself idle and holds the timer lock.
     idle_seen
         .recv_timeout(WAIT)
@@ -1111,8 +1116,8 @@ fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
         .unwrap_or_else(|e| panic!("the change never took the idle flag: {e}"));
     // The second look sees the change, so the checkpointer goes to its period wait (30 s), and
     // the change's notify comes in there.
-    idle_release.send(()).unwrap_or_else(|e| panic!("{e}"));
-    touch_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    idle_release.now();
+    touch_release.now();
     appender.join().unwrap_or_else(|_| panic!("the append panicked"));
     std::thread::sleep(Duration::from_millis(300));
     let woke = checkpointer_seams(home.path(), |seams| seams.wakes);
@@ -1898,4 +1903,869 @@ fn a_retention_rewrite_of_a_replayed_chat_checkpoints_first() {
         "a replay kept a rewritten chat's journaled lines aside: {:?}",
         kept_aside(home.path(), CHAT)
     );
+}
+
+/// #41627 F1, the class: a test that holds a thread the store owns (the checkpointer's
+/// `idle_hold` and `touch_hold`) releases it through `journal_store::Release` bound after the
+/// store, never a bare `send` on the hold's sender. A bare sender bound before the store outlives
+/// it on an unwind: a panic before the send (a `recv_timeout` that expired) drops the store first,
+/// and its drop waits on the held thread forever, so a timeout becomes a hang. Scans every source
+/// file of the crate.
+#[test]
+fn every_checkpointer_hold_is_released_by_a_guard_bound_after_the_store() {
+    fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
+        let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &mut files);
+    // Built here, so this scan's own text is not an install.
+    let installs = ["idle_hold", "touch_hold"].map(|seam| format!("{seam} = Some(("));
+    let mut found = Vec::new();
+    let mut checked = 0;
+    for file in &files {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        // One test (or helper) per top-level `fn`: the text up to the next one.
+        for body in text.split("\nfn ").skip(1) {
+            let body = body.split("\n}\n").next().unwrap_or(body);
+            let held: Vec<&str> = installs
+                .iter()
+                .filter_map(|install| {
+                    let at = body.find(install.as_str())?;
+                    let pair = &body[at + install.len()..];
+                    let release = pair.split(&[',', ')'][..]).nth(1)?.trim();
+                    Some(release)
+                })
+                .collect();
+            for receiver in held {
+                checked += 1;
+                let name = body.split('(').next().unwrap_or("?");
+                // The sender that pairs with `receiver`: `let (sender, receiver) = ...channel()`.
+                let sender = body.lines().find_map(|line| {
+                    let pair = line.trim().strip_prefix("let (")?;
+                    let (sender, rest) = pair.split_once(',')?;
+                    let rest = rest.trim_start();
+                    rest.strip_prefix(receiver)
+                        .filter(|after| after.starts_with(')'))
+                        .map(|_| sender.trim())
+                });
+                let Some(sender) = sender else {
+                    found.push(format!(
+                        "{}: {name}: no `let ({{sender}}, {receiver})` pair",
+                        file.display()
+                    ));
+                    continue;
+                };
+                let guard = format!("Release::new({sender})");
+                let store = body.find("let store");
+                match (body.find(&guard), store) {
+                    (Some(at), Some(store)) if at > store => {}
+                    (Some(_), _) => found.push(format!(
+                        "{}: {name}: `{guard}` is bound before the store",
+                        file.display()
+                    )),
+                    (None, _) => found.push(format!(
+                        "{}: {name}: the release `{sender}` is not a `Release` guard",
+                        file.display()
+                    )),
+                }
+            }
+        }
+    }
+    assert!(checked >= 3, "the scan found {checked} checkpointer holds: it no longer sees them");
+    assert!(found.is_empty(), "a hold a panic can leave unreleased:\n{}", found.join("\n"));
+}
+
+/// #41816 follow-up, the class: a test that waits for the code under test to reach a hold (an
+/// `arrived`, `entered`, `copied` or `ready` signal, or the hold's own channel) waits with a
+/// bound, `recv_timeout`, and panics naming what did not arrive. A bare blocking `recv` there
+/// blocks forever when the code never reaches the hold (or keeps the sender alive), so a
+/// regression becomes a hung run instead of a failure. Scans every test source of the crate:
+/// the test-only files (`*tests.rs`, `*_bench.rs`, any `#[cfg(test)] mod name;`) and every
+/// `#[cfg(test)] mod name { ... }` block, read as Rust tokens (#41842 review: never as text).
+/// What it exempts, and why each ends, is `scan_test_waits`'s list. `ALLOWED` lists the other
+/// unbounded waits, each with why it cannot hang.
+#[test]
+fn every_test_wait_on_a_hold_is_bounded() {
+    /// `(file under src/, receiver, why it may block unbounded)`.
+    const ALLOWED: &[(&str, &str, &str)] = &[
+        (
+            "agent_host/host/orphan.rs",
+            "held",
+            "the harness waiter's park: it ends when the test drops `release`",
+        ),
+        (
+            "server/ack_latency_bench.rs",
+            "outgoing",
+            "the page's reader drains the served connection's output: it ends when the \
+             connection drops `output`, and no test waits on it",
+        ),
+    ];
+    fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
+        let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut paths = Vec::new();
+    sources(&root, &mut paths);
+    paths.sort();
+    let mut files: Vec<(PathBuf, String)> = paths
+        .iter()
+        .map(|file| {
+            let relative = file.strip_prefix(&root).unwrap_or(file).to_path_buf();
+            (relative, std::fs::read_to_string(file).unwrap_or_default())
+        })
+        .collect();
+    // A test module's `#[path]` may name a file outside `src/` (`tests/support/`): read it too.
+    let CrateScan { checked, unread, unresolved, waits } = loop {
+        let scan = scan_crate(&files);
+        let more: BTreeMap<PathBuf, String> = scan
+            .unresolved
+            .iter()
+            .flat_map(|(_, candidates)| candidates)
+            .filter_map(|path| Some((path.clone(), std::fs::read_to_string(root.join(path)).ok()?)))
+            .collect();
+        if more.is_empty() {
+            break scan;
+        }
+        files.extend(more);
+    };
+    let unresolved: Vec<String> = unresolved
+        .iter()
+        .map(|(file, candidates)| {
+            let at: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+            format!("{file}: no file at {}", at.join(" or "))
+        })
+        .collect();
+    assert!(
+        unresolved.is_empty(),
+        "a test module's `mod child;` resolves to no file:\n{}",
+        unresolved.join("\n")
+    );
+    let mut found = Vec::new();
+    let mut allowed_seen = vec![false; ALLOWED.len()];
+    for (path, wait) in waits {
+        if let Some(i) = ALLOWED.iter().position(|(f, r, _)| *f == path && *r == wait.root) {
+            allowed_seen[i] = true;
+            continue;
+        }
+        found.push(format!("{path}:{}: `{}` has no bound", wait.line, wait.call));
+    }
+    assert!(checked >= 50, "the scan read {checked} test sources: it no longer sees them");
+    assert!(
+        unread.is_empty(),
+        "a file declares a `#[cfg(test)] mod name {{` the scan read nothing of:\n{}",
+        unread.join("\n")
+    );
+    for ((file, receiver, _), seen) in ALLOWED.iter().zip(allowed_seen) {
+        assert!(seen, "ALLOWED lists `{receiver}` in {file}, which no longer waits there");
+    }
+    assert!(
+        found.is_empty(),
+        "a test waits on a hold with no bound; use `recv_timeout` and name what did not \
+         arrive:\n{}",
+        found.join("\n")
+    );
+}
+
+fn ident(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Whether `text` writes a `#[cfg(test)] mod name {` header. Read as text on purpose, apart from
+/// the scan, so it checks that the scan read every test module a file has.
+fn declares_test_module(text: &str) -> bool {
+    let attr = "#[cfg(test)]";
+    text.match_indices(attr).any(|(at, _)| {
+        let mut rest = text[at + attr.len()..].trim_start();
+        // Other attributes may sit between it and the item.
+        while rest.starts_with("#[") {
+            rest = rest.split_once(']').map_or("", |(_, r)| r).trim_start();
+        }
+        let rest = rest.strip_prefix("pub(crate) ").or(rest.strip_prefix("pub ")).unwrap_or(rest);
+        rest.strip_prefix("mod ").is_some_and(|module| {
+            let head = module.find(|c: char| !ident(c)).unwrap_or(module.len());
+            module[head..].trim_start().starts_with('{')
+        })
+    })
+}
+
+/// One blocking wait the bounded-wait scan judged unbounded.
+#[derive(Debug)]
+struct Wait {
+    /// The call's line in the scanned text.
+    line: usize,
+    /// The receiver and the call (`self.gate.lock().unwrap().recv()`).
+    call: String,
+    /// The channel the receiver names: its last field or variable (`gate`).
+    root: String,
+}
+
+/// What the scan read of one source: how many test ranges, and the waits in them.
+struct TestScan {
+    ranges: usize,
+    waits: Vec<Wait>,
+}
+
+/// What the scan read of a crate's sources.
+struct CrateScan {
+    /// How many sources gave it test code.
+    checked: usize,
+    /// The files that declare a `#[cfg(test)] mod name {` it read nothing of.
+    unread: Vec<String>,
+    /// Each test module declared `mod child;` that no source is the file of: the file that
+    /// declares it, and where its file may be.
+    unresolved: Vec<(String, Vec<PathBuf>)>,
+    /// Each unbounded wait, with its file.
+    waits: Vec<(String, Wait)>,
+}
+
+/// The scan of a crate's sources, `(path under src/, text)`: which are test code, and the
+/// unbounded waits in them. A pure function of the sources, so fixtures can feed it files. A
+/// file is test code when its name says so (`*tests.rs`, `*_bench.rs`), when a module declared
+/// `#[cfg(test)] mod name;` has its name, or when the module tree makes it one: a `mod child;`
+/// that `#[cfg(test)]` declares, or that sits in test code (an inline `#[cfg(test)] mod tests
+/// { mod child; }`, or a test file), resolved to its file as rustc does (`#[path]` too).
+fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
+    let index: HashMap<&Path, usize> =
+        files.iter().enumerate().map(|(i, (path, _))| (path.as_path(), i)).collect();
+    let tokens: Vec<TokenStream> = files.iter().map(|(_, text)| lex(text)).collect();
+    let modules_of = |i: usize, in_test: bool| {
+        let (dir, base) = module_dirs(&files[i].0);
+        let mut modules = Modules::default();
+        modules_in(tokens[i].clone(), &dir, &base, in_test, &mut modules);
+        modules
+    };
+    let named = |relative: &Path| {
+        let stem = relative.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        stem.ends_with("tests") || stem.ends_with("_bench")
+    };
+    let mut modules: Vec<Modules> =
+        (0..files.len()).map(|i| modules_of(i, named(&files[i].0))).collect();
+    // Modules declared `#[cfg(test)] mod name;`: files with that name only build under test.
+    let test_names: HashSet<String> = modules.iter().flat_map(|m| m.names.clone()).collect();
+    let mut whole: Vec<bool> = files
+        .iter()
+        .map(|(relative, _)| {
+            named(relative)
+                || relative.iter().any(|part| {
+                    let part = part.to_str().unwrap_or("");
+                    test_names.contains(part.strip_suffix(".rs").unwrap_or(part))
+                })
+        })
+        .collect();
+    let mut scan =
+        CrateScan { checked: 0, unread: Vec::new(), unresolved: Vec::new(), waits: Vec::new() };
+    // Each test file's own `mod child;` files are test files too, to any depth.
+    let mut todo: Vec<usize> = (0..files.len()).collect();
+    while let Some(i) = todo.pop() {
+        if whole[i] && !named(&files[i].0) {
+            modules[i] = modules_of(i, true);
+        }
+        for candidates in &modules[i].files {
+            match candidates.iter().find_map(|path| index.get(path.as_path())) {
+                Some(&child) if !whole[child] => {
+                    whole[child] = true;
+                    todo.push(child);
+                }
+                Some(_) => {}
+                None => scan
+                    .unresolved
+                    .push((files[i].0.to_string_lossy().to_string(), candidates.clone())),
+            }
+        }
+    }
+    for (i, (relative, text)) in files.iter().enumerate() {
+        let path = relative.to_string_lossy().to_string();
+        let bodies = if whole[i] { vec![tokens[i].clone()] } else { modules[i].bodies.clone() };
+        let file = waits_of(&bodies);
+        // The self-check: a file that writes a test module's header gives the scan its code.
+        if !whole[i] && declares_test_module(text) && file.ranges == 0 {
+            scan.unread.push(path.clone());
+        }
+        if file.ranges > 0 {
+            scan.checked += 1;
+        }
+        scan.waits.extend(file.waits.into_iter().map(|wait| (path.clone(), wait)));
+    }
+    scan
+}
+
+/// Where a source's modules live: the folder its `mod child;` files sit in, and the folder its
+/// top-level `#[path]` attributes are relative to.
+fn module_dirs(relative: &Path) -> (PathBuf, PathBuf) {
+    let parent = relative.parent().unwrap_or(Path::new("")).to_path_buf();
+    let stem = relative.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let owns_folder = matches!(stem, "mod" | "lib" | "main") || parent == Path::new("bin");
+    let dir = if owns_folder { parent.clone() } else { parent.join(stem) };
+    (dir, parent)
+}
+
+/// What one source declares of the module tree.
+#[derive(Default)]
+struct Modules {
+    /// Each `#[cfg(test)] mod name { ... }` body outside test code: the scan's ranges.
+    bodies: Vec<TokenStream>,
+    /// Each `mod child;` whose file is test code: where it may be, the first that exists.
+    files: Vec<Vec<PathBuf>>,
+    /// Each name declared `#[cfg(test)] mod name;` outside test code.
+    names: Vec<String>,
+}
+
+/// The modules in `tokens`, at any depth. `dir` holds the `mod child;` files, `base` is what a
+/// `#[path]` is relative to, and `in_test` says the tokens are test code already.
+fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: &mut Modules) {
+    let tts: Vec<TokenTree> = tokens.into_iter().collect();
+    let mut i = 0;
+    while i < tts.len() {
+        // An item's outer attributes, then its visibility.
+        let (mut j, mut test, mut path) = (i, false, None);
+        while punct(tts.get(j), '#')
+            && let Some(attr) = group(tts.get(j + 1), Delimiter::Bracket)
+        {
+            test |= is_cfg_test(attr);
+            path = path.or_else(|| path_attr(attr));
+            j += 2;
+        }
+        if word(tts.get(j), "pub") {
+            j += 1;
+            if group(tts.get(j), Delimiter::Parenthesis).is_some() {
+                j += 1;
+            }
+        }
+        if word(tts.get(j), "mod")
+            && let Some(TokenTree::Ident(name)) = tts.get(j + 1)
+        {
+            let name = name.to_string();
+            let test = in_test || test;
+            if let Some(body) = group(tts.get(j + 2), Delimiter::Brace) {
+                if test && !in_test {
+                    out.bodies.push(body.stream());
+                }
+                let inner = path.as_ref().map_or_else(|| dir.join(&name), |p| base.join(p));
+                modules_in(body.stream(), &inner, &inner, test, out);
+                i = j + 3;
+                continue;
+            }
+            if punct(tts.get(j + 2), ';') {
+                if test {
+                    out.files.push(match &path {
+                        Some(p) => vec![normalize(&base.join(p))],
+                        None => {
+                            vec![dir.join(format!("{name}.rs")), dir.join(&name).join("mod.rs")]
+                        }
+                    });
+                }
+                if test && !in_test {
+                    out.names.push(name);
+                }
+                i = j + 3;
+                continue;
+            }
+        }
+        if let TokenTree::Group(g) = &tts[i] {
+            modules_in(g.stream(), dir, base, in_test, out);
+        }
+        i += 1;
+    }
+}
+
+/// `path` with each `..` taken out against the folder before it; one that leaves `src/` keeps
+/// its leading `..` (`#[path = "../../tests/support/held_turn.rs"]`).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir
+                if out
+                    .components()
+                    .next_back()
+                    .is_some_and(|last| !matches!(last, std::path::Component::ParentDir)) =>
+            {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            part => out.push(part),
+        }
+    }
+    out
+}
+
+/// The file a `#[path = "..."]` attribute names.
+fn path_attr(attr: &proc_macro2::Group) -> Option<String> {
+    let tts: Vec<TokenTree> = attr.stream().into_iter().collect();
+    let [TokenTree::Ident(key), TokenTree::Punct(eq), TokenTree::Literal(lit)] = &tts[..] else {
+        return None;
+    };
+    if key != "path" || eq.as_char() != '=' {
+        return None;
+    }
+    let lit = lit.to_string();
+    Some(lit.strip_prefix('"')?.strip_suffix('"')?.to_owned())
+}
+
+fn is_cfg_test(attr: &proc_macro2::Group) -> bool {
+    attr.stream().to_string().replace(' ', "") == "cfg(test)"
+}
+
+fn lex(text: &str) -> TokenStream {
+    text.parse().unwrap_or_else(|e| panic!("the scan cannot lex a source: {e:?}"))
+}
+
+fn punct(tt: Option<&TokenTree>, c: char) -> bool {
+    matches!(tt, Some(TokenTree::Punct(p)) if p.as_char() == c)
+}
+
+fn word(tt: Option<&TokenTree>, name: &str) -> bool {
+    matches!(tt, Some(TokenTree::Ident(i)) if i == name)
+}
+
+fn group(tt: Option<&TokenTree>, delimiter: Delimiter) -> Option<&proc_macro2::Group> {
+    match tt {
+        Some(TokenTree::Group(g)) if g.delimiter() == delimiter => Some(g),
+        _ => None,
+    }
+}
+
+/// The scan of one source, read as Rust tokens: strings, comments and macro bodies are what
+/// the compiler sees them as. The test code is all of `text` for a test-only file, else each
+/// `#[cfg(test)] mod name { ... }` body. A blocking `.recv()` or `.blocking_recv()` there is
+/// exempt only for a reason it ends, from what the code does:
+/// - a `.recv()` future that is `.await`ed, or is a whole argument of a timeout or join
+///   (`timeout(d, rx.recv())`, `join!(a.recv(), b.recv())`); never a `.blocking_recv()`, which
+///   blocks before any timeout sees it;
+/// - a hold's park: the receiver itself (not an argument or another field on the way to it) is
+///   named `release`, `release_rx`, `gate` or `go_rx`, and the test's sender drops on an unwind;
+/// - a drain (`while let Some(n) = rx.recv()`) whose function makes the pair `let (tx, rx)`
+///   and drops `tx` or closes `rx`, so the loop ends.
+fn scan_test_waits(text: &str, whole: bool) -> TestScan {
+    let tokens = lex(text);
+    if whole {
+        return waits_of(&[tokens]);
+    }
+    let mut modules = Modules::default();
+    modules_in(tokens, Path::new(""), Path::new(""), false, &mut modules);
+    waits_of(&modules.bodies)
+}
+
+/// The unbounded waits in `bodies`, the test code of one source.
+fn waits_of(bodies: &[TokenStream]) -> TestScan {
+    let mut waits = Vec::new();
+    for body in bodies {
+        let tts: Vec<TokenTree> = body.clone().into_iter().collect();
+        waits_in(&tts, None, &[], &mut waits);
+    }
+    waits.sort_by_key(|wait| wait.line);
+    TestScan { ranges: bodies.len(), waits }
+}
+
+/// The unbounded waits at one level of tokens and below. `callee` names the call or macro whose
+/// arguments this level is (`timeout`, `assert_eq!`); `before` holds, for each enclosing level
+/// of the innermost function, the tokens that run before this level is reached.
+fn waits_in(tts: &[TokenTree], callee: Option<&str>, before: &[&[TokenTree]], out: &mut Vec<Wait>) {
+    const BOUNDS: &[&str] = &["timeout", "timeout_at", "join", "try_join", "join!", "try_join!"];
+    const PARKS: &[&str] = &["release", "release_rx", "gate", "go_rx"];
+    for (j, tt) in tts.iter().enumerate() {
+        let TokenTree::Group(g) = tt else { continue };
+        let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+        let called =
+            match (j.checked_sub(2).and_then(|k| tts.get(k)), j.checked_sub(1).map(|k| &tts[k])) {
+                (Some(TokenTree::Ident(name)), Some(TokenTree::Punct(p))) if p.as_char() == '!' => {
+                    Some(format!("{name}!"))
+                }
+                (_, Some(TokenTree::Ident(name))) => Some(name.to_string()),
+                _ => None,
+            };
+        let fn_body = g.delimiter() == Delimiter::Brace && is_fn_body(tts, j);
+        let mut path: Vec<&[TokenTree]> = if fn_body { Vec::new() } else { before.to_vec() };
+        if !fn_body {
+            path.push(&tts[..j]);
+        }
+        waits_in(&inner, called.as_deref(), &path, out);
+    }
+    for i in 0..tts.len() {
+        let (Some(TokenTree::Ident(wait)), Some(args)) =
+            (tts.get(i + 1), group(tts.get(i + 2), Delimiter::Parenthesis))
+        else {
+            continue;
+        };
+        let blocking = wait == "blocking_recv";
+        if !punct(tts.get(i), '.') || !args.stream().is_empty() || !(blocking || wait == "recv") {
+            continue;
+        }
+        let head = chain_start(tts, i);
+        let awaited = punct(tts.get(i + 3), '.') && word(tts.get(i + 4), "await");
+        let whole_argument = (head == 0 || punct(tts.get(head - 1), ','))
+            && (i + 3 == tts.len() || punct(tts.get(i + 3), ','));
+        let bounded = callee.is_some_and(|c| BOUNDS.contains(&c)) && whole_argument;
+        if !blocking && (awaited || bounded) {
+            continue;
+        }
+        let root = root_name(&tts[head..i]);
+        let drained = while_let_at(tts, head).is_some_and(|at| {
+            let mut path = before.to_vec();
+            path.push(&tts[..at]);
+            ended_before(&path, &root)
+        });
+        if PARKS.contains(&root.as_str()) || drained {
+            continue;
+        }
+        let call: TokenStream = tts[head..i + 3].iter().cloned().collect();
+        out.push(Wait {
+            line: wait.span().start().line,
+            call: call.to_string().replace(' ', ""),
+            root,
+        });
+    }
+}
+
+/// Where the receiver chain before the `.` at `dot` starts (`rx`, `self.gate.lock().unwrap()`).
+fn chain_start(tts: &[TokenTree], dot: usize) -> usize {
+    let mut head = dot;
+    while head > 0 {
+        let next = &tts[head];
+        let links = matches!(next, TokenTree::Punct(p) if p.as_char() == '.' || p.as_char() == ':');
+        let takes = match &tts[head - 1] {
+            TokenTree::Punct(p) => p.as_char() == '.' || p.as_char() == ':',
+            TokenTree::Ident(_) | TokenTree::Literal(_) => {
+                links || group(Some(next), Delimiter::Parenthesis).is_some()
+            }
+            TokenTree::Group(g) => g.delimiter() == Delimiter::Parenthesis && links,
+        };
+        if !takes {
+            break;
+        }
+        head -= 1;
+    }
+    head
+}
+
+/// The channel a receiver chain names: its last field or variable, past method calls
+/// (`self.gate.lock().unwrap()` is `gate`, `pick(release)` is `pick`).
+fn root_name(chain: &[TokenTree]) -> String {
+    let segments: Vec<&[TokenTree]> = chain.split(|tt| punct(Some(tt), '.')).collect();
+    let field = segments
+        .iter()
+        .rev()
+        .find(|s| !s.is_empty() && !s.iter().any(|tt| matches!(tt, TokenTree::Group(_))));
+    let segment = field.or(segments.last()).copied().unwrap_or(&[]);
+    let mut names = segment.iter().filter_map(|tt| match tt {
+        TokenTree::Ident(i) => Some(i.to_string()),
+        _ => None,
+    });
+    let name = if field.is_some() { names.next_back() } else { names.next() };
+    name.unwrap_or_else(|| "?".to_owned())
+}
+
+/// Where the `while` is when the chain starting at `head` is what a `while let PATTERN =`
+/// matches.
+fn while_let_at(tts: &[TokenTree], head: usize) -> Option<usize> {
+    let eq = head.checked_sub(1)?;
+    let alone = matches!(&tts[eq], TokenTree::Punct(p) if p.as_char() == '=' && p.spacing() == Spacing::Alone);
+    let joined =
+        eq > 0 && matches!(&tts[eq - 1], TokenTree::Punct(p) if p.spacing() == Spacing::Joint);
+    if !alone || joined {
+        return None;
+    }
+    for k in (1..eq).rev() {
+        if punct(tts.get(k), ';') || group(tts.get(k), Delimiter::Brace).is_some() {
+            return None;
+        }
+        if word(tts.get(k), "let") {
+            return word(tts.get(k - 1), "while").then_some(k - 1);
+        }
+    }
+    None
+}
+
+/// Whether the brace group at `j` is a function's body: `fn` heads its statement.
+fn is_fn_body(tts: &[TokenTree], j: usize) -> bool {
+    for k in (0..j).rev() {
+        if punct(tts.get(k), ';') || group(tts.get(k), Delimiter::Brace).is_some() {
+            return false;
+        }
+        if word(tts.get(k), "fn") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether the channel `receiver` reads has ended before the `while let` that drains it starts.
+/// `path` is what runs first, in order: for each enclosing block of the loop's function, its
+/// tokens before the block the loop is in, then the loop's own block up to the loop. On that
+/// path the pair `let (sender, receiver)` is made, and then a statement drops the sender or
+/// closes the receiver. A drop in the loop, after it, in a block beside it or in a closure ends
+/// nothing the loop can count on (#41961 review F1).
+fn ended_before(path: &[&[TokenTree]], receiver: &str) -> bool {
+    let names = |pair: &proc_macro2::Group| -> Vec<String> {
+        let tts: Vec<TokenTree> = pair.stream().into_iter().collect();
+        tts.split(|tt| punct(Some(tt), ','))
+            .map(|part| {
+                let part: Vec<&TokenTree> =
+                    part.iter().filter(|tt| !word(Some(*tt), "mut")).collect();
+                match part[..] {
+                    [TokenTree::Ident(name)] => name.to_string(),
+                    _ => String::new(),
+                }
+            })
+            .collect()
+    };
+    // A statement starts the block or follows a `;` or a block.
+    let statement = |level: &[TokenTree], k: usize| {
+        k == 0
+            || punct(level.get(k - 1), ';')
+            || group(level.get(k - 1), Delimiter::Brace).is_some()
+    };
+    let (mut sender, mut ended) = (None, false);
+    for level in path {
+        for k in 0..level.len() {
+            if word(level.get(k), "let")
+                && let Some(pair) = group(level.get(k + 1), Delimiter::Parenthesis)
+                && let [tx, rx] = &names(pair)[..]
+                && rx == receiver
+                && !tx.is_empty()
+            {
+                // A new pair: what ended the last one does not end it.
+                (sender, ended) = (Some(tx.clone()), false);
+                continue;
+            }
+            let Some(tx) = &sender else { continue };
+            if !statement(level, k) {
+                continue;
+            }
+            let dropped = word(level.get(k), "drop")
+                && group(level.get(k + 1), Delimiter::Parenthesis)
+                    .is_some_and(|args| names(args) == [tx.clone()]);
+            let closed = word(level.get(k), receiver)
+                && punct(level.get(k + 1), '.')
+                && word(level.get(k + 2), "close");
+            ended |= dropped || closed;
+        }
+    }
+    ended
+}
+
+/// #41842 review F1/F2 and its two follow-ups, the class: the bounded-wait scan reads Rust as
+/// tokens and exempts a wait only for a reason it ends, never by the text around it. Each row is
+/// source the scan must judge; the fixtures spell each call `RECV`.
+#[test]
+fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
+    /// `(shape, test source)`: waits nothing bounds. Each must be flagged.
+    const FLAGGED: &[(&str, &str)] = &[
+        (
+            "F1: a while-let on a hold whose sender the test keeps",
+            "let (tx, held) = std::sync::mpsc::channel::<()>();\n\
+             start(tx.clone());\n\
+             while let Ok(_) = held.RECV {}\n",
+        ),
+        (
+            "F1: a while-let whose sender is dropped only in another test",
+            "fn a() {\n    let (tx, rx) = channel::<()>();\n    while let Ok(_) = rx.RECV {}\n}\n\
+             fn b() {\n    let (tx, rx) = channel::<()>();\n    drop(tx);\n}\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender is dropped inside the loop",
+            "let (tx, rx) = channel::<()>();\n\
+             while let Ok(_) = rx.RECV {\n    drop(tx);\n}\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender is dropped after the loop",
+            "let (tx, rx) = channel::<()>();\n\
+             while let Ok(_) = rx.RECV {}\n\
+             drop(tx);\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender a closure drops, not a statement",
+            "let (tx, rx) = channel::<()>();\n\
+             let later = move || drop(tx);\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
+        (
+            "F1 at 699228e4: a drain whose sender a block beside it drops",
+            "let (tx, rx) = channel::<()>();\n\
+             if done {\n    drop(tx);\n}\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
+        ("F2: a call's argument", "consume(rx.RECV);\n"),
+        ("F2: a value used by drop", "drop(rx.RECV);\n"),
+        ("F2: a call's last argument after a comma", "consume(1, rx.RECV);\n"),
+        ("F2: an assert! argument", "assert!(rx.RECV.is_ok());\n"),
+        ("F2: a format! argument", "let shown = format!(\"{:?}\", rx.RECV);\n"),
+        ("F2: an assert_eq! argument", "assert_eq!(arrived.RECV, Ok(()));\n"),
+        ("F2: an assert_eq! second argument", "assert_eq!(Ok(()), arrived.RECV);\n"),
+        ("F2: an assert_eq! with a message", "assert_eq!(arrived.RECV, Ok(()), \"arrived\");\n"),
+        ("F2: a blocking_recv argument", "consume(rx.blocking_RECV);\n"),
+        ("F2: a blocking_recv handed to a timeout", "timeout(d, rx.blocking_RECV);\n"),
+        ("sweep: a comparison", "let same = arrived.RECV == Ok(());\n"),
+        ("sweep: a call's argument inside a timeout", "consume(timeout(d, wrap(rx.RECV)));\n"),
+        ("sweep: a select! arm with no timeout", "tokio::select! {\n    n = rx.RECV => n,\n}\n"),
+        ("sweep: a park name in an argument, not the receiver", "pick(release).RECV.unwrap();\n"),
+        ("sweep: a park name on another field", "self.release.held.RECV.unwrap();\n"),
+    ];
+    /// `(shape, file)`: a file's `#[cfg(test)]` module, which the scan must read (one range at
+    /// least) and whose wait it must flag. The first three are the brace shapes that hid
+    /// server/upload_frames.rs, forum.rs and hub/pool/spare.rs from 06f7b35a's scan.
+    const MODULES: &[(&str, &str)] = &[
+        (
+            "F1': a `{` in a byte string (server/upload_frames.rs)",
+            "fn live() {}\n#[cfg(test)]\nmod tests {\n    fn t() {\n        \
+             let bad = b\"XXXX\\0\\0\\0\\x01{\";\n        arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+        (
+            "F1': a `{` in an escaped JSON string (forum.rs)",
+            "#[cfg(test)]\nmod tests {\n    fn t() {\n        \
+             f.write_all(b\"{\\\"type\\\":\\\"post\\\"\").unwrap();\n        \
+             arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+        (
+            "F1': a `{` in a string (hub/pool/spare.rs)",
+            "#[cfg(test)]\nmod tests {\n    fn t() {\n        \
+             std::fs::write(&path, b\"{not json\").unwrap();\n        arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+        (
+            "F1': a `{` in a char and a comment",
+            "#[cfg(test)]\nmod tests {\n    // an open `{`\n    fn t() {\n        \
+             let open = '{';\n        arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+        (
+            "F1': a `}` in a string closes nothing",
+            "#[cfg(test)]\nmod tests {\n    fn t() {\n        \
+             let close = \"}}\";\n    }\n    fn u() {\n        arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+    ];
+    /// `(shape, test source)`: waits that end on their own. None may be flagged.
+    const EXEMPT: &[(&str, &str)] = &[
+        (
+            "F1: a real drain: the test drops the sender first",
+            "let (tx, rx) = std::sync::mpsc::channel::<u8>();\n\
+             tx.send(1).unwrap();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {\n    seen.push(n);\n}\n",
+        ),
+        (
+            "F1: a real drain of a tokio channel the test closes",
+            "let (mut tx, mut rx) = tokio::sync::mpsc::channel::<u8>(4);\n\
+             rx.close();\n\
+             while let Some(n) = rx.blocking_RECV {}\n",
+        ),
+        (
+            "F1: a drain whose sender is dropped before the loop, in an enclosing block",
+            "fn t() {\n    let (tx, rx) = channel::<u8>();\n    drop(tx);\n    \
+             if go {\n        while let Ok(n) = rx.RECV {}\n    }\n}\n",
+        ),
+        ("F2: a tokio timeout", "let got = tokio::time::timeout(d, rx.RECV).await;\n"),
+        (
+            "F2: a tokio timeout across lines",
+            "let got = tokio::time::timeout(\n    Duration::from_secs(5),\n    rx.RECV,\n)\n.await;\n",
+        ),
+        ("F2: a timeout_at", "let got = tokio::time::timeout_at(deadline, self.rx.RECV).await;\n"),
+        (
+            "F2: a timeout in a select! arm",
+            "tokio::select! {\n    n = tokio::time::timeout(d, rx.RECV) => n,\n}\n",
+        ),
+        ("F2: a join! call", "let (a, b) = tokio::join!(left.RECV, right.RECV);\n"),
+        ("F2: a join call", "let (a, b) = futures::future::join(left.RECV, right.RECV).await;\n"),
+        ("an awaited future", "let line = rx.RECV.await;\n"),
+        ("a release park", "let _ = release.RECV;\n"),
+        ("a release park behind a lock", "let _ = self.release.lock().unwrap().RECV;\n"),
+        (
+            "a release park in block_in_place",
+            "let _ = tokio::task::block_in_place(|| release.blocking_RECV);\n",
+        ),
+        ("a release park across a line break", "release\n    .RECV\n    .unwrap();\n"),
+        ("a gate park", "self.gate.lock().unwrap().RECV.unwrap();\n"),
+        ("a comment naming a wait", "// waits on `rx.RECV` here\nlet x = 1;\n"),
+        ("a string naming a wait", "let shown = \"rx.RECV\";\n"),
+    ];
+    let source = |text: &str| text.replace("RECV", "recv()");
+    let mut wrong = Vec::new();
+    for (shape, text) in FLAGGED {
+        if scan_test_waits(&source(text), true).waits.is_empty() {
+            wrong.push(format!("not flagged: {shape}"));
+        }
+    }
+    for (shape, text) in MODULES {
+        let scan = scan_test_waits(&source(text), false);
+        if scan.ranges == 0 {
+            wrong.push(format!("module not read: {shape}"));
+        } else if scan.waits.is_empty() {
+            wrong.push(format!("not flagged: {shape}"));
+        }
+    }
+    for (shape, text) in EXEMPT {
+        let waits = scan_test_waits(&source(text), true).waits;
+        if !waits.is_empty() {
+            let calls: Vec<&str> = waits.iter().map(|w| w.call.as_str()).collect();
+            wrong.push(format!("flagged: {shape}: {calls:?}"));
+        }
+    }
+    // F2 at 699228e4: a `mod child;` inside an inline `#[cfg(test)]` module is a test file, read
+    // from where the module tree puts it (`#[path]` when given).
+    type Files<'a> = &'a [(&'a str, &'a str)];
+    let crates: &[(&str, Files<'_>)] = &[
+        (
+            "F2 at 699228e4: a child of an inline test module, by name",
+            &[
+                ("hub/foo.rs", "fn live() {}\n#[cfg(test)]\nmod tests {\n    mod child;\n}\n"),
+                ("hub/foo/tests/child.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a child of an inline test module in a mod.rs, as a folder",
+            &[
+                ("hub/mod.rs", "#[cfg(test)]\nmod checks {\n    mod deep;\n}\n"),
+                ("hub/checks/deep/mod.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a child of an inline test module, by #[path]",
+            &[
+                (
+                    "hub/foo.rs",
+                    "#[cfg(test)]\nmod tests {\n    #[path = \"probe.rs\"]\n    mod child;\n}\n",
+                ),
+                ("hub/foo/tests/probe.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2: a test file's child by #[path] outside src/",
+            &[
+                ("hub/foo_tests.rs", "#[path = \"../../tests/support/held.rs\"]\nmod held;\n"),
+                ("../tests/support/held.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2 at 699228e4: a grandchild of an inline test module",
+            &[
+                ("hub/foo.rs", "#[cfg(test)]\nmod tests {\n    mod child;\n}\n"),
+                ("hub/foo/tests/child.rs", "mod grand;\n"),
+                ("hub/foo/tests/child/grand.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+    ];
+    for (shape, files) in crates {
+        let files: Vec<(PathBuf, String)> =
+            files.iter().map(|(path, text)| (PathBuf::from(path), source(text))).collect();
+        let child = files.last().map(|(path, _)| path.to_string_lossy().to_string());
+        if !scan_crate(&files).waits.iter().any(|(path, _)| Some(path) == child.as_ref()) {
+            wrong.push(format!("child file not read: {shape}"));
+        }
+    }
+    assert!(wrong.is_empty(), "the bounded-wait scan judges by text shape:\n{}", wrong.join("\n"));
 }

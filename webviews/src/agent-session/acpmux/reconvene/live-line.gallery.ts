@@ -44,6 +44,24 @@ const midThinking = () => chat([...earlier, prompt, activity([thinking(), grep],
 /// Mid-command: the tests run, the live line names them ("Running bun test ... 30s").
 const midCommand = () => chat([...earlier, prompt, activity([thinking(), tests], 0.3)], { isWorking: true });
 
+/// A turn of only a reply (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
+/// just replied!"): the reply streaming (`writing`), the reply in and the turn not ended yet
+/// (`replied`, "Thinking" with no clock), and the turn ended (`ended`, the reply's buttons).
+const answer = "Only network errors and 5xx answers retry now; a 404 throws at once.";
+const afterReply = (stage: "writing" | "replied" | "ended") =>
+  stage === "ended"
+    ? chat([...earlier, prompt, assistant(answer, 0.2), summary(0.1, { status: "completed", durationMs: 24_000 })])
+    : chat([...earlier, prompt, assistant(answer, stage === "writing" ? 0 : 0.2)], { isWorking: true });
+const replyVariant = (stage: "writing" | "replied" | "ended", note: string): AgentPaneVariant => ({
+  note,
+  snapshot: afterReply(stage),
+  play: async (ctx) => {
+    if (stage !== "ended") await lineDrawn(ctx);
+    if (stage === "replied" && ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-worked__time"))
+      throw new Error("the line still ticks the turn's clock under a finished reply");
+  },
+});
+
 /// The live line drawn as the last row, its words in place.
 const lineDrawn = (ctx: PlayContext) =>
   ctx.waitFor(() => ctx.document.querySelector(".acpmux-scroll .cv-worked--live:not(.is-quiet) .cv-thinking"));
@@ -91,29 +109,39 @@ ${LIVE}::before {
     ready: LIVE,
   },
   /// The model's finished thinking as its own row, "Thought for 12s" with its chevron, folded; its
-  /// text opens under it. The play opens the row so the label shows; the rule keeps its body folded.
+  /// text opens under it. The rule keeps its body folded. Under the live-turn-work `line` a
+  /// running turn draws no finished thought (turns.ts `codexRuns`), so the stage waits for the live
+  /// line, and the row shows once its stretch ended.
   "thinking-block": {
     css: `
 .acpmux-row :is(.cv-thought__body, .cv-thought.is-full .cv-thought__text) { display: none; }
 .acpmux-row .cv-thought .cv-rotor.is-open { transform: none; }
 .acpmux-row .cv-thought__label { color: var(--cv-text-muted); }`,
-    ready: ".cv-thought__label",
+    ready: LIVE,
   },
 });
 
-/// Opens a folded thought row so it reads "Thought for 12s" (thinking-block only).
-async function thoughtLabel(ctx: PlayContext) {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row .cv-thought"));
-  const closed = ctx.document.querySelector<HTMLElement>('.acpmux-row button.cv-thought[aria-expanded="false"]');
-  if (closed) await ctx.click({ selector: '.acpmux-row button.cv-thought[aria-expanded="false"]' });
+/// The running turn as the live-turn-work `line` draws it (thinking-block only): the earlier
+/// turn's reply and the prompt in sight, the one live line under them, and no finished thought or
+/// call of the running turn.
+async function lineOnly(ctx: PlayContext) {
+  const text = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
+  if (!text.includes("withRetry")) throw new Error("the earlier turn's reply is not in sight");
+  if (!text.includes("Only retry network errors")) throw new Error("the running turn's prompt is not in sight");
+  const thoughts = ctx.document.querySelectorAll(".acpmux-row .cv-thought").length;
+  if (thoughts) throw new Error(`the running turn draws ${thoughts} finished thought rows over its live line`);
+  if (ctx.document.querySelector('.acpmux-row:not([data-row-id="thinking-live"]) [data-tool-id]'))
+    throw new Error("the running turn draws a finished call over its live line");
 }
 
 const variant = (arm: keyof typeof ARMS | "now", command: boolean, note: string): AgentPaneVariant => ({
   note,
   snapshot: command ? midCommand() : midThinking(),
+  // The thinking-block arm's play checks the running turn as live-turn-work `line` draws it.
+  ...(arm === "thinking-block" ? { experiments: { "live-turn-work": "line" } } : {}),
   play: async (ctx) => {
     await lineDrawn(ctx);
-    if (arm === "thinking-block") await thoughtLabel(ctx);
+    if (arm === "thinking-block") await lineOnly(ctx);
     await showArm(ctx, arm === "now" ? { css: "" } : ARMS[arm]!);
   },
 });
@@ -172,8 +200,21 @@ export default agentPaneEntry({
     "thinking-block": variant(
       "thinking-block",
       false,
-      'The model\'s thinking is its own folded row, "Thought for 12s" with a chevron, above the live line (Leo\'s "separate thinking"). Clear and familiar; only as good as the harness\'s thinking text (an omitted thought still draws nothing).',
+      'The model\'s thinking as its own folded row, "Thought for 12s" with a chevron (Leo\'s "separate thinking"). Under the live-turn-work `line` a running turn draws no finished thought, so mid-thinking this is the prompt and the live line alone; the row shows once its stretch ended. Only as good as the harness\'s thinking text (an omitted thought still draws nothing).',
     ),
-    "thinking-block-command": variant("thinking-block", true, "Thought for 12s, then the running command's line."),
+    "thinking-block-command": variant(
+      "thinking-block",
+      true,
+      "Mid-command under `line`: no finished thought row, the running command's live line under the prompt.",
+    ),
+    "after-reply-writing": replyVariant(
+      "writing",
+      'A turn of only a reply, while it streams: "Writing" with the turn\'s time.',
+    ),
+    "after-reply": replyVariant(
+      "replied",
+      'The reply is in and the turn has not ended yet: "Thinking" alone, no clock or token count ticking under the reply.',
+    ),
+    "after-reply-ended": replyVariant("ended", "The turn ended: the live line gives way to the reply's buttons."),
   },
 });

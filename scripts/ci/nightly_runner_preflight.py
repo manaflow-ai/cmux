@@ -9,16 +9,20 @@ queued job for up to 24 h and never says why, and the run holds its concurrency 
 
 This runs first, before `decide`, on a GitHub-hosted runner (never on the label it judges), and reads only
 vars.CI_RUNNER_STATE: the runner census runner-heal publishes every two minutes (schema runner-state/v1; gzip,
-base64 JSON). No API call and no secret. It fails the job, and so the run, when the census is fresh and a label the
-run's routing variables name is carried by no runner, or only by offline ones. It never cancels anything. A census
-that is missing, incomplete or older than MAX_AGE_S says nothing either way: a warning, and the run goes on.
+base64 JSON). It fails the job, and so the run, when the census is fresh and a label the run's routing variables
+name is carried by no runner, or only by offline ones (compared case-insensitively, as GitHub matches runs-on). It
+never cancels anything. A census that is missing, incomplete or older than MAX_AGE_S (10 min) says nothing either way:
+a warning, and the run goes on. On a failure, and only then, it makes its one kind of API call: with the job's
+GITHUB_TOKEN (issues: write, no other secret) it opens or comments on the nightly's failure incident (notify()), the
+issue its owner watches, since report-nightly-failure never runs for a run that stopped here.
 
 Labels judged (the run's `runs-on` reads, nightly.yml):
 - decide's label: vars.CI_NIGHTLY_MINI when set, else vars.CI_NIGHTLY_ONLY_RUNNER, else glaeda-nightly-only-m4pro;
 - vars.CI_NIGHTLY_MINI_BUILDER, when CI_NIGHTLY_MINI is set (build-nightly-app's route then), except on the cache-seed
   schedule, which builds no app.
 vars.CI_NIGHTLY_SIGN_RUNNER routes only the promote jobs, which run in a promote dispatch this job does not run in.
-A GitHub-hosted or Blacksmith label is not ours to count and is skipped.
+A GitHub-hosted (ubuntu-*, macos-N*, macos-latest*, windows-*) or Blacksmith label is not ours to count and is
+skipped; a custom label that merely ends in -latest is judged.
 
 HQ's hourly detector (cmuxterm-hq tools/fleet-reconcilers/now_runner_vars.py, docs/handbook/
 runner-var-points-at-dead-host.md) pages the same drift between runs.
@@ -36,12 +40,16 @@ import sys
 
 SCHEMA = "runner-state/v1"
 REPOSITORY = "manaflow-ai/cmux"
-MAX_AGE_S = 30 * 60  # the census refreshes every 2 min; past this it says nothing about now
+# The census refreshes every 2 min; past 10 it says nothing about now. It was 30, which let a census that had stopped
+# refreshing fail a run for a runner that had come back since (review of #40992; the pool readers allow 5).
+MAX_AGE_S = 10 * 60
 MAX_BYTES = 2 * 1024 * 1024
 DEDICATED = "glaeda-nightly-only-m4pro"  # leo-workspace machines/fleet-registry.json nightly_dedicated
 DEDICATED_HOSTS = "cmux7s-mac-mini and cmux15"
 CACHE_SEED_CRON = "17 */6 * * *"  # nightly.yml: the scheduled cache seed, which builds no app
-NOT_OURS = re.compile(r"^(?:ubuntu-|macos-\d|windows-|blacksmith-)|-latest$")
+# GitHub's hosted families and Blacksmith only: a custom label that merely ends in -latest is ours to judge. Labels
+# compare case-insensitively, as GitHub matches runs-on.
+NOT_OURS = re.compile(r"^(?:ubuntu-|macos-\d|macos-latest|windows-|blacksmith-)", re.I)
 ANNOTATION = re.compile(r"^::\w+ title=[^:]*::")
 
 
@@ -132,7 +140,7 @@ def judge(env: dict, now: dt.datetime) -> tuple[bool, list[str]]:
     rows = runners(doc)
     ok, lines = True, []
     for variable, label in checks:
-        carrying = [r for r in rows if label in r["labels"]]
+        carrying = [r for r in rows if label.lower() in {name.lower() for name in r["labels"]}]
         online = [r for r in carrying if r["status"] == "online"]
         source = f"{variable}={label}" if variable != "(default)" else f"the default label {label}"
         if online:
@@ -149,14 +157,80 @@ def judge(env: dict, now: dt.datetime) -> tuple[bool, list[str]]:
     return ok, lines
 
 
+# --- the notice: a failed preflight opens or updates the nightly's failure incident ---------------------------------
+# report-nightly-failure (nightly.yml) never runs for this failure: it is keyed on decide's should_publish, and it runs
+# on the very label the preflight found dead. So the preflight files the incident itself, under the same label
+# (`<release tag>-failure`) and title, which close-nightly-failure-issue closes at the next good publication.
+CHANNELS = {"nightly-next": ("nightly-next", "cmux NIGHTLY")}  # ref -> (release tag, app name), as decide sets them
+NOTICE_TIMEOUT_S = 20
+
+
+def github(method: str, path: str, token: str, body: dict | None = None, *, http=None):
+    """One GitHub REST call by one deadline (deadline_http): (status, parsed JSON or None)."""
+    import urllib.request
+    if http is None:
+        import deadline_http
+        http = deadline_http.request
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPOSITORY}/{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                                          "Content-Type": "application/json", "User-Agent": "cmux-nightly-preflight"})
+    status, raw, _ = http(req, NOTICE_TIMEOUT_S)
+    try:
+        return status, json.loads(raw) if raw else None
+    except ValueError:
+        return status, None
+
+
+def notify(lines: list[str], env: dict, *, call=github) -> str:
+    """Open or comment on the channel's failure issue with the preflight's error lines; what it did, for the log."""
+    channel = CHANNELS.get(env.get("GITHUB_REF_NAME") or "")
+    token = env.get("GITHUB_TOKEN") or ""
+    if not channel or not token:
+        return f"no failure issue: {'no token' if channel else 'not a nightly-next run'}"
+    tag, app = channel
+    label, ref = f"{tag}-failure", env["GITHUB_REF_NAME"]
+    run_url = (f"{env.get('GITHUB_SERVER_URL') or 'https://github.com'}/{REPOSITORY}/actions/runs/"
+               f"{env.get('GITHUB_RUN_ID') or '?'}")
+    errors = [ANNOTATION.sub("", line) for line in lines if line.startswith("::error")]
+    body = (f"{app} run {run_url} stopped in runner-preflight on {env.get('GITHUB_SHA') or '?'} ({ref}): a runner "
+            "label it would wait on has no online runner, so it failed in minutes instead of queueing for hours.\n\n"
+            + "".join(f"- {line}\n" for line in errors)
+            + f"\nThe next successful publication closes this incident. Run: {run_url}")
+    status, _ = call("GET", f"labels/{label}", token)
+    if status == 404:
+        call("POST", "labels", token, {"name": label, "color": "b60205", "description": f"{app} publish failing"})
+    status, found = call("GET", f"issues?labels={label}&state=open&per_page=1", token)
+    if status != 200 or not isinstance(found, list):
+        raise RuntimeError(f"listing the {label} issues answered {status}")
+    if found:
+        number = found[0].get("number")
+        status, _ = call("POST", f"issues/{number}/comments", token, {"body": body})
+        what = f"commented on #{number}"
+    else:
+        status, made = call("POST", "issues", token, {"title": f"{app} build is failing on {ref}", "labels": [label],
+                                                      "body": body})
+        what = f"opened #{(made or {}).get('number')}"
+    if status not in (200, 201):
+        raise RuntimeError(f"the {label} issue write answered {status}")
+    return f"{what} ({label})"
+
+
 def main() -> int:
-    ok, lines = judge(dict(os.environ), dt.datetime.now(dt.timezone.utc))
+    env = dict(os.environ)
+    ok, lines = judge(env, dt.datetime.now(dt.timezone.utc))
     print("\n".join(lines))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         plain = [ANNOTATION.sub("", line) for line in lines]
         with open(summary, "a", encoding="utf-8") as out:
             out.write("### Nightly runner preflight\n\n" + "".join(f"- {line}\n" for line in plain))
+    if not ok:
+        try:
+            print(f"nightly runner preflight: {notify(lines, env)}")
+        except Exception as err:  # noqa: BLE001 - the red run is the notice of last resort
+            print(f"::warning title=Nightly runner preflight::the failure issue was not written ({type(err).__name__}: "
+                  f"{str(err)[:160]}); this red run is the only notice")
     return 0 if ok else 1
 
 
