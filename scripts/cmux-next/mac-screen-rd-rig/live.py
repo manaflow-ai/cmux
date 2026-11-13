@@ -38,6 +38,7 @@ p.add_argument("--viewer-frame", default="0,0,1500,950")
 p.add_argument("--source-readiness", help="fresh JSON {nonce, ready, issued_unix_ms} from the scene observer")
 p.add_argument("--observer-bin", default="~/rd-hub-rig/cmux-rd",
                help="cmux-rd binary on the viewer, with `observe` support")
+p.add_argument("--display", default="main", help="viewer display; only main is supported by this adapter")
 o = p.parse_args()
 os.makedirs(o.out, exist_ok=True)
 run_started_ms = time.time_ns() // 1_000_000
@@ -192,15 +193,21 @@ def pane_attestation(row, host_id):
             "path_diagnostic": row.get("path")}
 
 
-def geometry_matches(received, expected):
-    """Compare Rust's [x,y,w,h] points with the AppKit window-frame object."""
+def geometry_matches(received, expected, screen):
+    """Compare Rust's top-left [x,y,w,h] points with AppKit bottom-left points."""
     if isinstance(received, dict):
         received = [received.get(k) for k in ("x", "y", "width", "height")]
     if not isinstance(expected, dict) or not isinstance(received, (list, tuple)) or len(received) != 4:
         return False
     expected = [expected.get(k) for k in ("x", "y", "width", "height")]
-    return all(type(a) in (int, float) and type(b) in (int, float) and math.isfinite(a) and math.isfinite(b)
-               and abs(float(a) - float(b)) <= 0.5 for a, b in zip(received, expected))
+    if not isinstance(screen, dict):
+        return False
+    sx, sy, sw, sh = (screen.get(k) for k in ("x", "y", "width", "height"))
+    if not all(type(v) in (int, float) and math.isfinite(v) for v in (*expected, sx, sy, sw, sh)):
+        return False
+    # CGWindow bounds use a top-left origin; AppKit uses a bottom-left origin.
+    expected[1] = sy + sh - expected[1] - expected[3]
+    return all(abs(float(a) - float(b)) <= 0.5 for a, b in zip(received, expected))
 
 
 def viewport_inside_window(row):
@@ -221,7 +228,7 @@ def observe_pane(row, host_id):
     source = source_readiness()
     pane = pane_attestation(row, host_id)
     cell_size = source.get("cell_size")
-    ready = (source["ok"] and pane["ok"] and viewport_inside_window(row) and
+    ready = (o.display == "main" and source["ok"] and pane["ok"] and viewport_inside_window(row) and
              isinstance(source.get("marker_origin"), str) and
              type(cell_size) in (int, float) and math.isfinite(cell_size) and int(cell_size) == cell_size and
              2 <= int(cell_size) <= 1024)
@@ -229,17 +236,22 @@ def observe_pane(row, host_id):
     if ready:
         viewer_home = ssh(o.viewer, 'printf %s "$HOME"')
         root = f"{viewer_home}/rd-hub-rig"
-        start_file = f"{root}/presented-{o.tag}.start"
+        run_template = f"{root}/presented-{o.tag}.XXXXXX"
+        run_dir = ssh(o.viewer, f"mktemp -d {shlex.quote(run_template)}", timeout=10)
+        if not run_dir.startswith(root + "/"):
+            evidence["observer"] = {"error": "viewer returned an invalid observer run directory"}
+            return evidence
+        start_file = f"{run_dir}/start"
         observer_bin = o.observer_bin
-        observer_word = (f'"$HOME/{observer_bin[2:]}"' if observer_bin.startswith("~/")
-                         else shlex.quote(observer_bin))
+        observer_path = f"{viewer_home}/{observer_bin[2:]}" if observer_bin.startswith("~/") else observer_bin
+        observer_word = shlex.quote(observer_path)
         observer_cmd = [observer_word, "observe", "--mode", "passive",
                         "--pid", str(int(pane["window_pid"])), "--window", str(int(pane["window_id"])),
-                        "--display", "main", "--marker-origin", source["marker_origin"],
+                        "--display", o.display, "--marker-origin", source["marker_origin"],
                         "--cell-size", str(int(source["cell_size"])), "--expected-nonce", source["nonce"],
                         "--start-file", start_file, "--duration-s", "1", "--interval-ms", "500"]
         command = " ".join([observer_cmd[0]] + [shlex.quote(part) for part in observer_cmd[1:]])
-        raw = ssh(o.viewer, f"rm -f {shlex.quote(start_file)}; {command}", timeout=30)
+        raw = ssh(o.viewer, command, timeout=30)
         try:
             receipt = json.loads(raw.splitlines()[-1])
         except (ValueError, IndexError):
@@ -251,12 +263,13 @@ def observe_pane(row, host_id):
                  receipt.get("nonce_observed") is True and receipt.get("expected_nonce") == source["nonce"] and
                  type(receipt.get("pid")) is int and receipt["pid"] == int(pane["window_pid"]) and
                  type(receipt.get("window")) is int and receipt["window"] == int(pane["window_id"]) and
-                 geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points")) and
+                 geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points"), pane.get("screen_frame_points")) and
                  type(receipt.get("first_changed_marker_ms")) in (int, float) and
                  math.isfinite(receipt["first_changed_marker_ms"]))
         evidence["comparison_ready"] = valid
     else:
-        evidence["observer"] = {"skipped": "source, pane, marker, or geometry readiness was incomplete"}
+        evidence["observer"] = {"skipped": "source, pane, marker, geometry, or supported-display readiness was incomplete",
+                                 "display": o.display}
     return evidence
 
 
