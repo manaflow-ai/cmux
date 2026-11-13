@@ -93,6 +93,34 @@ final class ProfileBadgeView: NSView {
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
+    /// `badge` drawn round at `side` points: the avatars of the profile menu's
+    /// header and of its other profiles, as Chrome's profile menu shows each
+    /// profile's picture. Drawn when shown, so it follows the menu's appearance.
+    public static func image(_ badge: BrowserProfileBadge, side: CGFloat) -> NSImage {
+        let symbol = symbolImage(badge.monogram)
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            (badge.color?.fill ?? Palette.hoverFill).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let ink = Palette.textSecondary
+            if let symbol {
+                let configuration = NSImage.SymbolConfiguration(pointSize: side * 0.5, weight: .semibold)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [ink]))
+                let glyph = symbol.withSymbolConfiguration(configuration) ?? symbol
+                let size = glyph.size
+                glyph.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+            } else {
+                let text = NSAttributedString(string: badge.monogram, attributes: [
+                    .font: NSFont.systemFont(ofSize: side * 0.5, weight: .semibold), .foregroundColor: ink,
+                ])
+                let size = text.size()
+                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            }
+            return true
+        }
+        image.accessibilityDescription = badge.name
+        return image
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
 
     override func mouseDown(with event: NSEvent) {

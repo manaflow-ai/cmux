@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
@@ -14,7 +15,7 @@ import CmuxNextSettings
 /// | Favorites | `bookmark.manager` |
 /// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
-/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | profile | `browser.profile.choose`, the profile switcher (`profileSwitcherMenu`) |
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
@@ -139,36 +140,77 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// One item per browser profile (the tab's checked), each moving the tab
-    /// with `browserProfile.moveTab`; then New Browser Profile, Import from
-    /// Browser and Rename Browser Profile for the tab's profile.
+    /// The toolbar profile button's menu: the profile switcher, then Import from Browser and this
+    /// profile's own extensions (chrome://extensions and the Web Store open in it).
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
-        let registry = services.registry
         let target = tabTarget(entry)
+        let extras: [ContextMenuEntry] = [.action("importFromBrowser"), .separator,
+                                          .action("browser.extensions.manage"), .action("browser.extensions.webStore")]
+        let menu = profileSwitcherMenu(forTab: tabKey(entry), services: services, customize: false)
+        menu.addItem(.separator())
+        move(services.registry.makeContextMenu(for: .browserPage, target: target, entries: extras), into: menu)
+        return menu
+    }
+
+    /// Chrome's profile menu (https://github.com/manaflow-ai/cmux/issues/42438), for the omnibar avatar and the
+    /// toolbar profile button: the tab's profile as the header; Other Profiles, one row each that
+    /// moves the tab into it with one click (`browserProfile.moveTab`; with Option, Use for This
+    /// Workspace, `browserProfile.setWorkspaceDefault`); Add, Guest (an incognito window) and Manage
+    /// (Settings > Browser Profiles); then the profile's own actions (the `.browserProfile` menu:
+    /// New Tab, Window and Workspace with it, Rename, Appearance, Clear Browsing Data, Delete).
+    /// Every row runs a catalog action. The `tab` argument names the place, so New Tab with Browser
+    /// Profile and Manage Extensions open in the tab's pane, not the focused one.
+    static func profileSwitcherMenu(forTab key: String, services: AppServices, customize: Bool = true) -> NSMenu {
+        let registry = services.registry
         let profiles = services.browserProfiles
-        let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        let tab = ActionTargetRef(kind: .tab, id: key)
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let menu = NSMenu()
-        for record in profiles.ordered {
-            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
-            item.state = record.id == current ? .on : .off
-            let closure = ActionMenuClosure { [weak registry] in
-                guard record.id != current else { return }
-                registry?.perform("browserProfile.moveTab", invocation: ActionInvocation(
-                    target: target, arguments: ["browserProfile": .string(record.id)], origin: .user))
+        menu.addItem(ProfileSwitcherRows.header(profiles.badge(current)))
+        let others = profiles.ordered.filter { $0.id != current }
+        let workspace = services.workspaceID(ofTab: key).map { ActionTargetRef(kind: .workspace, id: $0) }
+        // An incognito tab keeps its window's profile (`requireMovable`): nothing to switch to.
+        if !others.isEmpty, !services.cache.browserTabs.isIncognitoTab(key) {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: BrowserProfileAppStrings.otherProfiles))
+            for record in others {
+                let face = ProfileBadgeView.image(profiles.badge(record.id), side: ProfileSwitcherRows.rowAvatar)
+                let profile: [String: ActionValue] = ["browserProfile": .string(record.id)]
+                if let row = registry.makeContextMenuItem(for: "browserProfile.moveTab", in: .browserProfile, target: tab,
+                                                          arguments: profile, title: record.name) {
+                    row.image = face
+                    row.identifier = NSUserInterfaceItemIdentifier("browserProfile.switch.\(record.id)")
+                    menu.addItem(row)
+                }
+                // Option: the workspace's new tabs use it (Use “Work” for This Workspace).
+                let forWorkspace = profile.merging(workspace.map { ["workspace": .target($0)] } ?? [:]) { mine, _ in mine }
+                if workspace != nil, let row = registry.makeContextMenuItem(for: "browserProfile.setWorkspaceDefault", in: .browserProfile,
+                                                                            arguments: forWorkspace,
+                                                                            title: BrowserProfileAppStrings.useForWorkspace(record.name)) {
+                    row.image = face
+                    row.isAlternate = true
+                    row.keyEquivalentModifierMask = .option
+                    menu.addItem(row)
+                }
             }
-            item.target = closure
-            item.action = #selector(ActionMenuClosure.run)
-            item.representedObject = closure
-            menu.addItem(item)
         }
         menu.addItem(.separator())
-        let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
-        let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
-        move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
-        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
-        // This profile's own extensions (chrome://extensions and the Web Store open in it).
-        move(registry.makeContextMenu(for: .browserPage, target: target,
-                                      entries: [.separator, .action("browser.extensions.manage"), .action("browser.extensions.webStore")]), into: menu)
+        let rows: [(ActionID, String, String, [String: ActionValue])] = [
+            ("browserProfile.new", BrowserProfileAppStrings.addProfile, "plus", [:]),
+            ("newIncognitoWindow", BrowserProfileAppStrings.guestWindow, "person.crop.circle", [:]),
+            ("openSettings", BrowserProfileAppStrings.manageProfiles, "gearshape", ["setting": .string("card.browserProfiles")]),
+        ]
+        for (id, title, symbol, arguments) in rows {
+            guard let row = registry.makeContextMenuItem(for: id, in: .browserProfile, arguments: arguments, title: title) else { continue }
+            row.image = ProfileSwitcherRows.symbol(symbol, label: title)
+            menu.addItem(row)
+        }
+        menu.addItem(.separator())
+        // The profile's own actions below, as the badge's menu had them; Add above stands for New Browser Profile.
+        let own = registry.makeContextMenu(for: .browserProfile, target: ActionTargetRef(kind: .browserProfile, id: current),
+                                           entries: registry.contextMenuEntries(for: .browserProfile, removing: ["browserProfile.new"]),
+                                           arguments: ["tab": .target(tab)], customize: customize)
+        move(own, into: menu)
         return menu
     }
 
@@ -215,5 +257,52 @@ enum BrowserToolbarHandlers {
         ]
         let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
         return buttons?.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings)) ?? menu
+    }
+}
+
+/// The profile switcher's own rows: its header (the tab's profile, its avatar, name and
+/// "Current profile", as Chrome's profile menu opens) and the symbols of Add, Guest and Manage.
+@MainActor enum ProfileSwitcherRows {
+    static var rowAvatar: CGFloat { NSFont.menuFont(ofSize: 0).pointSize + 5 }
+    static var headerAvatar: CGFloat { TypeScale.title * 2 }
+
+    static func header(_ badge: BrowserProfileBadge) -> NSMenuItem {
+        let item = NSMenuItem(title: badge.name, action: nil, keyEquivalent: "")
+        item.identifier = NSUserInterfaceItemIdentifier("browserProfile.switcher.current")
+        let avatar = NSImageView(image: ProfileBadgeView.image(badge, side: headerAvatar))
+        let name = NSTextField(labelWithString: badge.name)
+        name.font = .systemFont(ofSize: TypeScale.body, weight: .semibold)
+        name.lineBreakMode = .byTruncatingTail
+        let caption = NSTextField(labelWithString: BrowserProfileAppStrings.currentProfile)
+        caption.font = .systemFont(ofSize: TypeScale.detail)
+        caption.textColor = .secondaryLabelColor
+        let text = NSStackView(views: [name, caption])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 1
+        let row = NSStackView(views: [avatar, text])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+        row.setAccessibilityElement(true)
+        row.setAccessibilityRole(.staticText)
+        row.setAccessibilityLabel("\(badge.name), \(BrowserProfileAppStrings.currentProfile)")
+        NSLayoutConstraint.activate([
+            avatar.widthAnchor.constraint(equalToConstant: headerAvatar),
+            avatar.heightAnchor.constraint(equalToConstant: headerAvatar),
+            row.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+        ])
+        row.frame.size = row.fittingSize
+        item.view = row
+        return item
+    }
+
+    /// A template at the menu font's size, as the other menus' rows (`MenuBarMenuBuilder`).
+    static func symbol(_ name: String, label: String) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
 }
