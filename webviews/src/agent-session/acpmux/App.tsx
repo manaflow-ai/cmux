@@ -45,12 +45,13 @@ import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
+  type CarriedChat,
   harnessBlock,
   type HarnessBlock,
   isTrustRefusal,
-  type CarriedChat,
 } from "./direct";
 import { readHostTail } from "./tailCache";
+import { watchRestoredTail } from "./restoredTail";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
@@ -306,13 +307,13 @@ import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
-  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -385,7 +386,7 @@ import {
   interruptedResumeRunner,
   type InterruptedResumeState,
 } from "./conversation/resumeInterrupted";
-import { retryFailedPrompt, sendUntilTaken } from "./conversation/turnRetry";
+import { sendUntilTaken, retryFailedPrompt } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -539,8 +540,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -552,6 +551,8 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
+  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -625,9 +626,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -653,6 +654,7 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
+  lostRetryDelay,
 } from "./hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -2990,7 +2992,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [previewHost, setPreviewHost] = useState(false);
   const quick = surface === "quick";
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
-  const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
+  const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
+    undefined,
+  );
+  const supersededReplyIds = useMemo(
+    () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
+    [snapshot.supersededRows],
+  );
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(() => {
@@ -3004,7 +3012,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The tray takes the running groups out of the rows, so the live line's wait is counted first.
     const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
-      const last = lastTurns.current;
+      const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
       if (heldCalls.current.session !== shownSessionId)
         heldCalls.current = { session: shownSessionId, keys: new Set() };
       // Null while the view follows the latest row: what was held out goes back in there. The view
@@ -3031,6 +3039,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             waitingSteers: snapshot.waitingSteers,
             messageBreaks,
             trayAgents,
+            supersededReplyIds,
           },
           last?.turns,
         );
@@ -3094,7 +3103,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // for turn boundaries, retries and queue actions; this is a display-only projection.
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
       const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
-      lastTurns.current = { turns, subagents };
+      lastTurns.current = { sessionId: shownSessionId, turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
@@ -3110,6 +3119,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionStatus,
     snapshot.summary?.family,
     snapshot.waitingSteers,
+    supersededReplyIds,
     messageBreaks,
     chatShellRuns,
     panelAsks,
@@ -3123,12 +3133,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
-    () =>
-      childRows || chatPresentation === "messages" || !lastTurns.current
-        ? NO_ROWS
-        : waitingAsks(lastTurns.current.turns),
+    () => {
+      const last = lastTurns.current;
+      if (childRows || chatPresentation === "messages" || !last || last.sessionId !== shownSessionId) return NO_ROWS;
+      return waitingAsks(last.turns);
+    },
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the view turnRowsShown shaped, read from its ref
-    [turnRowsShown, childRows, chatPresentation],
+    [turnRowsShown, childRows, chatPresentation, shownSessionId],
   );
   const [askDismissals, setAskDismissals] = useState(() => ({
     sessionId: shownSessionId,
@@ -3194,8 +3205,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [planInHat, earlierPlanRow],
   );
   const transcriptRows = useMemo(() => {
-    const steers =
-      childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
+    const last = lastTurns.current;
+    let steers: readonly AcpmuxRow[] = NO_ROWS;
+    if (!childRows && chatPresentation !== "messages" && last && last.sessionId === shownSessionId)
+      steers = last.turns.pending ?? NO_ROWS;
     // A guest's prompt is a person's, never another session's message: it draws on its own, held
     // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
     // the group.
@@ -3218,6 +3231,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     btwNotes,
     btwSnapshot,
     snapshot.sessionId,
+    shownSessionId,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
@@ -6891,6 +6905,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
+  const [restoredTailSession, setRestoredTailSession] = useState<string>();
   // A New Tab page is what it is from its first render: its frame draws before the handshake
   // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
   // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
@@ -6907,22 +6922,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
   const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
-  const showsWhatItIs = pageShowsWhatItIs({
-    handshaken,
-    chatDrawn,
-    hostError: hostError !== undefined,
-    hostErrorSaid,
-    newTab: newTab !== undefined,
-    // The copy from the last launch stays until the chat itself is drawn (firstPaint.ts).
-    keepsLastFrame: showsChatSnapshot(),
-    chatRead:
-      clientSnapshot.chatRead === true &&
-      clientSnapshot.sessionId !== undefined &&
-      adoptionDrawn &&
-      (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
-    openRefused: clientSnapshot.connection === "failed",
-    chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
-  });
+  const showsWhatItIs =
+    (!handshaken &&
+      restoredTailSession !== undefined &&
+      clientSnapshot.sessionId === restoredTailSession &&
+      clientSnapshot.rows.length > 0 &&
+      !showsChatSnapshot()) ||
+    pageShowsWhatItIs({
+      handshaken,
+      chatDrawn,
+      hostError: hostError !== undefined,
+      hostErrorSaid,
+      newTab: newTab !== undefined,
+      // The copy from the last launch stays until the chat itself is drawn (firstPaint.ts).
+      keepsLastFrame: showsChatSnapshot(),
+      chatRead:
+        clientSnapshot.chatRead === true &&
+        clientSnapshot.sessionId !== undefined &&
+        adoptionDrawn &&
+        (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
+      openRefused: clientSnapshot.connection === "failed",
+      chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
+    });
   // A chat read from a kept tail before its connect answers has no draft in its prompt yet: the
   // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (a composer that
   // never mounts, a read that never answers).
@@ -7040,6 +7061,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [runAdoption],
   );
   useSessionAdoption(adoptSession);
+  // The selected tab's retained rows need no daemon or native handshake. Keep the saved HTML
+  // frame when present; a tail fills its miss using the same fold as a normal cache-first attach.
+  useEffect(() => {
+    const selection = sessionSelectionToken.current;
+    const adoption = adoptionTicket.current;
+    return watchRestoredTail((next) => {
+      if (
+        handshakenRef.current ||
+        selection !== sessionSelectionToken.current ||
+        adoption !== adoptionTicket.current ||
+        newTabNow.current !== undefined ||
+        snapshotRef.current?.sessionId !== undefined
+      )
+        return;
+      rowsRef.current = next.rows;
+      snapshotRef.current = next;
+      setSnapshot(next);
+      setRestoredTailSession(next.sessionId);
+      setContextKnown(true);
+    });
+  }, []);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
   // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
   // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
@@ -7822,6 +7864,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
+    /// When the last client connected: its loss starts the backoff over only if it stayed up
+    /// (hostRetry.ts `lostRetryDelay`).
+    let connectedAt = 0;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     let reconnect = false;
@@ -8196,8 +8241,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // the handshakes fail past the deadline, then the waiting line or the failure.
             failingSince = Date.now();
             setRelinkingSince(failingSince);
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = nextRetryDelay(retryDelay, true);
+            // A client lost soon after it connected keeps the backoff growing: a daemon that drops
+            // the pane right after every connect is not asked again every 250 ms.
+            const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
+            retryTimer = window.setTimeout(() => void connectHost(), lost.wait);
+            retryDelay = lost.next;
           },
           mockModule
             ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
@@ -8282,7 +8330,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
         followHarnessChanges(client, queryClient, catalogClientId.current);
-        retryDelay = 250;
+        connectedAt = Date.now();
         // A mock session is not one the host can reopen.
         const persistSession = (sessionId?: string) =>
           sessionId && !mock
@@ -12737,7 +12785,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hostLine = restartingAcpmux ? (
     hostWaitOrError
   ) : (
-    <HostRecoveringLine relinkingSince={relinkingSince} restoring={hostRestoring} otherwise={hostWaitOrError} />
+    <HostRecoveringLine
+      relinkingSince={relinkingSince}
+      restoring={hostRestoring}
+      failureShown={hostErrorSaid}
+      otherwise={hostWaitOrError}
+    />
   );
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).

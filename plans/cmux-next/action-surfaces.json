@@ -30300,6 +30300,37 @@
       "args" : [
 
       ],
+      "cli" : "guiOnly",
+      "cli_name" : "agent toggle-terminal-chat",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.toggleTerminalChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Terminal and Chat",
+      "title_key" : "action.palette.toggleTerminalChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "agent launch-claude-teams",
       "context_menu" : "noObject",
@@ -34596,6 +34627,37 @@
       "title" : "Open Desktop",
       "title_key" : "action.cloudOpenDesktop",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "cloud setup-desktop",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudSetupDesktop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Desktop…",
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
@@ -39070,6 +39132,37 @@
       "palette_suggested" : null,
       "title" : "Sidebar States Playground",
       "title_key" : "action.debug.sidebarStatesPlayground",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-sidebar-row-tuner",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.sidebarRowTuner",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Row Tuner",
+      "title_key" : "action.debug.sidebarRowTuner",
       "title_table" : "ActionCatalog"
     },
     {
@@ -52805,7 +52898,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudOpenDesktop",
+              "id" : "cloudSetupDesktop",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -52817,14 +52910,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudOpenDesktop",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 1
+              "order" : 2
             },
             {
               "enabled_when" : "can_perform",
               "id" : "cloudResizeMachine",
               "kind" : "action",
-              "order" : 2,
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52837,7 +52943,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.status",
               "kind" : "action",
-              "order" : 3,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52850,7 +52956,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.snapshot",
               "kind" : "action",
-              "order" : 4,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52863,7 +52969,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.fork",
               "kind" : "action",
-              "order" : 5,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52876,7 +52982,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.handoff",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52889,7 +52995,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.ports",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52902,7 +53008,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.promoteTemplate",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52915,7 +53021,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.restore",
               "kind" : "action",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52928,7 +53034,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPauseMachine",
               "kind" : "action",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52941,7 +53047,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudResumeMachine",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52954,7 +53060,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudSetIdlePause",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52967,7 +53073,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudSetNetworkAccess",
               "kind" : "action",
-              "order" : 13,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52980,7 +53086,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudOpenBrowser",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52993,7 +53099,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPortList",
               "kind" : "action",
-              "order" : 15,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53006,7 +53112,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPortForward",
               "kind" : "action",
-              "order" : 16,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53019,7 +53125,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPortClose",
               "kind" : "action",
-              "order" : 17,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53032,7 +53138,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPreviewShare",
               "kind" : "action",
-              "order" : 18,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53045,7 +53151,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudPreviewRevoke",
               "kind" : "action",
-              "order" : 19,
+              "order" : 20,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53058,7 +53164,7 @@
               "enabled_when" : "can_perform",
               "id" : "cloudStartSession",
               "kind" : "action",
-              "order" : 20,
+              "order" : 21,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -53069,13 +53175,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 21
+              "order" : 22
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 22,
+              "order" : 23,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",

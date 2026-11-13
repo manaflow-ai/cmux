@@ -907,9 +907,9 @@
   width: var(--cv-action-glyph);
   height: var(--cv-action-glyph);
 }
-/* Hover ramps need a fine pointer; keyboard focus shows them at full at once. */
+/* User actions appear instantly. Other footer hover ramps need a fine pointer;
+   keyboard focus shows them at full at once. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-  .cv-user__actions,
   .cv-received-actions,
   .cv-received__hover,
   .cv-reply-actions,
@@ -917,8 +917,6 @@
   .cv-turn-actions .cv-turn-time {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  .cv-user:hover .cv-user__actions,
-  .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
@@ -936,7 +934,6 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
   .cv-received__hover:focus-within,
   .cv-reply-actions:focus-within,
@@ -2107,6 +2104,52 @@ pre.cv-math-source {
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
+}
+/* A live drag (a pane divider or window edge) flows the mounted rows (VirtualTranscript FLOW_CLASS):
+   they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
+   the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
+   the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
+   the latest row. The rows are placed again once the width holds. */
+.acpmux-thread.acpmux-thread--flow {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  padding-top: var(--acpmux-flow-start, 0px);
+  padding-bottom: 0;
+}
+/* A view that follows the latest row: the box ends where that row rests when the chat fills the
+   view (--acpmux-flow-end), and the rows hang from its end, so rows too tall for it go up past its
+   top, as a scroll to the end shows them. Two struts place rows that leave it free room, with no
+   read of a row: the one above takes that room first, up to the first row's place in a chat the
+   view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
+   rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
+   order and the last row its :last-child margin; only a strut's size changes with the rows'. */
+.acpmux-thread.acpmux-thread--flow-end {
+  justify-content: flex-end;
+  height: var(--acpmux-flow-end);
+  padding-top: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::before {
+  content: "";
+  flex: 0 1 var(--acpmux-flow-start, 100%);
+  min-height: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::after {
+  content: "";
+  flex: 1 0 0px;
+}
+.acpmux-thread--flow > .acpmux-row {
+  position: relative;
+  flex: none;
+  top: auto !important;
+  right: auto;
+  left: auto;
+  margin-top: 0 !important;
+  margin-bottom: var(--acpmux-row-gap, 0px);
+}
+.acpmux-thread--flow > .acpmux-row:last-child {
+  margin-bottom: 0;
 }
 .acpmux-row__gap {
   position: absolute;
@@ -3353,6 +3396,21 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
    margins stay inside the height the fold animates instead of popping in at its ends. */
 .cv-fold {
   display: flow-root;
+}
+/* The space between a line and the body it opens (`.cv-tools`' gap) is the body's own first item,
+   not the flex gap over it. The gap lies outside the height the fold animates: it stayed whole while
+   the body closed and left in one frame when the body was removed, so a close at the latest row
+   stopped one gap short for some frames and then jumped (transcript-details-toggle-steady-browser.test.ts,
+   "the clicked line stalled"), and an open began with the same step. The body takes the gap back and
+   holds the same space inside its box, so the layout at rest is the same and the space grows in and
+   folds away with the body, as the tray's divider does (subagents.css, `.acpmux-running-tray__fold::before`). */
+.cv-tools > * + .cv-fold {
+  margin-top: calc(-1 * var(--grid-base));
+}
+.cv-tools > * + .cv-fold::before {
+  content: "";
+  display: block;
+  height: var(--grid-base);
 }
 /* A row a closing "Worked for" hid, drawn where it was while it fades out under the rows sliding up
    over it (turnFold.ts): never hit, focused or selected. */
@@ -5161,6 +5219,14 @@ a.cv-sha:focus-visible {
 .cv-recap__label {
   color: var(--agent-text);
 }
+.cv-recap__points {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+}
+.cv-recap__label + .cv-recap__points,
+.cv-recap__points > li + li {
+  margin-block-start: var(--ds-space-1);
+}
 .cv-recap__close {
   all: unset;
   flex: none;
@@ -5638,7 +5704,10 @@ a.cv-sha:focus-visible {
   letter-spacing: 0.08em;
   user-select: text;
 }
-.cv-turn-error__details[open] {
+/* Details owns a full action-row slot in both states. The raw error grows below its summary when
+   open, but the disclosure itself never changes flex line or horizontal position (Leo, 2026-11-12:
+   "this details moves aroud"). */
+.cv-turn-error__details {
   flex-basis: 100%;
 }
 .cv-turn-error__raw {
