@@ -11,5 +11,4 @@
 pub mod chat;
 pub mod hub;
 pub mod life;
-pub mod registry;
 pub mod wire;

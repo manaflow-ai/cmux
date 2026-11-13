@@ -69,44 +69,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "3a",
-        name: "v2.pr03a.window_cold",
-        done_when: "Cold source-driven actor startup and first read are bounded against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.fold_window",
-        done_when: "Fold-window work remains bounded against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.resume_missed",
-        done_when: "Resuming missed source lines scales with missed input against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.rss_subscribed",
-        done_when: "Subscribed actor memory remains bounded against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.append_behind_page",
-        done_when: "Appending behind a cold read remains bounded against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.replay_kill",
-        done_when: "Replay after a killed actor remains bounded and durable against the small fixture.",
-        measured: false,
-    },
-    GateRow {
-        pr: "3a",
-        name: "v2.pr03a.resume_live",
-        done_when: "Resuming a live source remains bounded against the small fixture.",
+        name: "v2.pr03a.source_read_bounds",
+        done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
         measured: false,
     },
     GateRow {
