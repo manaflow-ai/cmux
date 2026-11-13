@@ -4834,8 +4834,7 @@ function TranscriptView({
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
-  const olderAhead = useRef<OlderAhead>(undefined);
-  olderAhead.current ??= new OlderAhead();
+  const [olderAhead] = useState(() => new OlderAhead());
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     pacing.scrolled();
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
@@ -4868,7 +4867,7 @@ function TranscriptView({
       setRoomRose((total) => total + rise);
     }
     giveRoomNearTop();
-    olderAhead.current!.scrolled(paidAt, performance.now());
+    olderAhead.scrolled(paidAt, performance.now());
     checkOlderNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);
@@ -5573,11 +5572,7 @@ function TranscriptView({
       return;
     }
     // Measured from the loaded rows' top, under the room held for the history above them.
-    const ahead = olderAhead.current!.ahead(
-      node.clientHeight * OLDER_AHEAD_VIEWPORTS,
-      node.clientHeight,
-      performance.now(),
-    );
+    const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
     if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
@@ -5608,7 +5603,7 @@ function TranscriptView({
     // Rows that do not reach the view's top leave a blank band above them until the page lands
     // (Leo's NIGHTLY, 2026-11-12: the top ~40% empty above "Received 3 messages").
     onLoadOlder(node.scrollHeight - (layout.origin ?? 0) <= node.clientHeight).then(() => {
-      if (ask === olderAsk.current) olderAhead.current!.read(performance.now() - askedAt);
+      if (ask === olderAsk.current) olderAhead.read(performance.now() - askedAt);
       settled();
     }, settled);
   };
@@ -5620,7 +5615,7 @@ function TranscriptView({
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
   useEffect(() => {
-    olderAhead.current!.reset();
+    olderAhead.reset();
   }, [sessionKey]);
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
