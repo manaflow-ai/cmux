@@ -764,8 +764,8 @@ struct World {
 /// The owner store's hook: records into a thread-local the world drains after each op (the
 /// hook is `Send + Sync`; this thread is the only one).
 fn sim_store(dir: &std::path::Path) -> Store {
-    let hook: Written = Arc::new(|key, generation, link, records| {
-        WRITTEN.with(|w| w.borrow_mut().push((key.clone(), generation, link, records)));
+    let hook: Written = Arc::new(|key, generation, link, records, since| {
+        WRITTEN.with(|w| w.borrow_mut().push((key.clone(), generation, (link, since), records)));
         true
     });
     let mut store =
@@ -839,7 +839,7 @@ impl World {
     fn take(&mut self, op: Op) {
         self.store.take(op);
         let told: Vec<_> = WRITTEN.with(|w| std::mem::take(&mut *w.borrow_mut()));
-        for (key, generation, link, records) in told {
+        for (key, generation, (link, since), records) in told {
             for r in &records {
                 if matches!(r["kind"].as_str(), Some("turn_result" | "queue_removed"))
                     && let Some(p) = od::prompt_of(r)
@@ -857,11 +857,12 @@ impl World {
             match self.rules {
                 // The hook's work (`Hub::proof_written`).
                 Rules::Now | Rules::Hidden | Rules::Last | Rules::Recent => {
-                    let _ = od::take_written(&self.outbox, pinned, &records, link);
+                    let _ = od::take_written(&self.outbox, pinned, &records, (link, since));
                 }
                 // 98b4575a: the peer's link when the write's hook runs.
                 Rules::Prior => {
-                    let _ = od::take_written(&self.outbox, pinned, &records, (1, self.link));
+                    let link = ((1, self.link), since);
+                    let _ = od::take_written(&self.outbox, pinned, &records, link);
                 }
                 // 0c98c292: each open delivery whose prompt's record the write held closes.
                 Rules::Before => {
@@ -1707,7 +1708,8 @@ impl World {
 }
 
 thread_local! {
-    static WRITTEN: RefCell<Vec<(Key, u64, Link, Vec<Value>)>> = const { RefCell::new(Vec::new()) };
+    static WRITTEN: RefCell<Vec<(Key, u64, (Link, u64), Vec<Value>)>> =
+        const { RefCell::new(Vec::new()) };
     static LOST: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Prompts lost after their release (`World::check`), over the seeds run.
     static PAST_RELEASE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };

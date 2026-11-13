@@ -120,7 +120,9 @@ async fn changes_during_rotation_survive_install_and_restart_without_duplicate_r
     assert!(writer.compaction.is_some());
     writer = tokio::task::spawn_blocking(move || {
         for n in 0..50 {
-            writer.apply_remove(&RowKey::new("local", format!("row-{n:04}"))).unwrap();
+            writer
+                .apply_remove(Source::Local, &RowKey::new("local", format!("row-{n:04}")))
+                .unwrap();
         }
         for n in 50..100 {
             let mut row = Summary::new(format!("row-{n:04}"));
@@ -165,13 +167,16 @@ fn failed_log_append_keeps_latest_summary_and_retries_without_losing_order() {
     // replay must never put the old buffered version over that update.
     writer.retry_log.insert(
         first.key(),
-        IndexRecord {
-            seq: 1,
-            origin: first.origin.clone(),
-            chat_id: first.chat_id.clone(),
-            summary: first,
-            gone: false,
-        },
+        (
+            Source::Local,
+            IndexRecord {
+                seq: 1,
+                origin: first.origin.clone(),
+                chat_id: first.chat_id.clone(),
+                summary: first,
+                gone: false,
+            },
+        ),
     );
     let mut next = Summary::new("a");
     next.last_activity = 20;

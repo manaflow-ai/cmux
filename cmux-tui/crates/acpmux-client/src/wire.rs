@@ -9,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
-pub use acpmux_book::index::ListFilter;
 pub use acpmux_book::index::folders::FolderRow;
+pub use acpmux_book::index::{ListFilter, OriginState};
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -315,15 +315,6 @@ pub struct Origin {
     pub since: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<serde_json::Value>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OriginState {
-    Connected,
-    Down,
-    Stale,
-    Removed,
 }
 
 /// Which side of a row a page reads.

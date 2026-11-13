@@ -100,6 +100,7 @@ impl Compaction {
             0,
             None,
             self.covered_generation,
+            index.origins().cloned().collect(),
             index.merged_rows().map(|row| {
                 if cancelled.load(Ordering::Acquire) {
                     return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
