@@ -388,6 +388,15 @@ class TagGate(unittest.TestCase):
         self.assertTrue(publishing_command(["gh", "api", "/graphql", "-f",
                                             "query=mutation { createRelease { id } }"]))
 
+    def test_graphql_dynamic_query_is_a_write_through_publishes(self) -> None:
+        self.assertTrue(publishes({"run": 'gh api graphql -f query="$(cat x.graphql)"'}))
+
+    def test_graphql_endpoint_urls_are_normalized_through_publishes(self) -> None:
+        for endpoint in ("https://api.github.com/graphql", "/graphql", "./graphql", "//graphql",
+                         "graphql/", "graphql?x=1", "GRAPHQL"):
+            with self.subTest(endpoint=endpoint):
+                self.assertTrue(publishes({"run": f"gh api {endpoint} -f 'query=mutation{{x}}'"}))
+
     def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
         policy = POLICIES["app-ffi-release.yml"]
         branch = "github.ref == 'refs/heads/feat-cmux-next'"
