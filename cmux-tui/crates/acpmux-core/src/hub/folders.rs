@@ -4,6 +4,9 @@ use crate::wire::{
     Anchor, FolderPageResult, FolderPosition, FolderWindow, ListView, PageKey, PageSide, Position,
 };
 use acpmux_book::index::folders::{FolderCursor, FolderKey, FolderOp, FolderReadSide, FolderRow};
+use std::collections::VecDeque;
+
+const FOLDER_TAIL_BYTES: usize = 64 * 1024;
 
 pub(super) fn is_folders(view: Option<ListView>) -> bool {
     view == Some(ListView::Folders)
@@ -234,15 +237,38 @@ pub(super) fn decode_item(bytes: Vec<u8>, seq: u64) -> Option<ListItem> {
     Some(ListItem::Folders { seq, ops: changes })
 }
 
-/// Only the latest bounded delivery is retained, never a replay history.
-/// A reader that misses it receives a fresh window from the published view.
+struct FolderStep {
+    seq: u64,
+    bytes: Arc<Vec<u8>>,
+}
+
+/// Keep only a bounded tail of folder operations. A subscriber that falls
+/// behind the first retained step receives a fresh window from the view.
 pub(super) struct FolderState {
     pub(super) seq: u64,
-    latest: Option<Arc<Vec<u8>>>,
+    tail: VecDeque<FolderStep>,
+    tail_bytes: usize,
 }
 impl Default for FolderState {
     fn default() -> Self {
-        Self { seq: 1, latest: None }
+        Self { seq: 1, tail: VecDeque::new(), tail_bytes: 0 }
+    }
+}
+
+impl FolderState {
+    fn append(&mut self, seq: u64, bytes: Vec<u8>) {
+        let bytes = Arc::new(bytes);
+        self.tail_bytes = self.tail_bytes.saturating_add(bytes.len());
+        self.tail.push_back(FolderStep { seq, bytes });
+        while self.tail_bytes > FOLDER_TAIL_BYTES {
+            let Some(step) = self.tail.pop_front() else { break };
+            self.tail_bytes = self.tail_bytes.saturating_sub(step.bytes.len());
+        }
+    }
+
+    fn clear_tail(&mut self) {
+        self.tail.clear();
+        self.tail_bytes = 0;
     }
 }
 
@@ -262,20 +288,37 @@ impl ListReceiver {
         if subscriber.ended {
             return None;
         }
-        let latest = self.folder_state.lock().ok()?;
-        if subscriber.cursor == latest.seq {
+        let state = self.folder_state.lock().ok()?;
+        if subscriber.cursor >= state.seq {
             return None;
         }
-        if subscriber.cursor.saturating_add(1) != latest.seq {
-            subscriber.ended = true;
-            return Some(RawRead::Lagged);
-        }
-        let Some(bytes) = latest.latest.as_ref().filter(|bytes| bytes.len() <= max_bytes) else {
+        let Some(first) = state.tail.front() else {
             subscriber.ended = true;
             return Some(RawRead::Lagged);
         };
-        subscriber.cursor = latest.seq;
-        Some(RawRead::Span(history::RawSpan::folder(bytes.as_ref().clone(), latest.seq)))
+        if subscriber.cursor.saturating_add(1) < first.seq {
+            subscriber.ended = true;
+            return Some(RawRead::Lagged);
+        }
+        let mut bytes = Vec::new();
+        let mut last_seq = subscriber.cursor;
+        for step in state.tail.iter().filter(|step| step.seq > subscriber.cursor) {
+            let separator = usize::from(!bytes.is_empty());
+            if bytes.len().saturating_add(separator).saturating_add(step.bytes.len()) > max_bytes {
+                break;
+            }
+            if separator != 0 {
+                bytes.push(b',');
+            }
+            bytes.extend_from_slice(step.bytes.as_ref());
+            last_seq = step.seq;
+        }
+        if last_seq == subscriber.cursor {
+            subscriber.ended = true;
+            return Some(RawRead::Lagged);
+        }
+        subscriber.cursor = last_seq;
+        Some(RawRead::Span(history::RawSpan::folder(bytes, last_seq)))
     }
 }
 
@@ -350,7 +393,14 @@ impl HubWriter {
                     crate::wire::DeltaOp::Origin { seq: state.seq, origin };
                 valid &= serde_json::to_writer(&mut bytes, &op).is_ok();
             }
-            state.latest = valid.then(|| Arc::new(bytes));
+            if valid {
+                let seq = state.seq;
+                state.append(seq, bytes);
+            } else {
+                // An unrepresentable step cannot be replayed from the tail;
+                // force lagging subscribers to take a consistent window.
+                state.clear_tail();
+            }
         }
         self.published.store(Arc::new(next));
         drop(state);

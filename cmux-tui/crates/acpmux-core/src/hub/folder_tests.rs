@@ -223,7 +223,6 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
 
 #[tokio::test]
 async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
-    use crate::conn::Source as _;
     use acpmux_book::index::SortedSnapshot;
     let dir = tempfile::tempdir().unwrap();
     let mut initial = SummaryIndex::new();
@@ -233,28 +232,19 @@ async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
     SortedSnapshot::write(dir.path().join("index.snap"), &initial).unwrap();
     let (hub, mut writer) = Hub::open(dir.path(), 1, || 7).unwrap();
     let hub = Arc::new(hub);
-    let source = crate::conn::HubSource::new(hub.clone());
     let mut request = sub();
     request.window = Some(400);
-    let request = crate::wire::Request::Sub(request);
-    let mut ready = source.ready(&request);
-    std::future::poll_fn(|cx| {
-        assert!(ready.as_mut().poll(cx).is_pending());
-        std::task::Poll::Ready(())
-    })
-    .await;
     assert!(hub.list_window(&sub()).is_err());
     while writer.hydration.is_some() {
         writer.process_batch();
     }
-    ready.await.unwrap();
-    let crate::wire::Request::Sub(request) = request else { panic!("sub") };
+    hub.wait_hydrated().await.unwrap();
     let window: FolderWindow = hub.subscribe(&request).unwrap().window.decode_json().unwrap();
     assert_eq!(window.rows.len(), 300);
     assert_eq!(window.cursor, 1, "startup sends no folder ops");
-    let page_request = crate::wire::Request::Page(page(window.after_key.unwrap()));
+    let page_request = page(window.after_key.unwrap());
     writer.hydrated.send_replace(disk::HydrationState::Failed);
-    assert!(source.ready(&page_request).await.is_err());
+    assert!(hub.page_for_view(&page_request, Some(ListView::Folders)).is_err());
 }
 
 #[test]
@@ -340,6 +330,28 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
             );
         }
     }
+}
+
+#[test]
+fn folder_tail_replays_unread_steps_in_one_frame() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(row("one", "/a", 1)).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
+    for at in 2..102 {
+        writer.apply(row("one", "/a", at)).unwrap();
+    }
+    let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("expected retained folder tail")
+    };
+    let decoded: Vec<serde_json::Value> =
+        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
+            .unwrap();
+    assert_eq!(decoded.len(), 100);
+    assert!(decoded.windows(2).all(|ops| {
+        ops[1].get("seq").and_then(serde_json::Value::as_u64)
+            == ops[0].get("seq").and_then(serde_json::Value::as_u64).map(|seq| seq + 1)
+    }));
+    assert!(subscription.receiver.try_next_raw(None, 256 * 1024).is_none());
 }
 
 #[test]

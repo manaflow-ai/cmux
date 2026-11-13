@@ -64,13 +64,7 @@ pub trait OfferSink: Send + Sync {
 /// the offered frame: the source retains only its last taken cursor until resume.
 pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
-pub type ReadyFuture<'a> =
-    std::pin::Pin<Box<dyn Future<Output = Result<(), ConnError>> + Send + 'a>>;
-
 pub trait Source: Send + Sync + 'static {
-    fn ready<'a>(&'a self, _request: &'a Request) -> ReadyFuture<'a> {
-        Box::pin(std::future::ready(Ok(())))
-    }
     fn subscribe(
         &self,
         sub: &Sub,
@@ -245,7 +239,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     }
                     continue;
                 }
-                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id).await;
+                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id);
                 if let Err(error) = result {
                     let reply = error_frame(&frame, &error)?;
                     state.lock().map_err(|_| poisoned())?.offer_reply(reply)?;
@@ -286,7 +280,7 @@ fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
         _ => false,
     }
 }
-async fn process_frame(
+fn process_frame(
     state: &Arc<std::sync::Mutex<ConnectionState>>,
     source: Arc<dyn Source>,
     frame: &Frame,
@@ -308,7 +302,6 @@ async fn process_frame(
         Request::Page(page) => require_surface(&page.stream, surfaces)?,
         _ => {}
     }
-    source.ready(&request).await?;
     match request {
         Request::Hello(hello) => {
             validate_hello(&hello)?;
