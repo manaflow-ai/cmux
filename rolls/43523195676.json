@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43523195676",
+  "recorded_at": "2026-11-13T23:04:10Z",
+  "reason": "cmux-tui e4e971ad047f changes the image's cmux-tui (pinned 7c6d7c866ff9)",
+  "dry_run": false,
+  "cmux_tui": "e4e971ad047f6b4ad5bc6f9a4f4875156e919bc8",
+  "fixes": [
+    {
+      "sha": "e4e971ad047f6b4ad5bc6f9a4f4875156e919bc8",
+      "mergedAt": "2026-11-13T22:29:20Z",
+      "subject": "agent service v2: peer remote tee and origin lifecycle (5d) (#42665)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T23:04:10Z",
+    "snapshot_id": "sh-8b0774ff93454c7a83a4a4311d11cafb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43523195676): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "483091b4aed746b81a5132e5a2ea6dc521a44f99",
+    "image": "cloud-native-auto-e4e971ad-43523195676-1",
+    "revision": "ci-43523195676-1",
+    "at": "2026-11-13T23:04:10Z"
+  },
+  "rolled_back": false
+}
