@@ -26,13 +26,13 @@ mod edition;
 mod family_pages;
 mod kin;
 pub use family_pages::CursorGone;
+pub mod folders;
 #[cfg(test)]
 mod kin_contract_tests;
 #[cfg(test)]
 mod kin_gates;
 #[cfg(test)]
 mod kin_lifecycle_tests;
-pub mod folders;
 mod log;
 mod pages;
 mod table_pages;
