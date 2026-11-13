@@ -323,7 +323,8 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
         .collect()
 }
 
-#[cfg(all(test, feature = "link"))]
+#[cfg(test)]
+#[cfg(feature = "link")]
 mod wg_transport_tests {
     use super::*;
     use crate::wg_carrier::Role;
@@ -335,7 +336,7 @@ mod wg_transport_tests {
         pair_with_identity(false)
     }
 
-    fn pair_with_identity(wrong_peer: bool) -> (LinkCarrier, LinkCarrier) {
+    fn net_pair(wrong_peer: bool) -> (Net, Net) {
         let host = KeyPair::generate().unwrap();
         let viewer = KeyPair::generate().unwrap();
         let host_public = host.public;
@@ -359,6 +360,11 @@ mod wg_transport_tests {
             viewer,
             if wrong_peer { [0x77; 32] } else { host_public },
         );
+        (a, b)
+    }
+
+    fn pair_with_identity(wrong_peer: bool) -> (LinkCarrier, LinkCarrier) {
+        let (a, b) = net_pair(wrong_peer);
         a.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: b.local_addr() });
         b.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: a.local_addr() });
         (LinkCarrier::new(a, Role::Host).unwrap(), LinkCarrier::new(b, Role::Viewer).unwrap())
@@ -445,17 +451,85 @@ mod wg_transport_tests {
             assert!(Instant::now() < deadline, "wrong peer did not fail closed");
         }
     }
-    #[test]
-    fn wg_transport_retry_survives_peer_worker_exit() {
-        let (mut a, mut b) = pair();
+    // The proxy exercises real encrypted UDP packets. Drop every fifth packet
+    // until a peer retries, then lose all traffic (including its close/final ACK).
+    struct LossyPath {
+        cut: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        join: Option<std::thread::JoinHandle<()>>,
+    }
+    impl LossyPath {
+        fn start(a: &Net, b: &Net) -> Self {
+            use std::sync::{
+                atomic::{AtomicBool, Ordering},
+                Arc,
+            };
+            let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+            socket.set_read_timeout(Some(Duration::from_millis(10))).unwrap();
+            let addr = socket.local_addr().unwrap();
+            let (a_addr, b_addr) = (a.local_addr(), b.local_addr());
+            a.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr });
+            b.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr });
+            let cut = Arc::new(AtomicBool::new(false));
+            let stop = Arc::new(AtomicBool::new(false));
+            let (cut_worker, stop_worker) = (cut.clone(), stop.clone());
+            let join = std::thread::spawn(move || {
+                let mut packet = [0u8; 4096];
+                let mut count = 0usize;
+                while !stop_worker.load(Ordering::Relaxed) {
+                    if let Ok((n, from)) = socket.recv_from(&mut packet) {
+                        count += 1;
+                        if cut_worker.load(Ordering::Relaxed) || count % 5 == 0 {
+                            continue;
+                        }
+                        let target = if from == a_addr {
+                            b_addr
+                        } else if from == b_addr {
+                            a_addr
+                        } else {
+                            continue;
+                        };
+                        socket.send_to(&packet[..n], target).unwrap();
+                    }
+                }
+            });
+            Self { cut, stop, join: Some(join) }
+        }
+    }
+    impl Drop for LossyPath {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.join.take().unwrap().join().unwrap();
+        }
+    }
+
+    fn retry_then_peer_exit(lossy: bool) {
+        let (a, b) = net_pair(false);
+        let path = if lossy {
+            Some(LossyPath::start(&a, &b))
+        } else {
+            a.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: b.local_addr() });
+            b.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: a.local_addr() });
+            None
+        };
+        let (mut a, mut b) =
+            (LinkCarrier::new(a, Role::Host).unwrap(), LinkCarrier::new(b, Role::Viewer).unwrap());
         a.net.send_control(
             br#"{"t":"wg_offer","version":255,"key":"00","address":"10.253.0.1","mtu":1088}"#
                 .to_vec(),
         );
         let deadline = Instant::now() + Duration::from_secs(8);
         while !a.retry_ready() && !b.retry_ready() {
-            step(&mut a, &mut b);
-            assert!(Instant::now() < deadline);
+            let (ae, be) = step(&mut a, &mut b);
+            assert!(
+                !ae.iter().chain(&be).any(|event| matches!(event, NetEvent::Failed(_))),
+                "{ae:?} {be:?}"
+            );
+            assert!(!a.media_ready() && !b.media_ready());
+            assert!(Instant::now() < deadline, "neither peer reached retry");
+        }
+        if let Some(path) = &path {
+            path.cut.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let mut remaining = if a.retry_ready() {
             drop(a);
@@ -464,18 +538,37 @@ mod wg_transport_tests {
             drop(b);
             a
         };
-        while !remaining.retry_ready() {
+        let exit_deadline =
+            Instant::now() + crate::wg_carrier::RETRY_TIMEOUT + Duration::from_secs(1);
+        loop {
+            assert!(!remaining.media_ready());
+            assert!(remaining.send_datagram(b"no media after retry").is_err());
+            if remaining.retry_ready() {
+                break;
+            }
             crate::fdwait::wait_readable(&remaining.fds(), Some(10_000_000)).unwrap();
             let events = remaining.events();
-            assert!(
-                !events.iter().any(|e| matches!(
-                    e,
+            if events.iter().any(|event| {
+                matches!(
+                    event,
                     NetEvent::Failed(_) | NetEvent::Endpoint(EndpointEvent::Link(Event::Closed))
-                )),
-                "peer worker exit erased agreed fallback: {events:?}"
+                )
+            }) {
+                assert!(!remaining.retry_ready(), "terminal close must suppress retry");
+                break;
+            }
+            assert!(
+                Instant::now() < exit_deadline,
+                "lost final ACK left peer waiting indefinitely"
             );
-            assert!(Instant::now() < deadline);
         }
-        assert!(remaining.take_fallback().is_some());
+    }
+    #[test]
+    fn wg_transport_peer_worker_exit_has_bounded_outcome() {
+        retry_then_peer_exit(false);
+    }
+    #[test]
+    fn wg_transport_packet_loss_and_immediate_exit_has_bounded_outcome() {
+        retry_then_peer_exit(true);
     }
 }

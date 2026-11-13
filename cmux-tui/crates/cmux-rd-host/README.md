@@ -40,6 +40,9 @@ Before readiness, an unsupported or failed WG negotiation proposes a typed
 WebRTC retry. Both sides acknowledge the proposal, and each waits until its
 outgoing acknowledgement has been delivered before emitting a fallback app
 line. Missing acknowledgements expire after three seconds and end the session.
+This is not atomic agreement under arbitrary loss: if one process exits and its
+final outer acknowledgement is lost, the other peer may end the session instead
+of retrying. A terminal close always wins over retry; no peer waits indefinitely.
 Old peers without this exchange therefore fail closed; they never receive bare
 rd-link media. Stop, consent/revocation, peer authentication failure, and failures
 after readiness never permit a retry. The app consumes this decision on the
