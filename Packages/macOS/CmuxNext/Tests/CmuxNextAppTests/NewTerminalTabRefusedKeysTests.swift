@@ -18,7 +18,9 @@ import Testing
 /// stand-in and waits for the create (`create-terminal`, then a move).
 ///
 /// The proxy can also hold the daemon's events (`tab-added` with them) from the moment it sends the create on, while
-/// the create's reply passes: the reply then comes before the events, for a time the test chooses (``Late``).
+/// the create's reply passes: the reply then comes before the events, for a time the test chooses (``Late``). For one
+/// case it also holds the stream lines of the control connection and the reply itself, until the test saw that the
+/// store applied each line that the daemon sent before: the reply then settles the create at once.
 ///
 /// Three cases, each on both daemon forms:
 /// - the daemon refuses the tab: the line runs in no terminal;
@@ -48,12 +50,12 @@ struct NewTerminalTabRefusedKeysTests {
     nonisolated static let proxy = #"""
     import json, os, socket, sys, threading, time
     path, hold, log, older = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == 'older'
-    passes, late = hold + '.pass', hold + '.late'
+    passes, late, quiet = hold + '.pass', hold + '.late', hold + '.quiet'
     daemon = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     daemon.connect(path)
     print('{"ok":true}', file=sys.stderr, flush=True)
     lock, out, held = threading.Lock(), threading.Lock(), []
-    events, parked, wait = threading.Lock(), [], {'on': False, 'ids': [], 'at': None}
+    events, parked, wait = threading.Lock(), [], {'on': False, 'ids': [], 'at': None, 'quiet': False, 'reply': None}
     def to_app(line):
         with out:
             sys.stdout.buffer.write(line)
@@ -67,8 +69,13 @@ struct NewTerminalTabRefusedKeysTests {
         return float(text) if text else None
     def release():
         with events:
+            if wait['reply'] is not None and not os.path.exists(quiet):
+                to_app(wait['reply'])
+                wait['reply'] = None
+                with open(log, 'a') as file:
+                    file.write('replied\n')
             due = wait['at'] is not None and time.time() >= wait['at']
-            if wait['on'] and (due or (wait['at'] is None and not os.path.exists(late))):
+            if wait['on'] and wait['reply'] is None and (due or (wait['at'] is None and not os.path.exists(late))):
                 for line in parked:
                     to_app(line)
                 del parked[:]
@@ -99,6 +106,7 @@ struct NewTerminalTabRefusedKeysTests {
                                 with events:
                                     wait['on'] = True
                                     wait['ids'].append(frame.get('id'))
+                                    wait['quiet'] = os.path.exists(quiet)
                             daemon.sendall(line)
                         else:
                             reply = {'id': frame.get('id'), 'ok': False, 'error': 'refused by the proxy of the test'}
@@ -118,8 +126,14 @@ struct NewTerminalTabRefusedKeysTests {
                     frame = json.loads(line)
                 except ValueError:
                     frame = {}
-                if isinstance(frame, dict) and 'event' in frame:
+                streamed = wait['quiet'] and isinstance(frame, dict) and frame.get('type') in ('stream_item', 'stream_end')
+                if streamed or (isinstance(frame, dict) and 'event' in frame):
                     parked.append(line)
+                    continue
+                if wait['quiet'] and isinstance(frame, dict) and frame.get('id') in wait['ids']:
+                    wait['reply'] = line
+                    with open(log, 'a') as file:
+                        file.write('reply held\n')
                     continue
                 if isinstance(frame, dict) and frame.get('id') in wait['ids'] and wait['at'] is None:
                     after = delay()
@@ -131,12 +145,14 @@ struct NewTerminalTabRefusedKeysTests {
     """#
 
     /// The files of one test: `hold`, `pass` (the proxy sends a held create on to the daemon), `late` (the proxy holds the
-    /// daemon's events from then on: until the file is removed, or for the milliseconds it names after the create's reply)
+    /// daemon's events from then on: until the file is removed, or for the milliseconds it names after the create's reply),
+    /// `quiet` (with `late`: the proxy holds the stream lines too, and the create's reply until the file is removed)
     /// and `log`, removed by ``remove()``.
     struct Files: Sendable {
         let hold: URL
         let pass: URL
         let late: URL
+        let quiet: URL
         let log: URL
         let daemon: Daemon
 
@@ -146,6 +162,7 @@ struct NewTerminalTabRefusedKeysTests {
             hold = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold")
             pass = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold.pass")
             late = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold.late")
+            quiet = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold.quiet")
             log = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).log")
         }
 
@@ -158,8 +175,8 @@ struct NewTerminalTabRefusedKeysTests {
         /// The creates the proxy answered so far: `refused <cmd>` or `passed <cmd>`.
         var answered: [String] { logged.filter { $0.hasPrefix("refused ") || $0.hasPrefix("passed ") } }
 
-        /// Each line of the proxy's log: the answers, `replied` (a create's reply passed while the events wait) and
-        /// `events released`.
+        /// Each line of the proxy's log: the answers, `reply held` (the proxy keeps a create's reply), `replied` (a
+        /// create's reply passed while the events wait) and `events released`.
         var logged: [String] {
             (try? String(contentsOf: log, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? []
         }
@@ -168,6 +185,7 @@ struct NewTerminalTabRefusedKeysTests {
             try? FileManager.default.removeItem(at: hold)
             try? FileManager.default.removeItem(at: pass)
             try? FileManager.default.removeItem(at: late)
+            try? FileManager.default.removeItem(at: quiet)
             try? FileManager.default.removeItem(at: log)
         }
     }
@@ -202,6 +220,12 @@ struct NewTerminalTabRefusedKeysTests {
         case soonAfterTheReply
         /// After the hold ended with no made tab in the store: the held keys had only the stand-in to go to.
         case afterTheHoldsEnd
+        /// As ``afterTheHoldsEnd``, and the create's reply reaches the app only after the store applied each line that
+        /// the daemon sent before it (the proxy holds the stream lines and the reply too). The reply then settles the
+        /// create in its own turn (`DaemonStore.noteSettled`): the stand-in leaves the pane before the hold gives its
+        /// keys out, with no made tab in the store. The two cases before this one do not force that order: a stream
+        /// line that passes the proxy, or a line not applied yet, keeps the create pending at the reply.
+        case afterTheStoreAppliedEachLine
         var testDescription: String { rawValue }
     }
 
@@ -353,8 +377,31 @@ struct NewTerminalTabRefusedKeysTests {
             if ending == .madeAfterAMove, events != .asSent {
                 try #require(FileManager.default.createFile(atPath: files.late.path, contents: events == .soonAfterTheReply ? Data("10".utf8) : nil))
             }
+            let store = services.daemon.store
+            let link = try #require(services.daemon.connection, "the app has no connection to the daemon")
+            if ending == .madeAfterAMove, events == .afterTheStoreAppliedEachLine {
+                try #require(FileManager.default.createFile(atPath: files.quiet.path, contents: nil))
+            }
             let answeredAt = ContinuousClock.now
             try FileManager.default.removeItem(at: files.hold)
+            var atTheReply = "not asked"
+            if ending == .madeAfterAMove, events == .afterTheStoreAppliedEachLine {
+                // The proxy keeps the reply and each event and stream line after the create. The store applies what the
+                // daemon sent before: then the reply's event sequence is one that the store reached, and the reply
+                // settles the create at once.
+                try await PinnedPageTests.until({ files.logged.contains("reply held") }, within: .seconds(15), report: { "waiting for the proxy to hold the create's reply: \(files.logged)" })
+                var routed = await link.eventSequence()
+                let deadline = ContinuousClock.now + .seconds(10)
+                while routed.map({ store.appliedSequence < $0 }) ?? true, ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(20))
+                    routed = await link.eventSequence()
+                }
+                let reached = try #require(routed, "the connection has no event sequence: this run proves nothing")
+                try #require(store.appliedSequence >= reached && coordinator.isHolding(in: window) && (standIn.map { tab in pressed.pane.pane.tabs.contains { $0.id == tab } } ?? false),
+                             "before the reply: the store applied \(store.appliedSequence) of the routed \(reached), holding \(coordinator.isHolding(in: window)): this run proves nothing (\(panes()))")
+                atTheReply = "applied \(store.appliedSequence) of the routed \(reached)"
+                try FileManager.default.removeItem(at: files.quiet)
+            }
             try await PinnedPageTests.until({ !files.answered.isEmpty && !coordinator.isHolding(in: window) }, within: .seconds(15), report: {
                 "waiting for the answer and the hold's end: answered \(files.answered), holding \(coordinator.isHolding(in: window)), \(panes())"
             })
@@ -363,7 +410,7 @@ struct NewTerminalTabRefusedKeysTests {
                 pressed.pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) && !before.contains($0.surface) }?.surface
             }
             var holdEndedBeforeTheEvents = "not asked"
-            if ending == .madeAfterAMove, events == .afterTheHoldsEnd {
+            if ending == .madeAfterAMove, events == .afterTheHoldsEnd || events == .afterTheStoreAppliedEachLine {
                 // The hold ended on the reply alone: the store lists no made tab. The reply can settle the create before
                 // `tab-added` comes, and the stand-in then leaves the pane at the reply: what the pane and the view cache
                 // held at the hold's end is printed, not required.
@@ -371,7 +418,13 @@ struct NewTerminalTabRefusedKeysTests {
                              "the hold did not end before the daemon's events: this run proves nothing (proxy log \(files.logged), \(panes()))")
                 let listed = standIn.map { tab in pressed.pane.pane.tabs.contains { $0.id == tab } } ?? false
                 let viewKept = standIn.map { services.cache.existingTerminal($0) != nil } ?? false
-                holdEndedBeforeTheEvents = "\(ContinuousClock.now - answeredAt) after the answer, the stand-in listed then \(listed), its view kept then \(viewKept)"
+                let routed = await link.eventSequence().map { "\($0)" } ?? "none"
+                holdEndedBeforeTheEvents = "\(ContinuousClock.now - answeredAt) after the answer, the stand-in listed then \(listed), its view kept then \(viewKept), "
+                    + "the store applied \(store.appliedSequence) of the routed \(routed) then, before the reply: \(atTheReply)"
+                // The order under test: the reply settled the create, so the stand-in left the pane with no made tab there.
+                if events == .afterTheStoreAppliedEachLine {
+                    try #require(!listed, "the stand-in was in the pane at the hold's end: the reply did not settle the create, and this run proves nothing (\(holdEndedBeforeTheEvents); proxy log \(files.logged))")
+                }
                 try FileManager.default.removeItem(at: files.late)
             }
             if ending == .madeAfterAMove, events == .soonAfterTheReply {
