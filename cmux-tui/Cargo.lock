@@ -113,6 +113,7 @@ dependencies = [
 name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crc32fast",
  "imbl",
  "libc",
