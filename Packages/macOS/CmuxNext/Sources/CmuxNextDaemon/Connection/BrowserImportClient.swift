@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The browser import's reads on the daemon (`browser_import.read`, the `cmux-browser-import`
 /// crate): another browser's bookmarks, history, open tabs, search engine and extensions. Only the
