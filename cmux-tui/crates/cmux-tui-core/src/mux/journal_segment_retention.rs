@@ -10,6 +10,7 @@ use super::journal_maintenance::{
     JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS, JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK,
     journal_maintenance_interval,
 };
+use crate::workspace_registry::journal_retention::RetentionReadAhead;
 use crate::workspace_registry::wal_durability::WalRoom;
 
 /// Sealed segments one tick deletes at most (1,024 records each at most:
@@ -141,7 +142,11 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .journal_retention_floor()?;
-        if rebuild_possible && self.rebuild_takes_the_run(floor, folded)? {
+        // What the pass reads of the file before a hold, it reads here: on
+        // this thread, with no lock held.
+        let reader = self.retention_read_ahead()?;
+        let reader = reader.as_ref();
+        if rebuild_possible && self.rebuild_takes_the_run(reader, floor, folded)? {
             // Nothing is deleted in place; the fold may still have work.
             return Ok(!folded);
         }
@@ -150,7 +155,7 @@ impl Mux {
         let deadline = Instant::now() + journal_maintenance_interval();
         // The pass asks the syncer only when it has a segment to delete, so
         // a tick with nothing to delete makes no look at the WAL.
-        if !self.journal_segment_waits_in_place(floor)? {
+        if !self.journal_segment_waits_in_place(reader, floor)? {
             return Ok(!folded);
         }
         // Before the first hold: requests can have left a WAL with no room
@@ -183,7 +188,7 @@ impl Mux {
             if self.journal_maintenance_paused() {
                 break SegmentPass::Paused;
             }
-            match self.retain_journal_segment(floor, deadline)? {
+            match self.retain_journal_segment(reader, floor, deadline)? {
                 SegmentPass::Deleted => pruned += 1,
                 end => break end,
             }
@@ -200,16 +205,77 @@ impl Mux {
         })
     }
 
+    /// The connection of one pass for its reads before a hold
+    /// (`workspace_registry::journal_retention`, the module doc). Only this
+    /// thread reads on it, and it lives for the pass. `None` for a registry
+    /// in memory: it has no file to read, and the pass reads under the lock
+    /// as before.
+    ///
+    /// It holds no lock that a request takes: the registry lock is held here
+    /// for the path alone (no SQLite work), and a reader of a WAL file never
+    /// makes a writer wait. A read that is open keeps the WAL syncer's
+    /// checkpoint from the frames after it, so each read ends before the
+    /// pass goes on (`RetentionReadAhead::ended`).
+    fn retention_read_ahead(&self) -> anyhow::Result<Option<RetentionReadAhead>> {
+        let path = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_database_path();
+        path.as_deref().map(RetentionReadAhead::open).transpose()
+    }
+
+    /// The records this start may still delete in place at `floor`
+    /// (`journal_in_place_room`), read before a hold: on `reader` with no
+    /// lock held, or under the registry lock for a registry in memory.
+    ///
+    /// The read with no lock gives what a read under the lock would: each
+    /// term is of the sealed segments at or below `floor`. A seal writes
+    /// above the floor, and only this thread deletes at or below it.
+    fn in_place_room_before_the_hold(
+        &self,
+        reader: Option<&RetentionReadAhead>,
+        floor: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        let deleted = self.journal_in_place_records();
+        match reader {
+            Some(reader) => reader.in_place_room(floor, deleted),
+            None => self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .journal_in_place_room(floor, deleted),
+        }
+    }
+
     /// True when a sealed segment at or below `floor` waits that this start
     /// may delete in place ([`Self::next_segment_in_place`]). Reads only.
-    fn journal_segment_waits_in_place(&self, floor: u64) -> anyhow::Result<bool> {
+    fn journal_segment_waits_in_place(
+        &self,
+        reader: Option<&RetentionReadAhead>,
+        floor: u64,
+    ) -> anyhow::Result<bool> {
+        // One row by the index of the segment ends: a tick with no segment
+        // to delete reads nothing more.
+        let waits = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .journal_segment_to_prune(floor)?
+            .is_some();
+        if !waits {
+            return Ok(false);
+        }
+        let room = self.in_place_room_before_the_hold(reader, floor)?;
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        Ok(self.next_segment_in_place(&registry, floor)?.is_ok())
+        Ok(self.next_segment_in_place(&registry, floor, room)?.is_ok())
     }
 
     /// The oldest sealed segment at or below `floor` and whether the delete
     /// of it counts toward the bound of this start, or why the pass leaves
-    /// it. Reads only, under the caller's hold of the registry lock.
+    /// it. Reads only, under the caller's hold of the registry lock: one row
+    /// by the index of the segment ends. `room` is the caller's read of
+    /// [`Self::in_place_room_before_the_hold`], made before it took the lock.
     ///
     /// The bound: a run at or below the floor that is worth a rebuild
     /// (`journal_in_place_room`) is the rebuild's work. When no worker of
@@ -230,11 +296,11 @@ impl Mux {
         &self,
         registry: &crate::workspace_registry::WorkspaceRegistry,
         floor: u64,
+        room: Option<u64>,
     ) -> anyhow::Result<Result<bool, SegmentPass>> {
         let Some(segment) = registry.journal_segment_to_prune(floor)? else {
             return Ok(Err(SegmentPass::NoSegment));
         };
-        let room = registry.journal_in_place_room(floor, self.journal_in_place_records())?;
         Ok(match room {
             Some(room) if segment.records() > room => Err(SegmentPass::Bounded),
             room => Ok(room.is_some()),
@@ -250,11 +316,21 @@ impl Mux {
     /// ([`Self::after_retention_hold`]), the segment stays at or below the
     /// floor, where no reader takes its rows, and the next pass takes it
     /// again.
-    fn retain_journal_segment(&self, floor: u64, deadline: Instant) -> anyhow::Result<SegmentPass> {
+    ///
+    /// Before each hold of rows, with no lock held, the pass reads the rows
+    /// of that hold on `reader`: the hold then waits for no page of the
+    /// file while a request waits for the lock.
+    fn retain_journal_segment(
+        &self,
+        reader: Option<&RetentionReadAhead>,
+        floor: u64,
+        deadline: Instant,
+    ) -> anyhow::Result<SegmentPass> {
+        let room = self.in_place_room_before_the_hold(reader, floor)?;
         let (segment, bounded) = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let bounded = match self.next_segment_in_place(&registry, floor)? {
+            let bounded = match self.next_segment_in_place(&registry, floor, room)? {
                 Ok(bounded) => bounded,
                 Err(left) => return Ok(left),
             };
@@ -270,6 +346,9 @@ impl Mux {
             loop {
                 if self.journal_maintenance_paused() {
                     return Ok(SegmentPass::Paused);
+                }
+                if let Some(reader) = reader {
+                    reader.read_hold_rows(&segment)?;
                 }
                 let more = self
                     .workspace_registry
@@ -355,18 +434,28 @@ impl Mux {
     /// once the agent history fold is at the journal head (`folded`) or the
     /// wait for it is over. A run too small for a rebuild is deleted in
     /// place, as before.
-    fn rebuild_takes_the_run(&self, floor: u64, folded: bool) -> anyhow::Result<bool> {
+    fn rebuild_takes_the_run(
+        &self,
+        reader: Option<&RetentionReadAhead>,
+        floor: u64,
+        folded: bool,
+    ) -> anyhow::Result<bool> {
         if !folded && self.note_journal_rebuild_fold_wait() <= JOURNAL_RETENTION_REBUILD_FOLD_TICKS
         {
             // The floor still moves with the fold: no rebuild at this one,
             // and no delete in place that the rebuild would do in one swap.
             return Ok(true);
         }
-        let owed = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .journal_rebuild_owed(floor)?;
+        // A row of each sealed segment at or below the floor: with no lock
+        // held when the registry is on disk.
+        let owed = match reader {
+            Some(reader) => reader.rebuild_owed(floor)?,
+            None => self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .journal_rebuild_owed(floor)?,
+        };
         if owed {
             self.offer_rebuild_floor(floor);
         }
