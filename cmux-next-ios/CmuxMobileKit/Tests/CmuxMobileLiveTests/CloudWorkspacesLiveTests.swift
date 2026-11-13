@@ -1,6 +1,7 @@
 import CmuxMobileChief
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Security
