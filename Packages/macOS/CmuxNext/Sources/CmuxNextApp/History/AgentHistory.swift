@@ -13,7 +13,7 @@ import os
 final class AgentHistory {
     private unowned let services: AppServices
     var machines: [String: MachineAgentSessions] = [:] // per machine (tests fill one)
-    /// False while a machine's list is not complete: a session that is not in `sessions` can still exist.
+    /// False while a machine's list is not complete, or this Mac's daemon gave no answer yet: a session that is not in `sessions` can still exist.
     var isComplete: Bool { machines.values.allSatisfy(\.isComplete) }
     private var refreshing: Task<Void, Never>?
     /// Hidden by Clear History or Remove from History (the journal is
@@ -38,16 +38,16 @@ final class AgentHistory {
 
     private func readAll() async {
         for daemon in services.machines.daemons {
-            guard case .connected = daemon.store.connectionState else { continue }
             let machine = daemon.machineID
             var sessions = machines[machine] ?? MachineAgentSessions(machine: machine)
+            guard case .connected = daemon.store.connectionState else { if daemon === services.machines.local { machines[machine] = sessions }; continue }
             if daemon.supports(DaemonHistoryClient.agentSessionsCapability), let connection = daemon.connection {
                 await sessions.read(list: DaemonHistoryClient(connection: connection))
             } else if daemon.supports("session-journal-v1"), let endpoint = try? await daemon.endpoint() {
                 do { try await sessions.read(journal: endpoint.socketPath) } catch {
                     logger.info("agent history: journal read on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
-            } else { continue }
+            } else { if !sessions.isComplete, sessions.sessions.isEmpty { machines[machine] = nil }; continue } // it lists no session: no answer will come
             machines[machine] = sessions
         }
     }
