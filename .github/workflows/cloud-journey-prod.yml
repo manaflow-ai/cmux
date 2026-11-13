@@ -16,8 +16,10 @@ name: Cloud journey (production, hourly)
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
-# in headers and request bodies and scrubs them from its output.
+# model the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below uses the same environment's Claude token
+# with CMUX_STAGING_STACK_EMAIL and _PASSWORD, which the provisioner seals separately; production names stay intact.
+# They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
+# from its output.
 #
 # The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
 # the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
@@ -185,8 +187,8 @@ jobs:
           bun-version: "1.4.4"
       - name: Staging preclaim login burst
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
