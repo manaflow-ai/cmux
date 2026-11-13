@@ -209,7 +209,7 @@ public enum TerminalPanRoute: Equatable, Sendable {
     case none
 
     /// `foregroundProgram`: the terminal's foreground program on the Mac
-    /// (`process-info` `foreground_executable`), nil while not known.
+    /// (``TerminalAlternateScroll/program(processInfo:)``), nil while not known.
     public static func route(alternateScreen: Bool, appReportsMouse: Bool, foregroundProgram: String? = nil) -> TerminalPanRoute {
         guard alternateScreen else { return .localScrollback }
         if appReportsMouse { return .wheelReports }
@@ -225,22 +225,30 @@ public enum TerminalPanRoute: Equatable, Sendable {
 /// drag moves.
 ///
 /// The program is the Mac's own reading of the terminal's foreground job
-/// (`process-info` `foreground_executable`: the foreground process group
-/// leader's name), never a guess from the screen: Claude Code without mouse
+/// (`process-info` `foreground_program`: the foreground process group
+/// leader's name, or the script a leading shell runs), never a guess from the screen: Claude Code without mouse
 /// capture and less set the same modes (alternate screen, application cursor
 /// keys, no mouse). So the list names programs that page or edit with the
 /// arrows, and anything else (claude, codex, node, ssh, tmux, a wrapper
 /// script's sh) keeps a drag at zero bytes. git is here for its pager
 /// (`git log`, `git diff`: git leads the job, less runs under it), as are
-/// systemctl and journalctl. man on macOS is a shell script, so its leader
-/// reads as sh and it stays at zero bytes until the Mac reports the job's
-/// pager too.
+/// systemctl and journalctl. man on macOS is a shell script: its leader is
+/// sh, and the Mac names the job by the script it runs (`man`).
 public enum TerminalAlternateScroll {
     public static let programs: Set<String> = [
         "less", "more", "most", "pg", "man", "info", "pinfo",
         "git", "bat", "batcat", "delta", "journalctl", "systemctl",
         "vim", "vi", "nvim", "view", "vimdiff", "nvi", "elvis",
     ]
+
+    /// The foreground program a `process-info` reply's data names:
+    /// `foreground_program` (the job's program; a shell script's own name,
+    /// `man` on macOS), else `foreground_executable` (the job leader's
+    /// executable) from a Mac that predates it. Nil when neither is there.
+    public static func program(processInfo reply: [String: Any]) -> String? {
+        let data = reply["data"] as? [String: Any] ?? reply
+        return data["foreground_program"] as? String ?? data["foreground_executable"] as? String
+    }
 
     /// Whether `program` (a path or a name) pages with cursor keys.
     public static func pagesWithArrows(_ program: String?) -> Bool {
