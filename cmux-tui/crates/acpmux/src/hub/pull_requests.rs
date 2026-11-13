@@ -22,6 +22,11 @@ static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
 
+/// The `"number": N` of a `lane-gh call land|close` call's JSON arguments. `None` only if the
+/// constant pattern failed to build, which its tests rule out.
+static LANE_GH_NUMBER: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#""number"\s*:\s*([0-9]+)"#).ok());
+
 /// A session keeps at most this many; a runaway loop stops growing its meta here.
 pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
@@ -222,7 +227,8 @@ const VALUE_FLAGS: [&str; 13] = [
 /// `VAR=value` words or `env`), wherever they stand, so a pipe after one (`2>&1 | tail -3`) or a
 /// step before it changes nothing; `None` when it runs neither. Each names the pull request its
 /// first argument is: a URL, or a number (`5`, `#5`) with `--repo OWNER/REPO` or without. A
-/// branch name, or `--auto` (nothing is merged yet), names none.
+/// branch name, or `--auto` (nothing is merged yet), names none. A lane VM's direct form,
+/// `lane-gh call land|close OWNER/REPO JSON`, names the `"number"` its JSON holds.
 fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
     let mut found = None;
     for (command, _) in commands(script) {
@@ -233,6 +239,19 @@ fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
                     || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
             })
             .collect();
+        if let ["lane-gh", "call", "land" | "close", repo, ..] = words[..] {
+            // A lane VM's broker call, `lane-gh call land OWNER/REPO '{"number": 5, ...}'`.
+            let targets: &mut Vec<Target> = found.get_or_insert_with(Vec::new);
+            if let Some(n) = LANE_GH_NUMBER
+                .as_ref()
+                .and_then(|number| number.captures(&command))
+                .and_then(|c| c[1].parse::<u64>().ok())
+                && repo.split('/').count() == 2
+            {
+                targets.push(Target::Url(format!("https://github.com/{repo}/pull/{n}")));
+            }
+            continue;
+        }
         if !matches!(words.get(..3), Some(["gh", "pr", "merge" | "close"])) {
             continue;
         }
@@ -268,18 +287,29 @@ fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
 }
 
 /// What gh prints when a merge is only queued or refused: none of the call's pull requests is
-/// settled by it.
-const UNSETTLED: [&str; 4] =
-    ["will be automatically merged", "merge queue", "is not mergeable", "X Pull request"];
+/// settled by it. On a lane VM, `gh pr merge` and `lane-gh call land` say `handed to` (`handed_to`)
+/// when the broker queued the merge behind a hold, and `"ok": false` or `refused` when it did not
+/// merge.
+const UNSETTLED: [&str; 8] = [
+    "will be automatically merged",
+    "merge queue",
+    "is not mergeable",
+    "X Pull request",
+    " handed to ",
+    "\"handed_to\"",
+    "\"ok\": false",
+    "refused",
+];
 
 /// The lines gh prints once a pull request is settled: `✓ Squashed and merged pull request
 /// o/r#5 (title)` (also `Merged`, `Rebased and merged`, `Closed`), `! Pull request o/r#5 was
-/// already merged` (or `closed`), and a merge wrapper's `merged o/r#5 at SHA`. `--auto`'s "will be
+/// already merged` (or `closed`), a merge wrapper's `merged o/r#5 at SHA`, and a lane VM's
+/// `✓ Squashed and merged o/r#5` and `✓ Closed o/r#5`. `--auto`'s "will be
 /// automatically merged" is none of them: nothing is merged yet.
 /// `None` only if the constant pattern failed to build, which its tests rule out.
 static SETTLED: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
-        r"(?m)(?:(?:Squashed and merged|Rebased and merged|Merged|Closed) pull request |Pull request |^merged )([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)(?: was already (?:merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
+        r"(?m)(?:(?:Squashed and merged|Rebased and merged|Merged|Closed) (?:pull request )?|Pull request |^merged )([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)(?: was already (?:merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
     )
     .ok()
 });
@@ -534,12 +564,23 @@ mod tests {
             // Nothing merged yet, or a branch acpmux cannot map to a pull request.
             ("gh pr merge 11 --auto --squash", vec![]),
             ("gh pr merge my-branch --squash", vec![]),
+            (
+                r#"lane-gh call land o/r '{"repo": "o/r", "number": 12, "sha": "abc"}' 2>&1 | tail -3"#,
+                vec![url(12)],
+            ),
+            (r#"lane-gh call close o/r '{"number":13,"body":"done"}'"#, vec![url(13)]),
+            (r#"lane-gh call land '{"number": 14}'"#, vec![]),
         ] {
             assert_eq!(gh_pr_closes(script), Some(want), "{script}");
         }
-        for no in
-            ["grep 'gh pr merge' log", "echo gh pr close 5", "gh pr view 5", "cat merges.log", ""]
-        {
+        for no in [
+            "grep 'gh pr merge' log",
+            "echo gh pr close 5",
+            "gh pr view 5",
+            "cat merges.log",
+            r#"lane-gh call get o/r '{"number": 5}'"#,
+            "",
+        ] {
             assert_eq!(gh_pr_closes(no), None, "{no}");
         }
     }
@@ -553,9 +594,11 @@ mod tests {
             ! Pull request o/r#9 was already merged\n\
             ! Pull request o/r#10 was already closed\n\
             merged o/r#11 at 0123456789ab (head fedcba9876)\n\
+            ✓ Squashed and merged o/r#12\n\
+            ✓ Closed o/r#13\n\
             ✓ Squashed and merged pull request o/r#5 (Fix it)\n";
         let urls: Vec<String> =
-            (5..=11).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
+            (5..=13).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
         let mut want = urls.clone();
         want[2] = "https://github.com/a-b/c.d/pull/7".into();
         assert_eq!(settled_urls(out), want);
@@ -592,6 +635,9 @@ mod tests {
         for said in [
             "✓ Pull request o/r#7 will be added to the merge queue for main when ready",
             "X Pull request o/r#7 is not mergeable: the base branch policy prohibits the merge.",
+            "✓ o/r#7 at 0123456789ab handed to merge_hold (it waits on: review)",
+            "{\n \"ok\": true,\n \"handed_to\": \"merge_hold\"\n}",
+            "{\n \"ok\": false,\n \"error\": \"checks are red\"\n}",
         ] {
             track_closed(&mut calls, &call("t4", "gh pr merge -R o/r 7"));
             assert!(track_closed(&mut calls, &end("t4", "completed", said)).is_empty(), "{said}");
