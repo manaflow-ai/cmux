@@ -46,7 +46,8 @@ struct OverlayGlassVariantTests {
         guard Glass.isLiquidGlassAvailable else { return }
         let surface = Self.surface(.toast, .appKitRegular)
         #expect(surface.material == .liquidGlass)
-        let tint = try #require(try #require(Self.glass(surface)).tintColor, "the theme's tint on the toast's glass")
+        let glass = try #require(Self.glass(surface))
+        let tint = try #require(glass.tintColor, "the theme's tint on the toast's glass")
         let shown = try #require(tint.usingColorSpace(.sRGB))
         let veil = try #require(Palette.veil(of: .toast).usingColorSpace(.sRGB))
         let pairs = [(shown.redComponent, veil.redComponent), (shown.greenComponent, veil.greenComponent),
