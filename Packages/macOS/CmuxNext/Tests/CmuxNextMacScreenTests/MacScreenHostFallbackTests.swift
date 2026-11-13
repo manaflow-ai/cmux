@@ -87,10 +87,10 @@ import Testing
     func permittedFallbackForwardsExactlyOneOfferInEitherArrivalOrder(decisionFirst: Bool) async throws {
         let worker = Worker(), signaling = Signaling()
         let (received, receipt) = AsyncStream.makeStream(of: ScreenSignal.self)
-        let host = MacScreenRdHost(session: session, process: worker) { forwarded in
+        let host = MacScreenRdHost(session: session, process: worker, webRTCServer: { forwarded in
             defer { receipt.finish() }
             for try await signal in forwarded.messages() { receipt.yield(signal) }
-        }
+        })
         let serve = Task { try await host.serve(signaling) }
         defer { serve.cancel(); host.disconnectViewer(); signaling.close() }
         signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64), peerCarrier: "rd_wg/1").text))
@@ -115,7 +115,7 @@ import Testing
     func connectedOrRevokedSessionCannotBecomeWebRTC(_ decision: String) async throws {
         let worker = Worker(), signaling = Signaling()
         let (starts, started) = AsyncStream.makeStream(of: Bool.self)
-        let host = MacScreenRdHost(session: session, process: worker) { _ in started.yield(true) }
+        let host = MacScreenRdHost(session: session, process: worker, webRTCServer: { _ in started.yield(true) })
         let serve = Task { try await host.serve(signaling) }
         defer { serve.cancel(); host.disconnectViewer(); signaling.close() }
         signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64)).text))
@@ -156,7 +156,7 @@ import Testing
     @Test func stopBeforeFallbackOfferCannotStartAnotherHost() async throws {
         let worker = Worker(), signaling = Signaling()
         let starts = Counter()
-        let host = MacScreenRdHost(session: session, process: worker) { _ in starts.increment() }
+        let host = MacScreenRdHost(session: session, process: worker, webRTCServer: { _ in starts.increment() })
         let serve = Task { try await host.serve(signaling) }
         defer { serve.cancel(); host.disconnectViewer(); signaling.close() }
         signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64), peerCarrier: "rd_wg/1").text))
@@ -180,7 +180,8 @@ import Testing
         let worker = Worker(), signaling = Signaling(), preparation = Preparation()
         let starts = Counter()
         let host = MacScreenRdHost(session: session, process: worker,
-                                  prepareWebRTC: { await preparation.wait() }) { _ in starts.increment() }
+                                  prepareWebRTC: { await preparation.wait() },
+                                  webRTCServer: { _ in starts.increment() })
         let serve = Task { try await host.serve(signaling) }
         defer { preparation.finish(); serve.cancel(); host.disconnectViewer(); signaling.close() }
         signaling.input.yield(.offer(MacScreenRdDocument(key: String(repeating: "a", count: 64), peerCarrier: "rd_wg/1").text))
