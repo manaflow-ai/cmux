@@ -321,14 +321,22 @@ public actor MobileHostSupervisor {
             // stopped; registering again would undo the removal.
             if state.phase == .removed || reason == Self.removedReason {
                 logger.notice("this Mac was removed from the account's devices; cmux-mobile-host stays stopped")
-                publish { $0.reset(to: .removed) }
+                let stopped = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .removed)
+                    $0.stoppedDevice = stopped
+                }
                 return
             }
             // Another account owns the device id hostd registered: restarting with it would be
             // refused again. The iPhone host renews the id and starts a new hostd.
             if state.phase == .deviceIDTaken || reason == Self.deviceIDTakenReason {
                 logger.notice("another account owns this Mac's device id; cmux-mobile-host waits for a new one")
-                publish { $0.reset(to: .deviceIDTaken) }
+                let refused = MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID)
+                publish {
+                    $0.reset(to: .deviceIDTaken)
+                    $0.stoppedDevice = refused
+                }
                 return
             }
             if Self.resetsBackoff(started: started, online: onlineSince, ended: now()) { backoff.reset() }
@@ -448,7 +456,12 @@ public actor MobileHostSupervisor {
             default:
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
-                publish { $0.apply(event, at: at) }
+                let refused = event == .deviceIDTaken || event == .removed
+                    ? MobileHostStoppedDevice(owner: inputs.launch.userID, deviceID: inputs.launch.deviceID) : nil
+                publish {
+                    $0.apply(event, at: at)
+                    if let refused { $0.stoppedDevice = refused }
+                }
                 resolveExposureRequests(for: event)
             }
         }

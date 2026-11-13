@@ -277,6 +277,8 @@ import Testing
         // A restart would come after the first backoff (1 s ± 20%); wait past it.
         try await Task.sleep(for: .seconds(2))
         #expect(await supervisor.current.phase == .deviceIDTaken)
+        // It says whose hostd was refused, so only that account's exact id is forgotten.
+        #expect(await supervisor.current.stoppedDevice == MobileHostStoppedDevice(owner: "u", deviceID: "d"))
         let runs = try String(contentsOf: starts, encoding: .utf8).split(separator: "\n").count
         #expect(runs == 1)
         await supervisor.stop()

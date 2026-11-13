@@ -217,6 +217,9 @@ public final class IPhoneHostService {
     /// connections off and on starts the count again.
     @ObservationIgnored private var deviceIDRenewals: [String: Int] = [:]
     static let deviceIDRenewalLimit = 2
+    /// The signed-in account's device id once read (off the main actor), so the paired list's pushes
+    /// never touch the disk on the main thread. Nil until read, and after it is forgotten.
+    @ObservationIgnored var resolvedDevice: (owner: String, id: String)?
     /// Refused reads in a row after which a DEV build uses the file store, as before (about a minute of
     /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
     /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
@@ -437,6 +440,16 @@ public final class IPhoneHostService {
         setKeepAwake(false)
         pairTokens.revoke()
         guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        if let stopped = state.stoppedDevice, stopped.owner != owner {
+            // An older account's hostd, still running after a switch, was removed: that account's id
+            // goes (only that exact id), and this account's own start carries on.
+            removed = false
+            let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: stopped.owner)
+            // task-owner: one file removal off the main actor
+            Task.detached(priority: .utility) { identity.forget(ifID: stopped.deviceID) }
+            return
+        }
+        resolvedDevice = nil
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
                 .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner))
@@ -449,16 +462,29 @@ public final class IPhoneHostService {
     /// older build kept for whoever signed in first): forget it and start hostd with a new one.
     private func renewDeviceID() {
         guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        // An older account's hostd, still running after a switch, was refused with this account's
+        // token: that says nothing about this account's id. This account's own start follows.
+        guard let refused = state.stoppedDevice, refused.owner == owner else { return }
         let renewals = deviceIDRenewals[owner, default: 0]
         guard renewals < Self.deviceIDRenewalLimit else {
             logger.error("iPhone host: the service keeps refusing this Mac's device id; stopped")
+            let supervisor = supervisor
+            // task-owner: one hop to the supervisor actor; the phase stays until the next reconcile
+            Task { await supervisor.stop(phase: .unavailable(IPhoneHostStrings.deviceIDTaken)) }
             return
         }
         deviceIDRenewals[owner] = renewals + 1
         logger.notice("iPhone host: another account owns this Mac's device id; registering a new one")
-        MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner).forget()
-        running = nil
-        reconcile()
+        let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner)
+        // task-owner: one file removal off the main actor, then the restart for the same key
+        Task { [weak self] in
+            // Only the id that was refused: one this account made since stays.
+            _ = await Task.detached(priority: .medium) { identity.forget(ifID: refused.deviceID) }.value
+            guard let self, self.running == key else { return }
+            self.resolvedDevice = nil
+            self.running = nil
+            self.reconcile()
+        }
     }
 
     /// The account (Stack user id) of a running key (`<user> NUL <team>`).
@@ -639,7 +665,10 @@ public final class IPhoneHostService {
             }
             do {
                 // This account's own id: another account signed in to this build has its own.
-                let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: want.userID).deviceID()
+                let identityFile = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: want.userID)
+                // task-owner: one file read (or first write) off the main actor; awaited here
+                let deviceID = try await Task.detached(priority: .medium) { try identityFile.deviceID() }.value
+                self?.resolvedDevice = (want.userID, deviceID)
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).

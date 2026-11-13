@@ -96,3 +96,24 @@ import Testing
         #expect(MobileHostPairedDevicesFile.storedUserIDs(in: Data("junk".utf8)) == nil)
     }
 }
+
+/// A save while the stored file counts for nothing (trust withdrawn, say a phone was forgotten
+/// while a read ran) keeps only the saving account's list: another account's phones ask again
+/// once, never trusted from a file that was not verified.
+@Suite struct MobileHostPairedAccountsFailClosedTests {
+    @Test func aSaveAfterTrustIsWithdrawnKeepsOnlyItsOwnList() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-paired-closed-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal())
+        var a = file.load(userID: "user-a")
+        a.approve(MobileHostPairingTests.request, at: Date(timeIntervalSince1970: 5))
+        try file.save(a)
+        file.withdrawTrust()
+        await file.drained()
+        var b = file.load(userID: "user-b")
+        b.approve(MobileHostPairingTests.other, at: Date(timeIntervalSince1970: 6))
+        try file.save(b)
+        #expect(file.load(userID: "user-a").devices.isEmpty)
+        #expect(file.load(userID: "user-b") == b)
+    }
+}

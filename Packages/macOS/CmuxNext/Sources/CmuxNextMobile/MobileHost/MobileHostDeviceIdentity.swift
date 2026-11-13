@@ -59,7 +59,8 @@ public struct MobileHostDeviceIdentity: Sendable {
             let stored = (try? String(blockingContentsOf: machineFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let machine, let stored, !stored.isEmpty, stored != machine else {
                 // Same computer, or a record from before the machine check: keep it (and record this computer).
-                if let machine, stored != machine { try write(machine, to: machineFile) }
+                // A failed stamp leaves the id as it is: the check runs again next time.
+                if let machine, stored != machine { try? write(machine, to: machineFile) }
                 return id
             }
             // Copied from another Mac: this computer is a new device.
@@ -80,6 +81,16 @@ public struct MobileHostDeviceIdentity: Sendable {
     public func forget() {
         try? fileManager().removeItem(at: file)
         try? fileManager().removeItem(at: machineFile)
+    }
+
+    /// Forgets this account's id only while it is still `id`: a refusal reported for an id this
+    /// account has since replaced, or for another account's hostd, forgets nothing.
+    /// - Returns: whether the id was forgotten.
+    @discardableResult
+    public func forget(ifID id: String) -> Bool {
+        guard Self.readID(file) == id.lowercased() else { return false }
+        forget()
+        return true
     }
 
     /// Whether the unkeyed `device-id` of an older build is this account's: the paired list

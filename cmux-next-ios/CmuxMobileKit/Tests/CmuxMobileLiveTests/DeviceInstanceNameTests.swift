@@ -20,8 +20,8 @@ import Testing
 
     @Test func twoBuildsOnOnePhoneReadApart() {
         let store = DeviceInstanceName(device: "iPhone", label: "")
-        let internal = DeviceInstanceName(device: "iPhone", label: "INTERNAL")
-        #expect(store.value != internal.value)
+        let internalBuild = DeviceInstanceName(device: "iPhone", label: "INTERNAL")
+        #expect(store.value != internalBuild.value)
     }
 
     @Test func aBlankPhoneNameFallsBackToTheLabel() {
@@ -31,6 +31,16 @@ import Testing
     /// The label comes from the running build's Info.plist key; a bundle without it is unlabeled.
     @Test func aBundleWithoutTheKeyIsUnlabeled() {
         #expect(DeviceInstanceName(device: "iPhone", bundle: Bundle(for: Marker.self)).label == nil)
+    }
+
+    /// Tagged dev builds (rigs, `CMUX_MOBILE_TAG=.feedperf`) read apart; other labels keep their own.
+    @Test func aTaggedDevBuildNamesItsTag() {
+        #expect(DeviceInstanceName.label("DEV", tag: ".feedperf") == "DEV feedperf")
+        #expect(DeviceInstanceName.label("DEV", tag: "") == "DEV")
+        #expect(DeviceInstanceName.label("DEV", tag: nil) == "DEV")
+        #expect(DeviceInstanceName.label("INTERNAL", tag: ".x") == "INTERNAL")
+        #expect(DeviceInstanceName.label("DEV my-tag", tag: ".my-tag") == "DEV my-tag")
+        #expect(DeviceInstanceName.label("", tag: "") == "")
     }
 
     private final class Marker {}

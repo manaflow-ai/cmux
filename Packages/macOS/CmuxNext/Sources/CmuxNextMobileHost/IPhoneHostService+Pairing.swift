@@ -289,9 +289,20 @@ extension IPhoneHostService {
         let list = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         // At once: the next hostd start or restart gets this list, never an older one.
         supervisor.setNewestDevices(list)
-        guard let directory = dependencies?.stateDirectory, let owner = account?.userID,
-              let macDevice = try? MobileHostDeviceIdentity(directory: directory, owner: owner).deviceID() else { return }
-        approverSync?.update(list.approversParams(macDevice: macDevice))
+        guard let directory = dependencies?.stateDirectory, let owner = account?.userID else { return }
+        guard let resolved = resolvedDevice, resolved.owner == owner else {
+            // The id is read off the main actor once; the newest list is pushed when it is back.
+            let identity = MobileHostDeviceIdentity(directory: directory, owner: owner)
+            // task-owner: one file read off the main actor, then one push on it
+            Task { [weak self] in
+                guard let id = await Task.detached(priority: .medium, operation: { try? identity.deviceID() }).value,
+                      let self, self.account?.userID == owner else { return }
+                self.resolvedDevice = (owner, id)
+                self.pushPaired()
+            }
+            return
+        }
+        approverSync?.update(list.approversParams(macDevice: resolved.id))
         pushListedPhones()
     }
 

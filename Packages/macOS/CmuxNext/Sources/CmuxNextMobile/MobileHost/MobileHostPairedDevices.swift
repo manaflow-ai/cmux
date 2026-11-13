@@ -247,7 +247,9 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 /// Each account signed in to this build keeps its own list (`{"accounts": [...]}`): saving one account's
 /// list keeps the others as they were, so signing in as B never touches the phones A allowed, and A finds
 /// them again after signing back in. A file from before per-account lists holds one account's list.
-/// The seal covers the whole file: when it does not match, no account's list counts (fail closed).
+/// The seal covers the whole file: when it does not match, no account's list counts (fail closed). So a
+/// save made while the stored file is not trusted (its seal unreadable or withdrawn, ``withdrawTrust()``)
+/// keeps only the saving account's list, and every other account's phones ask again once.
 public final class MobileHostPairedDevicesFile: Sendable {
     public static let fileName = "paired-devices.json"
     public let file: URL

@@ -23,9 +23,19 @@ public struct DeviceInstanceName: Sendable, Equatable {
         self.label = trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    /// The name of this phone in the running build (`bundle`'s `CmuxMobileInstanceLabel`).
+    /// The name of this phone in the running build (`bundle`'s `CmuxMobileInstanceLabel`; a `DEV`
+    /// build with a tag, `CmuxMobileTag`, is `DEV <tag>`, so two tagged dev builds read apart).
     public init(device: String, bundle: Bundle) {
-        self.init(device: device, label: bundle.object(forInfoDictionaryKey: Self.infoKey) as? String)
+        self.init(device: device,
+                  label: Self.label(bundle.object(forInfoDictionaryKey: Self.infoKey) as? String,
+                                    tag: bundle.object(forInfoDictionaryKey: "CmuxMobileTag") as? String))
+    }
+
+    /// The label a build shows: `label`, with the tag added to a plain `DEV` (`.feedperf` → `DEV feedperf`).
+    public static func label(_ label: String?, tag: String?) -> String? {
+        let tag = tag?.trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines)) ?? ""
+        guard label?.trimmingCharacters(in: .whitespacesAndNewlines) == "DEV", !tag.isEmpty else { return label }
+        return "DEV \(tag)"
     }
 
     /// The phone's name, then the build's label in parentheses when it has one.

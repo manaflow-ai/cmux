@@ -24,6 +24,10 @@ public struct MobileHostState: Sendable, Equatable {
     }
 
     public var phase: Phase = .off
+    /// The hostd that stopped for good (``Phase/deviceIDTaken``, ``Phase/removed``): its account and
+    /// device id. It may be an older account's hostd still running after a switch, so only that exact
+    /// id of that account may be forgotten.
+    public var stoppedDevice: MobileHostStoppedDevice?
     /// Connected phones, oldest first.
     public var phones: [MobileHostPhoneLink] = []
     /// The team the Mac registered in, once online.
@@ -99,9 +103,21 @@ public struct MobileHostState: Sendable, Equatable {
 
     /// A new phase with no phones (the process stopped or exited).
     public mutating func reset(to phase: Phase) {
+        if phase != .deviceIDTaken, phase != .removed { stoppedDevice = nil }
         self.phase = phase
         phones = []
         sessionExposureAvailable = false
         sessionExposureKnown = false
+    }
+}
+
+/// Which hostd stopped for good: its account and the device id it registered.
+public struct MobileHostStoppedDevice: Sendable, Equatable {
+    public var owner: String
+    public var deviceID: String
+
+    public init(owner: String, deviceID: String) {
+        self.owner = owner
+        self.deviceID = deviceID
     }
 }

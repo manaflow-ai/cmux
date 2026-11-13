@@ -40,6 +40,31 @@ import Testing
         #expect(try identity(directory, "user-b").deviceID() == b)
     }
 
+    /// A refusal names the id it was about: an id this account made since (a renewal already ran)
+    /// is not forgotten for it.
+    @Test func forgettingARefusedIDForgetsOnlyThatID() throws {
+        let directory = folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let current = try identity(directory, "user-a").deviceID()
+        #expect(!identity(directory, "user-a").forget(ifID: "00000000-0000-4000-8000-000000000000"))
+        #expect(try identity(directory, "user-a").deviceID() == current)
+        #expect(identity(directory, "user-a").forget(ifID: current.uppercased()))
+        #expect(try identity(directory, "user-a").deviceID() != current)
+    }
+
+    /// A machine stamp that cannot be written keeps the id (the check runs again later).
+    @Test func anUnwritableMachineStampKeepsTheID() throws {
+        let directory = folder()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let id = try identity(directory, "user-a").deviceID()
+        try FileManager.default.removeItem(at: identity(directory, "user-a").machineFile)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        #expect(try identity(directory, "user-a").deviceID() == id)
+    }
+
     /// Migration Assistant copied the folder to a new Mac: the id made on the old Mac is not
     /// this Mac's, so this Mac registers as a new device (the old Mac keeps its own).
     @Test func aFolderCopiedFromAnotherMacMakesANewID() throws {
