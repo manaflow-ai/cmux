@@ -220,9 +220,11 @@ impl Hub {
                     }
                 };
                 // Even an oversized skipped chunk is progress; drain the backlog without waiting.
-                let more = offset > watching.offset;
-                if offset != watching.offset {
-                    hub.show_watched(&session, &lines, offset).await;
+                let mut more = offset > watching.offset;
+                if offset != watching.offset && !hub.show_watched(&session, &lines, offset).await {
+                    // Refused by the journal: the same batch, on the next check.
+                    check.retry();
+                    more = false;
                 }
                 if !more {
                     check.wait().await;
@@ -374,17 +376,21 @@ impl Hub {
     }
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
-    /// chat was taken over meanwhile.
-    async fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
+    /// chat was taken over meanwhile. False when the journal refused one of the batch's records
+    /// (it is neither stored nor heard, `append_record_locked`): the read position and the open
+    /// turn stay where they were, so the batch is read again on the next check rather than lost.
+    /// Its records stored before the refusal show again then; a duplicate beats a lost turn.
+    async fn show_watched(&self, session: &Session, lines: &[String], offset: u64) -> bool {
         // This journal is also written by a live turn. Keep the entire watched
         // batch, its checkpoint and the takeover transition in one order.
         let _turn = session.turn_lock.lock().await;
         if session.purged.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
         {
-            return;
+            return true;
         }
-        let Some(mut watching) = session.meta().watching else { return };
+        let Some(mut watching) = session.meta().watching else { return true };
+        let refused = session.append_errors.load(std::sync::atomic::Ordering::SeqCst);
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         for line in lines {
@@ -435,6 +441,10 @@ impl Hub {
                 self.end_watched_turn(session, &turn, at);
             }
         }
+        if session.append_errors.load(std::sync::atomic::Ordering::SeqCst) != refused {
+            tracing::warn!(session = %session.id, "the journal refused a watched record: its batch is read again");
+            return false;
+        }
         watching.offset = offset;
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -444,11 +454,12 @@ impl Hub {
                 || session.purged.load(std::sync::atomic::Ordering::SeqCst)
                 || m.status == SessionStatus::Closed
             {
-                return;
+                return true;
             }
             m.watching = Some(watching);
         }
         self.save_meta(session);
+        true
     }
 
     /// The records a turn starts with, for a prompt the original app sent.
@@ -644,6 +655,60 @@ mod tests {
         assert!(
             hub.watch_take_over(&session, IfLive::Open).await.is_err(),
             "Take Over succeeded twice"
+        );
+        hub.shutdown_all().await;
+    }
+
+    /// A watched batch whose record the journal refused (neither stored nor heard) keeps its read
+    /// position, so the next check reads it again; it used to move on and lose the turn.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_watched_batch_the_journal_refused_is_read_again() {
+        use crate::config::{Config, StoreMode};
+        use crate::store::REFUSE_APPENDS;
+
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub
+            .new_session(crate::hub::NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.agent_session_id = Some("outside-session".to_owned());
+            meta.watching = Some(Watching {
+                family: "claude".to_owned(),
+                file: std::env::temp_dir().join("watched-refused-session.jsonl"),
+                offset: 0,
+                codex_items: false,
+                open: None,
+            });
+        }
+        let line = json!({"type": "user", "message": {"content": "watched prompt"}}).to_string();
+
+        REFUSE_APPENDS.with(|r| r.set(true));
+        let shown = hub.show_watched(&session, std::slice::from_ref(&line), 128).await;
+        REFUSE_APPENDS.with(|r| r.set(false));
+        assert!(!shown, "a refused batch reads as shown");
+        let watching = session.meta().watching.unwrap();
+        assert_eq!(watching.offset, 0, "the read position moved past a refused batch");
+        assert!(watching.open.is_none(), "the refused batch's turn was kept open");
+
+        assert!(hub.show_watched(&session, &[line], 128).await);
+        assert_eq!(session.meta().watching.unwrap().offset, 128);
+        let records = hub.events(&session.id, 0, 100).unwrap();
+        assert!(
+            records.iter().any(|e| e.kind == "user_message" && e.msg["text"] == "watched prompt"),
+            "the batch read again was stored"
         );
         hub.shutdown_all().await;
     }

@@ -230,10 +230,12 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var login: String?
     /// The folder on this Mac the run copies (`--from-folder`); nil for none. Runs that differ in it are different runs.
     public var fromFolder: String?
+    /// The run's `--model`; nil for none. Runs that differ in it are different runs.
+    public var model: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil) {
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil, fromFolder: String? = nil, model: String? = nil) {
         (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
-        self.fromFolder = fromFolder
+        (self.fromFolder, self.model) = (fromFolder, model)
     }
 }
 

@@ -106,6 +106,9 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// The startup pass left its log unread, the chat being cold-archived (`load_logs`): the
+    /// pass's end does not make it read (`Hub::session_log_loaded`).
+    pub(super) log_skipped: AtomicBool,
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
@@ -130,9 +133,16 @@ pub struct Session {
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
+    /// Tests only: a pause once a prompt is written, before its `on_sent` runs
+    /// (`steer_end::agent_prompt_hook`): `arrived` fires there, the writer blocks until `release`.
+    #[cfg(test)]
+    pub(super) sent_seam:
+        StdMutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
+    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -200,6 +210,10 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
+    /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
+    /// `rehydrate`.
+    pub(super) rehydrate_note: StdMutex<Option<String>>,
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,
@@ -227,6 +241,9 @@ pub struct Session {
     pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
+    /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
+    pub(super) closed: tokio::sync::watch::Sender<bool>,
     pub(super) steering: AtomicBool,
     /// Ctrl-B moves its work: decided by the harness kind it last started as
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
@@ -343,6 +360,13 @@ pub struct Session {
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
     pub(super) hidden: std::sync::atomic::AtomicUsize,
+    /// Of the ones that show it, those whose person is not attending: idle past the client's
+    /// window, or its window not key (`_acpmux/view` `attending`, `hub/seen.rs`). They keep the
+    /// chat shown (its process, recap and presence) but see nothing: read state skips them.
+    pub(super) idle: std::sync::atomic::AtomicUsize,
+    /// The log seq right after the last turn ended (`turns.rs`): a person who stopped attending
+    /// before it did not see that turn end (`Hub::left_off`).
+    pub(super) turn_ended_seq: AtomicU64,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
@@ -426,6 +450,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The other sessions' messages its Claude Code holds now, oldest first
+    /// (`native_messaging.rs`): in memory only.
+    pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
     /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
@@ -441,6 +468,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_closes:
+        StdMutex<std::collections::HashMap<String, super::pull_requests::Closing>>,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// The sessions it was told share its files, once each (`touched.rs`).
@@ -1006,9 +1037,9 @@ impl SessionStderr {
     }
 }
 
-/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
-/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
-/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+/// A held `spawn_lock` that a list sees: taking it and letting it go each change the row
+/// (`list_guard::Events::row_changed`), told before the next list read, so a follow never misses a
+/// start that began or ended. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
     session: &'a Session,
@@ -1017,7 +1048,7 @@ pub(super) struct SpawnLease<'a> {
 
 impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
-        // Released first, then counted: a list built after the count reads it free.
+        // Released first, then marked: a row built after the mark reads it free.
         drop(self.guard.take());
         self.events.row_changed(self.session);
     }

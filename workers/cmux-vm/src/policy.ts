@@ -40,7 +40,7 @@ export interface TenantPolicyService {
   readonly isManaflowTeam: (tenantId: TenantId) => boolean;
   /** Listed in CMUX_VM_ENTITLED_SERVICE_IDS: this service key's requests are entitled for the team they act for. */
   readonly isEntitledService: (serviceId: string) => boolean;
-  /** Live VMs a tenant may hold. */
+  /** Live VMs a tenant may hold; NO_VM_COUNT_CAP for a product tenant with no TENANT_VM_QUOTAS entry. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
   readonly maxSnapshots: (tenantId: TenantId) => number;
@@ -70,11 +70,15 @@ export interface PolicyConfig {
 }
 
 /**
- * Defaults until plan-based limits exist. TODO(cx-b4h, billing owner Lawrence
- * Chen): take maxVms from the tenant's plan (web/services/vms/entitlements.ts
- * maxActiveVms) once the entitlement source is reachable from this Worker.
+ * A product tenant has no machine-count cap: the ledger is handed this bound, which no tenant reaches, so the
+ * reservation (and its idempotent create) still runs. Paid machines are metered (running compute per vCPU-hour and
+ * GB-hour, saved and paused disk per GB-month) and the team's spending cap in cmux-platform is the only stop (Leo,
+ * 2026-11-10: "you can have arbitrarily many VMs and we just build based off of that"). cmux-platform's own paid
+ * machine guard (CLOUD_PAID_MAX_*) is the abuse brake; a TENANT_VM_QUOTAS entry still holds one tenant to a number.
  */
-export const DEFAULT_MAX_VMS = 20;
+export const NO_VM_COUNT_CAP = Number.MAX_SAFE_INTEGER;
+export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
+/** Dev/test tenants (every tenant off production) keep a small cap so a leaked test loop stops early. */
 export const DEFAULT_DEV_TEST_MAX_VMS = 20;
 /** Warm-start pools keep many snapshots per team; snapshots cost storage, not compute. */
 export const DEFAULT_MAX_SNAPSHOTS = 100;

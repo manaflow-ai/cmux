@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -116,7 +117,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         expect(restRims[0].spread * scale, `${box} rim in device px`).toBe(1);
         expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(REST, 2);
 
-        await page.focus(`#${field}`);
+        await focusByKey(page, `#${field}`);
         const focused = await shadows(page, box);
         // The same layers: no ring or glow added, the drop shadow unchanged.
         expect(focused.length, `${box} focused adds no shadow`).toBe(rest.length);

@@ -148,3 +148,12 @@ fn mounting_an_open_view_again_resets_its_scene() {
     let scene = f.wait("the second scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "m1");
     assert_eq!(scene["reset"], true, "{scene}");
 }
+
+/// `apps-list` names the local folder this daemon watches, where
+/// `cmux ext dev` copies an extension so this daemon reloads it.
+#[test]
+fn apps_list_names_the_watched_local_folder() {
+    let f = fixture();
+    let local = f.state.join("apps/local");
+    assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
+}

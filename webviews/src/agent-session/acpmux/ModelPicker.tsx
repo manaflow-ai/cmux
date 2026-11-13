@@ -11,12 +11,14 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
+import { chipFace as faceFor, harnessFace } from "./chipFace";
 import { agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, SearchIcon } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { Spinner } from "./conversation/icons";
+import { FORK_ICON } from "./icons/forkIcon";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
@@ -25,6 +27,8 @@ import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
+import { useHarnessUpdates } from "./harnessUpdateList";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
@@ -51,7 +55,7 @@ import {
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
-import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -389,8 +393,6 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     usage,
     quick,
-    detail,
-    detailShort,
     fork,
     onSetUpPick,
   } = props;
@@ -431,6 +433,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
+  /// Every agent CLI with an update (Leo 2026-11-12, ask-3fdf0982ec): drawn where `update` was.
+  const updates = useHarnessUpdates();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
     : undefined;
@@ -511,9 +515,11 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const harnessFixed = props.harnessFixed === true && ownHarness.length > 0 && !forkHarnesses;
   const harnesses = harnessFixed ? ownHarness : (forkHarnesses ?? allHarnesses);
-  // A started chat that can fork marks what it ran (UsedMark), and the pick its next message forks to.
-  const used = forkHarnesses ? (fork?.used ?? "glyph") : undefined;
+  // A started chat that can fork holds the pick its next message forks to, and while one is held marks
+  // what it ran (UsedMark). With nothing held the running row's check says it, and a second mark beside
+  // the check reads as an unexplained clock (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?").
   const held = forkHarnesses ? fork?.held : undefined;
+  const used = held ? (fork?.used ?? "glyph") : undefined;
   // A launch profile folded into its family's tab (pickerProfiles.ts) is no entry of its own: its tab
   // is the family's.
   const heldEntry = held
@@ -729,7 +735,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
-  const press = usePopoverTrigger(open, toggle, show);
+  const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
     setQuickOpen(false);
     show();
@@ -940,6 +946,7 @@ export function ModelPicker(props: ModelPickerProps) {
         id: entry.id,
         name: entry.name,
         accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
+        ...(entry.kind === CLAUDE_STDIO_KIND ? { ultracode: true } : {}),
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
@@ -1177,11 +1184,26 @@ export function ModelPicker(props: ModelPickerProps) {
       harnesses.find((entry) => entry.ids.includes(switchingTo.harness))?.mark ??
       switchingTo.harness)
     : undefined;
-  // A held pick of another harness draws that harness's mark: the chip names what the next message runs.
-  const heldMark = held && !switchingTo ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : undefined;
-  const chipHarness = switchingMark ?? heldMark ?? current?.mark ?? current?.id ?? harness;
+  // The chip's logo, name and effort are one ``ChipFace`` (chipFace.ts): a switch names its target
+  // harness alone; else the face the composer made from the model it names, else one made here from
+  // the model this chip names (a held pick's, else the running or predicted one). The logo is that
+  // model's provider, never the harness that runs it.
+  const face = switchingTo
+    ? harnessFace(switchingMark, switchingTo.name)
+    : (props.face ??
+      faceFor(
+        held ? held.model : (props.model ?? props.predictedModel),
+        label,
+        held ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : (current?.mark ?? current?.id ?? harness),
+        {
+          ...(props.detail ? { detail: props.detail } : {}),
+          ...(props.detailShort ? { detailShort: props.detailShort } : {}),
+        },
+      ));
+  const chipHarness = face.mark;
+  const { detail, detailShort } = face;
   const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
-  const chipLabel = switchingTo?.name ?? label;
+  const chipLabel = face.name;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
   const rowChip = switchingTo ? undefined : chip;
   // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
@@ -1284,7 +1306,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // enter a message on that new model"): the next message forks the chat, and the mark says so.
   const forkGlyph = forkText && (
     <span className="acpmux-model-fork">
-      <Icon name="agent.fork" size={12} />
+      <Icon name={FORK_ICON} size={12} />
       <span className="sr-only">{forkText}</span>
     </span>
   );
@@ -1357,6 +1379,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }
                   : {}),
                 ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+                ...(updates ? { updates } : {}),
                 ...(props.setup ? { setup: props.setup } : {}),
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
@@ -1365,7 +1388,14 @@ export function ModelPicker(props: ModelPickerProps) {
                         quickRow("", model),
                       )
                     : [],
-                current: props.predictedModel ?? props.model,
+                // The running model's row: an alias row ("opus") whose release the session reports
+                // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
+                // the Effort column showed the first row's levels and a level pick switched model.
+                current:
+                  props.predictedModel ??
+                  (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
+                    ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
+                    : props.model),
                 ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
                 onModel: (id) => {
                   quickPicked.current = true;
@@ -1440,9 +1470,6 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={open ? menuId : undefined}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
@@ -1818,27 +1845,31 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
-            {update && (
-              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
-                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
-                  onClick={() => {
-                    update.update();
-                    close();
-                  }}
-                >
-                  {t("harness.update")}
-                </button>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
-                  onClick={update.skip}
-                >
-                  {t("harness.skipVersion")}
-                </button>
-              </div>
+            {updates ? (
+              <HarnessUpdatesSection updates={updates} onOwnUpdate={close} />
+            ) : (
+              update && (
+                <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                  <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                    onClick={() => {
+                      update.update();
+                      close();
+                    }}
+                  >
+                    {t("harness.update")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                    onClick={update.skip}
+                  >
+                    {t("harness.skipVersion")}
+                  </button>
+                </div>
+              )
             )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">

@@ -47,6 +47,13 @@
     { "name": "lens", "kind": "mode", "tint": 40, "blur": "blur(6px) saturate(1.3)", "for": "a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost" },
     { "name": "fisheye", "kind": "mode", "tint": 50, "blur": "blur(2.5px) saturate(1.15)", "blurName": "frost", "for": "a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it" }
   ],
+  "glassMaterial": {
+    "for": "the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart",
+    "neutralLight": 0.99,
+    "neutralDark": 0.11,
+    "rimLit": 1,
+    "rimShade": 0
+  },
   "elevation": [
     { "name": "1", "geometry": "0 1px 2px", "light": 7, "dark": 12, "for": "rows, cards and inline surfaces" },
     { "name": "2", "geometry": "0 2px 6px", "light": 11, "dark": 16, "for": "popovers, menus, the palette, hover cards, the composer, sheets and find bars" }
@@ -58,9 +65,10 @@
     { "name": "muted", "var": "--cmux-text-secondary", "app": "--cmux-app-text-secondary", "fallback": "color-mix(in srgb, CanvasText 62%, transparent)", "for": "secondary text" },
     { "name": "faint", "var": "--cmux-text-tertiary", "app": "--cmux-app-icon", "fallback": "color-mix(in srgb, CanvasText 45%, transparent)", "for": "tertiary text, placeholders and quiet glyphs" },
     { "name": "hover", "var": "--cmux-hover", "app": "--cmux-app-hover", "fallback": "color-mix(in srgb, CanvasText 6%, transparent)", "for": "a control under the pointer" },
-    { "name": "pressed", "var": "--cmux-app-pressed", "fallback": "color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent)", "for": "a control while pressed" },
+    { "name": "pressed", "var": "--cmux-pressed", "fallback": "light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))", "for": "a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture" },
     { "name": "selection", "var": "--cmux-selection", "app": "--cmux-app-selection", "fallback": "color-mix(in srgb, CanvasText 10%, transparent)", "for": "a selected row or the checked segment" },
-    { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines and dividers" },
+    { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines inside a page: list rows, cards and fields" },
+    { "name": "divider", "var": "--cmux-chrome-divider", "app": "--cmux-sidebar-line", "fallback": "var(--ds-color-separator)", "for": "a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator" },
     { "name": "focus", "var": "--cmux-focus-ring-color", "fallback": "currentColor", "for": "the keyboard focus ring (desktop.css: the host's ring at 48%)" },
     { "name": "accent", "var": "--cmux-accent", "app": "--cmux-app-accent", "fallback": "CanvasText", "for": "the theme accent: the text colour unless the theme names a hue" },
     { "name": "on-accent", "var": "--cmux-on-accent", "app": "--cmux-app-on-accent", "fallback": "Canvas", "for": "text and glyphs on the accent" },

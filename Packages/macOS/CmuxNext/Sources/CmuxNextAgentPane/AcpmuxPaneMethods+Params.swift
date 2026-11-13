@@ -47,7 +47,9 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
+        // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
+        // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -128,6 +130,12 @@ nonisolated extension AcpmuxPaneMethods {
         // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
         "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
+        "_acpmux/cold_archive": (["sessionId", "archived"], []),
+        "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
+        "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
@@ -142,6 +150,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
         "_acpmux/audit": (["since", "until", "sessionId", "limit", "cursor"], []),
@@ -169,7 +178,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
-        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
+        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),
         // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
         // never canonicalized against this Mac's filesystem (the owning daemon checks it).
         "acp.trust.get": (["cwd", "sessionId", "peer"], []),

@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../../ComposerPickers";
 import { reportOverlays, type OverlayRect } from "./overlays";
+import { settleReact } from "../../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -60,6 +61,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -143,4 +145,19 @@ test("a popup the App draws past the window's edge, or a hidden one, is not repo
   stop = reportOverlays(document, record.post);
   await frames();
   expect(record.reports).toEqual([]);
+});
+
+test("under a trackpad pinch a popup's rect is where it shows, so the panel's cut-out zooms with it", async () => {
+  // Leo, 2026-11-12: "when you e.g. zoom in to the ui with the trackpad it gives this super strange
+  // kinda ghost glass in the back?" A Chromium pinch zooms the visual viewport, not the layout.
+  const container = installDom();
+  Object.defineProperty(window, "visualViewport", {
+    value: { scale: 2, offsetLeft: 10, offsetTop: 100 },
+    configurable: true,
+  });
+  container.innerHTML = '<div class="ui-popup acpmux-context-card">menu</div>';
+  const record = recorder();
+  stop = reportOverlays(document, record.post);
+  await record.until((last) => last !== undefined);
+  expect(record.reports.at(-1)).toEqual([{ left: 60, top: 400, right: 460, bottom: 640, radius: 0 }]);
 });

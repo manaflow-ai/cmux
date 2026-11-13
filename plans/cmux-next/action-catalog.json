@@ -11,50 +11,74 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "General",
                 "value" : "general"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Appearance",
                 "value" : "appearance"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal",
                 "value" : "terminal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Browser",
                 "value" : "browser"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Home",
                 "value" : "home"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Keyboard",
                 "value" : "keyboard"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Notifications",
                 "value" : "notifications"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Accounts",
                 "value" : "accounts"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Spaces & Profiles",
                 "value" : "rooms"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Machines",
                 "value" : "machines"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Advanced",
                 "value" : "advanced"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Development",
                 "value" : "development"
               }
@@ -4112,26 +4136,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Automatic",
                 "value" : "auto"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "To Do",
                 "value" : "todo"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Working",
                 "value" : "working"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Needs Attention",
                 "value" : "needs-attention"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "In Review",
                 "value" : "review"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Done",
                 "value" : "done"
               }
@@ -5328,38 +5364,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -10185,38 +10239,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -11313,14 +11385,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Manual",
                 "value" : "manual"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Name",
                 "value" : "name"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Recent",
                 "value" : "recent"
               }
@@ -12531,38 +12609,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -13169,38 +13265,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -15572,66 +15686,98 @@
             "otherTitle" : "Light and Dark Pair…",
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Use Ghostty Config",
                 "value" : "config"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine",
                 "value" : "Rose Pine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Moon",
                 "value" : "Rose Pine Moon"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Mocha",
                 "value" : "Catppuccin Mocha"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "TokyoNight",
                 "value" : "TokyoNight"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gruvbox Dark",
                 "value" : "Gruvbox Dark"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Nord",
                 "value" : "Nord"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Vesper",
                 "value" : "Vesper"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue",
                 "value" : "Soft Blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange",
                 "value" : "Clay Orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Olive Grey",
                 "value" : "Olive Grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Dawn",
                 "value" : "Rose Pine Dawn"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Latte",
                 "value" : "Catppuccin Latte"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "GitHub Light Default",
                 "value" : "GitHub Light Default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue Light",
                 "value" : "Soft Blue Light"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange Light",
                 "value" : "Clay Orange Light"
               }
@@ -15801,66 +15947,98 @@
             "otherTitle" : "Light and Dark Pair…",
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Use Ghostty Config",
                 "value" : "config"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine",
                 "value" : "Rose Pine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Moon",
                 "value" : "Rose Pine Moon"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Mocha",
                 "value" : "Catppuccin Mocha"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "TokyoNight",
                 "value" : "TokyoNight"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gruvbox Dark",
                 "value" : "Gruvbox Dark"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Nord",
                 "value" : "Nord"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Vesper",
                 "value" : "Vesper"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue",
                 "value" : "Soft Blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange",
                 "value" : "Clay Orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Olive Grey",
                 "value" : "Olive Grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Dawn",
                 "value" : "Rose Pine Dawn"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Latte",
                 "value" : "Catppuccin Latte"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "GitHub Light Default",
                 "value" : "GitHub Light Default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue Light",
                 "value" : "Soft Blue Light"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange Light",
                 "value" : "Clay Orange Light"
               }
@@ -16028,66 +16206,98 @@
             "otherTitle" : "Light and Dark Pair…",
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Use Ghostty Config",
                 "value" : "config"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine",
                 "value" : "Rose Pine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Moon",
                 "value" : "Rose Pine Moon"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Mocha",
                 "value" : "Catppuccin Mocha"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "TokyoNight",
                 "value" : "TokyoNight"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gruvbox Dark",
                 "value" : "Gruvbox Dark"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Nord",
                 "value" : "Nord"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Vesper",
                 "value" : "Vesper"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue",
                 "value" : "Soft Blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange",
                 "value" : "Clay Orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Olive Grey",
                 "value" : "Olive Grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Rose Pine Dawn",
                 "value" : "Rose Pine Dawn"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Catppuccin Latte",
                 "value" : "Catppuccin Latte"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "GitHub Light Default",
                 "value" : "GitHub Light Default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Soft Blue Light",
                 "value" : "Soft Blue Light"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clay Orange Light",
                 "value" : "Clay Orange Light"
               }
@@ -20050,10 +20260,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tab",
                 "value" : "tab"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Editor",
                 "value" : "editor"
               }
@@ -24285,10 +24499,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "WebKit",
                 "value" : "webkit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Chromium",
                 "value" : "cef"
               }
@@ -26212,7 +26430,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "left"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26291,7 +26512,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26370,7 +26594,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "up",
+        "top",
+        "upper"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26449,7 +26678,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "down",
+        "bottom",
+        "lower"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26687,7 +26921,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "detach"
+        "detach",
+        "send",
+        "new workspace"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -28818,6 +29054,75 @@
 
       ],
       "category" : "remote",
+      "cliName" : "remote stop-screen-session",
+      "computed" : {
+        "canonical_action_id" : "remote.stopScreenSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "remote.stopScreenSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cmux remote",
+        "screen sharing",
+        "mac screen",
+        "stop",
+        "end",
+        "disconnect",
+        "viewer",
+        "session"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "stop.circle",
+      "targets" : [
+
+      ],
+      "title" : "cmux Remote: End Screen Sharing Session",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "remote",
       "cliName" : "remote share-this-mac",
       "computed" : {
         "canonical_action_id" : "macScreen.shareThisMac",
@@ -29602,10 +29907,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Home",
                 "value" : "messages"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Channels",
                 "value" : "channels"
               }
@@ -32218,14 +32527,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Automatically",
                 "value" : "auto"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Only When @Mentioned",
                 "value" : "mentions"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "To Every Message",
                 "value" : "all"
               }
@@ -32435,14 +32750,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Automatically",
                 "value" : "auto"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Only When @Mentioned",
                 "value" : "mentions"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "To Every Message",
                 "value" : "all"
               }
@@ -33180,7 +33501,7 @@
         "dump",
         "messages"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33200,8 +33521,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "record.circle",
       "targets" : [
@@ -33310,7 +33630,7 @@
         "fold",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33330,8 +33650,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "square.stack.3d.up",
       "targets" : [
@@ -33428,7 +33747,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33448,8 +33767,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "square.stack.3d.up",
       "targets" : [
@@ -33543,7 +33861,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33563,8 +33881,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.split.2x1",
       "targets" : [
@@ -33630,7 +33947,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33650,8 +33967,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "location.circle",
       "targets" : [
@@ -34097,38 +34413,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -34482,38 +34816,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -35093,18 +35445,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Right",
                 "value" : "right"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Down",
                 "value" : "down"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Left",
                 "value" : "left"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Up",
                 "value" : "up"
               }
@@ -35142,7 +35502,13 @@
       "keywords" : [
         "group",
         "move",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -35432,7 +35798,9 @@
       "keywords" : [
         "group",
         "move",
-        "window"
+        "window",
+        "pop out",
+        "detach"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -36580,38 +36948,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -37611,38 +37997,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -39064,38 +39468,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -39491,38 +39913,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -44806,6 +45246,293 @@
 
       ],
       "category" : "browser",
+      "cliName" : "browser scroll-down",
+      "computed" : {
+        "canonical_action_id" : "browserScrollDown",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "j",
+        "modifiers" : [
+
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollDown",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "down",
+        "vim",
+        "vimium",
+        "keyboard"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.down",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll Down",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-up",
+      "computed" : {
+        "canonical_action_id" : "browserScrollUp",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "k",
+        "modifiers" : [
+
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollUp",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "up",
+        "vim",
+        "vimium",
+        "keyboard"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll Up",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-to-top",
+      "computed" : {
+        "canonical_action_id" : "browserScrollToTop",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollToTop",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "top",
+        "vim",
+        "vimium",
+        "gg"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.to.line",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll to Top",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-to-bottom",
+      "computed" : {
+        "canonical_action_id" : "browserScrollToBottom",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "shift"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollToBottom",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "bottom",
+        "end",
+        "vim",
+        "vimium"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.down.to.line",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll to Bottom",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
       "cliName" : "browser split-right",
       "computed" : {
         "canonical_action_id" : "splitBrowserRight",
@@ -45100,22 +45827,32 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last Hour",
                 "value" : "hour"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Today",
                 "value" : "today"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 7 Days",
                 "value" : "week"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 4 Weeks",
                 "value" : "month"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "All Time",
                 "value" : "all"
               }
@@ -45852,14 +46589,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "System",
                 "value" : "system"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Light",
                 "value" : "light"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Dark",
                 "value" : "dark"
               }
@@ -47337,34 +48080,50 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "16:9",
                 "value" : "16:9"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "16:10",
                 "value" : "16:10"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "4:3",
                 "value" : "4:3"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "21:9",
                 "value" : "21:9"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "1,280 px",
                 "value" : "1280"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "1,440 px",
                 "value" : "1440"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "1,920 px",
                 "value" : "1920"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Turn Off",
                 "value" : "off"
               }
@@ -54779,94 +55538,140 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Location",
                 "value" : "location"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Camera",
                 "value" : "camera"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Microphone",
                 "value" : "microphone"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Notifications",
                 "value" : "notifications"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "JavaScript",
                 "value" : "javascript"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Images",
                 "value" : "images"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pop-ups and redirects",
                 "value" : "popups"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Sound",
                 "value" : "sound"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Automatic downloads",
                 "value" : "automaticDownloads"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "MIDI device control & reprogram",
                 "value" : "midi"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "USB devices",
                 "value" : "usb"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Serial ports",
                 "value" : "serial"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "HID devices",
                 "value" : "hid"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Clipboard",
                 "value" : "clipboard"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Motion sensors",
                 "value" : "sensors"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bluetooth devices",
                 "value" : "bluetooth"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "File editing",
                 "value" : "fileEditing"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Window management",
                 "value" : "windowManagement"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Fonts",
                 "value" : "localFonts"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Background sync",
                 "value" : "backgroundSync"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Auto picture-in-picture",
                 "value" : "autoPictureInPicture"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Third-party sign-in",
                 "value" : "thirdPartySignIn"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Insecure content",
                 "value" : "insecureContent"
               }
@@ -54885,14 +55690,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ask",
                 "value" : "ask"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Allow",
                 "value" : "allow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Block",
                 "value" : "block"
               }
@@ -56546,38 +57357,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -56770,38 +57599,56 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Grey",
                 "value" : "grey"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Cyan",
                 "value" : "cyan"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               }
@@ -58204,22 +59051,32 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last Hour",
                 "value" : "hour"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Today",
                 "value" : "today"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 7 Days",
                 "value" : "week"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 4 Weeks",
                 "value" : "month"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "All Time",
                 "value" : "all"
               }
@@ -58438,6 +59295,298 @@
         "browser-profile"
       ],
       "title" : "Remove Imported Browser Data…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 99,
+              "min" : 1
+            }
+          },
+          "name" : "index",
+          "suggestions" : null,
+          "title" : "Position"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-move",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.move",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.move",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "move",
+        "reorder",
+        "order",
+        "position"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.arrow.down",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Move Browser Profile to Position…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "SOCKS5",
+                "value" : "socks5"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "HTTP",
+                "value" : "http"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "HTTPS",
+                "value" : "https"
+              }
+            ]
+          },
+          "name" : "scheme",
+          "suggestions" : null,
+          "title" : "Proxy Type"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "host",
+          "suggestions" : null,
+          "title" : "Proxy Host"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 65535,
+              "min" : 1
+            }
+          },
+          "name" : "port",
+          "suggestions" : null,
+          "title" : "Port"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-set-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.setProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.setProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "socks",
+        "socks5",
+        "http",
+        "network",
+        "vpn"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Set Browser Profile Proxy…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-clear-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.clearProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.clearProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "direct",
+        "network",
+        "reset",
+        "clear"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network.slash",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Remove Browser Profile Proxy",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -58756,77 +59905,6 @@
 
       ],
       "category" : "sidebar",
-      "cliName" : "sidebar toggle-right",
-      "computed" : {
-        "canonical_action_id" : "toggleRightSidebar",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "daily"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "b",
-        "modifiers" : [
-          "opt",
-          "cmd"
-        ]
-      },
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "toggleRightSidebar",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "files",
-        "explorer",
-        "panel"
-      ],
-      "mainMenu" : "view",
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "keyboard",
-        "menu"
-      ],
-      "symbol" : "sidebar.right",
-      "targets" : [
-
-      ],
-      "title" : "Toggle Right Sidebar",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
       "cliName" : "sidebar focus",
       "computed" : {
         "canonical_action_id" : "focusSidebar",
@@ -59039,460 +60117,6 @@
 
       ],
       "title" : "Reveal and Focus Workspace in Sidebar",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar focus-right",
-      "computed" : {
-        "canonical_action_id" : "focusRightSidebar",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : {
-        "key" : "e",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "description" : null,
-      "focuses" : true,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "focusRightSidebar",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "files",
-        "explorer",
-        "panel"
-      ],
-      "mainMenu" : "view",
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "focusMove"
-        },
-        "contextMenuExemption" : "focusMove",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "keyboard",
-        "menu"
-      ],
-      "symbol" : "sidebar.squares.right",
-      "targets" : [
-
-      ],
-      "title" : "Focus Right Sidebar",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-files",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToFiles",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToFiles",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar",
-        "explorer"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "doc.text",
-      "targets" : [
-
-      ],
-      "title" : "Show Files",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-find",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToFind",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToFind",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar",
-        "search"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "text.magnifyingglass",
-      "targets" : [
-
-      ],
-      "title" : "Show Find",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-vault",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToSessions",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToSessions",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar",
-        "sessions"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "archivebox",
-      "targets" : [
-
-      ],
-      "title" : "Show Vault",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-feed",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToFeed",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToFeed",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar",
-        "activity"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "dot.radiowaves.left.and.right",
-      "targets" : [
-
-      ],
-      "title" : "Show Feed in Right Sidebar",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-dock",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToDock",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToDock",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "dock.rectangle",
-      "targets" : [
-
-      ],
-      "title" : "Show Dock",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "sidebar",
-      "cliName" : "sidebar show-cloud",
-      "computed" : {
-        "canonical_action_id" : "switchRightSidebarToMachines",
-        "cli" : false,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : null,
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SidebarActionCatalog",
-      "hint" : null,
-      "id" : "switchRightSidebarToMachines",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "right sidebar",
-        "machines"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : {
-          "exempt" : "guiOnly"
-        },
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : null,
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette",
-        "keyboard"
-      ],
-      "symbol" : "cloud",
-      "targets" : [
-
-      ],
-      "title" : "Show Cloud",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -61323,6 +61947,245 @@
       "waitsForResult" : false
     },
     {
+      "arguments" : [],
+      "category" : "notifications",
+      "cliName" : "action toasts-show-hidden",
+      "computed" : {
+        "canonical_action_id" : "toasts.showHidden",
+        "cli" : false,
+        "default_aliases" : [],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "toasts.showHidden",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "toast",
+        "toasts",
+        "notice",
+        "hidden",
+        "don't show again",
+        "never show",
+        "reset",
+        "restore"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [],
+      "title" : "Show Hidden Toasts Again",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-open-item",
+      "computed" : {
+        "canonical_action_id" : "feed.openItem",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.openItem",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "open",
+        "item"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.forward.square",
+      "targets" : [
+
+      ],
+      "title" : "Open Feed Item",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "GitHub Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "comment",
+          "suggestions" : null,
+          "title" : "Comment"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-github-action",
+      "computed" : {
+        "canonical_action_id" : "feed.githubAction",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.githubAction",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "github",
+        "pull request",
+        "review",
+        "approve",
+        "comment",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.triangle.pull",
+      "targets" : [
+
+      ],
+      "title" : "Run a Feed Item's GitHub Action",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
       "arguments" : [
 
       ],
@@ -62436,6 +63299,76 @@
 
       ],
       "category" : "notifications",
+      "cliName" : "action notifications-allow-desktop",
+      "computed" : {
+        "canonical_action_id" : "notifications.allowDesktop",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "notifications.allowDesktop",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "permission",
+        "allow",
+        "enable",
+        "banner",
+        "desktop",
+        "system",
+        "macos",
+        "notifications",
+        "setup"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "bell.badge",
+      "targets" : [
+
+      ],
+      "title" : "Allow cmux Notifications",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "notifications",
       "cliName" : "notification clear-when-typing",
       "computed" : {
         "canonical_action_id" : "notifications.dismissal.keystroke",
@@ -62828,74 +63761,110 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Inherit",
                 "value" : "inherit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "No Sound",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "macOS Default",
                 "value" : "default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Basso",
                 "value" : "Basso"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blow",
                 "value" : "Blow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bottle",
                 "value" : "Bottle"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Frog",
                 "value" : "Frog"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Funk",
                 "value" : "Funk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Glass",
                 "value" : "Glass"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Hero",
                 "value" : "Hero"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Morse",
                 "value" : "Morse"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ping",
                 "value" : "Ping"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pop",
                 "value" : "Pop"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purr",
                 "value" : "Purr"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Sosumi",
                 "value" : "Sosumi"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Submarine",
                 "value" : "Submarine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tink",
                 "value" : "Tink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Choose Sound File…",
                 "value" : "choose"
               }
@@ -62913,26 +63882,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Every Event",
                 "value" : "all"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Finished",
                 "value" : "finished"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Needs Input",
                 "value" : "needsInput"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Error",
                 "value" : "error"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal Notification",
                 "value" : "bell"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux notify Message",
                 "value" : "message"
               }
@@ -63057,74 +64038,110 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Inherit",
                 "value" : "inherit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "No Sound",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "macOS Default",
                 "value" : "default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Basso",
                 "value" : "Basso"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blow",
                 "value" : "Blow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bottle",
                 "value" : "Bottle"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Frog",
                 "value" : "Frog"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Funk",
                 "value" : "Funk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Glass",
                 "value" : "Glass"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Hero",
                 "value" : "Hero"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Morse",
                 "value" : "Morse"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ping",
                 "value" : "Ping"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pop",
                 "value" : "Pop"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purr",
                 "value" : "Purr"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Sosumi",
                 "value" : "Sosumi"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Submarine",
                 "value" : "Submarine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tink",
                 "value" : "Tink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Choose Sound File…",
                 "value" : "choose"
               }
@@ -63142,26 +64159,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Every Event",
                 "value" : "all"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Finished",
                 "value" : "finished"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Needs Input",
                 "value" : "needsInput"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Error",
                 "value" : "error"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal Notification",
                 "value" : "bell"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux notify Message",
                 "value" : "message"
               }
@@ -63287,18 +64316,26 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Claude Code",
                 "value" : "claude"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Codex",
                 "value" : "codex"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "OpenCode",
                 "value" : "opencode"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gemini",
                 "value" : "gemini"
               }
@@ -63320,74 +64357,110 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Inherit",
                 "value" : "inherit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "No Sound",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "macOS Default",
                 "value" : "default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Basso",
                 "value" : "Basso"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blow",
                 "value" : "Blow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bottle",
                 "value" : "Bottle"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Frog",
                 "value" : "Frog"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Funk",
                 "value" : "Funk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Glass",
                 "value" : "Glass"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Hero",
                 "value" : "Hero"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Morse",
                 "value" : "Morse"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ping",
                 "value" : "Ping"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pop",
                 "value" : "Pop"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purr",
                 "value" : "Purr"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Sosumi",
                 "value" : "Sosumi"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Submarine",
                 "value" : "Submarine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tink",
                 "value" : "Tink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Choose Sound File…",
                 "value" : "choose"
               }
@@ -63405,26 +64478,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Every Event",
                 "value" : "all"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Finished",
                 "value" : "finished"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Needs Input",
                 "value" : "needsInput"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Error",
                 "value" : "error"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal Notification",
                 "value" : "bell"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux notify Message",
                 "value" : "message"
               }
@@ -63539,22 +64624,32 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Finished",
                 "value" : "finished"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Needs Input",
                 "value" : "needsInput"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Error",
                 "value" : "error"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal Notification",
                 "value" : "bell"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux notify Message",
                 "value" : "message"
               }
@@ -63577,74 +64672,110 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Inherit",
                 "value" : "inherit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "No Sound",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "macOS Default",
                 "value" : "default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Basso",
                 "value" : "Basso"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blow",
                 "value" : "Blow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bottle",
                 "value" : "Bottle"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Frog",
                 "value" : "Frog"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Funk",
                 "value" : "Funk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Glass",
                 "value" : "Glass"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Hero",
                 "value" : "Hero"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Morse",
                 "value" : "Morse"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ping",
                 "value" : "Ping"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pop",
                 "value" : "Pop"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purr",
                 "value" : "Purr"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Sosumi",
                 "value" : "Sosumi"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Submarine",
                 "value" : "Submarine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tink",
                 "value" : "Tink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Choose Sound File…",
                 "value" : "choose"
               }
@@ -63744,26 +64875,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Every Event",
                 "value" : "all"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Finished",
                 "value" : "finished"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Needs Input",
                 "value" : "needsInput"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Error",
                 "value" : "error"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal Notification",
                 "value" : "bell"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux notify Message",
                 "value" : "message"
               }
@@ -65328,8 +66471,11 @@
         "agent",
         "ui",
         "pointer",
+        "point",
+        "point at element",
         "inspect",
         "inspect element",
+        "inspect ui element",
         "pick",
         "element",
         "debug"
@@ -65350,7 +66496,7 @@
             "context" : "agentChat",
             "folder" : "tools",
             "group" : "inspect",
-            "label" : "Inspect Element",
+            "label" : "Point at Element…",
             "parent" : null,
             "rank" : 1,
             "style" : "item"
@@ -65368,7 +66514,7 @@
       "targets" : [
 
       ],
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -67276,7 +68422,7 @@
         "palette",
         "contextMenu"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
 
       ],
@@ -71129,10 +72275,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can talk",
                 "value" : "talk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can view",
                 "value" : "view"
               }
@@ -71151,10 +72301,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can talk",
                 "value" : "talk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can view",
                 "value" : "view"
               }
@@ -71385,7 +72539,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "link.badge.minus",
+      "symbol" : "minus.circle",
       "targets" : [
 
       ],
@@ -71502,10 +72656,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can talk",
                 "value" : "talk"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Can view",
                 "value" : "view"
               }
@@ -72478,7 +73636,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy acpmux Session File",
+      "title" : "Copy cmux Session File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -72707,10 +73865,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "ACP",
                 "value" : "acp"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal",
                 "value" : "terminal"
               }
@@ -73887,7 +75049,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
         "machine"
       ],
@@ -74560,6 +75722,96 @@
         "tab"
       ],
       "title" : "Bring Back Local",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud move-to-machine",
+      "computed" : {
+        "canonical_action_id" : "cloudMoveToMachine",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): its folder goes machine to machine and never into this Mac's folder (as git when it can: the new machine clones from GitHub and gets only the folder's own changes), the chat moves there with the old machine's last changes, opens there, and the old machine's tab closes. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloudMoveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "move",
+        "machine",
+        "other",
+        "another",
+        "remote",
+        "chat",
+        "agent",
+        "sync"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : null,
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move to Another Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -76633,6 +77885,8 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Video Stream",
                 "value" : "rd"
               }
@@ -77272,18 +78526,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Small",
                 "value" : "small"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Medium",
                 "value" : "medium"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Large",
                 "value" : "large"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Extra Large",
                 "value" : "xlarge"
               }
@@ -77571,22 +78833,32 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Off",
                 "value" : "off"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 15 Minutes",
                 "value" : "15"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 30 Minutes",
                 "value" : "30"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 1 Hour",
                 "value" : "60"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 2 Hours",
                 "value" : "120"
               }
@@ -77678,14 +78950,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Full Internet",
                 "value" : "full"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "GitHub, Package Registries and Model Providers",
                 "value" : "trusted"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "No Internet",
                 "value" : "none"
               }
@@ -79022,54 +80300,80 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "ChatGPT / Codex",
                 "value" : "codex"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "OpenAI API",
                 "value" : "openai"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Claude Code",
                 "value" : "claude"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Anthropic API",
                 "value" : "anthropic"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gemini",
                 "value" : "gemini"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "OpenRouter",
                 "value" : "openrouter"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Groq",
                 "value" : "groq"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "xAI",
                 "value" : "xai"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Mistral",
                 "value" : "mistral"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "DeepSeek",
                 "value" : "deepseek"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Amazon Bedrock",
                 "value" : "bedrock"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Google Vertex AI",
                 "value" : "vertex"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "GitHub Copilot",
                 "value" : "copilot"
               }
@@ -79151,26 +80455,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "ChatGPT / Codex",
                 "value" : "codex"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "OpenAI API",
                 "value" : "openai"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Claude Code",
                 "value" : "claude"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Anthropic API",
                 "value" : "anthropic"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "OpenRouter",
                 "value" : "openrouter"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Amazon Bedrock",
                 "value" : "bedrock"
               }
@@ -79453,14 +80769,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "On Your Network",
                 "value" : "network"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "It Shows a Code",
                 "value" : "code"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Set Up a New Device",
                 "value" : "newDevice"
               }
@@ -80071,18 +81393,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Right",
                 "value" : "right"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Down",
                 "value" : "down"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Left",
                 "value" : "left"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Up",
                 "value" : "up"
               }
@@ -80576,14 +81906,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "The Workspace's Machine",
                 "value" : "machine"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "This Mac",
                 "value" : "thisMac"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Follow Settings",
                 "value" : "setting"
               }
@@ -80854,7 +82190,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -80922,7 +82258,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -81033,6 +82369,17 @@
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "model",
+          "suggestions" : null,
+          "title" : "Model"
         }
       ],
       "category" : "cloud",
@@ -81756,18 +83103,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "cmux (Default)",
                 "value" : "cmux"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "iTerm2",
                 "value" : "iterm2"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Terminal.app",
                 "value" : "terminal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Prefix chords (Ctrl-B)",
                 "value" : "tmux"
               }
@@ -82495,6 +83850,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -82565,6 +83921,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -83065,14 +84422,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Stable",
                 "value" : "stable"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Nightly",
                 "value" : "nightly"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "DEV",
                 "value" : "dev"
               }
@@ -83352,6 +84715,77 @@
 
       ],
       "title" : "Upgrade to cmux Pro",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action billing-open-portal",
+      "computed" : {
+        "canonical_action_id" : "billing.openPortal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "billing.openPortal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "billing",
+        "subscription",
+        "invoice",
+        "receipt",
+        "payment",
+        "card",
+        "plan",
+        "pro",
+        "stripe",
+        "portal"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "creditcard",
+      "targets" : [
+
+      ],
+      "title" : "Manage Billing",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -84665,136 +86099,6 @@
 
       ],
       "title" : "Web Page Animations",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
-      "cliName" : "settings use-bouncy-animations",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.subtle",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.subtle",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "bouncy",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.up.and.down.and.sparkles",
-      "targets" : [
-
-      ],
-      "title" : "Use Bouncy Animations",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
-      "cliName" : "settings use-animations-without-bounce",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.none",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.none",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "critically damped",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.right.to.line",
-      "targets" : [
-
-      ],
-      "title" : "Use Animations Without Bounce",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86268,7 +87572,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86290,7 +87594,7 @@
         "plain glass",
         "appearance"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86310,8 +87614,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "drop",
       "targets" : [
@@ -86337,7 +87640,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86408,7 +87711,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86465,6 +87768,67 @@
       "waitsForResult" : false
     },
     {
+      "arguments" : [],
+      "category" : "settings",
+      "cliName" : "action debug-toast-tuning",
+      "computed" : {
+        "canonical_action_id" : "debug.toastTuning",
+        "cli" : false,
+        "default_aliases" : [],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.toastTuning",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "toast",
+        "toasts",
+        "notice",
+        "duration",
+        "glass",
+        "padding",
+        "motion",
+        "tuning",
+        "playground",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "text.bubble",
+      "targets" : [],
+      "title" : "Toast Tuning",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
       "arguments" : [
 
       ],
@@ -86479,7 +87843,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86505,7 +87869,7 @@
         "more",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86525,8 +87889,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.3.group",
       "targets" : [
@@ -86552,7 +87915,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86575,7 +87938,7 @@
         "audit",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86595,8 +87958,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "paintpalette",
       "targets" : [
@@ -86622,7 +87984,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86648,7 +88010,7 @@
         "sizes",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86668,8 +88030,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "sidebar.left",
       "targets" : [
@@ -86695,7 +88056,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86721,7 +88082,7 @@
         "checkout",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86741,8 +88102,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "macwindow.on.rectangle",
       "targets" : [
@@ -86811,7 +88171,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86835,7 +88195,7 @@
         "window",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86855,8 +88215,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.on.rectangle",
       "targets" : [
@@ -86892,7 +88251,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86912,7 +88271,7 @@
         "worktree",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86932,8 +88291,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "checkmark.circle",
       "targets" : [
@@ -86959,7 +88317,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86983,7 +88341,7 @@
         "frame",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -87003,8 +88361,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "gauge.with.dots.needle.67percent",
       "targets" : [
@@ -87030,7 +88387,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -87072,14 +88429,251 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "arrow.counterclockwise",
       "targets" : [
 
       ],
       "title" : "Reset Main-Thread Blocking Counts",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-blocking-calls-copy",
+      "computed" : {
+        "canonical_action_id" : "debug.blockingCalls.copy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.blockingCalls.copy",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "blocking",
+        "main thread",
+        "hang",
+        "stall",
+        "sites",
+        "copy",
+        "list",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "doc.on.doc",
+      "targets" : [
+
+      ],
+      "title" : "Copy Main-Thread Blocking Sites",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "icon",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "debugSidebarToggleIcons"
+          },
+          "title" : "Icon"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-sidebar-toggle-icon",
+      "computed" : {
+        "canonical_action_id" : "debug.sidebarToggleIcon",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.sidebarToggleIcon",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "toggle",
+        "icon",
+        "glyph",
+        "button",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Sidebar Toggle Icon…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "set",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "debugStatusIconSets"
+          },
+          "title" : "Icon Set"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-status-icon-set",
+      "computed" : {
+        "canonical_action_id" : "debug.statusIconSet",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.statusIconSet",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "status",
+        "indicator",
+        "icons",
+        "question",
+        "blocked",
+        "waiting",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "questionmark.circle",
+      "targets" : [
+
+      ],
+      "title" : "Status Icons…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88433,22 +90027,32 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ultra-compact",
                 "value" : "ultraCompact"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Compact",
                 "value" : "compact"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Default",
                 "value" : "cozy"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Comfortable",
                 "value" : "comfortable"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Spacious",
                 "value" : "spacious"
               }
@@ -88548,22 +90152,32 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Ultra-compact",
                 "value" : "ultraCompact"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Compact",
                 "value" : "compact"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Default",
                 "value" : "cozy"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Comfortable",
                 "value" : "comfortable"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Spacious",
                 "value" : "spacious"
               }
@@ -89435,18 +91049,26 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Same as Workspace",
                 "value" : "inherit"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "None",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Shuffle Paintings",
                 "value" : "daily"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Desktop Wallpaper",
                 "value" : "desktop"
               }
@@ -89543,42 +91165,62 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "None",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Teal",
                 "value" : "teal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gray",
                 "value" : "gray"
               }
@@ -89749,42 +91391,62 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "None",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Teal",
                 "value" : "teal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gray",
                 "value" : "gray"
               }
@@ -89872,42 +91534,62 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "None",
                 "value" : "none"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Red",
                 "value" : "red"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Orange",
                 "value" : "orange"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Yellow",
                 "value" : "yellow"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Green",
                 "value" : "green"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Teal",
                 "value" : "teal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Blue",
                 "value" : "blue"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Purple",
                 "value" : "purple"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pink",
                 "value" : "pink"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Gray",
                 "value" : "gray"
               }
@@ -89999,18 +91681,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Window",
                 "value" : "window"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Workspace",
                 "value" : "workspace"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pane",
                 "value" : "pane"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tab",
                 "value" : "tab"
               }
@@ -90029,18 +91719,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Theme",
                 "value" : "theme"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Background",
                 "value" : "background"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tint",
                 "value" : "tint"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Opacity",
                 "value" : "opacity"
               }
@@ -90140,18 +91838,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Window",
                 "value" : "window"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Workspace",
                 "value" : "workspace"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pane",
                 "value" : "pane"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tab",
                 "value" : "tab"
               }
@@ -90170,18 +91876,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Theme",
                 "value" : "theme"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Background",
                 "value" : "background"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Tint",
                 "value" : "tint"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Opacity",
                 "value" : "opacity"
               }
@@ -90252,6 +91966,303 @@
         "workspace"
       ],
       "title" : "Reset Appearance to Inherited",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Terminal",
+                "value" : "terminal"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Browser",
+                "value" : "browser"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Agent Chat",
+                "value" : "agentChat"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "New Tab Page",
+                "value" : "newTabPage"
+              }
+            ]
+          },
+          "name" : "kind",
+          "suggestions" : null,
+          "title" : "Kind"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider insert",
+      "computed" : {
+        "canonical_action_id" : "divider.insertNew",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "hint" : null,
+      "id" : "divider.insertNew",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "insert",
+        "new",
+        "between",
+        "pane",
+        "terminal",
+        "browser",
+        "agent",
+        "chat",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "choices"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Insert New",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider hide",
+      "computed" : {
+        "canonical_action_id" : "divider.hide",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "hint" : null,
+      "id" : "divider.hide",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "hide",
+        "invisible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye.slash",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Hide Divider",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider show",
+      "computed" : {
+        "canonical_action_id" : "divider.show",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "hint" : null,
+      "id" : "divider.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "show",
+        "visible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 1,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Show Divider",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -91188,6 +93199,8 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Restore All",
                 "value" : "all"
               }
@@ -91280,26 +93293,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Use the Default",
                 "value" : "default"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Never",
                 "value" : "never"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 1 Idle Day",
                 "value" : "24"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 3 Idle Days",
                 "value" : "72"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 1 Idle Week",
                 "value" : "168"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "After 30 Idle Days",
                 "value" : "720"
               }
@@ -91406,7 +93431,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -91762,18 +93787,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Right",
                 "value" : "right"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Down",
                 "value" : "down"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Left",
                 "value" : "left"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Up",
                 "value" : "up"
               }
@@ -91811,7 +93844,13 @@
       "keywords" : [
         "tab",
         "split",
-        "pane"
+        "pane",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up",
+        "side by side"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -91880,7 +93919,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "column"
+        "column",
+        "send",
+        "scroll"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -91961,7 +94002,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "workspace"
+        "workspace",
+        "send",
+        "other",
+        "another"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -92025,9 +94069,9 @@
 
         ],
         "is_palette_visible" : true,
-        "palette_family" : null,
+        "palette_family" : "tab.move",
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -92104,7 +94148,10 @@
       "keywords" : [
         "tab",
         "window",
-        "detach"
+        "detach",
+        "pop out",
+        "tear off",
+        "send"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -92139,6 +94186,184 @@
         "tab"
       ],
       "title" : "Move Tab to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "window"
+          },
+          "name" : "window",
+          "suggestions" : null,
+          "title" : "Window"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab move-to-window",
+      "computed" : {
+        "canonical_action_id" : "tab.moveToWindow",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.moveToWindow",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "window",
+        "other",
+        "another",
+        "send"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "macwindow.and.cursorarrow",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move Tab to Window…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Right",
+                "value" : "right"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Down",
+                "value" : "down"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Left",
+                "value" : "left"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Up",
+                "value" : "up"
+              }
+            ]
+          },
+          "name" : "direction",
+          "suggestions" : null,
+          "title" : "Direction"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab duplicate-to-new-split",
+      "computed" : {
+        "canonical_action_id" : "tab.duplicateToNewSplit",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.duplicateToNewSplit",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "copy",
+        "clone",
+        "split",
+        "pane",
+        "side by side"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "plus.square.on.square",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Duplicate Tab to New Split",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -93689,18 +95914,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Right",
                 "value" : "right"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Left",
                 "value" : "left"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "top",
                 "value" : "top"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "bottom",
                 "value" : "bottom"
               }
@@ -93719,10 +95952,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Docked",
                 "value" : "docked"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Floating",
                 "value" : "overlay"
               }
@@ -94194,18 +96431,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Right",
                 "value" : "right"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Left",
                 "value" : "left"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "top",
                 "value" : "top"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "bottom",
                 "value" : "bottom"
               }
@@ -94224,10 +96469,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Docked",
                 "value" : "docked"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Floating",
                 "value" : "overlay"
               }
@@ -97691,22 +99940,32 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last Hour",
                 "value" : "hour"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Today",
                 "value" : "today"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 7 Days",
                 "value" : "week"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Last 4 Weeks",
                 "value" : "month"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "All Time",
                 "value" : "all"
               }
@@ -97725,26 +99984,38 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Everything",
                 "value" : "all"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Pages",
                 "value" : "page"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Locations",
                 "value" : "location"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Closed Items",
                 "value" : "closed"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Agent Sessions",
                 "value" : "agent"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Commands",
                 "value" : "command"
               }
@@ -101732,58 +104003,86 @@
             "otherTitle" : null,
             "pinned" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Home",
                 "value" : "home"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Settings",
                 "value" : "settings"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Account",
                 "value" : "account"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Notifications",
                 "value" : "notifications"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "History",
                 "value" : "history"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bookmarks",
                 "value" : "bookmarks"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "App Store",
                 "value" : "app_store"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "New Terminal Tab",
                 "value" : "new_terminal"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "New Browser Tab",
                 "value" : "new_browser"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "New Agent Chat",
                 "value" : "new_agent_chat"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Search Chats",
                 "value" : "search_chats"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Chief",
                 "value" : "chief"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Automations",
                 "value" : "automations"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Customize Appearance",
                 "value" : "customize"
               }
@@ -102288,14 +104587,20 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Top",
                 "value" : "top"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Scrolling",
                 "value" : "middle"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Bottom",
                 "value" : "bottom"
               }
@@ -103003,18 +105308,26 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Leading",
                 "value" : "leading"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Center",
                 "value" : "center"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Trailing",
                 "value" : "trailing"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Spread Out",
                 "value" : "fill"
               }
@@ -104839,6 +107152,92 @@
 
       ],
       "title" : "Never Float Hidden Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "sidebar toggle-custom",
+      "computed" : {
+        "canonical_action_id" : "sidebar.custom.toggle",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "b",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.custom.toggle",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "custom",
+        "customize",
+        "custom views",
+        "my views",
+        "section",
+        "show",
+        "hide",
+        "switch",
+        "starter"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 141,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Toggle Custom Sidebar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -108369,30 +110768,44 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Home",
                 "value" : "home"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Lock",
                 "value" : "lock"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Volume Up",
                 "value" : "volume-up"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Volume Down",
                 "value" : "volume-down"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Siri or Assistant",
                 "value" : "siri"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Back",
                 "value" : "back"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "App Switcher",
                 "value" : "app-switch"
               }
@@ -108569,10 +110982,14 @@
           "kind" : {
             "enumeration" : [
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Light",
                 "value" : "light"
               },
               {
+                "subtitle" : null,
+                "symbol" : null,
                 "title" : "Dark",
                 "value" : "dark"
               }
@@ -109815,7 +112232,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -114805,8 +117222,41 @@
       "browserTheme" : [
         "theme"
       ],
+      "moveSurfaceToPaneDown" : [
+        "move to split below",
+        "move to bottom split",
+        "move to lower split",
+        "move tab to split below",
+        "move tab down a split",
+        "send tab down"
+      ],
+      "moveSurfaceToPaneLeft" : [
+        "move to left split",
+        "move to split left",
+        "move tab to left split",
+        "move tab to split left",
+        "send tab left"
+      ],
+      "moveSurfaceToPaneRight" : [
+        "move to right split",
+        "move to split right",
+        "move tab to right split",
+        "move tab to split right",
+        "send tab right"
+      ],
+      "moveSurfaceToPaneUp" : [
+        "move to split above",
+        "move to top split",
+        "move to upper split",
+        "move tab to split above",
+        "send tab up"
+      ],
       "newCloudMachine" : [
         "machine"
+      ],
+      "palette.moveTabToNewWorkspace" : [
+        "move to new workspace",
+        "send tab to new workspace"
       ],
       "pane.setBackground" : [
         "background"
@@ -114815,9 +117265,46 @@
         "machine",
         "ssh"
       ],
-      "switchRightSidebarToMachines" : [
-        "machine",
-        "machines"
+      "tab.duplicateToNewSplit" : [
+        "duplicate to split",
+        "duplicate to new split",
+        "duplicate tab to split",
+        "clone to split"
+      ],
+      "tab.moveToNewColumn" : [
+        "move to new column",
+        "send tab to new column"
+      ],
+      "tab.moveToNewSplit" : [
+        "move to new split",
+        "move tab to new split"
+      ],
+      "tab.moveToNewWindow" : [
+        "pop out",
+        "pop out tab",
+        "tear off tab",
+        "move to new window",
+        "detach tab"
+      ],
+      "tab.moveToWindow" : [
+        "move to window",
+        "move to other window",
+        "move to another window",
+        "move tab to other window",
+        "send tab to window"
+      ],
+      "tab.moveToWorkspace" : [
+        "move to workspace",
+        "move to other workspace",
+        "send tab to workspace"
+      ],
+      "tabGroup.moveToNewSplit" : [
+        "move group to new split",
+        "move group to split"
+      ],
+      "tabGroup.moveToNewWindow" : [
+        "move group to new window",
+        "pop out group"
       ],
       "terminal.decreaseFontSize" : [
         "font"
@@ -114878,7 +117365,6 @@
       "terminal.decreaseFontSize",
       "terminal.increaseFontSize",
       "terminal.setTheme",
-      "toggleRightSidebar",
       "toggleSidebar",
       "toggleSplitZoom",
       "workspace.newOnMachine"
@@ -114992,8 +117478,11 @@
           "tab.moveToNewColumn",
           "tab.moveToNewDockColumn",
           "tab.moveToNewWindow",
+          "tab.moveToWindow",
           "tab.moveToWorkspace",
-          "palette.moveTabToNewWorkspace"
+          "palette.moveTabToNewWorkspace",
+          "tab.moveToSpace",
+          "tab.duplicateToNewSplit"
         ],
         "parent" : null,
         "symbol" : "arrow.left.arrow.right",
@@ -115254,8 +117743,6 @@
           "appearance.animationSpeed.off",
           "appearance.animationSpeed.normal",
           "appearance.animationSpeed.fast",
-          "appearance.animations.bounce.none",
-          "appearance.animations.bounce.subtle",
           "appearance.animations.cursor.toggle",
           "appearance.animations.feedback.toggle",
           "appearance.animations.home.toggle",

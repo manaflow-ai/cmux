@@ -65,6 +65,7 @@ export interface AcpmuxRequestMeta {
   route?: unknown;
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
+  senderToken?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -75,6 +76,7 @@ export interface AcpmuxRequestMeta {
   tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  throwaway?: unknown;
   topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
@@ -182,6 +184,11 @@ export interface ArchiveParams {
 export interface AttachParams {
   /** Page forward from here (oldest first) when `beforeSeq` is absent. */
   afterSeq?: (number | null);
+  /**
+   * False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
+   * sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
+   */
+  attending?: (boolean | null);
   /** The newest `limit` records before this one. */
   beforeSeq?: (number | null);
   /**
@@ -195,6 +202,11 @@ export interface AttachParams {
   limit?: (number | null);
   maxBytes?: (number | null);
   sessionId: string;
+  /**
+   * Answer from the chat's settled view first (`settled-attach-v1`,
+   * `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+   */
+  settled?: (boolean | null);
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
   visible?: (boolean | null);
   /** Wait for restart-time log restoration before answering; false serves the page immediately. */
@@ -215,6 +227,11 @@ export type AttachResult = {
   pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
+  /**
+   * The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
+   * saw while attending; null before they saw any. An older acpmux leaves it out.
+   */
+  readThrough: (number | null);
   session: SessionDetail;
   /**
    * The prompt that opened the turn the page starts inside, when the page starts inside one
@@ -437,7 +454,11 @@ export interface ForkParams {
    * `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
    */
   cancelToken?: (string | null);
+  /** With `live`: the harness the fork runs on, carrying the conversation over (a model switch). */
+  harness?: (string | null);
   live?: (boolean | null);
+  /** With `harness`: the model the fork starts on, at most 256 bytes. */
+  model?: (string | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
   sessionId: string;
@@ -447,6 +468,13 @@ export interface ForkParams {
 export interface ForumRulesParams {
   _meta?: RequestMeta;
 }
+
+/** A row that left the list since a follow's cursor. */
+export type GoneRow = {
+  /** The peer a remote session ran on. */
+  peer?: (string | null);
+  sessionId: string;
+} & Record<string, unknown>;
 
 export interface HandoffDiscardParams {
   _meta?: RequestMeta;
@@ -699,6 +727,16 @@ export interface MailWaitParams {
   limit?: (number | null);
   recipient: string;
   timeoutMs?: (number | null);
+}
+
+/**
+ * `_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor
+ * moves back to it (never forward).
+ */
+export interface MarkUnreadParams {
+  _meta?: (AuthorMeta | null);
+  readThrough?: (number | null);
+  sessionId: string;
 }
 
 export interface McpReconnectParams {
@@ -964,6 +1002,15 @@ export interface PermissionRespondParams {
 export type PermissionRespondResult = Record<string, unknown>;
 
 /**
+ * What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
+ * why an agent does not start there unasked.
+ */
+export type PersonHold = {
+  folder: string;
+  reason: string;
+} & Record<string, unknown>;
+
+/**
  * `_acpmux/presence`, to every connection attached to the chat on each change, and
  * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
  */
@@ -1025,6 +1072,12 @@ export interface ProcessTailParams {
 
 /** What another agent's message asks of the session it goes to. */
 export type PromptClass = ("block" | "question" | "result" | "fyi");
+
+export interface PromptCoachParams {
+  _meta?: RequestMeta;
+  coachId?: unknown;
+  sessionId?: unknown;
+}
 
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
@@ -1266,6 +1319,23 @@ export interface SecretSubmitParams {
   value?: unknown;
 }
 
+/** `_acpmux/seen`'s answer: the person's cursor after the request. */
+export type SeenDone = {
+  readThrough: number;
+} & Record<string, unknown>;
+
+/**
+ * `_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it
+ * (`hub/seen.rs`). Moves their seen cursor forward only.
+ */
+export interface SeenParams {
+  /** Whose cursor: an author's, the owner's when absent. */
+  _meta?: (AuthorMeta | null);
+  /** The newest log seq of a row that was on screen. */
+  seq: number;
+  sessionId: string;
+}
+
 /**
  * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
  * sign in again to the route `routeId`.
@@ -1344,6 +1414,11 @@ export interface SessionCancelParams {
 export type SessionChanged = {
   /** The record kind, or `queue`, `permission_resolved` or `purged`. */
   kind: string;
+  /**
+   * The list position this change took (`hub/row_log.rs`): the client's cursor for
+   * `_acpmux/watch {afterSeq}` is the highest it applied.
+   */
+  listSeq: number;
   /** The peer a remote session runs on. */
   peer?: (string | null);
   recordKind: string;
@@ -1473,6 +1548,12 @@ export type SessionDetail = {
   /** Permission requests waiting for an answer. */
   pending: unknown[];
   pendingPermissions: number;
+  /**
+   * A daemon start holds what this chat queued until a person opens it: its folder is guarded
+   * (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+   * drain. Absent otherwise, and from a peer on an older acpmux.
+   */
+  personHold?: (PersonHold | null);
   policy?: (string | null);
   preview?: (string | null);
   /**
@@ -1789,6 +1870,12 @@ export type SessionSummary = {
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
   pendingPermissions: number;
+  /**
+   * A daemon start holds what this chat queued until a person opens it: its folder is guarded
+   * (`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not
+   * drain. Absent otherwise, and from a peer on an older acpmux.
+   */
+  personHold?: (PersonHold | null);
   policy?: (string | null);
   preview?: (string | null);
   /**
@@ -1970,21 +2057,37 @@ export interface SessionsParams {
 
 export type SessionsResult = {
   /**
-   * A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
-   * changed since, and the rest of the known rows stand.
+   * A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the
+   * rows that went; the client's other rows stand.
    */
-  delta?: (boolean | null);
+  follow?: (boolean | null);
+  /** With `follow`: the rows that went since `afterSeq`. */
+  gone?: (GoneRow[] | null);
+  /** With `listSeq`: this daemon run's id for list positions. */
+  listEpoch?: (string | null);
+  /**
+   * A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after
+   * it reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the
+   * one held only when its position is not lower.
+   */
+  listSeq?: (number | null);
+  /**
+   * With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the
+   * client follows again from there.
+   */
+  more?: (boolean | null);
   /**
    * With `limit`: the cursor for the next page, null when the list is
    * done. Absent without `limit`.
    */
   nextCursor?: (string | null);
-  /** With `delta`: the known sessions no longer listed. */
-  removed?: (string[] | null);
+  /**
+   * A watch whose `afterSeq` the log could not follow (another daemon run, or older than its
+   * oldest removal): this is the list's first page, and the client drops the rows it held.
+   */
+  reset?: (boolean | null);
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
-  /** With `delta`: how many listed rows were left out as unchanged. */
-  unchanged?: (number | null);
 } & Record<string, unknown>;
 
 export interface SetToolsParams {
@@ -2184,12 +2287,31 @@ export type UsageStats = {
   updatedAt: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/view`'s answer: the person's return when coming to attend put "New since you looked"
+ * on the chat (`hub/seen.rs`), so the client draws it without waiting for its list.
+ */
+export type ViewDone = {
+  lastReturn?: (LastReturn | null);
+} & Record<string, unknown>;
+
 export interface ViewParams {
   /**
    * An author changes only that person's presence (`hub/presence.rs`), not whether the
    * chat counts as shown.
    */
   _meta?: (AuthorMeta | null);
+  /**
+   * Its person attends the chat it shows: on screen, window key, input within the client's
+   * idle window. Absent: true. A shown chat nobody attends stays shown, but its turns are
+   * unread (`hub/seen.rs`).
+   */
+  attending?: (boolean | null);
+  /**
+   * With `attending: false`, the log seq the client had at its person's last input: where the
+   * chat is left off, when earlier than now.
+   */
+  seenSeq?: (number | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;
@@ -2202,19 +2324,22 @@ export interface WarmParams {
 }
 
 export interface WatchParams {
+  /**
+   * Follow the list from this position (`hub/row_log.rs`, capability
+   * `session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the
+   * rows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is
+   * answered with the list's first page and `reset: true`.
+   */
+  afterSeq?: (number | null);
   cursor?: (string | null);
   /**
    * Default true: every session's changes arrive as
    * `_acpmux/session_changed`.
    */
   enabled?: (boolean | null);
-  /**
-   * A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
-   * list, with the digest of its row as last listed (`""` when it changed since). The reply
-   * is then a delta: `delta: true`, the rows new or changed, and `removed`.
-   */
-  known?: (Record<string, string> | null);
   limit?: (number | null);
+  /** The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset. */
+  listEpoch?: (string | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
 }

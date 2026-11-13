@@ -34,19 +34,20 @@ extension SidebarListViewComponents {
         let window = lineWindow()
         lineCover = window
         let (rows, edge) = lineRows(layout, around: window)
-        let background = model.groupHeaderDetails.background
-        let lines = SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
+        return styled(SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
-        }.filter { $0.group != edge }.map { line in
-            var line = line
-            line.background = background
-            return line
-        }
-        // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
-        guard !model.showsColors else { return lines }
+        }.filter { $0.group != edge })
+    }
+
+    /// `lines` in the sidebar's settings: the header's `sidebar.groupHeader.background` look (Sections draws none), and
+    /// with `sidebar.showColors` off every group as one with no color, its line unseen. Every path that makes lines (a
+    /// rebuild, a fold, a lift) passes them through here, so none draws a look the headers do not.
+    func styled(_ lines: [SidebarGroupLine]) -> [SidebarGroupLine] {
+        let background = model.groupHeaderDetails.background, showsColors = model.showsColors
         return lines.map { line in
             var line = line
-            line.color = .none
+            line.background = background
+            if !showsColors { line.color = .none }
             return line
         }
     }

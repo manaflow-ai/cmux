@@ -228,3 +228,43 @@ async fn exact_prompt_stop_survives_malformed_lines_and_an_unterminated_log_tail
     );
     hub.shutdown_all().await;
 }
+
+/// #40347 F1: a turn that shows is not yet an accepted prompt. Its last check (a Cloud turn's
+/// claim) may still refuse it, so a second copy of the prompt that comes then hears no turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
+    let (hub, s) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.turn_shown_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (first_tx, mut first_accepted) = tokio::sync::oneshot::channel();
+    let first = prompt(&hub, &s, "f1", "first", first_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(s.turn().is_some(), "the first copy's turn shows");
+    assert!(first_accepted.try_recv().is_err(), "the first copy is not accepted yet");
+
+    let (second_tx, second_notice) = tokio::sync::oneshot::channel();
+    let second = prompt(&hub, &s, "f1", "first", second_tx);
+    let notice = tokio::time::timeout(WAIT, second_notice).await.unwrap().unwrap();
+    assert_eq!(
+        (&notice["duplicate"], &notice["turnId"], &notice["queued"]),
+        (&json!(true), &Value::Null, &json!(false)),
+        "{notice}"
+    );
+
+    // Once the first copy is accepted, a third copy hears its turn.
+    release.send(()).unwrap();
+    let started = tokio::time::timeout(WAIT, first_accepted).await.unwrap().unwrap();
+    let (third_tx, third_notice) = tokio::sync::oneshot::channel();
+    let third = prompt(&hub, &s, "f1", "first", third_tx);
+    let notice = tokio::time::timeout(WAIT, third_notice).await.unwrap().unwrap();
+    assert!(
+        notice["turnId"] == started["turnId"] || s.turn().is_none(),
+        "a copy that comes while the accepted turn runs hears its turn: {notice}"
+    );
+    for done in [first, second, third] {
+        let r = tokio::time::timeout(WAIT, done).await.unwrap().unwrap().unwrap();
+        assert_eq!(r["stopReason"], "end_turn", "{r}");
+    }
+    hub.shutdown_all().await;
+}

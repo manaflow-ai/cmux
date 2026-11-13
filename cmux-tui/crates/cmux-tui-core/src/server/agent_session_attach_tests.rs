@@ -78,15 +78,25 @@ impl FakeAcpmux {
         }
     }
 
-    /// The next frame the daemon sent to acpmux.
-    /// The next frame the daemon sent to acpmux (its session watch skipped).
+    /// The next frame the daemon sent to acpmux (its session watch and the attach's first read of
+    /// this machine's list skipped).
     pub(super) fn frame(&self) -> Value {
         loop {
             let frame = self.frames.recv_timeout(WAIT).expect("a frame to acpmux");
-            if frame["method"] != json!("_acpmux/watch") {
+            if !Self::watch_frame(&frame) {
                 return frame;
             }
         }
+    }
+
+    /// The attach's session watch, its first read of this machine's own list, or the
+    /// `initialize` that learns which list filters this acpmux serves.
+    fn watch_frame(frame: &Value) -> bool {
+        frame["method"] == json!("_acpmux/watch")
+            || frame["method"] == json!("initialize")
+            || (frame["method"] == json!("_acpmux/sessions")
+                && frame["params"]["localOnly"] == json!(true)
+                && frame["params"].get("cursor").is_none())
     }
 
     /// The next frame the daemon sent to acpmux, its session watch included.
@@ -103,7 +113,7 @@ impl FakeAcpmux {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match self.frames.recv_timeout(left) {
-                Ok(frame) if frame["method"] == json!("_acpmux/watch") => continue,
+                Ok(frame) if Self::watch_frame(&frame) => continue,
                 Ok(frame) => panic!("the daemon must not reach acpmux: {frame}"),
                 Err(_) => return,
             }
@@ -174,6 +184,48 @@ pub(super) struct Fixture {
     pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
+    /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
+    pub(super) catalog_after: Option<Duration>,
+    /// `_acpmux/harnesses` asks the fake hangs up on (its connection closed, no answer) before it
+    /// answers one: an acpmux restarting under the start (the app's keyed restart).
+    pub(super) catalog_hang_ups: Arc<AtomicU64>,
+    /// When set, `_acpmux/status` reports a person key for this acpmux run (`personInstance`);
+    /// each catalog hang-up ([`Fixture::catalog_hang_ups`]) brings the run named `restarted`.
+    pub(super) keyed_run: Option<KeyedRun>,
+    /// An acpmux from before `session-list-filters-v1`: its `initialize` lists no such
+    /// capability, and its `_acpmux/sessions` ignores `localOnly` (a param it does not know)
+    /// and lists every peer's sessions too. Its watch still takes a `limit`.
+    pub(super) old_list_filters: bool,
+    /// Peer sessions each list answers beside this machine's ([`peer_rows`]); a served
+    /// `localOnly` leaves them out.
+    pub(super) peer_rows: usize,
+    /// The rows and bytes of every session list the fake answered (`_acpmux/watch` and
+    /// `_acpmux/sessions`): what a client read.
+    pub(super) list_reads: Arc<Mutex<ListReads>>,
+}
+
+/// What a client read from the fake's session lists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct ListReads {
+    pub(super) rows: usize,
+    pub(super) bytes: usize,
+}
+
+/// `count` sessions of a peer daemon, each naming [`SESSION`] as its parent: never a
+/// descendant all the same, since a peer's session is never one.
+pub(super) fn peer_rows(count: usize) -> impl Iterator<Item = Value> {
+    (0..count).map(|n| {
+        json!({"sessionId": format!("acp_peer_{n:05}"), "peer": "peer-mac", "startedBy": SESSION,
+               "status": "idle", "title": "a chat another Mac mirrors here", "updatedAt": n})
+    })
+}
+
+/// The acpmux run the fake reports a person key for, and the run a restart brings.
+#[derive(Clone)]
+pub(super) struct KeyedRun {
+    pub(super) current: Arc<Mutex<&'static str>>,
+    pub(super) restarted: &'static str,
 }
 
 /// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
@@ -217,6 +269,15 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "initialize" => {
+                let mut capabilities = vec!["acpmux-v1"];
+                if !fixture.old_list_filters {
+                    capabilities.extend(["session-list-filters-v1", "session-list-pending-v1"]);
+                }
+                Some(
+                    json!({"protocolVersion": 1, "_meta": {"acpmux": {"capabilities": capabilities}}}),
+                )
+            }
             "_acpmux/web_modes" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if params.get("sessionId").is_none()
@@ -241,11 +302,35 @@ fn serve(
             }
             // acpmux's catalog lists every family it runs, opencode included, so a family with
             // no phone mode resolves and is refused by the phone floor, not the catalog.
-            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+            "_acpmux/harnesses"
+                if fixture.phone.is_some()
+                    && fixture
+                        .catalog_hang_ups
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok() =>
+            {
+                if let Some(run) = &fixture.keyed_run {
+                    *run.current.lock().unwrap() = run.restarted;
+                }
+                // The test holds a clone of this stream: close it for every holder.
+                let _ = writer.shutdown(Shutdown::Both);
+                return;
+            }
+            "_acpmux/status" if fixture.keyed_run.is_some() => Some(json!({
+                "personKey": true,
+                "personInstance": *fixture.keyed_run.as_ref().unwrap().current.lock().unwrap(),
+                "ready": true, "agentHosts": true, "liveAgents": 0, "remoteSessions": 0,
+            })),
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some({
+                if let Some(delay) = fixture.catalog_after {
+                    std::thread::sleep(delay);
+                }
+                json!({
                 "defaultHarness": fixture.phone.as_ref().unwrap().family,
                 "families": {"claude": {}, "codex": {}, "opencode": {}},
                 "harnesses": {},
-            })),
+                })
+            }),
             "session/set_mode" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
                 if !phone.stuck {
@@ -290,12 +375,23 @@ fn serve(
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => {
+            // A watch with a page size turns the notices on; the attach reads this machine's own
+            // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
+            "_acpmux/watch" if !params["limit"].is_null() => Some(json!({"sessions": []})),
+            "_acpmux/watch" | "_acpmux/sessions"
+                if frame["method"] == json!("_acpmux/watch")
+                    || (params["localOnly"] == json!(true) && params["cursor"].is_null()) =>
+            {
                 let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
                 if fixture.watch_pages {
                     Some(json!({"sessions": sessions, "nextCursor": "w1"}))
                 } else {
                     sessions.extend(fixture.watch.iter().cloned());
+                    // A served `localOnly` leaves the peers' sessions out; an older acpmux
+                    // ignores it and lists them all.
+                    if params["localOnly"] != json!(true) || fixture.old_list_filters {
+                        sessions.extend(peer_rows(fixture.peer_rows));
+                    }
                     Some(json!({"sessions": sessions}))
                 }
             }
@@ -362,7 +458,24 @@ fn serve(
                 "overrides": {"scope": params["scope"], "text": params["text"]},
             })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A side question (`/btw`): a harness with no read-only mode is refused with its reason.
+            "_acpmux/btw" if params["question"] == json!("no read-only mode") => Some(json!({
+                FAKE_ERROR: "this agent has no read-only mode",
+                FAKE_ERROR_DATA: {"reason": "btw.no_read_only_mode"}})),
+            // The folder is not trusted yet: acpmux's trust gate refuses it.
+            "_acpmux/btw" if params["question"] == json!("untrusted folder") => Some(json!({
+                FAKE_ERROR: "trust the folder first",
+                FAKE_ERROR_DATA: {"reason": "trust.pending"}})),
+            // An acpmux from before inline answers opens a lasting side session.
+            "_acpmux/btw" if params["question"] == json!("old acpmux") => {
+                Some(json!({"sessionId": "acp_side", "model": null, "readOnly": "mode"}))
+            }
+            "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" if params["agent"] == json!("grok") => {
+                Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                    "userCode": "WDJB-MJHT", "needsCode": false}))
+            }
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
                 "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
@@ -410,6 +523,13 @@ fn serve(
             _ => None,
         };
         if let Some(result) = reply {
+            if matches!(frame["method"].as_str(), Some("_acpmux/watch" | "_acpmux/sessions"))
+                && let Some(rows) = result.get("sessions").and_then(Value::as_array)
+            {
+                let mut reads = fixture.list_reads.lock().unwrap();
+                reads.rows += rows.len();
+                reads.bytes += result.to_string().len();
+            }
             let frame = match result.get(FAKE_ERROR) {
                 Some(message) => {
                     let mut error = json!({"code":-32000,"message":message});
@@ -726,6 +846,7 @@ include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
 include!("agent_session_media_tests.rs");
+include!("agent_session_real_acpmux_tests.rs");
 
 // MARK: Capability and trust
 
@@ -784,6 +905,7 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
         json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
                "scope":"user","text":"Read early."}),
+        json!({"id":15,"cmd":"agent-session-btw","surface":surface,"question":"why?"}),
         json!({"id":15,"cmd":"agent-session-side","surface":surface,"live":true}),
     ]
 }
@@ -1225,6 +1347,21 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
             json!({"saved": true, "restarted": true}),
         ),
+        // Gemini saves a key; Grok runs its device flow (acpmux words each refusal).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "grok", "sessionId": SESSION}),
+            json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
+                   "userCode": "WDJB-MJHT", "needsCode": false}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1250,6 +1387,76 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "sessionId":"acp_other"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
                "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+// MARK: Side question
+
+/// The composer's `/btw <question>` on a Cloud chat (`agent-session-btw-v1`): acpmux's inline
+/// `_acpmux/btw` on the tab's own session, its `{text}` back unchanged, its refusal as an answer
+/// with only its reason. Nothing but the question passes.
+#[test]
+fn a_side_question_goes_inline_to_the_pinned_session() {
+    let fake = FakeAcpmux::start("btw");
+    let mux = mux_with(&fake, "asa-btw");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_BTW_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "btw");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-btw","surface":surface,"question":"why?"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (question, sent, data) in [
+        (" why did it flake? ", "why did it flake?", json!({"text": "It flaked on a timeout."})),
+        (
+            "no read-only mode",
+            "no read-only mode",
+            json!({"refused": {"reason": "btw.no_read_only_mode"}}),
+        ),
+        ("untrusted folder", "untrusted folder", json!({"refused": {"reason": "trust.pending"}})),
+    ] {
+        let reply = client
+            .request(json!({"cmd":"agent-session-btw","surface":surface,"question":question}));
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let frame = fake.frame();
+        assert_eq!(frame["method"], json!("_acpmux/btw"));
+        assert_eq!(
+            frame["params"],
+            json!({"sessionId": SESSION, "question": sent, "inline": true,
+                   "_meta": {"acpmux": {"via": "app"}}}),
+            "the tab's own session, inline, held to the app's folder-trust gate; nothing else"
+        );
+    }
+    // An older acpmux opened a lasting side session instead: it is ended, and the answer says so.
+    let reply = client
+        .request(json!({"cmd":"agent-session-btw","surface":surface,"question":"old acpmux"}));
+    assert_eq!(reply["data"], json!({"refused": {"reason": "unsupported"}}), "{reply}");
+    assert_eq!(fake.frame()["method"], json!("_acpmux/btw"));
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(kill["params"], json!({"sessionId": "acp_side", "purge": true}));
+    for bad in [
+        json!({"cmd":"agent-session-btw","surface":surface}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
+        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
+               "_meta":{"acpmux":{"via":"app"}}}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
@@ -1371,6 +1578,13 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
             json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
             "_acpmux/view",
             json!({"sessionId": SESSION, "visible": false}),
+        ),
+        // The person away from the chat on screen (agent-session-attention-v1): acpmux keeps its
+        // turns unread, left off at the seq of their last input.
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":true,"attending":false,"seen_seq":41}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": true, "attending": false, "seenSeq": 41}),
         ),
     ] {
         let reply = client.request(frame);

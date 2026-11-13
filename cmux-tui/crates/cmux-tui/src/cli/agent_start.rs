@@ -18,8 +18,9 @@
 //!   pane selector goes.
 //! - The tab is placed as placement.rs says, focused unless `--no-focus`,
 //!   and waited on as readiness.rs says, unless `--no-wait`.
-//! - `resume` reads the exited agent's argv (`terminal <t> process show`)
-//!   and harness session id (`agent list --terminal <t>`), runs the same
+//! - `resume` reads the exited agent's launcher (`terminal <t> process
+//!   show`; not its extra arguments, which may hold the first prompt) and
+//!   harness session id (`agent list --terminal <t>`), runs the same
 //!   launcher with the harness's resume arguments (`claude --resume <id>`,
 //!   `codex resume <id>`), in the old tab's pane unless `--pane`/`--split`
 //!   say otherwise, and closes the exited tab, which gives its name to the
@@ -381,6 +382,18 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
                  cmux terminal {who} resume brings it back"
             )),
         ),
+        Some(Readiness::Starting) | None if outcome.report_required => (
+            "timeout",
+            TIMEOUT_EXIT,
+            None,
+            Some(
+                crate::localization::catalog()
+                    .terminal_input
+                    .resume_not_reported
+                    .replace("{waited}", &waited)
+                    .replace("{who}", who),
+            ),
+        ),
         Some(Readiness::Starting) | None => (
             "timeout",
             TIMEOUT_EXIT,
@@ -431,7 +444,8 @@ fn humantime(duration: Duration) -> String {
     super::terminal_talk::roster::age(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// Waits (unless `--no-wait`) and records the end in `report`.
+/// Waits (unless `--no-wait`) and records the end in `report`. A resume
+/// (`report_required`) is ready only once the agent itself reports idle.
 fn finish<D: Daemon + ?Sized>(
     daemon: &D,
     clock: &mut Clock<'_>,
@@ -439,6 +453,7 @@ fn finish<D: Daemon + ?Sized>(
     created: &Created,
     who: &str,
     report: &mut Value,
+    report_required: bool,
 ) -> Result<i32, Failure> {
     if options.focus
         && let Ok(focus) = plan(&["tab", created.tab.as_str(), "focus"])
@@ -451,7 +466,7 @@ fn finish<D: Daemon + ?Sized>(
         return Ok(0);
     }
     let reads = terminal_reads(&created.terminal)?;
-    let wait = WaitOptions::new(options.timeout, clock.now_ms);
+    let wait = WaitOptions { report_required, ..WaitOptions::new(options.timeout, clock.now_ms) };
     let outcome = readiness::wait(daemon, &reads, wait, clock.now, clock.sleep)?;
     Ok(apply_outcome(report, &outcome, who))
 }
@@ -531,7 +546,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
-    let exit = finish(daemon, clock, options, &created, name, &mut report)?;
+    let exit = finish(daemon, clock, options, &created, name, &mut report, false)?;
     Ok((report, exit))
 }
 
@@ -636,8 +651,10 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
 }
 
 /// The launch that resumes harness session `session_id`: `--cmd` or the
-/// recorded launcher (its old resume arguments dropped), then the harness's
-/// resume arguments.
+/// recorded launcher, the `-- ARGS` of this resume, then the harness's resume
+/// arguments. The recorded extra arguments are not run again: they may hold
+/// the first prompt (`agent start alpha -- 'Fix the test'`), which a resume
+/// must not send twice. Launcher flags belong in `--cmd`.
 pub(in crate::cli) fn resume_launch(
     recorded: Option<Launch>,
     env: &Env,
@@ -657,11 +674,7 @@ pub(in crate::cli) fn resume_launch(
         (Some(cmd), _) => {
             Launch { shell: env.shell.clone(), launcher: cmd.clone(), args: options.args.clone() }
         }
-        (None, Some(recorded)) => {
-            let mut args = launch::strip_resume(harness, &recorded.args);
-            args.extend(options.args.iter().cloned());
-            Launch { args, ..recorded }
-        }
+        (None, Some(recorded)) => Launch { args: options.args.clone(), ..recorded },
         (None, None) => {
             let launcher = env
                 .default_launcher
@@ -770,7 +783,23 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         }),
     );
     let who = name.unwrap_or(created.terminal.as_str()).to_owned();
-    let exit = finish(daemon, clock, options, &created, &who, &mut report)?;
+    // The session id came from the agent's hooks in this pane. When those
+    // hooks report a session start, ready waits for that report: a resumed
+    // Claude Code draws its input box before it takes a message. A harness
+    // whose hooks report no start (or another harness than the one that
+    // reported) is ready on its input box, as for a start: it never reports
+    // idle before a turn, and a wait for it would run to the timeout.
+    let hooked = record
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or(exited.harness.as_deref())
+        .is_some_and(|reported| harness_name(reported) == harness);
+    let report_required = hooked
+        && super::terminal_talk::roster::harness_hooks_report(
+            &harness,
+            cmux_tui_core::agent_hook_event_starts_session,
+        );
+    let exit = finish(daemon, clock, options, &created, &who, &mut report, report_required)?;
     Ok((report, exit))
 }
 
@@ -821,6 +850,8 @@ fn wait_ready<D: Daemon + ?Sized>(
                     "details": {
                         "until": "ready",
                         "timeout_ms": millis.to_string(),
+                        "timed_out": true,
+                        "waited_ms": millis.to_string(),
                         "state": outcome.last.as_str(),
                     },
                     "retryable": true,

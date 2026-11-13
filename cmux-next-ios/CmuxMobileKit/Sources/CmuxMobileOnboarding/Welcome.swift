@@ -145,6 +145,8 @@ public struct WelcomeView: View {
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
+                // A phone's width: an unfolded foldable keeps them centered, not 750 pt wide.
+                .frame(maxWidth: 440)
                 .padding(.horizontal, theme.metrics.sideMargin)
             legal
                 .opacity(controls)

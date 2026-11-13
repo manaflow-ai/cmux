@@ -13,13 +13,86 @@ fn plan(operation: ResourceOperation) -> RequestPlan {
     }
 }
 
+/// A `screen wait` or `process wait` whose time ran out exits 124, as
+/// `terminal send` and `terminal run` do; one that ended for its own reason
+/// (a match, an exit) exits 0.
 #[test]
-fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
+fn a_terminal_wait_that_ran_out_of_time_exits_124() {
     let wait = plan(ResourceOperation::TerminalWait);
-    assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
+    assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 124);
     assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
+    let exit = plan(ResourceOperation::TerminalWaitExit);
+    let pending = json!({"state": "pending", "terminal_id": "term_1", "lifecycle": "running"});
+    assert_eq!(success_exit_code(&exit, &pending), 124);
+    let exited = json!({"state": "exited", "outcome": {"kind": "exit", "code": 5}});
+    assert_eq!(success_exit_code(&exit, &exited), 0, "the process's own code is in outcome");
     let read = plan(ResourceOperation::TerminalScreenRead);
     assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
+    assert_eq!(success_exit_code(&read, &json!({"state": "pending"})), 0);
+    let unsend = plan(ResourceOperation::AgentMessageUnsend);
+    assert_eq!(success_exit_code(&unsend, &json!({"value": {"outcome": "failed"}})), 1);
+}
+
+/// On a Cloud guest (one with a guest adapter), a timed-out `process wait`
+/// exits 124 only for a caller that says it reads 124: an adapter that
+/// predates 124, on disk or still running in a shell, reads any other exit as
+/// a failed `agent --wait`, so it keeps 0. `screen wait` exits 124 either way:
+/// every adapter reads its printed `matched: false`.
+#[test]
+fn a_timed_out_process_wait_exits_zero_for_a_guest_caller_that_predates_124() {
+    let dir = std::env::temp_dir().join(format!("cmux-wait-adapter-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let adapter = dir.join("cmux-cloud-adapter");
+    let exit = plan(ResourceOperation::TerminalWaitExit);
+    let pending = json!({"state": "pending", "lifecycle": "running"});
+    let missed = json!({"matched": false, "text": ""});
+    let wait = plan(ResourceOperation::TerminalWait);
+
+    let code = |plan, result, reads| wait_timeout::exit_code_with(plan, result, &adapter, reads);
+    assert_eq!(code(&exit, &pending, false), Some(124), "no adapter: not a guest");
+    std::fs::write(&adapter, "#!/bin/sh\n").unwrap();
+    assert_eq!(code(&exit, &pending, false), None);
+    assert_eq!(code(&exit, &pending, true), Some(124));
+    assert_eq!(code(&wait, &missed, false), Some(124));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The printed answer keeps the daemon's fields and adds `timed_out` (and,
+/// when the time ran out, `waited_ms`: the timeout, a decimal string).
+#[test]
+fn a_terminal_wait_answer_says_whether_it_timed_out() {
+    let mut wait = plan(ResourceOperation::TerminalWait);
+    wait.params = json!({"pattern": "ready", "timeout_ms": "500"});
+    let mut missed = json!({"matched": false, "text": "$ "});
+    wait_timeout::mark(&wait, &mut missed);
+    assert_eq!(
+        missed,
+        json!({"matched": false, "text": "$ ", "timed_out": true, "waited_ms": "500"})
+    );
+    let mut found = json!({"matched": true, "text": "ready"});
+    wait_timeout::mark(&wait, &mut found);
+    assert_eq!(found, json!({"matched": true, "text": "ready", "timed_out": false}));
+
+    let mut exit = plan(ResourceOperation::TerminalWaitExit);
+    exit.params = json!({"timeout_ms": "500"});
+    let mut pending = json!({"state": "pending", "lifecycle": "running", "revision": "4"});
+    wait_timeout::mark(&exit, &mut pending);
+    assert_eq!(
+        pending,
+        json!({
+            "state": "pending", "lifecycle": "running", "revision": "4",
+            "timed_out": true, "waited_ms": "500"
+        })
+    );
+    let mut exited = json!({"state": "exited", "outcome": {"kind": "exit", "code": 5}});
+    wait_timeout::mark(&exit, &mut exited);
+    assert_eq!(exited["timed_out"], false);
+    assert!(exited.get("waited_ms").is_none());
+
+    // Any other answer is printed as the daemon sent it.
+    let mut read = json!({"matched": false});
+    wait_timeout::mark(&plan(ResourceOperation::TerminalScreenRead), &mut read);
+    assert_eq!(read, json!({"matched": false}));
 }
 
 /// nxdog55: with `--order personal` the rows come in sidebar order, but
@@ -540,4 +613,105 @@ fn w3h_screen_read_shows_text_unless_details_is_asked() {
     assert_eq!(parse(&["terminal", id, "screen", "read"]), ResponseView::ScreenText);
     assert_eq!(parse(&["terminal", id, "read"]), ResponseView::ScreenText);
     assert_eq!(parse(&["terminal", id, "screen", "read", "--details"]), ResponseView::Full);
+}
+
+/// A stream that answers each read with the next scripted step: some bytes,
+/// or a read timeout (the 250 ms timeout a stream read uses).
+struct ScriptedStream(std::sync::Mutex<std::collections::VecDeque<Option<&'static [u8]>>>);
+
+impl ScriptedStream {
+    fn boxed(steps: &[Option<&'static [u8]>]) -> Box<dyn transport::Stream> {
+        Box::new(Self(std::sync::Mutex::new(steps.iter().copied().collect())))
+    }
+}
+
+impl Read for ScriptedStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let mut steps = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match steps.pop_front() {
+            None => Ok(0),
+            Some(None) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            Some(Some(bytes)) => {
+                let count = bytes.len().min(buffer.len());
+                buffer[..count].copy_from_slice(&bytes[..count]);
+                if count < bytes.len() {
+                    steps.push_front(Some(&bytes[count..]));
+                }
+                Ok(count)
+            }
+        }
+    }
+}
+
+impl Write for ScriptedStream {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl transport::Stream for ScriptedStream {
+    fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+        Err(io::Error::other("not cloneable"))
+    }
+
+    fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A stream line whose bytes arrive on both sides of a read timeout is one
+/// line: the bytes read before the timeout stay, and the next read finishes
+/// the line.
+#[test]
+fn a_stream_line_split_by_a_read_timeout_is_read_whole() {
+    let stream =
+        ScriptedStream::boxed(&[Some(br#"{"event":"ou"#), None, Some(b"tput\",\"n\":1}\n"), None]);
+    let mut reader = BufReader::new(stream);
+    let line = read_envelope(&mut reader, true);
+    assert_eq!(line, Ok(Some(json!({"event": "output", "n": 1}))));
+    // The peer closes in the middle of the next line: that is an error,
+    // not a clean end of the stream.
+    let stream = ScriptedStream::boxed(&[Some(br#"{"event":"#), None]);
+    let mut reader = BufReader::new(stream);
+    assert_eq!(
+        read_envelope(&mut reader, true),
+        Err("transport closed with a partial JSON line".to_string())
+    );
+}
+
+/// A failure before the request was sent (the connection's preflight timed
+/// out or dropped) leaves nothing on the daemon to join or to run twice, so
+/// every request is tried again, a mutation and a wait with its own timeout
+/// too, and none of them reports an unknown outcome.
+#[test]
+fn a_request_whose_preflight_failed_before_it_was_sent_is_tried_again() {
+    for operation in [
+        ResourceOperation::WorkspaceCreate,
+        ResourceOperation::TerminalWait,
+        ResourceOperation::TerminalScreenRead,
+    ] {
+        let tries = retry::Tries::new(&plan(operation));
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Timeout),
+            "{operation:?}: a preflight timeout"
+        );
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Dropped),
+            "{operation:?}: a preflight drop"
+        );
+        assert!(!tries.may_retry_before_send(retry::Failure::Other), "{operation:?}");
+        assert!(!tries.sent_before(), "{operation:?}: nothing was sent");
+    }
 }

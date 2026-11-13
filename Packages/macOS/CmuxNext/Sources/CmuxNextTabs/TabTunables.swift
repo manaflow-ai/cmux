@@ -104,6 +104,11 @@ public nonisolated enum TabTunables {
         "tabs.separators", .tabs, "Tab separators",
         help: "A short line between tabs and before +, hidden beside the selected tab.",
         default: true, code: "TabTunables.separators")
+    // @intent Lucas 2026-11-12 ("show the chevron on hover of the +"): on by default; off keeps the ⌄ shown.
+    public static let chevronOnHover = Tunable<Bool>.toggle(
+        "tabs.chevronOnHover", .tabs, "Pane type ⌄ only on hover",
+        help: "The ⌄ after the tab bar's + shows only while the + or the ⌄ is under the pointer or its menu is open; it keeps its place.",
+        default: true, code: "TabTunables.chevronOnHover")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",
@@ -175,17 +180,18 @@ public nonisolated enum TabTunables {
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
     // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
-    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    // trailing controls. The split button (cmux classic's `+ ⌄`, Lucas 2026-11-11) is the default; the tab bar
+    // playground's Trailing Buttons page compares them.
     public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
-        default: .glyphs, code: "TabTunables.trailingButtons")
+        default: .split, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }
