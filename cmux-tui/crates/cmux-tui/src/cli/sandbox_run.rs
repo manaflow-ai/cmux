@@ -697,7 +697,7 @@ pub(super) fn run_receipt<'a>(snapshot: &'a Value, id: &str) -> Option<&'a Value
         && field("runId") == Some(id)
         && field("environment") == Some("sandboxed")
         && matches!(field("status"), Some("succeeded" | "failed" | "cancelled"))
-        && matches!(field("cleanup"), Some("destroyed" | "pending")))
+        && matches!(field("cleanup"), Some("destroyed" | "pending" | "abandoned")))
     .then_some(receipt)
 }
 
@@ -767,6 +767,7 @@ pub(super) fn receipt_text(receipt: &Value, messages: &SandboxRunMessages) -> St
     }
     lines.push(match field(&["cleanup"]).and_then(Value::as_str) {
         Some("destroyed") => messages.cleanup_destroyed.to_owned(),
+        Some("abandoned") => messages.cleanup_abandoned.to_owned(),
         _ => messages.cleanup_pending.to_owned(),
     });
     lines.join("\n")

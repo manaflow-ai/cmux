@@ -466,7 +466,7 @@
 .button:not(.ui-btn) {
   border-color: var(--border);
   background: var(--input-bg);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1) var(--ds-space-3);
 }
 

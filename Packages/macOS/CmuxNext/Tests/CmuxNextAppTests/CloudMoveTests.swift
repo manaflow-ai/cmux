@@ -8,6 +8,7 @@ import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -97,8 +98,110 @@ struct CloudMoveTests {
         }
     }
 
+    /// A CLI move with no `--focus` of the chat a window shows keeps it on screen (the cloud-ergo-handoff capture at
+    /// fde02dbe1ae0: the window fell back to Home, the chat sat in a machine workspace called "Home", and an untargeted
+    /// `cmux cloud bring-back` found only the Chief): the window shows the chat's Cloud workspace with the chat selected
+    /// and focused, the workspace is never called Home, and Bring Back Local with no target acts on the moved chat.
+    @Test func aCLIMoveOfTheChatAWindowShowsKeepsItOnScreenForBringBack() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let (controller, _, _, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "no chat tab on the machine")
+            let store = move.machine.daemon.store
+            let cloud = try #require(store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } })
+            let machinePane = try #require(cloud.screens.flatMap(\.panes).first { $0.tabs.contains { $0.id == tab.id } })
+            try await Self.waitUntil { controller.state.workspaceID == cloud.id && controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id }
+            #expect(controller.state.workspaceID == cloud.id, "the window no longer shows the moved chat: \(controller.state.workspaceID ?? "nil")")
+            #expect(controller.state.selection.selection(in: machinePane.id) == tab.id, "the moved chat is not the selected tab")
+            #expect(controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id, "the focused tab is not the moved chat")
+            #expect(cloud.name == CloudMove.movedName(local, folder: move.project.path))
+            #expect(cloud.name != "Home" || local.kind != SidebarMapping.homeKind, "the moved chat's workspace took Home's name")
+
+            // `cmux cloud bring-back` with no target, as the capture ran it: it acts on the moved chat (its pull runs).
+            let back = await move.cli("cloud bring-back", targeted: false)
+            #expect(back?.message.contains(CloudBringBackStrings.notFromMove) != true, "bring back found no moved chat: \(back?.message ?? "")")
+            try await Self.waitUntil { move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] } }
+            #expect(move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] }, "bring back did not act on the moved chat: \(move.calls())")
+        }
+    }
+
+    /// Ways the window remembers the chat as its pane's selected tab while it draws something else. A CLI move with no
+    /// `--focus` then changes nothing on screen: the window keeps its workspace, its screen and its top page (the review of
+    /// #39834: History dismissed, then an inactive screen replaced).
+    enum Hidden: String, CaseIterable, Sendable { case topPage, inactiveScreen, otherWorkspace }
+
+    @Test(arguments: Hidden.allCases)
+    func aCLIMoveOfAChatTheWindowRemembersButHidesChangesNothingOnScreen(_ hidden: Hidden) async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let (controller, chat, pane, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
+            let screen = try await Self.hide(chat, in: pane, of: local, hidden, controller: controller, daemon: services.daemon)
+            #expect(controller.state.selection.selection(in: pane.id) == chat.id, "the window no longer remembers the chat")
+            let (workspace, page) = (controller.state.workspaceID, controller.state.page)
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.machineTab != nil, "no chat tab on the machine")
+            #expect(controller.state.workspaceID == workspace, "the move changed the window's workspace")
+            #expect(controller.state.page == page, "the move changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the move changed the window's screen") }
+        }
+    }
+
+    /// Shows `tabID` (a chat tab of `machine`) in the active window: its workspace, the tab selected, the pane laid out on
+    /// screen (``WindowController/showsOnScreen(_:in:)``).
+    static func putOnScreen(_ tabID: String, machine daemon: DaemonService, services: AppServices) async throws
+        -> (WindowController, TabModel, PaneModel, WorkspaceModel) {
+        let controller = try #require(services.windows.active)
+        let (chat, pane) = try #require(services.locateTab(tabID, onMachine: daemon.machineID))
+        let workspace = try #require(daemon.store.workspace(containing: pane.handle))
+        _ = services.windows.reveal(workspaceID: workspace.id)
+        // The person's pick of the tab in its strip (a remembered selection alone leaves the strip on the tab it shows).
+        try await waitUntil {
+            if let strip = services.paneController(for: pane), strip.stripModel.selectedID?.rawValue != chat.id { strip.select(StripTabID(chat.id)) }
+            controller.content?.contentView.layoutSubtreeIfNeeded()
+            return controller.showsOnScreen(chat.id, in: pane)
+        }
+        try #require(controller.showsOnScreen(chat.id, in: pane), "the window does not draw the chat")
+        return (controller, chat, pane, workspace)
+    }
+
+    /// Hides `chat` from `controller` as `hidden` says, leaving it remembered as its pane's selection; the screen the
+    /// window shows after it (inactiveScreen), else nil.
+    static func hide(_ chat: TabModel, in pane: PaneModel, of workspace: WorkspaceModel, _ hidden: Hidden, controller: WindowController,
+                     daemon: DaemonService) async throws -> LayoutScreenID? {
+        let services = controller.services
+        switch hidden {
+        case .topPage:
+            try #require(TopPages.show(.page(.history), services: services, in: controller.state) != nil, "History did not open as a top page")
+        case .inactiveScreen:
+            let content = try #require(controller.content)
+            _ = try await #require(daemon.connection).newScreen(in: workspace.handle)
+            try await waitUntil { content.layoutModel.screens.count >= 2 }
+            let other = try #require(content.layoutModel.screens.first { !$0.layout.contains(LayoutPaneID(pane.id)) }, "no second screen")
+            ScreenCommands.select(other.id, in: content)
+            try await waitUntil {
+                content.contentView.layoutSubtreeIfNeeded()
+                return !content.layoutModel.visiblePanes.contains(LayoutPaneID(pane.id))
+            }
+            #expect(!controller.showsOnScreen(chat.id, in: pane), "a chat on an inactive screen counts as drawn")
+            return other.id
+        case .otherWorkspace:
+            let key = WorkspaceKey.generate()
+            try await #require(daemon.connection).createWorkspace(name: "Elsewhere", key: key)
+            try await waitUntil { daemon.store.workspaces.contains { $0.key == key } }
+            _ = services.windows.reveal(workspaceID: try #require(daemon.store.workspaces.first { $0.key == key }).id)
+        }
+        try await waitUntil { !controller.showsOnScreen(chat.id, in: pane) }
+        #expect(!controller.showsOnScreen(chat.id, in: pane), "a hidden chat (\(hidden)) counts as drawn")
+        return nil
+    }
+
     /// Waits up to 30 seconds for `condition`.
-    private static func waitUntil(_ condition: () -> Bool) async throws {
+    static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
     }
@@ -551,9 +654,12 @@ struct CloudMoveTests {
         }
 
         /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
-        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
-            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
-                        "target": .string("tab:" + tabID), "args": .object(args)])
+        /// With `targeted` false it names no target, as `cmux cloud bring-back` run bare does: it acts on the focused tab.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:], targeted: Bool = true) async -> ControlError? {
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                                 "wait": .bool(true), "args": .object(args)]
+            if targeted { params["target"] = .string("tab:" + tabID) }
+            return await send(params)
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
