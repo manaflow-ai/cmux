@@ -650,6 +650,16 @@ class UnderPython39(unittest.TestCase):
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_assignment_preserves_uncertain_default_binding(self):
+        """cmux#42240 F1: an assignment from a default-bound parameter remains uncertain to the guard resolver."""
+        self.scan("import ast, sys\n"
+                  "def check(candidate=sys):\n"
+                  "    alias = candidate\n"
+                  "    if hasattr(alias, 'version_info'):\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n")
+
     def test_import_as_shadowing_is_lexical(self):
         self.scan("import ast as parser\n"
                   "def shadow(parser):\n    return parser.match_case\n"
