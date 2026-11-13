@@ -349,6 +349,7 @@ pub struct Hub {
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
+    sources: Arc<ArcSwap<HashMap<String, Source>>>,
 }
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
