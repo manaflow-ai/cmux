@@ -168,9 +168,12 @@ pub unsafe extern "C" fn acpmux_client_next_change(handle: *mut c_void, out: *mu
                 Ok(json!({"kind":"error","method":method,"sid":sid,"id":id,"code":code}))
             }
             Change::Fallback(bytes) => Ok(json!({"kind":"fallback","bytes":bytes})),
-        }
-        .and_then(|value| serde_json::to_vec(&value).map_err(|_| ()));
-        output(out, value.unwrap_or_default())
+        };
+        let bytes = match value {
+            Ok(value) => serde_json::to_vec(&value).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        output(out, bytes)
     })
 }
 
