@@ -66,6 +66,21 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     assert_eq!(row("cloudOpenDesktop")["paletteTarget"], "machine");
     assert_eq!(row("cloudOpenDesktop")["paletteTargetSource"], "cloud");
     assert_eq!(row("cloudExec")["paletteTarget"], "machine");
+    for id in [
+        "cloudNewTerminal",
+        "cloudOpenMachine",
+        "cloudRenameMachine",
+        "cloudKillMachine",
+        "cloudCopyLink",
+        "cloudCopyPort",
+        "cloudCopyMachineID",
+        "cloudResizeMachine",
+        "cloudSetIdlePause",
+        "cloudSetNetworkAccess",
+    ] {
+        assert_eq!(row(id)["paletteTarget"], "machine");
+        assert_eq!(row(id)["paletteTargetSource"], "cloud");
+    }
     assert_eq!(row("newCloudWorkspace")["paletteTarget"], serde_json::Value::Null);
     assert_eq!(row("cloudStartSession")["paletteTarget"], serde_json::Value::Null);
     assert_eq!(row("newTab")["paletteTarget"], serde_json::Value::Null);
