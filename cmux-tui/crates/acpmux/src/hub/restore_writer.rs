@@ -102,7 +102,8 @@ impl Parked {
             && record.kind == "compaction_metadata_fenced"
             && self.kind != record.kind
         {
-            return record.msg.get("sourceKind").and_then(Value::as_str) == Some(self.kind.as_str());
+            return record.msg.get("sourceKind").and_then(Value::as_str)
+                == Some(self.kind.as_str());
         }
         let msg = match &self.kept {
             log_deferral::Kept::Stub(stub) => stub,
