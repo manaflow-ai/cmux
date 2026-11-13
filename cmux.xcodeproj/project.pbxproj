@@ -4448,6 +4448,7 @@
 		C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */; };
 		E8A800000000000000000002 /* VMCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A800000000000000000001 /* VMCommands.swift */; };
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
+		4C8158A3353DF6274F7462CA /* VMLifecycleLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2E088C09D6D4ED2DA127C6 /* VMLifecycleLabelTests.swift */; };
 		B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		1044EB4696981D93219EAFF2 /* VMReadyPollInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */; };
@@ -9126,6 +9127,7 @@
 		C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientTelemetry+Live.swift"; sourceTree = "<group>"; };
 		E8A800000000000000000001 /* VMCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
+		BC2E088C09D6D4ED2DA127C6 /* VMLifecycleLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMLifecycleLabelTests.swift"; sourceTree = "<group>"; };
 		B81607322100000000000004 /* VMMachineTerminalResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMMachineTerminalResolution.swift; sourceTree = "<group>"; };
 		5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMReadyPollInterval.swift; sourceTree = "<group>"; };
 		BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMRemoteWorkspaceResolver.swift; sourceTree = "<group>"; };
@@ -14353,6 +14355,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				BC2E088C09D6D4ED2DA127C6 /* VMLifecycleLabelTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19663,6 +19666,7 @@
 				36FE0F3F72F372A81FA59EE1 /* VMClientReadCoalescingTests+RequestBudget.swift in Sources */,
 				C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
+				4C8158A3353DF6274F7462CA /* VMLifecycleLabelTests.swift in Sources */,
 				B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */,
 				D017093861349E48BF816E02 /* VMRemoteWorkspaceResolver.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
