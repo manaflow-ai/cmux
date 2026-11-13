@@ -647,8 +647,6 @@ public final class LiveCoordinator {
         }
     }
 
-    }
-
     /// The current presence listener's id for the incident reporter (each listener its own: a closed
     /// one's id is final there).
     @ObservationIgnored private var presenceSocketID = UUID().uuidString
