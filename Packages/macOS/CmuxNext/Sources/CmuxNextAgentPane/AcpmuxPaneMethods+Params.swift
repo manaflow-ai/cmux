@@ -60,7 +60,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
         // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
         // `cancelToken`, it stops the fork that token names while it is still being made.
-        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
+        // `ifIdle`: Move to Terminal stops the chat only while no turn, prompt or tool call is open
+        // (direct.ts `releaseToTerminal`, acpmux hub/stop_if_idle.rs); it only narrows a stop.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):

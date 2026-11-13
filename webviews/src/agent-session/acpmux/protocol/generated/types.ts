@@ -566,6 +566,8 @@ export interface KillParams {
   _meta?: RequestMeta;
   cancelFork?: unknown;
   cancelToken?: unknown;
+  expectRevision?: unknown;
+  ifIdle?: unknown;
   purge?: unknown;
   sessionId?: unknown;
 }

@@ -237,8 +237,12 @@ export type AcpmuxBackgroundReaction = {
 export type AcpmuxBackgroundRun = {
   finished: number;
   stopped: number;
+  /// Failed shells: the line names how many.
+  failed: number;
   scheduled: number;
   other: number;
+  /// How many members are background shells' ends: a run of only those reads "N background commands".
+  commands: number;
   rows: string[];
 };
 
@@ -1276,6 +1280,9 @@ export type AcpmuxSnapshot = {
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;
+    /// The harness's own session id for the conversation (Claude Code's, Codex's thread id), when
+    /// acpmux knows it: Move to Terminal resumes it there (header/terminalMoveRow.ts).
+    agentSessionId?: string;
     /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
     /// to the app and takes nothing over.
     bridged?: boolean;
