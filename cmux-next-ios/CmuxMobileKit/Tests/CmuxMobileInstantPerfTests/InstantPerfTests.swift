@@ -23,6 +23,8 @@ import Testing
 // e. chat_older_page           one scroll-up page of older history. 50 ms.
 // f. chat_scroll_fill          a 60 Hz fling up a chat's history over a phone's link: p95 of each
 //                              frame's time to a filled viewport. 16.7 ms (one frame).
+// g. chat_scroll_fill_ui       the same fling on the transcript list itself (ChatScrollFillUITests.swift,
+//                              iOS): its layout, cells and reloads, not estimated heights. 16.7 ms.
 //
 // The suite is serialized and CI runs this target on its own (no other suite on the cores).
 // Numbers are from a Debug build (`swift test`, `xcodebuild test`), as the kit's tests build.

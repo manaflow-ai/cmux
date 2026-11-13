@@ -85,16 +85,29 @@ fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     })
 }
 
+/// A loaded source: its path, its syntax, and the scopes of the modules around it (outermost
+/// first), so a `super::` in a file-backed child sees the module that declares it.
+type Loaded = (PathBuf, syn::File, Vec<Scope>);
+
 /// `file` and the files of the modules it declares (not under a test `cfg`), recursively. `dir`:
-/// where its `mod x;` finds `x.rs`.
-fn load(file: &Path, dir: &Path, out: &mut Vec<(PathBuf, syn::File)>) {
+/// where its `mod x;` finds `x.rs`; `around`: the scopes of the modules that declare it.
+fn load(file: &Path, dir: &Path, around: &[Scope], out: &mut Vec<Loaded>) {
     let text = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
     let parsed = syn::parse_file(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-    load_items(&parsed.items, file, dir, out);
-    out.push((file.to_path_buf(), parsed));
+    let mut chain = around.to_vec();
+    chain.push(Scope::of(parsed.items.iter(), true));
+    load_items(&parsed.items, file, dir, &mut chain, out);
+    out.push((file.to_path_buf(), parsed, around.to_vec()));
 }
 
-fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathBuf, syn::File)>) {
+/// `chain`: the scopes of the modules `items` sit in, theirs last.
+fn load_items(
+    items: &[syn::Item],
+    file: &Path,
+    dir: &Path,
+    chain: &mut Vec<Scope>,
+    out: &mut Vec<Loaded>,
+) {
     for item in items {
         let syn::Item::Mod(m) = item else { continue };
         if is_test_attr(&m.attrs) {
@@ -102,7 +115,9 @@ fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathB
         }
         let name = m.ident.to_string();
         if let Some((_, inline)) = &m.content {
-            load_items(inline, file, &dir.join(&name), out);
+            chain.push(Scope::of(inline.iter(), true));
+            load_items(inline, file, &dir.join(&name), chain, out);
+            chain.pop();
             continue;
         }
         let (child, child_dir) = match path_attr(&m.attrs) {
@@ -115,20 +130,20 @@ fn load_items(items: &[syn::Item], file: &Path, dir: &Path, out: &mut Vec<(PathB
             }
             None => (dir.join(&name).join("mod.rs"), dir.join(&name)),
         };
-        load(&child, &child_dir, out);
+        load(&child, &child_dir, chain, out);
     }
 }
 
-/// The store's sources: `src/store.rs` and its modules.
-fn store_sources() -> Vec<(String, syn::File)> {
+/// The store's sources: `src/store.rs` and its modules, each with the scopes around it.
+fn store_sources() -> Vec<(String, syn::File, Vec<Scope>)> {
     let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src = crate_dir.join("src");
     let mut out = Vec::new();
-    load(&src.join("store.rs"), &src.join("store"), &mut out);
+    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
     out.into_iter()
-        .map(|(path, file)| {
+        .map(|(path, file, around)| {
             let rel = path.strip_prefix(&crate_dir).unwrap_or(&path);
-            (rel.to_string_lossy().replace('\\', "/"), file)
+            (rel.to_string_lossy().replace('\\', "/"), file, around)
         })
         .collect()
 }
@@ -224,9 +239,43 @@ impl Scope {
     }
 }
 
+/// The public items of `std::fs`: the only names a `use std::fs::*;` brings in (#41970 review
+/// F2). Any other name under such a glob is looked up in the scopes around it.
+const STD_FS_ITEMS: &[&str] = &[
+    "canonicalize",
+    "copy",
+    "create_dir",
+    "create_dir_all",
+    "exists",
+    "hard_link",
+    "metadata",
+    "read",
+    "read_dir",
+    "read_link",
+    "read_to_string",
+    "remove_dir",
+    "remove_dir_all",
+    "remove_file",
+    "rename",
+    "set_permissions",
+    "soft_link",
+    "symlink_metadata",
+    "write",
+    "DirBuilder",
+    "DirEntry",
+    "File",
+    "FileTimes",
+    "FileType",
+    "Metadata",
+    "OpenOptions",
+    "Permissions",
+    "ReadDir",
+    "TryLockError",
+];
+
 /// What a name means in `scopes` (innermost last): `Some(path)` an import's full path, `None`
 /// a name defined here or not imported. A glob (`use std::fs::*;`) counts only for a name
-/// nothing in its scope defines or imports by name.
+/// std::fs exports that nothing in its scope defines or imports by name.
 fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
     for scope in scopes.iter().rev() {
         if scope.defined.contains(name) {
@@ -235,7 +284,7 @@ fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
         if let Some(full) = scope.imports.get(name) {
             return Some(full.clone());
         }
-        if scope.globs.iter().any(|glob| is_std_fs(glob)) {
+        if STD_FS_ITEMS.contains(&name) && scope.globs.iter().any(|glob| is_std_fs(glob)) {
             return Some(vec!["std".into(), "fs".into(), name.to_string()]);
         }
         if scope.opaque {
@@ -245,12 +294,52 @@ fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
     None
 }
 
+/// The scopes a path's leading `self::` / `super::` names start from, and how many leading
+/// names they are: `self` is the innermost module (not a block), each `super` one module out
+/// (#41970 review F1). `None`: no leading `self`/`super`, or more `super`s than modules here.
+fn module_scopes<'s>(scopes: &'s [Scope], segments: &[String]) -> Option<(&'s [Scope], usize)> {
+    let lead = segments.iter().take_while(|s| *s == "self" || *s == "super").count();
+    if lead == 0 || segments.iter().skip(1).take(lead - 1).any(|s| s == "self") {
+        return None;
+    }
+    let outward = segments.iter().take(lead).filter(|s| *s == "super").count();
+    let modules: Vec<usize> = (0..scopes.len()).rev().filter(|&i| scopes[i].opaque).collect();
+    let module = *modules.get(outward)?;
+    Some((&scopes[..=module], lead))
+}
+
 /// `segments` with its first name replaced by what it imports, again while that is an import
 /// of another local name (`use std::fs; use fs::metadata;`), a few steps at most.
 fn resolve(scopes: &[Scope], segments: &[String]) -> Vec<String> {
+    resolve_within(scopes, segments, 4)
+}
+
+/// [`resolve`], following a `self::`/`super::` import (`use self::x as y;`) at most `steps`
+/// times.
+fn resolve_within(scopes: &[Scope], segments: &[String], steps: usize) -> Vec<String> {
     let mut path = segments.to_vec();
+    // `self::x` / `super::x`: `x` as that module's imports name it; a name it defines (or one
+    // it does not name) is not std's and is left as written.
+    if let Some((module, lead)) = module_scopes(scopes, &path) {
+        let Some(name) = path.get(lead) else { return path };
+        let Some(full) = lookup(module, name) else { return path };
+        path.splice(..=lead, full);
+        return match steps.checked_sub(1) {
+            Some(left) => resolve_within(module, &path, left),
+            None => path,
+        };
+    }
+    let mut replaced = false;
     for _ in 0..4 {
         let Some(first) = path.first() else { break };
+        if matches!(first.as_str(), "self" | "super") && replaced {
+            // An import named a `self::`/`super::` path (`use self::symlink_metadata as sm;`):
+            // resolve it from its module, as a call written that way is (#42003 review).
+            return match steps.checked_sub(1) {
+                Some(left) => resolve_within(scopes, &path, left),
+                None => path,
+            };
+        }
         if matches!(first.as_str(), "std" | "core" | "crate" | "self" | "super") {
             break;
         }
@@ -259,6 +348,7 @@ fn resolve(scopes: &[Scope], segments: &[String]) -> Vec<String> {
             break;
         }
         path.splice(0..1, full);
+        replaced = true;
     }
     path
 }
@@ -439,7 +529,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             let by_path = !through_home_fs && std_read_by_path(&resolved);
             if last == "exists_nofollow" || by_path {
                 let written = segments.join("::");
-                let what = if segments.len() == 1 {
+                let what = if segments.len() == 1
+                    || matches!(segments.first().map(String::as_str), Some("self" | "super"))
+                {
                     format!("{written}(..) ({})", resolved.join("::"))
                 } else {
                     format!("{written}(..)")
@@ -464,11 +556,18 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
 /// The rows of one file.
 fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
+    rows_in_module(rel, file, &[])
+}
+
+/// The rows of one file whose module sits in the modules `around` (outermost first): a
+/// `super::` in it resolves in theirs.
+fn rows_in_module(rel: &str, file: &syn::File, around: &[Scope]) -> Vec<String> {
     let mut rows = Vec::new();
-    let root = Scope::of(file.items.iter(), true);
+    let mut scopes = around.to_vec();
+    scopes.push(Scope::of(file.items.iter(), true));
     for item in &file.items {
         let mut scan =
-            Scan { rel, paths: HashSet::new(), scopes: vec![root.clone()], rows: Vec::new() };
+            Scan { rel, paths: HashSet::new(), scopes: scopes.clone(), rows: Vec::new() };
         scan.visit_item(item);
         rows.append(&mut scan.rows);
     }
@@ -479,16 +578,17 @@ fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
 fn nothing_in_the_store_checks_a_file_by_path() {
     let sources = store_sources();
     assert!(
-        sources.iter().any(|(rel, _)| rel == "src/store/cold.rs")
-            && sources.iter().any(|(rel, _)| rel == "src/store/journal_store/meta.rs"),
+        sources.iter().any(|(rel, ..)| rel == "src/store/cold.rs")
+            && sources.iter().any(|(rel, ..)| rel == "src/store/journal_store/meta.rs"),
         "the lint reads the store's modules: {:?}",
-        sources.iter().map(|(rel, _)| rel).collect::<Vec<_>>()
+        sources.iter().map(|(rel, ..)| rel).collect::<Vec<_>>()
     );
     assert!(
-        !sources.iter().any(|(rel, _)| rel.ends_with("_tests.rs")),
+        !sources.iter().any(|(rel, ..)| rel.ends_with("_tests.rs")),
         "a test module is left out"
     );
-    let rows: Vec<String> = sources.iter().flat_map(|(rel, file)| rows_in(rel, file)).collect();
+    let rows: Vec<String> =
+        sources.iter().flat_map(|(rel, file, around)| rows_in_module(rel, file, around)).collect();
     assert!(
         rows.is_empty(),
         "{} existence or metadata check(s) by path in the store: read each in the held home \
@@ -685,6 +785,148 @@ fn the_lint_resolves_imported_fs_functions() {
             "fs::metadata(..)",
             "fs::metadata(..)",
             "symlink_metadata(..) (std::fs::symlink_metadata)",
+        ],
+    );
+}
+
+/// `self::` and `super::` resolve through the module's own imports (the parent module's for
+/// `super`), and a glob of `std::fs` claims only the names std::fs exports: any other name is
+/// looked up in the scopes around it (#41970 review F1, F2).
+#[test]
+fn the_lint_resolves_self_super_and_std_fs_glob_names() {
+    let fixture = r#"
+        mod through_self {
+            use std::fs::symlink_metadata;
+            fn a(p: &Path) -> bool { self::symlink_metadata(p).is_ok() }
+        }
+        mod parent {
+            use std::fs::metadata;
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod glob_in_a_block {
+            use std::path::Path;
+            fn a(p: &Path) -> bool {
+                use std::fs::*;
+                Path::exists(p)
+            }
+        }
+        mod self_local {
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool {
+                use std::fs::metadata;
+                self::metadata(p)
+            }
+        }
+        mod glob_falls_through {
+            use crate::store::disk::Probe;
+            fn a(p: &Path) -> bool {
+                use std::fs::*;
+                Probe::exists(p) && Probe::metadata(p).is_some()
+            }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "self::symlink_metadata(..) (std::fs::symlink_metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+            "Path::exists(..)",
+        ],
+    );
+}
+
+/// A `self::`/`super::` path an alias names resolves on (`use self::symlink_metadata as sm;`),
+/// and a file-backed child module's `super::` sees the module that declares it: one class, "a
+/// `self::`/`super::` resolution stops early" (#42003 review). A parent's `metadata` that is a
+/// local fn is not std's.
+#[test]
+fn the_lint_resolves_self_super_through_aliases() {
+    let fixture = r#"
+        mod self_alias {
+            use std::fs::symlink_metadata;
+            use self::symlink_metadata as sm;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+        }
+        mod super_alias {
+            use std::fs::metadata;
+            mod child {
+                use super::metadata as m;
+                fn a(p: &Path) -> bool { m(p).is_ok() }
+            }
+        }
+        mod self_alias_local {
+            fn metadata(_: &Path) -> bool { true }
+            use self::metadata as m;
+            fn a(p: &Path) -> bool { m(p) }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"],);
+}
+
+/// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
+fn tree_rows(src: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
+    let mut rows: Vec<String> = out
+        .iter()
+        .flat_map(|(path, file, around)| {
+            let rel = path.strip_prefix(src).unwrap_or(path).to_string_lossy().replace('\\', "/");
+            rows_in_module(&rel, file, around)
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// A file-backed child module (`mod child;`) is read inside the modules that declare it: its
+/// `super::metadata(p)` resolves through the parent's `use std::fs::metadata;`, through an inline
+/// parent too, and `super::super::` two modules out. A parent whose `metadata` is a local fn
+/// gives no row.
+#[test]
+fn the_lint_reads_a_file_backed_child_in_its_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path();
+    let files = [
+        (
+            "store.rs",
+            "use std::fs::metadata;\nmod child;\nmod shadowed;\n\
+             mod inline {\n    use std::fs::symlink_metadata;\n    mod deep;\n}\n",
+        ),
+        ("store/child.rs", "fn a(p: &Path) -> bool {\n    super::metadata(p).is_ok()\n}\n"),
+        ("store/shadowed.rs", "fn metadata(_: &Path) -> bool { true }\nmod grandchild;\n"),
+        (
+            "store/shadowed/grandchild.rs",
+            "fn a(p: &Path) -> bool {\n    super::metadata(p)\n}\n\
+             fn b(p: &Path) -> bool {\n    super::super::metadata(p).is_ok()\n}\n",
+        ),
+        (
+            "store/inline/deep.rs",
+            "fn a(p: &Path) -> bool {\n    super::symlink_metadata(p).is_ok()\n}\n",
+        ),
+    ];
+    for (rel, text) in files {
+        let path = src.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+    }
+    assert_eq!(
+        tree_rows(src),
+        [
+            "store/child.rs:2 super::metadata(..) (std::fs::metadata)",
+            "store/inline/deep.rs:2 super::symlink_metadata(..) (std::fs::symlink_metadata)",
+            "store/shadowed/grandchild.rs:5 super::super::metadata(..) (std::fs::metadata)",
         ],
     );
 }

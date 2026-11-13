@@ -4,30 +4,57 @@
 
 use super::*;
 
+/// Free pages one [`WorkspaceRegistry::incremental_journal_vacuum`] step
+/// returns (1 MiB): what bounds the time the step holds the registry.
+const JOURNAL_VACUUM_STEP_PAGES: u64 = 256;
+
 impl WorkspaceRegistry {
     pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
-    /// Returns up to 256 free pages; true while an incremental-vacuum
-    /// registry still has free pages for a later call.
-    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
+    /// Returns [`JOURNAL_VACUUM_STEP_PAGES`] free pages to the file system
+    /// when at least that many are free over `keep_free_pages`, else
+    /// nothing (no write); true while a later call has a whole step to
+    /// return.
+    ///
+    /// The registry keeps `keep_free_pages` because a returned page is not
+    /// free of charge: the vacuum moves the live pages at the end of the
+    /// file into free ones and rewrites what points at them, in a commit of
+    /// its own (measured, `mux/tests/journal_vacuum_backlog.rs`: 1.03 WAL
+    /// bytes per byte returned when live pages move, 0.01 when the free
+    /// pages end the file), while a free page a new row reuses costs
+    /// nothing. Only whole steps, so a free list that sits at the reserve
+    /// is not trimmed a few pages a commit.
+    pub(crate) fn incremental_journal_vacuum(&self, keep_free_pages: u64) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for this call or a later one.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        if mode != 2 {
+            return Ok(false);
+        }
+        // Reads the database header only.
+        let step_due = || -> anyhow::Result<bool> {
+            let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+            let over = u64::try_from(free).unwrap_or(0).saturating_sub(keep_free_pages);
+            Ok(over >= JOURNAL_VACUUM_STEP_PAGES)
+        };
+        if !step_due()? {
+            return Ok(false);
+        }
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
-        let db = self.connection.get();
         // SQLite frees one page per step of this pragma, so it must be stepped
         // until done: `execute_batch` steps once and freed a single page.
-        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut vacuum =
+            db.prepare(&format!("PRAGMA incremental_vacuum({JOURNAL_VACUUM_STEP_PAGES})"))?;
         let mut steps = vacuum.raw_query();
         while steps.next()?.is_some() {}
         drop(steps);
         drop(vacuum);
-        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
-        // converted, so they are no work for a later call.
-        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
-        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
-        Ok(mode == 2 && free > 0)
+        step_due()
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
