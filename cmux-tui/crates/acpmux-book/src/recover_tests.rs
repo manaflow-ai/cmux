@@ -393,7 +393,7 @@ fn a_source_change_cuts_the_replay_suffix_to_the_checkpoint() {
         log.patch(1, 2, RawRange::NONE, b"new revision").unwrap();
         log.append_settled(2, 1, RawRange::NONE, &text(2)).unwrap();
         log.sync().unwrap();
-        log.cut_to_checkpoint().unwrap();
+        log.cut_to_checkpoint(&[]).unwrap();
         assert_eq!(log.last_seq(), 1);
         assert_eq!(log.max_row(), 1);
         assert!(log.row(2).is_none());

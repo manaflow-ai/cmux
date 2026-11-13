@@ -849,11 +849,45 @@ impl Log {
     /// Discards the replay suffix and returns the files to the last checkpoint. The actor uses
     /// this when a source stamp or boot changed: its checkpoint state remains authoritative, so
     /// records translated under the old source must not survive under the new edition.
-    pub fn cut_to_checkpoint(&mut self) -> Result<(), Error> {
+    pub fn cut_to_checkpoint(&mut self, open_rows: &[u64]) -> Result<(), Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
         if self.tail.seg < self.checkpoint_mark.seg
             || self.tail.len < u64::from(self.checkpoint_mark.off)
         {
             return Err(Error::Corrupt("checkpoint is past the log tail"));
+        }
+        let (_, undo_entries) = read_undo(&self.undo, Some(self.checkpoint_mark))?;
+        for undo in &undo_entries {
+            if self.rows.get(undo.row_id).is_some_and(|entry| {
+                entry.seg > self.checkpoint_mark.seg
+                    || (entry.seg == self.checkpoint_mark.seg
+                        && u64::from(entry.off) >= u64::from(self.checkpoint_mark.off))
+            }) {
+                self.rows.set(undo.row_id, undo.entry)?;
+            }
+        }
+        for row_id in open_rows {
+            if *row_id != 0 && self.rows.get(*row_id).is_some() {
+                self.rows.clear(*row_id)?;
+            }
+        }
+        let last_index_row = self.rows.max_row_id();
+        let mut row_id = self.checkpoint_max_row.saturating_add(1);
+        while row_id <= last_index_row {
+            if self.rows.get(row_id).is_some() {
+                self.rows.clear(row_id)?;
+            }
+            row_id = row_id.saturating_add(1);
+        }
+        let last_slot = self.seqs.max_slot();
+        let mut slot = (self.checkpoint_last_seq / SEQ_STRIDE).saturating_add(1);
+        while slot <= last_slot {
+            if self.seqs.get(slot)?.is_some() {
+                self.seqs.clear(slot)?;
+            }
+            slot = slot.saturating_add(1);
         }
         let rows_synced = self.rows.sync()?;
         let seqs_synced = self.seqs.sync()?;
@@ -898,7 +932,6 @@ impl Log {
         self.max_row = self.checkpoint_max_row;
         self.readers.clear();
         self.unsynced = false;
-        self.broken = false;
         Ok(())
     }
 

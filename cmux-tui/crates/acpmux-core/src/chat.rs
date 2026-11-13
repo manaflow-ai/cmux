@@ -461,7 +461,11 @@ fn open_state_from_log(
             || checkpoint.cursors.iter().any(|cursor| cursor.stamp != actor.source_stamp)
     });
     if stamp_changed {
-        actor.log.cut_to_checkpoint()?;
+        let open_rows = saved_checkpoint
+            .as_ref()
+            .map(|checkpoint| checkpoint.open.iter().map(|open| open.body.row).collect::<Vec<_>>())
+            .unwrap_or_default();
+        actor.log.cut_to_checkpoint(&open_rows)?;
         actor.edition = next_edition(Some(actor.edition), || (actor.config.edition_random)());
         actor.boot_id = actor.config.boot_id;
     }
@@ -695,18 +699,20 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
 }
 
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
-    merge_row_fields(state, &row, false)?;
+    // A patch replaces a settled row's body. Keep its temporary body local: settled rows are
+    // never checkpoint-open, so retaining one here would leak every superseded body until the
+    // actor next opened.
+    state.bodies.remove(&row.id);
+    state.raw_ranges.remove(&row.id);
+    let mut patch_body = Body::new(row.id).map_err(ChatError::Book)?;
+    for (field, value) in &row.fields {
+        state.blobs.set(&mut patch_body, field, value, false)?;
+    }
     let mut encoded = Vec::new();
-    let body = state.bodies.get(&row.id);
-    let body_text = if let Some(body) = body {
-        let mut bytes = Vec::new();
-        state.blobs.write_body(body, &mut bytes)?;
-        String::from_utf8(bytes).map_err(|_| ChatError::Closed)?
-    } else {
-        "{}".into()
-    };
-    let body = body_text;
-    row.as_row(&body).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
+    let mut body_text = Vec::new();
+    state.blobs.write_body(&patch_body, &mut body_text)?;
+    let body_text = std::str::from_utf8(&body_text).map_err(|_| ChatError::Closed)?;
+    row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     let seq = match state.log.patch(row.id, row.rev, raw, &encoded) {
         Ok(seq) => seq,
         Err(BookError::StaleRev { .. }) | Err(BookError::AlreadySettled { .. }) => {
@@ -756,14 +762,15 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
             raw: state.raw_ranges.get(&row.id).copied().unwrap_or(RawRange::NONE),
         });
     }
-    let bodies = checkpoint.open.iter().map(|open| &open.body).collect::<Vec<_>>();
-    state.blobs.sync(bodies.iter().copied())?;
+    let bodies = checkpoint.open.iter().map(|open| open.body.clone()).collect::<Vec<_>>();
+    state.blobs.sync(bodies.iter())?;
     state.folds.sync()?;
     if state.raw_file != 0 {
         state.source.sync_through(state.raw_place)?;
     }
     let open = checkpoint.open.iter().map(|open| open.body.row).collect::<Vec<_>>();
     checkpoint.write(&mut state.log, &open)?;
+    state.blobs.recover(&bodies, checkpoint.last_row)?;
     state.last_checkpoint = Instant::now();
     state.settled_since_checkpoint = 0;
     Ok(())
