@@ -72,6 +72,9 @@ pub const STATE_FILE: &str = "/var/lib/cmux/self-update/state.json";
 pub const PAUSE_FILE: &str = "/var/lib/cmux/self-update/pauses.json";
 /// An update between its flip and its health check.
 pub const PENDING_FILE: &str = "/var/lib/cmux/self-update/pending.json";
+/// The machine (its Cloud instance id) the updater last started on. An image
+/// carries the bake's, or none: a start on another id is a new machine's first.
+pub const STARTED_ON_FILE: &str = "/var/lib/cmux/self-update/started-on";
 pub const DOWNLOAD_DIR: &str = "/var/lib/cmux/self-update/download";
 /// The work user's link the session host runs (bake.ts links it into `current`).
 pub const WORK_CMUX_TUI_LINK: &str = "/home/cmux/.cmux/bin/cmux-tui";

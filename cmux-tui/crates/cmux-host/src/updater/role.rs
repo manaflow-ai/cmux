@@ -563,6 +563,29 @@ pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
     false
 }
 
+/// What the role's start was ([`role_start`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Start {
+    /// The restart an update's own flip queued: no start hold.
+    OwnFlip,
+    /// The first start on this machine: a machine an image made.
+    NewMachine,
+    /// Any other start: the 5 min hold.
+    Cold,
+}
+
+/// The role's start on `instance` at `now_ms`.
+pub(super) fn role_start(paths: &Paths, instance: &str, now_ms: u64, offset_ns: i128) -> Start {
+    let _ = instance;
+    if start_hold(paths, now_ms, offset_ns) { Start::OwnFlip } else { Start::Cold }
+}
+
+/// Whether the `Bound` of `instance` takes the connect hold.
+pub(super) fn bound_takes_hold(new_machine: &mut Option<String>, instance: &str) -> bool {
+    let _ = (new_machine, instance);
+    true
+}
+
 /// Waits `d` or until a message: false when the role stops.
 fn wait(rx: &Receiver<Msg>, d: Duration) -> bool {
     match rx.recv_timeout(d) {

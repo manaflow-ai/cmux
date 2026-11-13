@@ -2233,3 +2233,94 @@ fn a_cold_start_keeps_the_five_minute_hold() {
     assert!(!role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS), "a rollback's restart");
     assert_eq!(gate.held_left(T0_MS + 4_000), Some(gate::CONNECT_HOLD));
 }
+
+/// A machine an image made runs the image's cmux-tui, which can be a roll
+/// behind the channel (2026-11-13: the census first saw 04824385, 7d3458da
+/// and 96db467d from new machines on the images of those pins, after the
+/// channel had moved past them; one swapped 5m02s later, at the end of its
+/// start hold). Its first start, and the `Bound` of its new id right after,
+/// take no hold, so its first check flips at once when nothing is attached.
+/// A later start on the same machine (a reboot) takes the 5 min hold again,
+/// as does a later `Bound`; a carrier session still refuses the flip.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_machine_an_image_made_takes_the_channel_build_at_its_first_start() {
+    const INSTANCE: &str = "m-0123456789abcdef";
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+
+    // The image's state dir names the bake's instance (or none): a new machine.
+    fs::create_dir_all(paths.at(STATE_DIR)).unwrap();
+    fs::write(paths.at(STARTED_ON_FILE), "m-bake\n").unwrap();
+    assert_eq!(role::role_start(&paths, INSTANCE, T0_MS, FLIP_OFFSET_NS), role::Start::NewMachine);
+    assert_eq!(gate.held_left(T0_MS), None, "a new machine's start takes no hold");
+    let mut new_machine = Some(INSTANCE.to_owned());
+    assert!(
+        !role::bound_takes_hold(&mut new_machine, INSTANCE),
+        "its own first Bound holds nothing"
+    );
+    assert_eq!(gate.held_left(T0_MS + 1_000), None);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS + 2_000,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |_| Ok::<(), ()>(()),
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+
+    // A later Bound (a rebind) is a person's machine: the connect hold.
+    assert!(role::bound_takes_hold(&mut new_machine, INSTANCE), "a second Bound holds");
+    let mut other = Some(INSTANCE.to_owned());
+    assert!(role::bound_takes_hold(&mut other, "m-other"), "a Bound of another id holds");
+
+    // A reboot of the same machine is a cold start: the full hold.
+    assert_eq!(
+        role::role_start(&paths, INSTANCE, T0_MS + 600_000, FLIP_OFFSET_NS + 3_600 * SECOND_NS),
+        role::Start::Cold
+    );
+    assert_eq!(gate.held_left(T0_MS + 600_000), Some(gate::CONNECT_HOLD));
+
+    // No record at all (an image from before it) is a new machine too, and a
+    // carrier session that attached still refuses its first flip.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let now = role::wall_ms();
+    assert_eq!(role::role_start(&paths, INSTANCE, now, FLIP_OFFSET_NS), role::Start::NewMachine);
+    let id = format!("new-machine/{}#1", now);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || now + 2_000,
+        gate::Honor::All,
+        || Ok(vec![id.clone()]),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Busy(_)), "{gated:?}");
+}
+
+/// The restart an update's own flip queued is no new machine, also on the
+/// first start that records the instance (a machine that updated into this
+/// build): it takes no start hold, as before, and its next `Bound` holds.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_own_flip_restart_is_no_new_machine() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    assert!(
+        gate.run(T0_MS, gate::Honor::All, |i| i.flip_restart_queued(T0_MS, FLIP_OFFSET_NS)).is_ok()
+    );
+    gate.service_started();
+    assert_eq!(
+        role::role_start(&paths, "m-1", T0_MS + 4_000, FLIP_OFFSET_NS),
+        role::Start::OwnFlip
+    );
+    assert_eq!(gate.held_left(T0_MS + 4_000), None);
+    assert_eq!(fs::read_to_string(paths.at(STARTED_ON_FILE)).unwrap().trim(), "m-1");
+    // The next start on it is a cold one.
+    assert_eq!(role::role_start(&paths, "m-1", T0_MS + 9_000, FLIP_OFFSET_NS), role::Start::Cold);
+    assert_eq!(gate.held_left(T0_MS + 9_000), Some(gate::CONNECT_HOLD));
+}
