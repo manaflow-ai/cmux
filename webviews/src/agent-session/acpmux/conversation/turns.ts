@@ -433,12 +433,14 @@ const retainVisibleReplies = (
   previousVisibleIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
   if (!previous || !previousVisibleIds || !rows.some((row) => row.kind === "activity")) return rows;
-  const currentIds = new Set(rows.map((row) => row.id));
-  const currentReplyIds = new Set(
-    rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id),
-  );
-  const missingReplyIds = new Set([...previousVisibleIds].filter((id) => !currentReplyIds.has(id)));
-  const firstAt = rows[0]?.at ?? Number.POSITIVE_INFINITY;
+  const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
+  const changedRows = rows.slice(changedAt);
+  const currentIds = new Set(changedRows.map((row) => row.id));
+  const missingReplyIds = new Set(previousVisibleIds);
+  for (const row of changedRows)
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) missingReplyIds.delete(row.id);
+  if (missingReplyIds.size === 0) return rows;
+  const firstAt = changedRows[0]?.at ?? Number.POSITIVE_INFINITY;
   let start = 0;
   let high = previous.length;
   while (start < high) {
@@ -458,13 +460,17 @@ const retainVisibleReplies = (
   );
   if (missingReplyIds.size === 0 && !hasEmptyReplacement) return rows;
   const retainIds = new Set<string>();
+  const retainedOrder = new Map<string, number>();
   let segmentStart = 0;
   let anchored = false;
   const finishSegment = (end: number) => {
     if (anchored)
       for (let index = segmentStart; index < end; index += 1) {
         const row = previous[index]!;
-        if (row.kind === "assistant" && missingReplyIds.has(row.id)) retainIds.add(row.id);
+        if (row.kind === "assistant" && missingReplyIds.has(row.id)) {
+          retainIds.add(row.id);
+          retainedOrder.set(row.id, index);
+        }
       }
   };
   for (let index = 0; index <= relevant.length; index += 1) {
@@ -498,7 +504,11 @@ const retainVisibleReplies = (
     }
   }
   if (!changed) return rows;
-  return next.sort((a, b) => a.at - b.at);
+  return next.sort(
+    (a, b) =>
+      a.at - b.at ||
+      (retainedOrder.get(a.id) ?? Number.POSITIVE_INFINITY) - (retainedOrder.get(b.id) ?? Number.POSITIVE_INFINITY),
+  );
 };
 
 const firstDateUnchanged = (view: TurnView, now: number) =>
