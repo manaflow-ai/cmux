@@ -199,7 +199,10 @@
     "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
-    "backToSignIn": "Tilbake til innlogging"
+    "backToSignIn": "Tilbake til innlogging",
+    "chatgptLinkTitle": "Logg inn én gang for å koble til ChatGPT",
+    "chatgptLinkBody": "Denne e-postadressen har allerede en cmux-konto. Logg inn med metoden du brukte før, så kobles ChatGPT til kontoen.",
+    "chatgptEmailUnverifiedBody": "E-postadressen på ChatGPT-kontoen din er ikke bekreftet. Bekreft den hos OpenAI, eller logg inn på en annen måte."
   },
   "cloudPublicationAccess": {
     "title": "Du har ikke tilgang",

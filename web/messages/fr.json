@@ -199,7 +199,10 @@
     "signupPendingBody": "Si vous avez déjà un compte, connectez-vous avec la méthode utilisée précédemment. Si vous venez de créer un compte, vérifiez votre adresse e-mail avant de vous connecter.",
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
-    "backToSignIn": "Retour à la connexion"
+    "backToSignIn": "Retour à la connexion",
+    "chatgptLinkTitle": "Connectez-vous une fois pour associer ChatGPT",
+    "chatgptLinkBody": "Cette adresse e-mail a déjà un compte cmux. Connectez-vous avec la méthode utilisée auparavant et ChatGPT sera associé à ce compte.",
+    "chatgptEmailUnverifiedBody": "L’adresse e-mail de votre compte ChatGPT n’est pas vérifiée. Vérifiez-la auprès d’OpenAI ou connectez-vous autrement."
   },
   "cloudPublicationAccess": {
     "title": "Vous n’avez pas accès",

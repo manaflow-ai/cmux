@@ -199,7 +199,10 @@
     "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
-    "backToSignIn": "返回登录"
+    "backToSignIn": "返回登录",
+    "chatgptLinkTitle": "登录一次以连接 ChatGPT",
+    "chatgptLinkBody": "此邮箱已有 cmux 账户。请使用之前的方式登录，ChatGPT 将连接到该账户。",
+    "chatgptEmailUnverifiedBody": "你的 ChatGPT 账户邮箱尚未验证。请在 OpenAI 完成验证，或使用其他方式登录。"
   },
   "cloudPublicationAccess": {
     "title": "你没有访问权限",

@@ -205,6 +205,10 @@ jobs:
           # reruns stay minis-first through attempt 2.
           SIDE_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          # cmux-next.yml's Mac fallbacks past the bot's attempt 3 read these; the stall move judges each label's
+          # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
+          STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
+          STALL_POOLS: ${{ vars.RUNNER_POOLS }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.

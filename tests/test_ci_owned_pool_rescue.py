@@ -8826,7 +8826,7 @@ class StallMove(unittest.TestCase):
                          ["cancel:3", "rerun-failed:4"])
         self.assertTrue(results[0].startswith("re-ran the failed jobs"), results)
         self.assertIn("::notice title=Owned-pool stall move::", text)
-        self.assertIn(f"attempt 4 takes {rescue.STALL_DESTINATION}", text)
+        self.assertIn("attempt 4 takes Blacksmith", text)
         self.assertIn("has waited 40 min for a runner", text)
 
     def test_an_attempt_2_with_no_step_progress_is_passed_through_to_blacksmith(self):
@@ -8878,12 +8878,71 @@ class StallMove(unittest.TestCase):
         self.assertFalse(any(call.startswith("cancel") for call in api.calls))
         # The same scan state never moves a run twice, and stops at the sweep's cap.
         api.snapshot = room_snapshot()
-        moved, moves = {RUN_ID}, []
+        moved, moves = {(RUN_ID, 3)}, []
         self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
                                            moved=moved, moves=moves, start=lambda *args: None), 0)
+        # A later attempt of a run is a new move, within STALL_MOVES_PER_RUN.
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved={(RUN_ID, 2)}, moves=[], start=lambda *args: None), 1)
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved={(RUN_ID, 1), (RUN_ID, 2)}, moves=[], start=lambda *args: None), 0)
+        # No Blacksmith destination (vars.MACOS_RUNNER_26 points at an owned pool): nothing moves.
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
+                                           moved=set(), moves=[], start=lambda *args: None, destination=None), 0)
         full = [(clock.now(), 1)] * rescue.STALL_MOVES_PER_SWEEP
         self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
                                            moved=set(), moves=full, start=lambda *args: None), 0)
+
+    def test_the_destinations_follow_macos_runner_26_and_runner_pools(self):
+        six, twelve = rescue.STALL_DESTINATION, "blacksmith-12vcpu-macos-26"
+        self.assertEqual(rescue.stall_destinations("", ""), (six,))
+        self.assertEqual(rescue.stall_destinations(twelve, ""), (twelve, six))
+        self.assertEqual(rescue.stall_destinations("", json.dumps({"macos_26": twelve})), (twelve,))
+        self.assertIsNone(rescue.stall_destinations("glaeda-std-xcode-26.6", ""))
+        self.assertIsNone(rescue.stall_destinations("", "not json"))
+        # RUNNER_POOLS set but naming no macos_26 leaves swift-test with an empty runs-on: nothing moves.
+        for pools in ("null", "[]", "5", "{}", json.dumps({"macos_26": ""}), json.dumps({"macos_26": 5})):
+            self.assertIsNone(rescue.stall_destinations("", pools), pools)
+            self.assertIsNone(rescue.stall_destinations(twelve, pools), pools)
+        # Every label a moved job may take needs room: 12 vCPU has room, 6 vCPU is full, so nothing moves.
+        clock = Clock()
+        api = StallAPI(clock, lambda attempt, seconds: [stall_job("cmux-next generated files", job_id=31)],
+                       snapshot=lambda seconds: {"generated_at": stamp(seconds), "pools": {
+                           twelve: {"queued": 0, "running": 0}, six: {"queued": 27, "running": 10}}})
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        logs = []
+        self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                           moves=[], start=lambda *args: None, destination=(twelve, six)), 0)
+        self.assertIn(f"{six} has 10 running and 27 queued", "\n".join(logs))
+        workflow = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
+        self.assertIn("STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}", workflow)
+        self.assertIn("STALL_POOLS: ${{ vars.RUNNER_POOLS }}", workflow)
+
+    def test_a_handover_ends_a_pass_through_between_rounds(self):
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux-next generated files", job_id=attempt * 10 + 1, created=api.began[attempt])]
+        api = StallAPI(clock, jobs, attempt=2, actor=CMUX_BOT)
+        target = stall_target(api)
+        clock.advance(rescue.STALL_QUEUE_SECONDS)
+        stalls = rescue.owned_stalls(jobs(2, clock.seconds), clock.now())
+        result = rescue.stall_move(api, target, stalls, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                   deadline=clock.now() + dt.timedelta(hours=2), stopped=lambda: True)
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3"])
+        self.assertIn("handing over", result)
+        # A handover that lands during the look ends the move after it, before the next cancel.
+        api = StallAPI(clock, jobs, attempt=2, actor=CMUX_BOT)
+        target = stall_target(api)
+        clock.advance(rescue.STALL_QUEUE_SECONDS)
+        checks = iter([False, True])
+        result = rescue.stall_move(api, target, rescue.owned_stalls(jobs(2, clock.seconds), clock.now()),
+                                   now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                   deadline=clock.now() + dt.timedelta(hours=2), stopped=lambda: next(checks, True))
+        self.assertEqual([call for call in api.calls if call.startswith(("cancel", "rerun"))],
+                         ["cancel:2", "rerun-failed:3"])
+        self.assertIn("handing over", result)
 
     def test_a_superseded_head_is_never_cancelled_or_re_run(self):
         clock = Clock()

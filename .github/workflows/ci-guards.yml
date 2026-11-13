@@ -128,6 +128,16 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Resource lifetimes as a shrink-only ratchet: connects with no timeout,
+      # processes nothing stops, tasks and timers nobody owns, waits with no
+      # deadline. Today's cases warn; a new one fails
+      # (scripts/ci/resource-lifetime-allowlist.json).
+      - name: Validate resource lifetime lint
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_ci_resource_lifetimes.py
+          python3 scripts/ci/lint_resource_lifetimes.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -795,6 +805,10 @@ jobs:
       - name: Validate the nightly-next tick cancels a run stuck without a runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_stuck_run.py
+
+      - name: Validate the hosted test deadline watchdog
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_deadline.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
