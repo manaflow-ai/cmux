@@ -391,8 +391,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background past its grace, `TerminalSizeClaimDebounce`). Leaving
-    /// releases the phone's size on the Mac at once, so
+    /// background). Leaving releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     /// The phone projects this terminal (``TerminalProjectingSession``).

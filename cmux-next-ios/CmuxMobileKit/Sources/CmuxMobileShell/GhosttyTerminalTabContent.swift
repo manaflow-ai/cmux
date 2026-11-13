@@ -66,11 +66,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                // The background (or the lock screen) keeps every
-                // terminal's size claimed (`TerminalSizeClaimDebounce`
-                // `backgroundDelay`; the Mac's size lease bounds a suspended
-                // app). A short background task keeps the app running while
-                // the frames for the next cold launch are saved.
+                // The background (or the lock screen) releases every
+                // terminal's size at once. A short background task keeps the
+                // app running for the releases to reach the Mac (bounded:
+                // the Mac's size lease covers a release that never lands)
+                // and while the frames for the next cold launch are saved.
                 let release = SizeReleaseBackgroundTask()
                 release.begin()
                 self?.setAppActive(false)
