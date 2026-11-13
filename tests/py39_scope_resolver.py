@@ -55,6 +55,10 @@ _TABLE_KIND = {"module": "module", "class": "class", "function": "function", "ty
                "type alias": "alias"}
 
 
+class ScopeResolutionError(RuntimeError):
+    """The compiler-backed scope map could not be built, so callers must refuse the file."""
+
+
 def mangle(scope, name):
     """NAME as the compiler spells it in SCOPE: inside a class body, or any scope nested in one (a method, a lambda,
     a comprehension), `__x` with no trailing `__` is `_C__x`, C being the nearest class's name with its leading
@@ -244,19 +248,18 @@ class Resolver:
         if source is None:
             try:
                 source = ast.unparse(tree) if hasattr(ast, "unparse") else None
-            except Exception:
-                source = None
+            except Exception as exc:
+                raise ScopeResolutionError("could not unparse the source: %s" % exc) from exc
             if source is not None:
                 lines = self._relines(tree, source)
                 if lines is None:
-                    source = None
+                    raise ScopeResolutionError("could not align reparsed scopes with the source")
         try:
             top = symtable.symtable(source, "<scope_resolver>", "exec") if source is not None else None
-        except (SyntaxError, ValueError, TypeError):
-            top = None
+        except (SyntaxError, ValueError, TypeError) as exc:
+            raise ScopeResolutionError("could not build the scope table: %s" % exc) from exc
         if top is None:
-            self._break(self.root)
-            return
+            raise ScopeResolutionError("could not build the scope table")
         self.root.table = top
         self._pair(self.root, lines or {})
 
@@ -498,6 +501,8 @@ class Resolver:
                 break
             held = self.in_handler(o, name, at)
             sites = held if held is not None else o.sites.get(name, [])
+            if len(sites) > 1:
+                complete = False
             for site in sites:
                 got, ok = self._site_value(site, name)
                 out |= got
@@ -753,5 +758,15 @@ class Resolver:
                 return {"%s.*" % b for b in bases}, func_complete and base_complete
             if ("builtins.__import__" in func and node.args and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)):
-                return {node.args[0].value.split(".")[0]}, func_complete
+                module = node.args[0].value
+                fromlist = next((kw.value for kw in node.keywords if kw.arg == "fromlist"), None)
+                if len(node.args) >= 4:
+                    fromlist = node.args[3]
+                if fromlist is None:
+                    return {module.split(".")[0]}, func_complete
+                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not fromlist.elts:
+                    return {module.split(".")[0]}, func_complete
+                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)):
+                    return {module}, func_complete
+                return {module.split(".")[0]}, False
         return set(), False

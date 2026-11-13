@@ -298,7 +298,10 @@ def sites(path):
     except (SyntaxError, ValueError):
         return []  # a file 3.9 cannot parse is py39_check's to report
     std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = _SCOPE["alias"] = _aliases(tree)
+    try:
+        alias = _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     parent = _parents(tree)
 
     def guarded(node):
@@ -326,7 +329,10 @@ def guard_pairs(path):
         tree = ast.parse(path.read_bytes(), str(path))
     except (SyntaxError, ValueError):
         return set()
-    _SCOPE["alias"] = _aliases(tree)
+    try:
+        _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     return {pair for n in ast.walk(tree) for pair in [_guard_pair(n)] if pair is not None}
 
 
@@ -690,11 +696,14 @@ class UnderPython39(unittest.TestCase):
             p = Path(d) / "probe.py"
             p.write_text("value = " + "x + " * 399 + "x\n")
             old = ROOT
+            old_limit = sys.getrecursionlimit()
             ROOT = Path(d)
             try:
+                sys.setrecursionlimit(300)
                 with self.assertRaisesRegex(AssertionError, r"scope resolution refused"):
                     sites(p)
             finally:
+                sys.setrecursionlimit(old_limit)
                 ROOT = old
 
     def test_import_as_shadowing_is_lexical(self):
