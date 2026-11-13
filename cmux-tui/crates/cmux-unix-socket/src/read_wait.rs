@@ -56,7 +56,11 @@ fn settle(stream: &UnixStream, set: io::Result<()>) -> io::Result<ReadWait> {
     ))
 }
 
-/// Whether a poll that never blocks says that `stream` can receive no more.
+/// Whether a poll that never blocks says that `stream` can receive no more:
+/// a hang-up or an error of the socket. On Linux a peer that only ended its
+/// writes gives no hang-up, so this is `false` there; Linux does not refuse
+/// the timeout on such a socket, so no real refusal reaches this poll with
+/// that state.
 fn ended(stream: &UnixStream) -> bool {
     let mut poll = libc::pollfd {
         fd: std::os::fd::AsRawFd::as_raw_fd(stream),
