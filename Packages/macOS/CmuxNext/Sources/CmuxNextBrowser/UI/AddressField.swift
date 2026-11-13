@@ -130,6 +130,21 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// its text and selection, the resting text is written again.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    /// A theme repaint reaches only the views under a scope's roots and windows. The browser
+    /// chrome is out of the window when a tab moves to another pane or window, or while an agent
+    /// drives it off screen; a theme change meanwhile that keeps light or dark brings no
+    /// appearance change on return, and the text kept the old theme's ink on the new theme's bar
+    /// (https://github.com/manaflow-ai/cmux/issues/42436). Recolor on entering a window, as the
+    /// pill does (`OmnibarPillView.viewDidMoveToWindow`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { recolor() }
+    }
+
+    private func recolor() {
         if let editor = currentEditor() as? NSTextView {
             performWithTheme {
                 let color = OmnibarStyle.textPrimary
