@@ -13,6 +13,45 @@ use super::*;
 use crate::agent_credentials::{AgentCredential, Family};
 
 impl Hub {
+    /// Why session's agent may not start or take a prompt now (`agent_credentials::blocked`):
+    /// with `live`, an agent the daemon adopted still runs on the env it started with, so only an
+    /// expired ChatGPT token stops it.
+    pub(crate) fn credential_blocked(&self, session: &Session, live: bool) -> Option<RpcError> {
+        let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let reference = session.meta().credential_ref;
+        if live && credential.is_none() {
+            return None;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        crate::agent_credentials::blocked(credential.as_ref(), reference.as_ref(), now)
+    }
+
+    /// `agent/credentials.list`: this daemon's sessions that run on an owner's credential, each
+    /// with its connection, expiry and whether the daemon lost it (`lost`: the Mac sends it again).
+    /// No value.
+    pub(crate) fn credential_holders(&self) -> Value {
+        let sessions: Vec<Arc<Session>> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let holders: Vec<Value> = sessions
+            .iter()
+            .filter_map(|session| {
+                let reference = session.meta().credential_ref?;
+                let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let current = held.as_ref().map(AgentCredential::reference).unwrap_or(reference);
+                Some(json!({
+                    "sessionId": session.id,
+                    "connection": current.connection,
+                    "expires_at": current.expires_at,
+                    "chatgpt": current.chatgpt,
+                    "lost": held.is_none(),
+                }))
+            })
+            .collect();
+        json!({"holders": holders})
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
@@ -42,12 +81,23 @@ impl Hub {
             )
             .with_data(json!({"reason": "credentials.family"})));
         }
+        // The meta keeps what the chat runs on (no value), so a daemon restart knows it.
+        let reference = credential.reference();
         let changed = {
             let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = held.as_ref() != Some(&credential);
+            let changed = !held.as_ref().is_some_and(|h| h.same_secret(&credential));
             *held = Some(credential);
             changed
         };
+        let kept = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let differs = m.credential_ref.as_ref() != Some(&reference);
+            m.credential_ref = Some(reference);
+            differs
+        };
+        if kept {
+            self.save_meta(&session);
+        }
         if !changed || session.child.lock().await.is_none() {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
@@ -173,5 +223,65 @@ mod tests {
         assert_eq!(e.data.unwrap()["reason"], "credentials.family");
         let e = hub.update_credential("no-such-session", credential(FIRST)).await.unwrap_err();
         assert_eq!(e.data.unwrap()["reason"], "credentials.no_session");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_chat_whose_credential_the_daemon_lost_waits_for_the_mac_never_the_route() {
+        let hub = hub();
+        let launch = AgentCredential::parse(
+            &json!({"env": {CLAUDE_OAUTH: FIRST}, "connection": "claude-token", "expires_at": null}),
+        )
+        .unwrap();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(launch),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        hub.child_for(&session).await.unwrap();
+        assert_eq!(
+            session.meta().credential_ref.and_then(|r| r.connection).as_deref(),
+            Some("claude-token"),
+            "the meta knows the chat runs on the owner's credential"
+        );
+        let holders = hub.credential_holders();
+        assert_eq!(holders["holders"][0]["lost"], json!(false));
+        // A daemon restart loses what was in memory; the meta stays.
+        *session.credential.lock().unwrap() = None;
+        assert!(hub.credential_blocked(&session, true).is_none(), "an adopted agent keeps its env");
+        let refused = hub.credential_blocked(&session, false).expect("no start on another route");
+        assert_eq!(refused.data.unwrap()["reason"], crate::agent_credentials::RECONNECT_REASON);
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        let out = hub.restart_harnesses(None, Some(&only)).await;
+        assert_eq!(out.failed.len(), 1, "the agent does not start without it");
+        let holders = hub.credential_holders();
+        assert_eq!(holders["holders"][0]["sessionId"], json!(session.id));
+        assert_eq!(holders["holders"][0]["lost"], json!(true));
+        assert!(!holders.to_string().contains(FIRST));
+        // The owner's Mac sends it again: the chat goes on.
+        hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
+        assert!(hub.credential_blocked(&session, false).is_none());
+        hub.child_for(&session).await.unwrap();
+        assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
+        assert_eq!(hub.credential_holders()["holders"][0]["lost"], json!(false));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_expiry_for_the_same_token_restarts_nothing() {
+        let hub = hub();
+        let with = |at: u64| {
+            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: FIRST}, "expires_at": at}))
+                .unwrap()
+        };
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(with(100)),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        hub.child_for(&session).await.unwrap();
+        let reply = hub.update_credential(&session.id, with(200)).await.unwrap();
+        assert_eq!(reply["restart"], "none");
+        assert_eq!(session.meta().credential_ref.and_then(|r| r.expires_at), Some(200));
     }
 }

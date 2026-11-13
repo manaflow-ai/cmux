@@ -151,3 +151,77 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
     );
     assert!(chat.sent("agent/credentials.update").is_empty());
 }
+
+#[test]
+fn the_connection_and_expiry_ride_with_the_credential() {
+    let mut chat = connect("cred-ref", AgentStartHost::OwnerCloud, false);
+    let credentials = json!({"env": {"CMUX_CHATGPT_ACCESS_TOKEN": TOKEN},
+        "connection": "chatgpt-1", "expires_at": 1_900_000_000u64});
+    let started = chat.start(credentials.clone(), json!("owner"));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let new = chat.sent("session/new");
+    assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], credentials);
+    let answer =
+        chat.client.request(json!({"cmd":"agent-session-credentials","surface":chat.surface,
+        "env":{"CMUX_CHATGPT_ACCESS_TOKEN":"eyJ.new.sig"},"connection":"chatgpt-1",
+        "expires_at":1_900_003_600u64,"vm_kind":"owner"}));
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    let updates = chat.sent("agent/credentials.update");
+    assert_eq!(updates[0]["params"]["connection"], json!("chatgpt-1"));
+    assert_eq!(updates[0]["params"]["expires_at"], json!(1_900_003_600u64));
+    assert_code(
+        &chat.start(
+            json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": TOKEN}, "connection": "a b"}),
+            json!("owner"),
+        ),
+        "agent_session.bad_request",
+    );
+}
+
+#[test]
+fn the_owners_app_reads_whether_the_tabs_chat_runs_on_a_credential() {
+    let mut chat = connect("cred-status", AgentStartHost::OwnerCloud, false);
+    let started = chat.start(env(TOKEN), json!("owner"));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    let _ = chat.sent("session/new");
+    let status = |vm_kind: Value, surface: u64| {
+        let mut frame = json!({"cmd":"agent-session-credential-status","surface":surface});
+        if !vm_kind.is_null() {
+            frame["vm_kind"] = vm_kind;
+        }
+        frame
+    };
+    let answer = chat.client.request(status(json!("owner"), chat.surface));
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    // The fake lists the tab's own SESSION as lost and another session beside it.
+    assert_eq!(
+        answer["data"]["credential"],
+        json!({"connection": "chatgpt-1", "expires_at": 1_900_000_000u64, "chatgpt": true, "lost": true})
+    );
+    assert_eq!(chat.sent("agent/credentials.list").len(), 1);
+    assert_eq!(chat.client.request(status(Value::Null, chat.surface))["ok"], json!(false));
+    assert_code(&chat.client.request(status(json!("owner"), 999_999)), "agent_session.unknown_tab");
+    assert!(chat.sent("agent/credentials.list").is_empty(), "a refused read asks acpmux nothing");
+}
+
+#[test]
+fn a_teammates_view_never_reads_or_sets_the_owners_credential() {
+    let chat = connect("cred-teammate", AgentStartHost::OwnerCloud, false);
+    // A teammate's proxied link to the owner's machine (the share relay binds its author).
+    let mut teammate = Client::connect(&chat._mux, "cred-teammate-link");
+    let author = json!({"id":"tailnet:p@example.com", "login":"p@example.com", "node":"n"});
+    let bound = teammate.request(json!({"cmd":"agent-session-proxy-bind", "author":author}));
+    assert_eq!(bound["ok"], json!(true), "{bound}");
+    for cmd in ["agent-session-credentials", "agent-session-credential-status"] {
+        let mut frame = json!({"cmd": cmd, "surface": chat.surface, "vm_kind": "owner"});
+        if cmd == "agent-session-credentials" {
+            frame["env"] = json!({"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"});
+        }
+        let refused = teammate.request(frame);
+        assert_eq!(refused["ok"], json!(false), "{cmd}: {refused}");
+    }
+    while let Ok(frame) = chat.fake.frames.recv_timeout(Duration::from_millis(300)) {
+        let method = frame["method"].as_str().unwrap_or_default();
+        assert!(!method.starts_with("agent/credentials."), "{method} reached acpmux");
+    }
+}

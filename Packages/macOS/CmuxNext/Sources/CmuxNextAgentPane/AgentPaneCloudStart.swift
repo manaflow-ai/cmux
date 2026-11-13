@@ -29,6 +29,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the family's first Cloud-serving one (``CloudSetup/choose(harness:model:account:)``,
     /// cmux-tui/docs/model-connections.md, Revision 2).
     public var account: String?
+    /// The connection the start runs on, as Cloud first use chose it at the send (``CloudSetup/admit(_:)``):
+    /// the picker's account if it serves Cloud, else the family's first Cloud-serving one; nil for a team
+    /// key or the machine's own route. The seed carries it to the machine chat's start.
+    public var connection: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
@@ -165,6 +169,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         var seed = AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
                                  promptBy: .person, harness: harness, model: model, mode: mode)
         seed.effort = effort
+        seed.cloudConnection = connection
         return seed
     }
 }
@@ -464,5 +469,25 @@ extension AgentPaneModel {
         guard let grant = cloudSignInGrant else { return false }
         cloudSignInGrant = nil
         return grant.key == key && grant.generation == cloudSignInGeneration && ContinuousClock.now < grant.until
+    }
+}
+
+extension CloudSetup {
+    /// A Cloud start's Cloud first use answer (``choose(harness:model:account:)``), computed once: the
+    /// start with the connection it runs on (``AgentPaneCloudStart/connection``, nil for a team key or
+    /// the machine's own route), and nil; or `cloud_setup_required` naming the family and model when
+    /// nothing serves the picker's model, which the page shows as Set up Cloud.
+    public func admit(_ start: AgentPaneCloudStart) async -> (start: AgentPaneCloudStart, refusal: [String: Any]?) {
+        var start = start
+        switch await choose(harness: start.harness, model: start.model, account: start.account) {
+        case .setup(let family, let model):
+            return (start, AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""],
+                                                  retryable: false, origin: "native"))
+        case .connection(let id, _):
+            start.connection = id
+        case .organization, .fallback:
+            start.connection = nil
+        }
+        return (start, nil)
     }
 }

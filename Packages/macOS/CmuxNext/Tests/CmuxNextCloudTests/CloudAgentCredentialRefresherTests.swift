@@ -1,4 +1,5 @@
 @testable import CmuxNextCloud
+import CmuxNextDaemon
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -52,11 +53,13 @@ struct CloudAgentCredentialRefresherTests {
     final class Machine: @unchecked Sendable {
         private let lock = NSLock()
         private var got: [[String: String]] = []
+        private var sent: [AgentSessionAttachClient.LaunchCredential] = []
         var answer: CloudAgentCredentialRefresher.PushOutcome = .delivered
         var pushes: [[String: String]] { lock.withLock { got } }
+        var credentials: [AgentSessionAttachClient.LaunchCredential] { lock.withLock { sent } }
 
         var push: CloudAgentCredentialRefresher.Push {
-            { [self] env in lock.withLock { got.append(env); return answer } }
+            { [self] credential in lock.withLock { got.append(credential.env); sent.append(credential); return answer } }
         }
     }
 
@@ -151,45 +154,120 @@ struct CloudAgentCredentialRefresherTests {
         #expect(refresher.trackedCount == 0)
     }
 
-    @Test func aChatStartsOnTheConnectionTheCloudStartChoseReadAtItsStart() async throws {
+    @Test func thePushCarriesTheConnectionAndTheNewExpiry() async throws {
+        let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
+        let refresher = make(clock, acpmux)
+        refresher.track(try started(acpmux), push: machine.push)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(3_000))
+        try await clock.waitForSleeper()
+        let sent = try #require(machine.credentials.first)
+        #expect(sent.connection == "conn-1")
+        #expect(sent.expiresAt == Date(timeIntervalSince1970: acpmux.expiry))
+        #expect(!String(describing: sent).contains("token-"), "the description names the variable only")
+    }
+
+    // MARK: - A chat's start and its reattach
+
+    private static func codexReply(expiresIn: TimeInterval = 3_600) -> Data {
+        let expires = Int(Date().timeIntervalSince1970 + expiresIn)
+        return Data(#"{"family":"codex","kind":"chatgpt-plan","env":{"CMUX_CHATGPT_ACCESS_TOKEN":"eyJ.fresh.sig"},"expires_at":\#(expires)}"#.utf8)
+    }
+
+    @Test func aStartReadsTheConnectionItsCloudStartChose() async throws {
         var asked: [String] = []
         let credentials = CloudAgentCredentials { id in
             asked.append(id)
             return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
         }
-        #expect(try await credentials.launchCredential(chat: "tab-1", machine: "m1") == nil, "no choice: the machine's own route")
-        credentials.use(connection: "route-claude", chat: "tab-1", machine: "m1")
-        let launch = try #require(try await credentials.launchCredential(chat: "tab-1", machine: "m1"))
+        let refusal = CloudAgentCredentials.Failure.unavailable(connection: "refused")
+        #expect(try await credentials.launchCredential(connection: nil, family: "claude", refusal: refusal) == nil, "no choice: the machine's own route")
+        #expect(asked.isEmpty)
+        let launch = try #require(try await credentials.launchCredential(connection: "route-claude", family: "claude", refusal: refusal))
         #expect(asked == ["route-claude"])
         #expect(launch.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"] && launch.family == "claude" && !launch.refreshes)
+        #expect(launch.launch.connection == "route-claude" && launch.launch.expiresAt == nil)
         #expect(!String(describing: launch).contains("sk-ant") && !String(reflecting: launch).contains("sk-ant"))
+        #expect(!String(describing: launch.launch).contains("sk-ant") && !String(reflecting: launch.launch).contains("sk-ant"))
         var dumped = ""
         dump(launch, to: &dumped)
+        dump(launch.launch, to: &dumped)
         #expect(!dumped.contains("sk-ant"), "the mirror names the variable only")
-        // Spent once the chat started on it.
-        credentials.started(chat: "tab-1", machine: "m1", on: launch) { _ in .delivered }
-        #expect(credentials.connection(chat: "tab-1", machine: "m1") == nil)
+        #expect(try await credentials.launchCredential(connection: "route-claude", family: "codex", refusal: refusal) == nil,
+                "switched to another agent after the choice: not this credential")
     }
 
     @Test func aChosenConnectionThatCannotBeReadRefusesTheStart() async {
         let credentials = CloudAgentCredentials { _ in Data(#"{"error":"nope"}"#.utf8) }
-        credentials.use(connection: "gone", chat: "tab", machine: "m")
-        await #expect(throws: CloudAgentCredentials.Failure.unavailable(connection: "gone")) {
-            try await credentials.launchCredential(chat: "tab", machine: "m")
+        let refusal = CloudAgentCredentials.Failure.unavailable(connection: "refused")
+        await #expect(throws: refusal) {
+            try await credentials.launchCredential(connection: "gone", family: "codex", refusal: refusal)
+        }
+        let noAcpmux = CloudAgentCredentials()
+        await #expect(throws: refusal) {
+            try await noAcpmux.launchCredential(connection: "gone", family: nil, refusal: refusal)
         }
     }
 
-    /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
-    /// none, and a tab that got another key than the start planned keeps the choice.
-    @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {
+    @Test func aChatGPTStartIsKeptFreshAndItsMachineGoingStopsIt() async throws {
+        let credentials = CloudAgentCredentials { _ in Self.codexReply() }
+        let launch = try #require(try await credentials.launchCredential(connection: "chatgpt-1", family: "codex", refusal: CloudAgentCredentials.Failure.unavailable(connection: "x")))
+        let id = try #require(credentials.started(chat: "tab-1", machine: "m1", on: launch) { _ in .delivered })
+        #expect(credentials.refresher.isTracked(id) && credentials.trackedChats == 1)
+        credentials.machineRemoved("m2")
+        #expect(credentials.trackedChats == 1, "another machine")
+        credentials.machineRemoved("m1")
+        #expect(!credentials.refresher.isTracked(id) && credentials.trackedChats == 0)
+    }
+
+    @Test func aReattachedChatOnTheOwnersTokenIsTrackedFromTheMachinesExpiry() async throws {
+        var reads = 0
+        let credentials = CloudAgentCredentials { _ in reads += 1; return Self.codexReply() }
+        let machine = Machine()
+        let held = Date().addingTimeInterval(1_200)
+        let status = AgentSessionAttachClient.CredentialStatus(connection: "chatgpt-1", expiresAt: held, chatgpt: true, lost: false)
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { status }, push: machine.push)
+        // A second attach while the first reads (a reconnect): one status read, one track.
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { status }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(reads == 1 && credentials.trackedChats == 1)
+        #expect(machine.pushes.isEmpty, "the machine has its token: nothing sent until it nears expiry")
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { status }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(reads == 1, "already kept: not read again")
+    }
+
+    @Test func aCredentialTheMachineLostIsSentAgainAtOnce() async throws {
+        let credentials = CloudAgentCredentials { _ in Self.codexReply() }
+        let machine = Machine()
+        let status = AgentSessionAttachClient.CredentialStatus(connection: "chatgpt-1", expiresAt: Date().addingTimeInterval(1_200), chatgpt: true, lost: true)
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { status }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(machine.pushes == [["CMUX_CHATGPT_ACCESS_TOKEN": "eyJ.fresh.sig"]])
+        #expect(machine.credentials.first?.connection == "chatgpt-1")
+        #expect(credentials.trackedChats == 1)
+    }
+
+    @Test func aChatOnTheMachinesOwnRouteOrAnUnreadableStatusIsLeftAsItIs() async throws {
+        var reads = 0
+        let credentials = CloudAgentCredentials { _ in reads += 1; return Self.codexReply() }
+        let machine = Machine()
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { nil }, push: machine.push)
+        credentials.reattach(chat: "tab-2", machine: "m1", status: { throw CloudAgentCredentials.Failure.unavailable(connection: "x") }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(reads == 0 && machine.pushes.isEmpty && credentials.trackedChats == 0)
+        // A connection this Mac no longer has: nothing sent, nothing tracked.
+        let signedOut = CloudAgentCredentials { _ in Data(#"{"error":"signed_out"}"#.utf8) }
+        let lost = AgentSessionAttachClient.CredentialStatus(connection: "chatgpt-1", expiresAt: nil, chatgpt: true, lost: true)
+        signedOut.reattach(chat: "tab-3", machine: "m1", status: { lost }, push: machine.push)
+        await signedOut.reattachesSettled()
+        #expect(machine.pushes.isEmpty && signedOut.trackedChats == 0)
+    }
+
+    /// The Cloud start's choice names a connection only for `.connection`, and the card's actions map to their Settings rows.
+    @Test func theChoiceNamesItsConnection() {
         #expect(CloudSetup.Choice.connection(id: "route-claude", family: "claude").connectionID == "route-claude")
         #expect(CloudSetup.Choice.organization(family: "claude").connectionID == nil && CloudSetup.Choice.fallback.connectionID == nil)
-        let credentials = CloudAgentCredentials()
-        credentials.use(connection: "route-claude", chat: "planned", machine: "m1")
-        credentials.move(chat: "planned", to: "tab-9", machine: "m1")
-        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude" && credentials.connection(chat: "planned", machine: "m1") == nil)
-        credentials.move(chat: "none", to: "tab-9", machine: "m1")
-        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude", "no choice to move leaves the tab's own")
         #expect(CloudSetup.Action.setUpClaude.settingsRow == "claude" && CloudSetup.Action.addKey.settingsRow == "apiKey" && CloudSetup.Action.openSettings.settingsRow == nil)
     }
 }

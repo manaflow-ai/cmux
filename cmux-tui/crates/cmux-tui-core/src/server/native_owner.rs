@@ -27,8 +27,9 @@ const COMMANDS: &[&str] = &[
     "new-conversation-tab",
     "set-client-info",
     "agent-session-start",
-    // The owner's refreshed model credential: owner-Cloud only in its handler.
+    // The owner's model credential (its refresh, its status): owner-Cloud only in the handlers.
     "agent-session-credentials",
+    "agent-session-credential-status",
     "agent-session-trust",
     "agent-session-attach",
     "agent-session-events",

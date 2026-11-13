@@ -34745,6 +34745,24 @@
           }
         }
       }
+    },
+    "handlers.refusal.agentRemoteStart.credentialUnavailable": {
+      "comment": "A Cloud chat's start whose chosen model connection this Mac could not read. %@ is the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac could not read the model connection for the chat on %@. Check it in Settings > Models, then send again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のチャットに使うモデル接続をこの Mac で読み取れませんでした。設定 > モデル で確認してから、もう一度送信してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

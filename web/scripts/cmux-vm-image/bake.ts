@@ -286,28 +286,44 @@ export const AGENT_SIGN_IN_FILES = [
  * (cmux-platform CoderouterEdge) steers that name and adds the per-machine token, so the guest never holds a
  * provider login and the Mac never copies one here.
  *
- * acpmux starts Claude Code from the login environment, where agent-config.sh keeps Claude's pair set aside
- * (its terminal launchers put it back per launch), so an acpmux chat had no route at all and ran on whatever
- * login sat in HOME. The route is therefore pinned in each agent's managed layer: root-owned, read on every
- * start, and above user settings. Claude Code ranks `apiKeyHelper` over CLAUDE_CODE_OAUTH_TOKEN and a /login
- * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
- * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
+ * The route is a default, never a pin: a Cloud chat the owner's Mac starts on the owner's own connection
+ * (cmux-tui/docs/model-connections.md, Revision 2) runs straight to the provider, so nothing here may outrank
+ * the env and `-c` overrides acpmux gives that one agent (cmux-tui acpmux `agent_credentials.rs`).
+ * - Claude Code: acpmux fills the model-plane file's variables into every agent it starts (`cloud_model_plane.rs`),
+ *   and the terminal launchers put Claude's pair back per launch, so the managed settings carry no route. A managed
+ *   `env` or `apiKeyHelper` would outrank CLAUDE_CODE_OAUTH_TOKEN (Claude Code's authentication precedence: the
+ *   helper ranks above that token) and send an Anthropic key to the edge. The placeholder key in the env already
+ *   ranks above a /login session a user or an old copy left in HOME.
+ * - Codex: the provider is the system config (/etc/codex/config.toml), below the user config and `-c`. The legacy
+ *   managed file (/etc/codex/managed_config.toml) sits above `-c` (codex-rs `ConfigLayerSource::precedence`), so it
+ *   keeps only the devbox's folder trust and update switch.
  */
 export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);
-  const claude = {
-    // Kept from the devbox image's managed defaults.
-    cleanupPeriodDays: 99999,
-    skipDangerousModePermissionPrompt: true,
-    env: { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL },
-    // The placeholder, never a credential: the edge replaces it. A helper needs no "use this API key?" consent.
-    apiKeyHelper: `printf %s ${sq(env.ANTHROPIC_API_KEY)}`,
-  };
-  const codex = [
-    "# cmux Cloud machine: Codex reaches models only through the machine's coderouter edge, which adds the",
-    "# per-machine credential. Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
-    'model_provider = "cmux"',
+  // The devbox image's managed defaults, with no route.
+  const claude = { cleanupPeriodDays: 99999, skipDangerousModePermissionPrompt: true };
+  const trust = [
+    // The folder trust of the devbox's codex-managed.toml: the two HOMEs a session starts in.
+    '[projects."/root"]',
+    'trust_level = "trusted"',
+    "",
+    `[projects.${JSON.stringify(DEVBOX_WORK_HOME)}]`,
+    'trust_level = "trusted"',
+    "",
+  ];
+  const managed = [
+    "# cmux Cloud machine: Codex's managed defaults (folder trust, no update prompt). No model route here: this",
+    "# layer outranks `-c`, and a chat on the owner's own connection runs straight to its provider.",
+    "# Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
     "check_for_update_on_startup = false",
+    "",
+    ...trust,
+  ].join("\n");
+  const system = [
+    "# cmux Cloud machine: Codex reaches models through the machine's coderouter edge, which adds the per-machine",
+    "# credential. The system layer, below the user config and `-c`, so a chat on the owner's own connection takes",
+    "# its provider. Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
+    'model_provider = "cmux"',
     "",
     "[model_providers.cmux]",
     'name = "cmux"',
@@ -321,29 +337,38 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
     '"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"',
     '"x-cmux-surface-id" = "CMUX_SURFACE_ID"',
     "",
-    // The folder trust of the devbox's codex-managed.toml: the two HOMEs a session starts in.
-    '[projects."/root"]',
-    'trust_level = "trusted"',
-    "",
-    `[projects.${JSON.stringify(DEVBOX_WORK_HOME)}]`,
-    'trust_level = "trusted"',
-    "",
   ].join("\n");
   return [
     { path: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
-    { path: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
+    { path: "/etc/codex/managed_config.toml", text: managed, mode: 0o644 },
+    { path: "/etc/codex/config.toml", text: system, mode: 0o644 },
   ];
 }
 
-/** Fails unless both route files exist, parse, point at the edge, and carry no credential. `root` prefixes every path (tests). */
+/**
+ * Fails unless the route files exist and parse, the Codex system config points at the edge, no managed layer
+ * pins a route (Claude's `env` route variables or `apiKeyHelper`, Codex's managed `model_provider`), and none
+ * carries a credential. `root` prefixes every path (tests).
+ */
 export function agentModelRouteCheckCommand(root = ""): string {
   const claude = sq(`${root}/etc/claude-code/managed-settings.json`);
-  const codex = sq(`${root}/etc/codex/managed_config.toml`);
-  const files = `${claude} ${codex}`;
+  const managed = sq(`${root}/etc/codex/managed_config.toml`);
+  const system = sq(`${root}/etc/codex/config.toml`);
+  const files = `${claude} ${managed} ${system}`;
+  const check = [
+    "import json, sys, tomllib",
+    "s = json.load(open(sys.argv[1]))",
+    'm = tomllib.load(open(sys.argv[2], "rb"))',
+    'c = tomllib.load(open(sys.argv[3], "rb"))',
+    'pinned = "apiKeyHelper" in s or any(k.startswith(("ANTHROPIC_", "CLAUDE_CODE_OAUTH")) for k in s.get("env", {})) or "model_provider" in m',
+    'routed = c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://")',
+    "sys.exit(0 if routed and not pinned else 1)",
+  ].join("; ");
   return [
     `test -s ${claude}`,
-    `test -s ${codex}`,
-    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
+    `test -s ${managed}`,
+    `test -s ${system}`,
+    `python3 -I -c ${sq(check)} ${files}`,
     `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
     "echo agent-model-route-baked",
   ].join(" && ");

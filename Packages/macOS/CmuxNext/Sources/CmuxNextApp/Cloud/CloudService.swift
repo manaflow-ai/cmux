@@ -571,7 +571,7 @@ final class CloudService {
         deferredRecordRemovals[machineID] = nil
         guard machines.session(machineID) != nil else { return }
         changes.removed(machineID)
-        creations.machineRemoved(machineID)
+        creations.machineRemoved(machineID); agentCredentials.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
     }
 

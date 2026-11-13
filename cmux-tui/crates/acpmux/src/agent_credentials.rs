@@ -12,9 +12,12 @@
 //!
 //! The credential lives in memory, on its [`crate::hub::Session`] only: never in the session's
 //! meta, journal, transcript, events, snapshots or logs, and never in the machine's model-plane env
-//! file. A daemon that restarts forgets it; the agent host it hands over keeps the env it started
-//! with, and the Mac's next refresh sets it again. Without one the agent keeps today's coderouter
-//! route.
+//! file. The meta keeps only its [`CredentialRef`] (the connection's id, the token's expiry and
+//! whether it is a ChatGPT plan's; no value), so a daemon that restarted knows the chat ran on the
+//! owner's credential: it does not start that agent on the coderouter route instead, but says the
+//! chat needs the owner's Mac ([`blocked`]) until the Mac sends the credential again
+//! (`agent/credentials.list` names those chats). A ChatGPT token past its expiry says the same.
+//! A session that never had one keeps today's coderouter route.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider
@@ -22,6 +25,11 @@
 //! ChatGPT plan token runs on the OpenAI-documented custom provider (`-c` overrides, never an edit
 //! of the shared `config.toml`); Codex with an OpenAI key the same shape on `OPENAI_API_KEY`. Claude
 //! needs only its env.
+//!
+//! Tool processes never see the credential: Claude Code runs with
+//! `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (it strips credentials from the env of its Bash commands,
+//! hooks and MCP servers and keeps them for its own API calls), and Codex with
+//! `shell_environment_policy.exclude` naming the credential variables (its shell tool's env).
 
 use crate::rpc::RpcError;
 use serde_json::Value;
@@ -31,6 +39,12 @@ use std::collections::BTreeMap;
 pub const FIELD: &str = "credentials";
 /// The method that replaces a session's credential (a refreshed ChatGPT token).
 pub const UPDATE_METHOD: &str = "agent/credentials.update";
+/// The method that lists the sessions that run on an owner's credential (no value).
+pub const LIST_METHOD: &str = "agent/credentials.list";
+/// The `data.reason` of a prompt or start refused until the owner's Mac sends the credential again.
+pub const RECONNECT_REASON: &str = "credentials.reconnect";
+/// Claude Code's switch that strips credentials from its tool processes' env.
+pub const CLAUDE_SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 
 /// Claude Code's long-lived token (`claude setup-token`).
 pub const CLAUDE_OAUTH: &str = "CLAUDE_CODE_OAUTH_TOKEN";
@@ -72,6 +86,8 @@ pub const OPENAI_BASE: &str = "https://api.openai.com/v1";
 
 /// The longest value taken (a ChatGPT JWT is a few KiB).
 const MAX_VALUE_BYTES: usize = 16 * 1024;
+/// The longest connection id taken.
+const MAX_CONNECTION_BYTES: usize = 128;
 
 /// The family a credential serves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,32 +109,61 @@ impl Family {
     }
 }
 
-/// A launch credential: the variables one agent gets. Its `Debug` never shows a value.
+/// A launch credential: the variables one agent gets, and what the Mac says of them (its
+/// connection's id and the token's expiry, neither a secret). Its `Debug` never shows a value.
 #[derive(Clone, PartialEq, Eq)]
 pub struct AgentCredential {
     env: BTreeMap<String, String>,
+    connection: Option<String>,
+    expires_at: Option<u64>,
 }
 
 impl std::fmt::Debug for AgentCredential {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentCredential")
             .field("names", &self.env.keys().collect::<Vec<_>>())
+            .field("connection", &self.connection)
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
 
+/// What the session's meta keeps of its credential: no value, only that the chat runs on the
+/// owner's credential, its connection and, for a ChatGPT plan token, when it expires.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialRef {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chatgpt: bool,
+}
+
 impl AgentCredential {
-    /// `{env: {NAME: value}}`: one name of [`NAMES`] (a Claude token or key, or a Codex key or
-    /// ChatGPT token), a value of token characters only. Anything else is refused, never trimmed.
+    /// `{env: {NAME: value}, connection?, expires_at?}`: one name of [`NAMES`] (a Claude token or
+    /// key, or a Codex key or ChatGPT token), a value of token characters only; the connection's
+    /// id (id characters) and the token's expiry (unix seconds). Anything else is refused, never
+    /// trimmed.
     pub fn parse(value: &Value) -> Result<Self, RpcError> {
         let refused = |why: &str| {
             RpcError::invalid_params(format!("credentials: {why}"))
                 .with_data(serde_json::json!({"reason": "credentials.invalid"}))
         };
         let object = value.as_object().ok_or_else(|| refused("must be an object"))?;
-        if object.keys().any(|k| k != "env") {
-            return Err(refused("only `env` is taken"));
+        if object.keys().any(|k| !matches!(k.as_str(), "env" | "connection" | "expires_at")) {
+            return Err(refused("only `env`, `connection` and `expires_at` are taken"));
         }
+        let connection = match object.get("connection") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(id)) if connection_shaped(id) => Some(id.clone()),
+            Some(_) => return Err(refused("`connection` is not a connection id")),
+        };
+        let expires_at = match object.get("expires_at") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(v.as_u64().ok_or_else(|| refused("`expires_at` is unix seconds"))?),
+        };
         let env = object
             .get("env")
             .and_then(Value::as_object)
@@ -137,7 +182,21 @@ impl AgentCredential {
             }
             out.insert(name.clone(), value.to_owned());
         }
-        Ok(Self { env: out })
+        Ok(Self { env: out, connection, expires_at })
+    }
+
+    /// Whether `other` holds the same secret (a new expiry alone restarts nothing).
+    pub fn same_secret(&self, other: &Self) -> bool {
+        self.env == other.env
+    }
+
+    /// What the meta keeps of it.
+    pub fn reference(&self) -> CredentialRef {
+        CredentialRef {
+            connection: self.connection.clone(),
+            expires_at: self.expires_at,
+            chatgpt: self.is_chatgpt_plan(),
+        }
     }
 
     /// The family its variable serves.
@@ -165,6 +224,71 @@ impl AgentCredential {
 fn token_shaped(value: &str) -> bool {
     (1..=MAX_VALUE_BYTES).contains(&value.len())
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
+}
+
+fn connection_shaped(id: &str) -> bool {
+    (1..=MAX_CONNECTION_BYTES).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:".contains(&b))
+}
+
+/// Why a prompt to a chat that runs on the owner's credential cannot go now, if it cannot: the
+/// daemon restarted and lost it (`reference` without `credential`), or its ChatGPT token expired
+/// with no refresh (the owner's Mac is away). The chat says it needs that Mac, and never falls
+/// back to the machine's coderouter route.
+pub fn blocked(
+    credential: Option<&AgentCredential>,
+    reference: Option<&CredentialRef>,
+    now: u64,
+) -> Option<RpcError> {
+    let chatgpt = match (credential, reference) {
+        (None, Some(r)) => r.chatgpt,
+        (Some(c), _) if c.is_chatgpt_plan() && c.expires_at.is_some_and(|at| at <= now) => true,
+        _ => return None,
+    };
+    let message = if chatgpt {
+        "This chat needs your Mac to reconnect ChatGPT. Open cmux on the Mac that started it."
+    } else {
+        "This chat needs your Mac to send its model connection again. Open cmux on the Mac that started it."
+    };
+    Some(RpcError::new(-32002, message).with_data(serde_json::json!({
+        "reason": RECONNECT_REASON,
+        "connection": credential.map(|c| c.reference()).or_else(|| reference.cloned()).and_then(|r| r.connection),
+    })))
+}
+
+/// Claude Code's managed settings: above the env, so a route pinned there wins over a credential.
+pub const CLAUDE_MANAGED: &str = "etc/claude-code/managed-settings.json";
+/// Codex's legacy managed config: above `-c` overrides (codex-rs `ConfigLayerSource::precedence`,
+/// `LegacyManagedConfigTomlFromFile` 40 over `SessionFlags` 30), so a provider pinned there wins.
+pub const CODEX_MANAGED: &str = "etc/codex/managed_config.toml";
+
+/// Whether this machine's image pins a model route in the managed layer of `family`'s agent (an
+/// image baked before the route moved out of it): Claude settings with an `apiKeyHelper` or an
+/// endpoint or credential variable in `env`, a Codex managed config with a `model_provider`. A
+/// credential would go to that route instead of its provider. `root` is `/` (tests: a folder).
+pub fn managed_route_pinned(family: Family, root: &std::path::Path) -> bool {
+    match family {
+        Family::Claude => {
+            let Ok(text) = std::fs::read_to_string(root.join(CLAUDE_MANAGED)) else { return false };
+            let Ok(settings) = serde_json::from_str::<Value>(&text) else { return false };
+            let env = settings.get("env").and_then(Value::as_object);
+            settings.get("apiKeyHelper").is_some()
+                || env.is_some_and(|env| env.keys().any(|k| UNSET.contains(&k.as_str())))
+        }
+        Family::Codex => {
+            let Ok(text) = std::fs::read_to_string(root.join(CODEX_MANAGED)) else { return false };
+            toml::from_str::<toml::Table>(&text).is_ok_and(|t| t.contains_key("model_provider"))
+        }
+    }
+}
+
+/// The refusal of a start on such a machine.
+pub fn managed_route_refusal() -> RpcError {
+    RpcError::new(
+        -32002,
+        "This Cloud machine's image routes agents through cmux, so it cannot use your own model connection. Update the machine, then send again.",
+    )
+    .with_data(serde_json::json!({"reason": "credentials.managed_route"}))
 }
 
 /// The credential `session/new`'s `_meta.acpmux` carries, if any.
@@ -213,15 +337,28 @@ pub fn apply(
     for (k, v) in &credential.env {
         env.insert(k.clone(), v.clone());
     }
-    if harness == Family::Codex {
-        let (provider, key) = if credential.is_chatgpt_plan() {
-            (CHATGPT_PROVIDER, CHATGPT_TOKEN)
-        } else {
-            (OPENAI_KEY_PROVIDER, OPENAI_KEY)
-        };
-        set_codex_provider(argv, provider, key);
+    match harness {
+        // Its Bash commands, hooks and MCP servers get no credential (Claude Code's scrub).
+        Family::Claude => {
+            env.insert(CLAUDE_SCRUB.to_owned(), "1".to_owned());
+        }
+        Family::Codex => {
+            let (provider, key) = if credential.is_chatgpt_plan() {
+                (CHATGPT_PROVIDER, CHATGPT_TOKEN)
+            } else {
+                (OPENAI_KEY_PROVIDER, OPENAI_KEY)
+            };
+            set_codex_provider(argv, provider, key);
+        }
     }
     true
+}
+
+/// The `-c` override that keeps every credential variable out of the env of Codex's shell tool.
+pub fn codex_shell_exclude() -> String {
+    let names: Vec<String> =
+        [CHATGPT_TOKEN, OPENAI_KEY, "CODEX_API_KEY"].iter().map(|n| format!("\"{n}\"")).collect();
+    format!("shell_environment_policy.exclude=[{}]", names.join(","))
 }
 
 /// The `-c` overrides that select `provider` (a custom one on `env_key`), in place of any
@@ -261,7 +398,9 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &str, env_key: &str) {
             i += 1;
         }
     }
-    for (offset, arg) in codex_provider_args(provider, env_key).into_iter().enumerate() {
+    let mut args = codex_provider_args(provider, env_key);
+    args.extend(["-c".to_owned(), codex_shell_exclude()]);
+    for (offset, arg) in args.into_iter().enumerate() {
         argv.insert(1 + offset, arg);
     }
 }
@@ -289,6 +428,8 @@ mod tests {
             json!({"env": {CLAUDE_OAUTH: "x", OPENAI_KEY: "y"}}),
             json!({"env": {}}),
             json!({"env": {CLAUDE_OAUTH: "x"}, "file": "/tmp/x"}),
+            json!({"env": {CLAUDE_OAUTH: "x"}, "connection": "a b"}),
+            json!({"env": {CLAUDE_OAUTH: "x"}, "expires_at": "soon"}),
             json!("sk-ant-oat01"),
         ] {
             assert!(AgentCredential::parse(&bad).is_err(), "{bad}");
@@ -330,6 +471,87 @@ mod tests {
             assert!(unset.contains(&key), "{key} is removed from what the agent inherits");
         }
         assert_eq!(argv, ["claude"], "Claude needs only its env");
+        assert_eq!(e[CLAUDE_SCRUB], "1", "its tool processes get no credential");
+    }
+
+    #[test]
+    fn codex_keeps_the_credential_out_of_its_shell_tool() {
+        for var in [CHATGPT_TOKEN, OPENAI_KEY] {
+            let c = AgentCredential::parse(&json!({"env": {var: "sk-proj-abc"}})).unwrap();
+            let (mut argv, mut e) =
+                (vec!["codex".to_owned(), "app-server".to_owned()], BTreeMap::new());
+            assert!(apply(&c, "codex", &mut argv, &mut e));
+            let at = argv.iter().position(|a| a.starts_with("shell_environment_policy.exclude="));
+            let at = at.expect("an exclude override");
+            assert_eq!(argv[at - 1], "-c");
+            for name in [CHATGPT_TOKEN, OPENAI_KEY, "CODEX_API_KEY"] {
+                assert!(argv[at].contains(&format!("\"{name}\"")), "{name} in {}", argv[at]);
+            }
+        }
+    }
+
+    #[test]
+    fn an_image_that_pins_the_route_in_the_managed_layer_is_seen() {
+        let root = std::env::temp_dir().join(format!("acpmux-managed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("etc/claude-code")).unwrap();
+        std::fs::create_dir_all(root.join("etc/codex")).unwrap();
+        assert!(!managed_route_pinned(Family::Claude, &root), "no file");
+        assert!(!managed_route_pinned(Family::Codex, &root), "no file");
+        let write = |path: &str, text: &str| std::fs::write(root.join(path), text).unwrap();
+        write(
+            CLAUDE_MANAGED,
+            r#"{"cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true}"#,
+        );
+        write(
+            CODEX_MANAGED,
+            "check_for_update_on_startup = false\n[projects.\"/root\"]\ntrust_level = \"trusted\"\n",
+        );
+        assert!(!managed_route_pinned(Family::Claude, &root));
+        assert!(!managed_route_pinned(Family::Codex, &root));
+        write(
+            CLAUDE_MANAGED,
+            r#"{"env": {"ANTHROPIC_BASE_URL": "https://coderouter.cmux.internal"}}"#,
+        );
+        assert!(managed_route_pinned(Family::Claude, &root));
+        write(CLAUDE_MANAGED, r#"{"apiKeyHelper": "printf %s cmux-vm-edge-placeholder"}"#);
+        assert!(managed_route_pinned(Family::Claude, &root));
+        write(CODEX_MANAGED, "model_provider = \"cmux\"\n");
+        assert!(managed_route_pinned(Family::Codex, &root));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_meta_keeps_the_connection_and_expiry_never_the_value() {
+        let c = AgentCredential::parse(
+            &json!({"env": {CHATGPT_TOKEN: CHATGPT}, "connection": "chatgpt-1", "expires_at": 1_900_000_000u64}),
+        )
+        .unwrap();
+        let r = c.reference();
+        assert_eq!(r.connection.as_deref(), Some("chatgpt-1"));
+        assert_eq!(r.expires_at, Some(1_900_000_000));
+        assert!(r.chatgpt);
+        assert!(!serde_json::to_string(&r).unwrap().contains(CHATGPT));
+        assert!(!format!("{c:?}").contains(CHATGPT));
+    }
+
+    #[test]
+    fn a_lost_or_expired_credential_says_the_chat_needs_the_owners_mac() {
+        let c = AgentCredential::parse(
+            &json!({"env": {CHATGPT_TOKEN: CHATGPT}, "connection": "chatgpt-1", "expires_at": 100}),
+        )
+        .unwrap();
+        assert!(blocked(Some(&c), Some(&c.reference()), 99).is_none());
+        let expired = blocked(Some(&c), Some(&c.reference()), 100).unwrap();
+        assert_eq!(expired.data.as_ref().unwrap()["reason"], RECONNECT_REASON);
+        assert!(expired.message.contains("reconnect ChatGPT"));
+        let lost = blocked(None, Some(&c.reference()), 0).unwrap();
+        assert_eq!(lost.data.unwrap()["connection"], "chatgpt-1");
+        let claude =
+            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-a"}})).unwrap();
+        assert!(blocked(Some(&claude), Some(&claude.reference()), u64::MAX).is_none());
+        assert!(!blocked(None, Some(&claude.reference()), 0).unwrap().message.contains("ChatGPT"));
+        assert!(blocked(None, None, 0).is_none(), "a chat on the machine's route");
     }
 
     #[test]

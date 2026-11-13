@@ -46,6 +46,7 @@ struct CloudStartChat {
     /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
+        var start = start // takes the connection Cloud first use chooses (CloudSetup.admit)
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
@@ -54,12 +55,9 @@ struct CloudStartChat {
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
             // Cloud first use, read in the team the start runs in: the connection the chat runs on (its credential goes
             // with the agent launch, ``open``); nothing serving the picker's model shows Set up Cloud and starts nothing.
-            let choice = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
-            if case .setup(let family, let model) = choice {
-                return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
-            }
+            let (admitted, setup) = await services.cloud.setup.admit(start); if let setup { return setup }; start = admitted // the seed carries the choice (AgentPaneSeed.cloudConnection)
             let account = services.cloud.account
-            let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID) { [services] in
+            let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: start.connection) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
                 do {
                     try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
@@ -235,8 +233,6 @@ struct CloudStartChat {
         defer { handOff(false) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal.
         guard let connection = daemon.connection else { throw failure }
-        // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
-        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID)
         let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         let made = try await CloudMachineWorkspace.chat(tabKey: tabKey, in: daemon.store, notConnected: failure, open: open) { key in
             _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id)
@@ -245,7 +241,6 @@ struct CloudStartChat {
         guard let surface = made.tab, let anchor = await CloudHandlers.mirroredAnchor(id: made.key.rawValue, on: machine),
               let tab = anchor.pane.tabs.first(where: { $0.surface == surface }) else { throw failure }
         let opened = (key: tab.id, surface: surface)
-        if opened.key != tabKey { services.cloud.agentCredentials.move(chat: tabKey, to: opened.key, machine: machine.machineID) }
         if let copy { services.cloud.movedChats.copied(copy) }; services.cloudStartTitles.hand(from: origin.tab, to: tab) // the chat keeps the start's title
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)

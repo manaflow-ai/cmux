@@ -24,8 +24,8 @@ public final class CloudAgentCredentialRefresher {
         case gone
     }
 
-    /// Sends one agent's new credential env to its machine session.
-    public typealias Push = @Sendable (_ env: [String: String]) async -> PushOutcome
+    /// Sends one agent's new credential to its machine session.
+    public typealias Push = @Sendable (_ credential: AgentSessionAttachClient.LaunchCredential) async -> PushOutcome
     /// Reads a connection's credential now.
     public typealias Read = @MainActor (_ connectionID: String) async throws -> CloudAgentCredential
 
@@ -55,10 +55,12 @@ public final class CloudAgentCredentialRefresher {
         (self.clock, self.now, self.read) = (clock, now, read)
     }
 
-    /// Tracks an agent that started on `credential`; nil (not tracked) for one that does not expire.
+    /// Tracks an agent that runs on `credential`, whose machine has the token that expires at
+    /// `delivered` (nil: `credential`'s own, the one it started on); nil (not tracked) for a
+    /// credential that does not expire.
     @discardableResult
-    public func track(_ credential: CloudAgentCredential, push: @escaping Push) -> UUID? {
-        guard credential.refreshes, let expires = credential.expiresAt else { return nil }
+    public func track(_ credential: CloudAgentCredential, delivered: Date? = nil, push: @escaping Push) -> UUID? {
+        guard credential.refreshes, let expires = delivered ?? credential.expiresAt else { return nil }
         let id = UUID()
         agents[credential.connectionID, default: [:]][id] = Agent(push: push, delivered: expires)
         if !refreshing.contains(credential.connectionID) { schedule(credential.connectionID, after: nil) }
@@ -72,6 +74,9 @@ public final class CloudAgentCredentialRefresher {
             if agents[connection]?.isEmpty == true { stop(connection) }
         }
     }
+
+    /// Whether agent `id` is still tracked (not untracked, gone or given up).
+    public func isTracked(_ id: UUID) -> Bool { agents.values.contains { $0[id] != nil } }
 
     /// How many agents are tracked now.
     public var trackedCount: Int { agents.values.reduce(0) { $0 + $1.count } }
@@ -113,7 +118,7 @@ public final class CloudAgentCredentialRefresher {
                 retry = true
                 continue
             }
-            switch await agent.push(fresh.env) {
+            switch await agent.push(fresh.launch) {
             case .delivered: agents[connection]?[id]?.delivered = expires
             case .failed: retry = true
             case .gone: agents[connection]?[id] = nil
@@ -131,11 +136,11 @@ extension CloudAgentCredentialRefresher {
     public static func machinePush(surface: UInt64, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                    reconnect: AgentSessionAttachClient.Reconnect?,
                                    endpoint: @escaping AgentSessionAttachClient.EndpointProvider) -> Push {
-        { env in
+        { credential in
             let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
             let outcome: PushOutcome
             do {
-                _ = try await client.updateCredentials(env, ownerLink: ownerLink)
+                _ = try await client.updateCredentials(credential, ownerLink: ownerLink)
                 outcome = .delivered
             } catch let error as AgentSessionAttachError
                         where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported {

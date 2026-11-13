@@ -900,6 +900,10 @@ pub(super) async fn handle_request(
     if m == crate::agent_credentials::UPDATE_METHOD {
         return agent_credentials_update(hub, conn, &params).await;
     }
+    if m == crate::agent_credentials::LIST_METHOD {
+        crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+        return Ok(hub.credential_holders());
+    }
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
@@ -3858,10 +3862,9 @@ async fn agent_credentials_update(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-    if params.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId" && k != "env")) {
-        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId and env"));
-    }
-    let env = params.get("env").cloned().unwrap_or(Value::Null);
-    let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
+    let mut credential = params.as_object().cloned().unwrap_or_default();
+    credential.remove("sessionId");
+    // `env`, `connection` and `expires_at` only (`AgentCredential::parse` refuses anything else).
+    let credential = crate::agent_credentials::AgentCredential::parse(&Value::Object(credential))?;
     hub.update_credential(id, credential).await
 }

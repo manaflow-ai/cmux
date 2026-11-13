@@ -54,8 +54,7 @@ extension CloudStartChat {
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account,
-                                connection: services.cloud.agentCredentials.connection(chat: key, machine: machine)) { [services] in
-                services.cloud.agentCredentials.use(connection: nil, chat: key, machine: machine)
+                                connection: started.start.connection) { [services] in
                 // The chat's tab on the machine it was on, whose first send never ran.
                 services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine, key: key)] = nil
                 do {
