@@ -69,17 +69,20 @@ import Testing
                 func a(_ x: Int, _ y: Int) -> Int { Int(alpha[y * w + x]) }
                 let body = a(w / 2, h / 2)
                 try #require(body > 64, "\(c): the rail's body is not drawn (alpha \(body))")
-                // The bitmap's first row is the rail's top (the header's side), as drawn on screen.
-                // The katana: the left edge runs square up to the tip; the top-right corner is cut away; below the tip's
-                // curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
+                // Two pixel rows (a quarter point) in from each end, past the edge row's anti-aliasing. Which bitmap end is
+                // the rail's top depends on the context's row order, so each end is read for its shape; that the tip is the
+                // header's end is `SidebarGroupLineShape.body`'s (the path's y 0, the flipped view's top; theRailsTopIsTheKatana).
+                // The katana: the left edge runs square to the tip and the right is cut. The round cap: both sides rounded
+                // off, its middle reaching the end.
+                func isTip(_ row: Int) -> Bool { a(0, row) >= body / 2 && a(w - 1, row) < body / 3 }
+                func isCap(_ row: Int) -> Bool { a(0, row) < body / 3 && a(w - 1, row) < body / 3 && a(w / 2, row) >= body / 2 }
+                let ends = [(tip: 2, cap: h - 3), (tip: h - 3, cap: 2)]
+                let rows = { (r: Int) in "left \(a(0, r)) middle \(a(w / 2, r)) right \(a(w - 1, r))" }
+                #expect(ends.contains { isTip($0.tip) && isCap($0.cap) },
+                        "\(c): no katana over a round cap: row 2 \(rows(2)), row \(h - 3) \(rows(h - 3)), body \(body)")
+                // Below the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
                 let tip = Int((SidebarGroupLineShape.tipLength(width: frame.width) * Self.scale).rounded())
-                #expect(a(0, 0) >= body / 2, "\(c): the tip's left edge is not square: alpha \(a(0, 0)), body \(body)")
-                #expect(a(w - 1, 0) < body / 3, "\(c): the top-right corner is not cut: alpha \(a(w - 1, 0)), body \(body)")
-                #expect(a(w - 1, min(h - 1, tip + 2)) >= body / 2, "\(c): the rail is not full width below the tip")
-                // The round cap: both bottom corners rounded, its middle reaching the frame's bottom (not clipped short).
-                #expect(a(0, h - 1) < body / 3 && a(w - 1, h - 1) < body / 3,
-                        "\(c): a square bottom corner, alpha \(a(0, h - 1)) and \(a(w - 1, h - 1)) against \(body)")
-                #expect(a(w / 2, h - 1) >= body / 2, "\(c): the bottom cap is clipped: \(a(w / 2, h - 1)), body \(body)")
+                #expect(a(w - 1, tip + 2) >= body / 2 && a(w - 1, h - 1 - tip - 2) >= body / 2, "\(c): the rail is not full width past its ends")
             }
         }
     }
