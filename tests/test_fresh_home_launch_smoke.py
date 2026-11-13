@@ -12,12 +12,15 @@ that reads the seeded cookie store as the app's cookie sync does (and saves its 
 aborts only in that home fails the run as a crash of that arm, and one that never reads the store leaves the
 arm "not-run" and the first arm's verdict standing.
 
-Time: a run here asks for no up-time (--seconds 0, --seeded-seconds 0), so its watch ends at Home. The stub does all
-of a launch's work (its helpers, its reports, the cookie sync, its marks) before it opens its socket, so Home is its
-last event. What a run needs after that is waited for as an event (a file that is there), not as seconds of up-time.
-The waits that stay are of the tool itself: a launch with no Home ends only at --startup-timeout, a seeded launch
-with no cookie sync at the scan wait, a report that names no process at NO_PROCESS_REREAD_SECONDS; and the stub's
-stand-ins for what macOS does late (a report's body after its head, a process that dies a moment after its start).
+Time: a run here asks for no up-time (--seconds 0, --seeded-seconds 0), so its watch ends at Home; only a test that
+reads the up-time, or that cuts a run that is up, asks for some. A stub that is up does all the work of a launch
+(its helpers, its reports, the cookie sync, its marks) before it opens its socket, so Home is its last event; a
+report that a stub writes while it quits, or after it, is part of the stop and not of the up-time. What a run needs
+after Home is waited for as an event (a file that is there), not as seconds of up-time. The waits that stay: of the
+tool itself (a launch with no Home ends only at --startup-timeout, a seeded launch with no cookie sync at the scan
+wait, a report that names no process at NO_PROCESS_REREAD_SECONDS, a daemon that is not connected is read again);
+the stub's stand-ins for what macOS does late (a report's body after its head, a process that dies a moment after
+its start); and a few fixed sleeps of single tests that give another process its start, as they were.
 """
 from __future__ import annotations
 
@@ -215,8 +218,9 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
             os._exit(0)
         signal.signal(signal.SIGTERM, quit_then_report)
     if mode in ("quit-report", "helper-report") and seeded:
-        # The first launch's report lands while this launch is up: Home (below) comes only after the report.
-        deadline = time.time() + 20
+        # The first launch's report lands while this launch is up: Home (below) comes only after the report. The wait
+        # is shorter than the tool's wait for Home, so a report that never comes shows in the test as that report.
+        deadline = time.time() + 8
         while time.time() < deadline and not os.path.exists(name):
             time.sleep(0.05)
     mode = "healthy"
