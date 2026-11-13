@@ -202,4 +202,24 @@ import Testing
         #expect(moves.map { $0.arguments["browserProfile"]?.stringValue } == ["work"], "moves: \(moves.map(\.arguments))")
         #expect(moves.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: "tab-1") })
     }
+
+    /// A tab of another profile: its rows act on that profile, and Default is the row that moves it.
+    @Test func browserToolbarProfileMenuActsOnTheTabsProfile() {
+        let services = Self.services()
+        let menu = BrowserToolbarHandlers.profileMenu(tabKey: "tab-1", current: "work", profiles: Self.profiles, registry: services.registry)
+        let runs = Self.rows(menu, "").compactMap { ActionRegistry.menuRun(of: $0.1) }
+        #expect(runs.filter { $0.id == "browserProfile.moveTab" }.map { $0.arguments["browserProfile"]?.stringValue } == [BrowserProfileRecord.defaultID])
+        let profileRows = runs.filter { $0.target?.kind == .browserProfile }
+        #expect(!profileRows.isEmpty, "no row acts on the tab's profile")
+        #expect(profileRows.allSatisfy { $0.target?.id == "work" }, "rows on another profile: \(profileRows.map { "\($0.id) \($0.target?.id ?? "")" })")
+    }
+
+    /// An incognito tab's data belongs to no profile: no row clears or deletes one.
+    @Test func incognitoToolbarProfileMenuHasNoProfileRows() {
+        let services = Self.services()
+        let menu = BrowserToolbarHandlers.profileMenu(tabKey: "tab-1", current: BrowserProfileRecord.defaultID, profiles: Self.profiles,
+                                                      registry: services.registry, profileActions: false)
+        let runs = Self.rows(menu, "").compactMap { ActionRegistry.menuRun(of: $0.1) }
+        #expect(runs.allSatisfy { $0.target?.kind != .browserProfile }, "\(runs.map(\.id))")
+    }
 }

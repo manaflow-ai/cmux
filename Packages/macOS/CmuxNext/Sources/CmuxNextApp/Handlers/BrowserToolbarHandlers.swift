@@ -147,12 +147,20 @@ enum BrowserToolbarHandlers {
     /// action (#42437, `MenuPaletteParityTests`).
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
-        return profileMenu(tabKey: tabKey(entry), current: current, profiles: profiles.ordered, registry: services.registry)
+        // By the key the App keeps the tab under: an adopted page's own id finds no tab, and its
+        // profile's rows (Clear Browsing Data, Delete) would act on Default.
+        let key = tabKey(entry)
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        // An incognito tab's data is no profile's: its menu has no profile rows to clear or delete.
+        let incognito = services.cache.browserTabs.isIncognitoTab(key)
+        return profileMenu(tabKey: key, current: current, profiles: profiles.ordered, registry: services.registry,
+                           profileActions: !incognito)
     }
 
-    /// The profile button's menu for the tab `tabKey`, whose profile is `current`, listing `profiles`.
-    static func profileMenu(tabKey: String, current: String, profiles: [BrowserProfileRecord], registry: ActionRegistry) -> NSMenu {
+    /// The profile button's menu for the tab `tabKey`, whose profile is `current`, listing `profiles`;
+    /// `profileActions` false leaves out the profile's own menu (an incognito tab).
+    static func profileMenu(tabKey: String, current: String, profiles: [BrowserProfileRecord], registry: ActionRegistry,
+                            profileActions: Bool = true) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: tabKey)
         let menu = NSMenu()
         for record in profiles {
@@ -173,12 +181,17 @@ enum BrowserToolbarHandlers {
         menu.addItem(.separator())
         // The tab's profile's own menu, as its badge shows it; New Tab with Browser Profile and
         // Manage Extensions open in this tab's pane.
-        let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
-        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, arguments: ["tab": .target(target)], customize: false),
-             into: menu)
-        // Import from Browser, and the Web Store opened in this tab's profile.
-        move(registry.makeContextMenu(for: .browserPage, target: target,
-                                      entries: [.separator, .action("importFromBrowser"), .action("browser.extensions.webStore")]), into: menu)
+        if profileActions {
+            let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
+            move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, arguments: ["tab": .target(target)], customize: false),
+                 into: menu)
+        }
+        // Import from Browser, and the Web Store opened in this tab's profile. A built menu drops a
+        // leading separator, so the one above them (and below Delete) is added here.
+        let tail = registry.makeContextMenu(for: .browserPage, target: target,
+                                            entries: [.action("importFromBrowser"), .action("browser.extensions.webStore")])
+        if !tail.items.isEmpty, menu.items.last?.isSeparatorItem == false { menu.addItem(.separator()) }
+        move(tail, into: menu)
         return menu
     }
 
