@@ -199,7 +199,10 @@
     "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
-    "backToSignIn": "Torna all'accesso"
+    "backToSignIn": "Torna all'accesso",
+    "chatgptLinkTitle": "Accedi una volta per collegare ChatGPT",
+    "chatgptLinkBody": "Questa email ha già un account cmux. Accedi con il metodo usato in precedenza e ChatGPT verrà collegato a quell’account.",
+    "chatgptEmailUnverifiedBody": "L’email del tuo account ChatGPT non è verificata. Verificala con OpenAI o accedi in un altro modo."
   },
   "cloudPublicationAccess": {
     "title": "Non hai accesso",
@@ -509,7 +512,18 @@
         "grantedBody": "L’accesso Team è stato concesso a {team} dal team di cmux. Non c’è alcun abbonamento da gestire.",
         "seatsUsed": "{members} di {seats} utilizzati",
         "overSeat": "{team} ha {members} membri e {seats} posti pagati. I posti seguono il numero di membri, quindi l’abbonamento si aggiorna da solo.",
-        "addSeats": "Aggiungi posti"
+        "addSeats": "Aggiungi posti",
+        "enterprise": {
+          "current": "Piano attuale",
+          "body": "{team} ha un piano personalizzato concordato con il team di cmux. Contatta il team di cmux per modificarlo.",
+          "price": "Prezzo",
+          "perMonth": "{amount}/mese",
+          "machines": "Macchine cloud",
+          "pool": "vCPU / memoria condivise",
+          "largest": "Macchina più grande",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Nessun limite"
+        }
       },
       "teamList": {
         "heading": "Ambiti di fatturazione",

@@ -1809,6 +1809,20 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.files = [{"filename": path}]
             self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0], path)
 
+    def test_the_rust_bindings_are_ffi_inputs(self):
+        # cmux-app-ffi reaches cmux-tui/bindings/rust through a Cargo path dependency, so check-app-ffi-pin.sh counts
+        # it (--list-inputs). A PR that changes only bindings/rust/src was told it "changes no app FFI input"
+        # (2026-11-10, after #39027 changed cmux-tui/bindings/rust).
+        self.files = [{"filename": "cmux-tui/bindings/rust/src/generated/types.rs"}]
+        self.assertIn(f"only '{FFI_PIN}' is red", self.judge()[0])
+
+    def test_the_other_bindings_are_not_ffi_inputs(self):
+        # No crate cmux-app-ffi reaches lives there: a change to them alone is no step-A Rust change.
+        for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/bindings/python/cmux/__init__.py"):
+            self.files = [{"filename": path}]
+            with self.assertRaises(excuse.Refused, msg=path):
+                self.judge()
+
     def test_without_the_pull_request_nothing_is_excused(self):
         with self.assertRaises(excuse.Refused):
             self.judge(pr=None)

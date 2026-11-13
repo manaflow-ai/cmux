@@ -35,9 +35,13 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-cua-driver-sdk-publish
-  cancel-in-progress: false
+# No workflow-level concurrency group: the publish job waits for a cef-publish
+# reviewer, and a run waiting there never times out, so a workflow group let
+# one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
+# run 42677635673, 2026-11-09). The macOS build
+# serializes in its own job group; publish has none (its upload is
+# content-addressed and write-once, an identical object is accepted).
+# scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
 jobs:
   resolve:
@@ -78,6 +82,9 @@ jobs:
   build:
     name: Build the SDK
     needs: resolve
+    concurrency:
+      group: cmux-next-cua-driver-sdk-publish-build
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
@@ -149,6 +156,7 @@ jobs:
   publish:
     name: Publish the SDK and write its pin
     needs: [resolve, build]
+    # Waits for a reviewer, so it holds no concurrency group.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15

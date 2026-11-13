@@ -13,7 +13,9 @@
 //! - Else one `agent.list` read of the terminal: a live hook session other
 //!   than this one means this Claude is another agent's. A read that fails or
 //!   times out means it is the terminal's agent, so the agent is never
-//!   silenced by a daemon that does not answer in time.
+//!   silenced by a daemon that does not answer in time. The read ends inside
+//!   the hook's time budget; with no time left it is not made, with the same
+//!   result as a failed read.
 //!
 //! Limits (docs/agent-hooks.md): a Claude that ended without `SessionEnd`
 //! (a crash, `kill -9`) leaves a live row, and the next Claude started by
@@ -24,7 +26,7 @@
 use super::*;
 
 /// How long `agent.list` may take before the hook acts as the agent.
-const DEADLINE: Duration = Duration::from_millis(1500);
+pub(super) const DEADLINE: Duration = Duration::from_millis(1500);
 
 /// One Claude hook run in a terminal.
 pub(super) struct Run<'a> {
@@ -33,6 +35,9 @@ pub(super) struct Run<'a> {
     pub(super) session: Option<&'a str>,
     /// The `SessionStart` payload's `source`; `None` for other events.
     pub(super) start_source: Option<&'a str>,
+    /// When the hook's time budget ends. The read ends by then, and no read
+    /// is made when no time is left.
+    pub(super) budget_end: Instant,
 }
 
 impl Run<'_> {
@@ -40,10 +45,19 @@ impl Run<'_> {
     pub(super) fn is_nested(&self) -> bool {
         let read = || {
             let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
-            session_context::request(self.socket, "agent.list", params, Instant::now() + DEADLINE)
+            let deadline = read_deadline(self.budget_end, Instant::now())?;
+            session_context::request(self.socket, "agent.list", params, deadline)
         };
         nested_in(self, read)
     }
+}
+
+/// When the `agent.list` read made at `now` must end: its own bound, cut to
+/// the end of the hook's time budget (`budget_end`). `None` when no time is
+/// left, and the hook then makes no read.
+fn read_deadline(budget_end: Instant, now: Instant) -> Option<Instant> {
+    let deadline = (now + DEADLINE).min(budget_end);
+    (deadline > now).then_some(deadline)
 }
 
 /// [`Run::is_nested`] over one `agent.list` read (`None` when it failed).
@@ -73,6 +87,7 @@ mod tests {
             terminal: Some("term_a"),
             session: Some(session),
             start_source: start,
+            budget_end: Instant::now() + DEADLINE,
         }
     }
 
@@ -107,6 +122,19 @@ mod tests {
         assert!(!nested_in(&run("nested-2", None), rows(screen)));
         // A read that fails or times out keeps the hook acting as the agent.
         assert!(!nested_in(&run("nested-2", None), || None));
+    }
+
+    #[test]
+    fn any_launcher_w5n3_claim_read_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // Much budget left: the read has its own bound.
+        assert_eq!(read_deadline(now + Duration::from_secs(4), now), Some(now + DEADLINE));
+        // Less left than that bound (a slow send): the read ends with the budget.
+        let end = now + Duration::from_millis(300);
+        assert_eq!(read_deadline(end, now), Some(end));
+        // No time left: no read.
+        assert_eq!(read_deadline(now, now), None);
+        assert_eq!(read_deadline(now, now + Duration::from_millis(5)), None);
     }
 
     #[test]

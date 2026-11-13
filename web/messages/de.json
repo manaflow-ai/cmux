@@ -199,7 +199,10 @@
     "signupPendingBody": "Wenn du bereits ein Konto hast, melde dich mit der zuvor verwendeten Methode an. Wenn du gerade ein Konto erstellt hast, bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
-    "backToSignIn": "Zur Anmeldung"
+    "backToSignIn": "Zur Anmeldung",
+    "chatgptLinkTitle": "Einmal anmelden, um ChatGPT zu verbinden",
+    "chatgptLinkBody": "Für diese E-Mail-Adresse gibt es bereits ein cmux-Konto. Melde dich mit der bisherigen Methode an, dann wird ChatGPT mit diesem Konto verbunden.",
+    "chatgptEmailUnverifiedBody": "Die E-Mail-Adresse deines ChatGPT-Kontos ist nicht bestätigt. Bestätige sie bei OpenAI oder melde dich anders an."
   },
   "cloudPublicationAccess": {
     "title": "Du hast keinen Zugriff",
@@ -509,7 +512,18 @@
         "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
         "seatsUsed": "{members} von {seats} belegt",
         "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Die Plätze folgen der Mitgliederzahl, das Abonnement wird automatisch angepasst.",
-        "addSeats": "Plätze hinzufügen"
+        "addSeats": "Plätze hinzufügen",
+        "enterprise": {
+          "current": "Aktueller Tarif",
+          "body": "{team} hat einen individuellen Tarif, der mit dem cmux-Team vereinbart wurde. Wende dich an das cmux-Team, um ihn zu ändern.",
+          "price": "Preis",
+          "perMonth": "{amount}/Monat",
+          "machines": "Cloud-Maschinen",
+          "pool": "Gemeinsame vCPUs / Arbeitsspeicher",
+          "largest": "Größte Maschine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Keine Begrenzung"
+        }
       },
       "teamList": {
         "heading": "Abrechnungsbereiche",
