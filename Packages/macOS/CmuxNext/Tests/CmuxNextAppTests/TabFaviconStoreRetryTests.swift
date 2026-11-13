@@ -44,6 +44,13 @@ import Testing
         #expect(loader.calls == 2, "its read fetches the icon again")
         #expect(store.image(for: Self.address, profile: .default) != nil, "the icon shows instead of the globe")
     }
+
+    /// A URL that keeps failing (a site with no icon) is held off longer each time, not fetched every minute.
+    @Test func aURLThatKeepsFailingIsHeldOffLongerEachTime() {
+        #expect(TabFaviconStore.failureMemory(after: 1) == TabFaviconStore.failureMemory)
+        #expect(TabFaviconStore.failureMemory(after: 2) == TabFaviconStore.failureMemory * 2)
+        #expect(TabFaviconStore.failureMemory(after: 40) == TabFaviconStore.longestFailureMemory)
+    }
 }
 
 /// Whether the row's observation fired (its `onChange` runs on whichever thread wrote).
