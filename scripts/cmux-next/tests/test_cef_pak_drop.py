@@ -247,6 +247,28 @@ def test_cli_drops_pages_and_sounds_and_leaves_pages_without_maps():
         assert all(after[rid] == data for rid, data in read(source).items() if rid in after)
 
 
+def test_a_dropped_pages_bitmaps_stay():
+    """Chromium aborts at launch on a bitmap id it cannot load ("Unable to load bitmap image with id 20900",
+    resource_bundle.cc; every Mac perf bench, 2026-11-13), and reads any other missing resource as empty. So a
+    dropped page's PNG and JPEG entries stay."""
+    png, jpeg = b"\x89PNG\r\n\x1a\n" + b"p" * 20, b"\xff\xd8\xff\xe0" + b"j" * 20
+    assert tool.is_bitmap(png) and tool.is_bitmap(jpeg)
+    assert not tool.is_bitmap(b"<html>") and not tool.is_bitmap(b"")
+    run = [("new_tab_page.html", 20540), ("icons/logo.png", 20541), ("icons/photo.jpg", 20542), ("app.js", 20543)]
+    binary = macho(sorted(p for p, _ in run), [run])
+    source = pak([(20540, b"<html>"), (20541, png), (20542, jpeg), (20543, b"js")])
+    with tempfile.TemporaryDirectory() as tmp:
+        path, header, framework = (os.path.join(tmp, n) for n in ("resources.pak", "cef_pack_resources.h", "CEF"))
+        Path(header).write_text(HEADER)
+        Path(framework).write_bytes(binary)
+        Path(path).write_bytes(source)
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), path, header, "--webui", framework],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+        assert read(Path(path).read_bytes()) == {20541: png, 20542: jpeg}, done.stdout
+        assert "2 page resources" in done.stdout and "2 bitmaps kept" in done.stdout, done.stdout
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
