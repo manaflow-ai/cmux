@@ -103,11 +103,23 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             case let .failure(error): return RemoteWire.failure(id: id, code: error.code?.rawValue ?? "failed", message: error.description)
             }
         case "stop_session":
+            guard !agent.relayOnly else {
+                return RemoteWire.failure(id: id, code: "screen.app_host",
+                                          message: "the cmux app owns Mac Screen sharing")
+            }
             agent.sessions.stop()
             return RemoteWire.answer(id: id, result: [:])
         default:
             return RemoteWire.failure(id: id, code: "unknown_method", message: "unknown method \(method)")
         }
+    }
+
+    /// Host-control command seam for ownership tests. Production callers use the
+    /// stdin control loop above; keeping this on the main actor preserves the
+    /// same lease check as the real command.
+    @MainActor
+    func handleCommandForTesting(_ method: String, _ params: [String: Any] = [:], id: Any? = 1) async -> Data {
+        await handle(method, params, id: id)
     }
 
     // MARK: App channels
@@ -121,19 +133,36 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
-            Task { @MainActor [weak self] in self?.appChannelOpened() }
+            // The reader stays off the main actor, while one actor task owns this
+            // channel's registration, request order, and teardown. This prevents
+            // a queued request from racing appChannelClosed and re-enabling worker
+            // hosting after the app has gone away.
+            let stream = AsyncStream<WorkerRequest>.makeStream(bufferingPolicy: .bufferingOldest(256))
+            let failed = OSAllocatedUnfairLock(initialState: false)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                appChannelOpened()
+                for await request in stream.stream {
+                    guard !failed.withLock({ $0 }) else { break }
+                    if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) {
+                        channel.write(answer)
+                    }
+                }
+                unsubscribe(channel)
+                appChannelClosed()
+                channel.close()
+            }
             while let object = channel.readObject() {
-                let request = WorkerRequest(object)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) { channel.write(answer) }
+                if case .dropped = stream.continuation.yield(WorkerRequest(object)) {
+                    // A peer that outruns the actor is failed closed rather than
+                    // silently dropping a control request.
+                    failed.withLock { $0 = true }
+                    stream.continuation.finish()
+                    channel.close()
+                    return
                 }
             }
-            Task { @MainActor [weak self] in
-                self?.unsubscribe(channel)
-                self?.appChannelClosed()
-            }
-            channel.close()
+            stream.continuation.finish()
         }
     }
 
