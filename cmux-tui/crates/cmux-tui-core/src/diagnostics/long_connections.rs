@@ -32,6 +32,13 @@ impl LongConnections {
         if self.lane.claim(limit, client) { Ok(()) } else { Err(LongConnectionsFull { limit }) }
     }
 
+    /// A long place for a connection that holds its long work already
+    /// (`ConnectionLease::join_terminal`): no bound applies, see
+    /// `TerminalLane::enter`.
+    pub(super) fn enter(&self, client: Option<u32>) {
+        self.lane.enter(client);
+    }
+
     pub(super) fn release(&self, client: Option<u32>) {
         self.lane.release(client);
     }

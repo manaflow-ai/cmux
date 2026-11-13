@@ -210,7 +210,7 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid: Some(id as u32),
+                pid: super::terminal_runtime::terminal_seat(&mux, Some(id as u32)),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
                 cwd: opts.cwd,
                 exit: Mutex::new(None),
