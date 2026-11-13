@@ -666,6 +666,21 @@ fn a_cleanup_never_gives_up_while_its_machine_can_still_be_made() {
     assert_eq!(fake.removes.load(Ordering::Acquire), 17, "read again until the create ended");
 }
 
+/// #39022 review at a5563b2d, F2: a cleanup the app kept answering "later" for the whole give-up
+/// time stops, and its receipt says so (`abandoned`): never `pending`, which says cmux is still
+/// deleting a machine that may still be running and billed.
+#[test]
+fn a_cleanup_given_up_says_abandoned_not_pending() {
+    let replied = || Outcome::Replied { reply: "hi".into(), machine: Some("m-1".into()) };
+    let quiet = Timing { give_up: Duration::from_millis(40), ..quick() };
+    let listed = (0..1_000).map(|_| Removal::Later("still listed".into())).collect();
+    let fake = Fake::new(Some(replied()), listed);
+    let engine = Engine::open(None, fake.clone(), quiet);
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "abandoned");
+    assert_eq!(snapshot["receipt"]["cleanup"], "abandoned", "{snapshot}");
+}
+
 /// #39022 review at 1c13439a, F2: a task's length is counted in characters as the composer counts
 /// them (grapheme clusters): 9000 decomposed accented letters are 9000 characters, not 18000.
 #[test]
