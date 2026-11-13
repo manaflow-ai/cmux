@@ -1,12 +1,13 @@
 //! Crash-safe snapshot installation after an O(1) log-generation rotation.
 use super::{DiskSnapshot, SortedSnapshot, SummaryIndex};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct Compaction {
@@ -14,11 +15,15 @@ pub struct Compaction {
     pub(super) snapshot_path: PathBuf,
     covered_generation: u64,
     seq: u64,
+    captured_now: u64,
 }
 
 #[derive(Debug)]
 pub struct CompactionResult {
     pub snapshot: Arc<DiskSnapshot>,
+    /// Complete hot rows at capture, including snapshot rows whose background
+    /// hydration had not reached the writer when this compaction began.
+    pub retained_hot: SummaryIndex,
     pub covered_generation: u64,
     pub seq: u64,
     pub cleanup_errors: u64,
@@ -26,7 +31,15 @@ pub struct CompactionResult {
 
 impl Compaction {
     pub(super) fn new(directory: PathBuf, covered_generation: u64, seq: u64) -> Self {
-        Self { snapshot_path: directory.join("index.snap"), directory, covered_generation, seq }
+        let captured_now =
+            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
+        Self {
+            snapshot_path: directory.join("index.snap"),
+            directory,
+            covered_generation,
+            seq,
+            captured_now,
+        }
     }
 
     pub fn covered_generation(&self) -> u64 {
@@ -45,34 +58,63 @@ impl Compaction {
         index: Arc<SummaryIndex>,
         cancelled: Arc<AtomicBool>,
     ) -> io::Result<CompactionResult> {
-        let stage = unique_stage(&self.snapshot_path, self.seq)?;
         if cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
         }
+        // This worker is the directory's sole compactor. A prior attempt may
+        // have failed to unlink its files while storage was unavailable. Retry
+        // that cleanup before reserving a stage, without requiring a restart
+        // or allocating another staging name. read_dir keeps memory bounded.
+        cleanup_stages(&self.directory)?;
+        let mut files = StageFiles::reserve(&self.snapshot_path, self.seq)?;
+        let result = self.run_staged(index, &cancelled, files.stage());
+        match (result, files.cleanup()) {
+            (Ok(mut result), Err(_)) => {
+                // A completed rename is still committed even if cleanup fails.
+                result.cleanup_errors += 1;
+                Ok(result)
+            }
+            (Err(error), Err(cleanup)) => Err(io::Error::new(
+                error.kind(),
+                format!("{error}; compaction stage cleanup failed: {cleanup}"),
+            )),
+            (result, Ok(())) => result,
+        }
+    }
+
+    fn run_staged(
+        self,
+        index: Arc<SummaryIndex>,
+        cancelled: &AtomicBool,
+        stage: &Path,
+    ) -> io::Result<CompactionResult> {
         // The write path streams rows and keeps only sparse checkpoint state.
+        let mut retained_hot = SummaryIndex::new();
         SortedSnapshot::write_stream_generation(
-            &stage,
+            stage,
             self.seq,
             0,
             None,
             self.covered_generation,
             index.merged_rows().map(|row| {
                 if cancelled.load(Ordering::Acquire) {
-                    Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"))
-                } else {
-                    row
+                    return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
                 }
+                let row = row?;
+                if row.is_hot_at(self.captured_now) {
+                    retained_hot = retained_hot.apply(self.seq, row.as_ref().clone());
+                }
+                Ok(row)
             }),
         )?;
         if cancelled.load(Ordering::Acquire) {
-            let _ = fs::remove_file(&stage);
             return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
         }
         // Open the staged inode before committing it. Errors after rename
         // must not leave the publisher believing the old generation is current.
-        let snapshot = DiskSnapshot::open(&stage)?
+        let snapshot = DiskSnapshot::open(stage)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "staged snapshot"))?;
-        fs::rename(&stage, &self.snapshot_path)?;
+        fs::rename(stage, &self.snapshot_path)?;
         let mut cleanup_errors = 0;
         if File::open(&self.directory).and_then(|directory| directory.sync_all()).is_err() {
             // Keep every old log until the rename is known durable.
@@ -103,6 +145,7 @@ impl Compaction {
         }
         Ok(CompactionResult {
             snapshot,
+            retained_hot,
             covered_generation: self.covered_generation,
             seq: self.seq,
             cleanup_errors,
@@ -110,15 +153,91 @@ impl Compaction {
     }
 }
 
-fn unique_stage(snapshot: &Path, seq: u64) -> io::Result<PathBuf> {
-    let base = snapshot.with_file_name(format!("index.snap.stage.{seq}"));
-    for n in 0..10_000u32 {
-        let path = if n == 0 { base.clone() } else { base.with_extension(format!("{n}.stage")) };
-        if !path.exists() {
-            return Ok(path);
+struct StageFiles {
+    paths: [PathBuf; 3],
+    armed: bool,
+}
+
+impl StageFiles {
+    fn reserve(snapshot: &Path, seq: u64) -> io::Result<Self> {
+        let stage = snapshot.with_file_name(format!("index.snap.stage.{seq}"));
+        let sidefile = |suffix: &str| {
+            let mut name = stage.as_os_str().to_os_string();
+            name.push(suffix);
+            PathBuf::from(name)
+        };
+        let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new")];
+        // There is one compactor per directory. Known abandoned files were
+        // removed before reservation; do not overwrite unexpected entries.
+        for path in &paths {
+            match fs::symlink_metadata(path) {
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "compaction stage already exists",
+                    ));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        OpenOptions::new().create_new(true).write(true).open(stage)?;
+        Ok(Self { paths, armed: true })
+    }
+
+    fn stage(&self) -> &Path {
+        let [stage, ..] = &self.paths;
+        stage
+    }
+
+    fn cleanup(&mut self) -> io::Result<()> {
+        let mut failed = None;
+        for path in &self.paths {
+            if let Err(error) = fs::remove_file(path)
+                && error.kind() != io::ErrorKind::NotFound
+                && failed.is_none()
+            {
+                failed = Some(error);
+            }
+        }
+        if let Some(error) = failed {
+            return Err(error);
+        }
+        self.armed = false;
+        Ok(())
+    }
+}
+
+impl Drop for StageFiles {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.cleanup();
         }
     }
-    Err(io::Error::new(io::ErrorKind::AlreadyExists, "snapshot staging names exhausted"))
+}
+
+/// Only the compactor's numeric staging names are owned by this directory.
+/// Older attempts also used a `.stage` suffix after the sequence component.
+pub(super) fn cleanup_stages(directory: &Path) -> io::Result<bool> {
+    let mut cleaned = false;
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(suffix) = name.strip_prefix("index.snap.stage.") else { continue };
+        let (number, suffix) = suffix.split_once('.').unwrap_or((suffix, ""));
+        if number.parse::<u64>().is_ok()
+            && matches!(
+                suffix,
+                "" | "new" | "directory.new" | "stage" | "stage.new" | "stage.directory.new"
+            )
+            && entry.file_type()?.is_file()
+        {
+            fs::remove_file(entry.path())?;
+            cleaned = true;
+        }
+    }
+    Ok(cleaned)
 }
 
 fn generation_number(path: &Path) -> Option<u64> {

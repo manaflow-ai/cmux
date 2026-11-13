@@ -47,33 +47,56 @@ impl HubWriter {
         }
     }
 
-    pub(super) fn persist(&mut self, record: &IndexRecord) {
+    pub(super) fn defer_record(&mut self, record: &IndexRecord, error: std::io::Error) -> HubError {
+        self.log_errors.fetch_add(1, Ordering::Relaxed);
+        self.retry_log
+            .insert(RowKey::new(record.origin.as_str(), record.chat_id.as_str()), record.clone());
+        self.storage_retry = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        HubError::Log(error)
+    }
+
+    pub(super) fn persist(&mut self, record: &IndexRecord) -> Result<(), HubError> {
+        if let Some(log) = self.log.as_mut() {
+            if let Err(error) = log.append_record(record) {
+                return Err(self.defer_record(record, error));
+            }
+            self.log_dirty = true;
+        }
+        // Only written changes may replace the captured snapshot's rows.
         if let Some(job) = self.compaction.as_mut() {
             job.changed.insert(RowKey::new(record.origin.as_str(), record.chat_id.as_str()));
         }
-        let Some(log) = self.log.as_mut() else { return };
-        if !self.retry_log.is_empty() || log.append_record(record).is_err() {
-            self.log_errors.fetch_add(1, Ordering::Relaxed);
-            self.retry_log.insert(
-                RowKey::new(record.origin.as_str(), record.chat_id.as_str()),
-                record.clone(),
-            );
-        }
-    }
-
-    pub(super) fn sync_batch(&mut self) -> Result<(), HubError> {
-        let Some(log) = self.log.as_mut() else { return Ok(()) };
-        let mut records: Vec<_> = self.retry_log.values().cloned().collect();
-        records.sort_by_key(|record| record.seq);
-        for record in records {
-            log.append_record(&record)?;
-            self.retry_log.remove(&RowKey::new(record.origin, record.chat_id));
-        }
-        log.sync()?;
         Ok(())
     }
 
+    pub(super) fn sync_batch(&mut self) -> Result<(), HubError> {
+        // Retried changes get their seq when written, never when queued. This
+        // keeps published cursors in the log even across same-boot restarts.
+        let keys: Vec<_> = self.retry_log.keys().take(256).cloned().collect();
+        let mut first_error = None;
+        for key in keys {
+            let Some(record) = self.retry_log.remove(&key) else { continue };
+            let result = if record.gone {
+                self.apply_remove(&key).map(|_| ())
+            } else {
+                self.apply(record.summary).map(|_| ())
+            };
+            if let Err(error) = result {
+                first_error.get_or_insert(error);
+            }
+        }
+        if self.log_dirty {
+            if let Some(log) = self.log.as_mut() {
+                log.sync()?;
+            }
+            self.log_dirty = false;
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     pub(super) fn process_batch(&mut self) {
+        // Installation and releasing the old maps stay off runtime workers.
+        self.install_compaction();
         self.hydrate_batch();
         for (key, update) in self.updates.take_batch() {
             let result = match update {
@@ -89,7 +112,7 @@ impl HubWriter {
             self.storage_retry =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         } else {
-            self.storage_retry = None;
+            self.storage_retry = (!self.retry_log.is_empty()).then(std::time::Instant::now);
             self.maybe_compact();
         }
     }

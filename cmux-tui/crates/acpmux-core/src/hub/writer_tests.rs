@@ -61,6 +61,33 @@ fn repeated_removal_is_one_tombstone_and_missing_without_snapshot_is_none() {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn close_drains_more_than_one_batch_of_recovered_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    for n in 0..600 {
+        let summary = closed(&format!("retry-{n}"));
+        writer.retry_log.insert(
+            summary.key(),
+            acpmux_book::index::IndexRecord {
+                seq: 1,
+                origin: summary.origin.clone(),
+                chat_id: summary.chat_id.clone(),
+                summary,
+                gone: false,
+            },
+        );
+    }
+    hub.close();
+    writer.run().await.unwrap();
+    assert_eq!(hub.snapshot().seq(), 600);
+    assert_eq!(hub.snapshot().len(), 600);
+    drop(hub);
+    let (reopened, _) = Hub::open(dir.path(), 101, || 7).unwrap();
+    assert_eq!(reopened.snapshot().seq(), 600);
+    assert_eq!(reopened.snapshot().len(), 600);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn unwritten_changes_never_escape_before_a_same_boot_restart() {

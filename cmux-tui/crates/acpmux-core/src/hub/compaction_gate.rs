@@ -1,8 +1,14 @@
-//! Long-running rotation and writer-cost gate; release-only, explicitly invoked.
+//! Complete writer-turn cost during real compaction, including sync and install.
 use super::*;
 use acpmux_book::index::SortedSnapshot;
 use std::io::Write;
 use std::time::Instant;
+
+const SAMPLES: usize = 200;
+const ROUNDS: usize = 5;
+const MIN_CHANGES: u64 = 1_000_000;
+const MAX_CHANGES: u64 = 10_000_000;
+const BATCH: u64 = 256;
 
 fn p95(samples: &[u128]) -> u128 {
     let mut values = samples.to_vec();
@@ -12,7 +18,14 @@ fn p95(samples: &[u128]) -> u128 {
 }
 
 fn best(samples: &[u128]) -> u128 {
-    samples.chunks_exact(200).take(5).map(p95).min().unwrap()
+    samples.chunks_exact(SAMPLES).take(ROUNDS).map(p95).min().unwrap()
+}
+
+fn row(id: impl Into<String>, activity: u64) -> Summary {
+    let mut row = Summary::new(id);
+    row.last_activity = activity;
+    row.state = "running".to_owned();
+    row
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -21,75 +34,124 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let dir = tempfile::tempdir().unwrap();
     let mut index = SummaryIndex::new();
     for n in 0..11_000 {
-        let mut row = Summary::new(format!("row-{n:05}"));
-        row.last_activity = 11_000 - n;
-        row.state = "closed".into();
-        index = index.apply(n + 1, row);
+        index = index.apply(n + 1, row(format!("row-{n:05}"), 11_000 - n));
     }
     SortedSnapshot::write(dir.path().join("index.snap"), &index).unwrap();
     drop(index);
-    let (hub, mut writer) = Hub::open(dir.path(), 91, || 17).unwrap();
-    let _subscription = hub.subscribe(&Sub::new("measure", "list")).unwrap();
-    let mut during = Vec::new();
-    let mut outside = Vec::new();
-    let mut completions = 0;
-    for start in (0..1_000_000_u64).step_by(256) {
-        let (next, measured) = tokio::task::spawn_blocking(move || {
-            let mut measured = Vec::with_capacity(256);
-            for n in start..(start + 256).min(1_000_000) {
-                let mut row = Summary::new(format!("row-{:05}", n % 11_000));
-                row.last_activity = 100_000 + n;
-                row.state = "closed".into();
-                let running = writer.compaction.as_ref().is_some_and(|job| {
-                    job.handle.as_ref().is_some_and(|handle| !handle.is_finished())
-                });
-                let began = Instant::now();
-                writer.apply(row).unwrap();
-                let elapsed = began.elapsed().as_nanos().max(1);
-                // Both distributions must contain changes to the same 11k
-                // hot rows. The initial pass promotes cold rows into the hot
-                // maps and is not steady-state outside-compaction work.
-                if n >= 11_000 {
-                    measured.push((running, elapsed));
-                }
-            }
-            writer.sync_batch().unwrap();
-            writer.maybe_compact();
-            if writer.compaction.is_none() {
-                let trigger = writer.published.load().disk().unwrap().bytes().max(1024 * 1024);
-                assert!(writer.log.as_ref().unwrap().retained_bytes() < trigger);
-            }
-            (writer, measured)
+    let (hub, mut writer) = Hub::open(dir.path(), 19, || 17).unwrap();
+    let subscription = hub.subscribe(&Sub::new("measure", "list")).unwrap();
+    // Finish the real startup load on this writer. Every steady-state sample
+    // then changes the same live 11k rows, before and during compaction.
+    writer.start_hydration();
+    let mut hydration = Vec::new();
+    while writer.hydration.is_some() {
+        let (next, elapsed) = tokio::task::spawn_blocking(move || {
+            let started = Instant::now();
+            writer.process_batch();
+            (writer, started.elapsed().as_nanos().max(1))
         })
         .await
         .unwrap();
         writer = next;
-        for (running, sample) in measured {
+        hydration.push(elapsed);
+    }
+    assert_eq!(hub.snapshot().len(), 11_000);
+    eprintln!("PR5b startup_writer_turns: batches={} p95_ns={}", hydration.len(), p95(&hydration));
+    let mut during = Vec::new();
+    let mut outside = Vec::new();
+    let mut changes = 0_u64;
+    let mut first_million_peak = 0;
+    // Fast compactions may finish in fewer than 1,000 turns through 1M changes.
+    // Continue the same workload to collect five rounds, never slow a worker
+    // or hold an artificial compaction open to manufacture samples.
+    while changes < MAX_CHANGES
+        && (changes < MIN_CHANGES
+            || during.len() < ROUNDS * SAMPLES
+            || outside.len() < ROUNDS * SAMPLES)
+    {
+        writer.finish_compaction(false).await;
+        let count = if changes < MIN_CHANGES {
+            BATCH.min(MIN_CHANGES - changes)
+        } else {
+            BATCH.min(MAX_CHANGES - changes)
+        };
+        for n in 0..count {
+            hub.submit(row(format!("row-{:05}", (changes + n) % 11_000), 1_000_000 + changes + n))
+                .unwrap();
+        }
+        let (next, running, elapsed) = tokio::task::spawn_blocking(move || {
+            let running = writer.compaction.is_some() || writer.retirement.is_some();
+            let completed = writer.compaction_counters.completed.load(Ordering::Relaxed);
+            let old_offset = writer.log.as_ref().unwrap().offset();
+            let started = Instant::now();
+            writer.process_batch();
+            let elapsed = started.elapsed().as_nanos().max(1);
+            let log = writer.log.as_ref().unwrap();
+            let trigger = writer.published.load().disk().unwrap().bytes().max(1024 * 1024);
+            if writer.compaction.is_none() && writer.retirement.is_none() {
+                assert!(
+                    log.offset()
+                        <= trigger + BATCH * acpmux_book::index::MAX_INDEX_RECORD_BYTES as u64
+                );
+            }
+            if writer.compaction_counters.completed.load(Ordering::Relaxed) != completed {
+                // Install does not rewrite the active suffix; this turn only
+                // adds its own batch. Retirement keeps the next rotation out.
+                assert!(log.offset() >= old_offset);
+                assert_eq!(log.retained_bytes(), log.offset());
+            }
+            assert_eq!(writer.log_errors(), 0);
+            (writer, running, elapsed)
+        })
+        .await
+        .unwrap();
+        writer = next;
+        for _ in 0..count {
+            let item = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                subscription.receiver.recv(),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(item, Some(ListItem::Summary(_))));
+        }
+        if count == BATCH {
             let samples = if running { &mut during } else { &mut outside };
-            if samples.len() < 1000 {
-                samples.push(sample);
+            if samples.len() < ROUNDS * SAMPLES {
+                samples.push(elapsed);
             }
         }
-        let before_bytes = writer.log.as_ref().unwrap().offset();
-        writer.finish_compaction(false).await;
-        if hub.compaction_stats().completed != completions {
-            completions = hub.compaction_stats().completed;
-            // Installation never copies, rewrites, or loses the post-capture tail.
-            assert_eq!(writer.log.as_ref().unwrap().offset(), before_bytes);
-            assert_eq!(writer.log.as_ref().unwrap().retained_bytes(), before_bytes);
+        changes += count;
+        if changes == MIN_CHANGES {
+            first_million_peak = hub.compaction_stats().peak_excess_bytes;
         }
     }
-    writer.finish_compaction(true).await;
+    // Finish the captured work and reclaim its old maps, with no further
+    // arrivals. A suffix over its trigger starts the next compaction at once.
+    for _ in 0..10 {
+        writer.finish_compaction(true).await;
+        writer = tokio::task::spawn_blocking(move || {
+            writer.process_batch();
+            writer
+        })
+        .await
+        .unwrap();
+        if writer.compaction.is_none() && writer.retirement.is_none() {
+            break;
+        }
+    }
+    assert!(writer.compaction.is_none() && writer.retirement.is_none());
     let stats = hub.compaction_stats();
     assert_eq!(stats.failed, 0);
     assert!(stats.completed > 0);
-    assert_eq!(during.len(), 1000, "not enough real in-flight samples");
-    assert_eq!(outside.len(), 1000, "not enough outside-compaction samples");
+    assert!(changes >= MIN_CHANGES);
+    assert_eq!(during.len(), ROUNDS * SAMPLES, "not enough actual in-flight writer turns");
+    assert_eq!(outside.len(), ROUNDS * SAMPLES, "not enough outside writer turns");
     let small = best(&outside);
     let god = best(&during);
     let all = p95(&during);
     let line = format!(
-        "{{\"name\":\"v2.pr05b.apply_during_compaction\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\",\"changes\":1000000,\"compactions\":{},\"peak_excess_bytes\":{},\"last_duration_ns\":{}}}",
+        "{{\"name\":\"v2.pr05b.apply_during_compaction\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\",\"changes\":{changes},\"compactions\":{},\"peak_excess_bytes\":{},\"first_million_peak_excess_bytes\":{first_million_peak},\"last_duration_ns\":{}}}",
         stats.completed, stats.peak_excess_bytes, stats.duration_ns,
     );
     eprintln!("{line}");
@@ -100,10 +162,10 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         )
         .unwrap();
     }
-    assert!(god <= small * 12 / 10, "during={god}ns outside={small}ns");
-    assert!(all <= small * 2, "all during={all}ns outside={small}ns");
+    assert!(god <= small.saturating_mul(12) / 10, "during={god}ns outside={small}ns");
+    assert!(all <= small.saturating_mul(2), "all during={all}ns outside={small}ns");
     drop((hub, writer));
-    let (restored, _) = Hub::open(dir.path(), 91, || 17).unwrap();
-    assert_eq!(restored.snapshot().seq(), 1_011_000);
+    let (restored, _) = Hub::open(dir.path(), 19, || 17).unwrap();
+    assert_eq!(restored.snapshot().seq(), 11_000 + changes);
     assert_eq!(restored.snapshot().merged_rows().count(), 11_000);
 }

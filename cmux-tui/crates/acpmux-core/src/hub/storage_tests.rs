@@ -88,3 +88,70 @@ fn a_new_boot_fences_a_cursor_before_any_new_summary_is_published() {
     let (hub, _) = Hub::open(dir.path(), 102, || 7).unwrap();
     assert_ne!(hub.snapshot().edition(), old_edition);
 }
+
+#[test]
+fn submit_rejects_long_keys_and_counts_omitted_folders() {
+    use acpmux_book::index::{omitted_folders, rejected_keys};
+    let (hub, _) = Hub::new(SummaryIndex::new());
+
+    let before_keys = rejected_keys();
+    assert!(hub.submit(Summary::new("x".repeat(257))).is_err());
+    let mut origin = Summary::new("origin-too-long");
+    origin.origin = "o".repeat(257);
+    assert!(hub.submit(origin).is_err());
+    assert!(rejected_keys() >= before_keys.saturating_add(2));
+
+    let before_folders = omitted_folders();
+    let mut folder = Summary::new("folder-too-long");
+    folder.folder = Some("f".repeat(1_025));
+    assert!(hub.submit(folder).is_ok());
+    assert!(omitted_folders() > before_folders);
+}
+
+#[test]
+fn open_recovers_when_initial_log_was_renamed_before_the_next_generation_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("index.log");
+    let mut log = IndexLog::open(&log_path).unwrap();
+    log.append(Summary::new("before-rename")).unwrap();
+    log.sync().unwrap();
+    drop(log);
+    std::fs::rename(&log_path, dir.path().join("index.log.1")).unwrap();
+    assert!(!log_path.exists());
+    assert!(!dir.path().join("index.log.2").exists());
+
+    let (hub, mut writer) = Hub::open(dir.path(), 71, || 19).unwrap();
+    assert!(hub.snapshot().get("before-rename").is_some());
+    writer.apply(Summary::new("after-open")).unwrap();
+    writer.sync_batch().unwrap();
+    drop((hub, writer));
+    let (reopened, _) = Hub::open(dir.path(), 71, || 19).unwrap();
+    assert!(reopened.snapshot().get("before-rename").is_some());
+    assert!(reopened.snapshot().get("after-open").is_some());
+}
+
+#[test]
+fn open_cleans_a_complete_staged_snapshot_and_replays_old_snapshot_tail() {
+    use acpmux_book::index::SortedSnapshot;
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("index.log");
+    let snapshot_path = dir.path().join("index.snap");
+    let first = Summary::new("first");
+    let index = SummaryIndex::new().apply(1, first.clone());
+    SortedSnapshot::write(&snapshot_path, &index).unwrap();
+    let mut log = IndexLog::open(&log_path).unwrap();
+    let second = log.append(Summary::new("second")).unwrap();
+    log.sync().unwrap();
+    let stage = dir.path().join("index.snap.stage.1");
+    SortedSnapshot::write(&stage, &index).unwrap();
+    assert!(stage.exists());
+    drop(log);
+
+    let (hub, _) = Hub::open(dir.path(), 72, || 19).unwrap();
+    let window: Window<Summary> =
+        hub.list_window(&Sub::new("recovered", "list")).unwrap().decode_json().unwrap();
+    assert!(window.rows.iter().any(|row| row.chat_id == "first"));
+    assert!(hub.snapshot().get("second").is_some());
+    assert_eq!(hub.snapshot().seq(), second.seq);
+    assert!(!stage.exists());
+}

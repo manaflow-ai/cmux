@@ -267,7 +267,9 @@ pub type SummaryHub = Hub;
 /// [`HubWriter::apply`].
 pub struct HubWriter {
     compaction: Option<compaction::Job>,
+    retirement: Option<tokio::task::JoinHandle<()>>,
     next_compaction: Option<std::time::Instant>,
+    compaction_backoff: u64,
     storage_retry: Option<std::time::Instant>,
     compaction_counters: Arc<compaction::Counters>,
     published: Arc<ArcSwap<SummaryIndex>>,
@@ -275,6 +277,7 @@ pub struct HubWriter {
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<VecDeque<ListItem>>>,
     log: Option<IndexLog>,
+    log_dirty: bool,
     log_errors: Arc<AtomicU64>,
     retry_log: HashMap<RowKey, acpmux_book::index::IndexRecord>,
     hydration: Option<disk::Hydration>,
@@ -349,6 +352,7 @@ impl Hub {
         };
         let writer = HubWriter {
             compaction: None,
+            retirement: None,
             // A rotated generation without its installed snapshot is work
             // recovered at open. Resume it even if no new summary arrives.
             next_compaction: log
@@ -356,12 +360,14 @@ impl Hub {
                 .filter(|log| log.retained_bytes() > log.offset())
                 .map(|_| std::time::Instant::now()),
             storage_retry: None,
+            compaction_backoff: 0,
             compaction_counters,
             published,
             updates,
             subscribers,
             history,
             log,
+            log_dirty: false,
             log_errors,
             retry_log: HashMap::new(),
             hydration: None,
@@ -569,14 +575,45 @@ impl HubWriter {
     /// Applies one summary and publishes the resulting immutable snapshot.
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
         let summary = summary.prepare()?;
+        let current = self.published.load_full();
+        let key = summary.key();
+        // Latest wins even if an earlier version never reached the log.
+        self.retry_log.remove(&key);
         let record = acpmux_book::index::IndexRecord {
-            seq: self.published.load().seq().saturating_add(1),
+            seq: current.seq().saturating_add(1),
             origin: summary.origin.clone(),
             chat_id: summary.chat_id.clone(),
             summary,
             gone: false,
         };
-        self.persist(&record);
+        let existing = match current.get_row(&key) {
+            Some(row) => Some(row),
+            None if !current.is_shadowed(&key) => {
+                if let Some(disk) = current.disk() {
+                    let piece = match disk.read_piece(
+                        Some(&SortKey::of(&record.summary)),
+                        ReadSide::After,
+                        true,
+                        1,
+                        crate::wire::MAX_PAGE_BYTES,
+                    ) {
+                        Ok(piece) => piece,
+                        Err(error) => return Err(self.defer_record(&record, error)),
+                    };
+                    piece.rows.into_iter().find(|row| row.key() == key)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        if let Some(existing) = existing
+            && existing.same_content(&record.summary)
+        {
+            // The returned row is unchanged; no event is published.
+            return Ok(SummaryEvent { seq: current.seq(), summary: existing });
+        }
+        self.persist(&record)?;
         let next = self.published.load_full().apply(record.seq, record.summary);
         let summary = next
             .get_row(&RowKey::new(record.origin.as_str(), record.chat_id.as_str()))
@@ -611,8 +648,10 @@ impl HubWriter {
 
     fn apply_remove(&mut self, key: &RowKey) -> Result<bool, HubError> {
         key.validate()?;
+        self.retry_log.remove(key);
         let current = self.published.load_full();
-        if current.get_row(key).is_none() && current.disk().is_none() {
+        if current.get_row(key).is_none() && (current.disk().is_none() || current.is_shadowed(key))
+        {
             return Ok(false);
         }
         let seq = current.seq().saturating_add(1);
@@ -622,7 +661,7 @@ impl HubWriter {
             chat_id: key.chat_id.to_string(),
             summary: Summary::new(key.chat_id.to_string()),
             gone: true,
-        });
+        })?;
         let Some(next) = current.remove_row(seq, key) else {
             return Ok(false);
         };
@@ -678,12 +717,24 @@ impl HubWriter {
                 break;
             }
             if pending && self.hydration.is_none() {
-                let retry = [self.next_compaction, self.storage_retry].into_iter().flatten().min();
+                // Compaction needs a healthy log. A past compaction deadline
+                // must not bypass the storage failure's retry backoff.
+                let retry = if self.retirement.is_some() {
+                    self.storage_retry
+                } else {
+                    self.storage_retry.or(self.next_compaction)
+                };
                 tokio::select! {
                     () = self.updates.notify.notified() => {},
                     () = async {
                         if let Some(job) = self.compaction.as_mut() { job.wait_ready().await; }
                         else { std::future::pending::<()>().await; }
+                    } => {},
+                    () = async {
+                        if let Some(retirement) = self.retirement.as_mut() {
+                            let _ = retirement.await;
+                            self.retirement = None;
+                        } else { std::future::pending::<()>().await; }
                     } => {},
                     () = async {
                         if let Some(retry) = retry { tokio::time::sleep_until(retry.into()).await; }
@@ -699,10 +750,27 @@ impl HubWriter {
             .map_err(|_| HubError::WriterGone)?;
         }
         self.finish_compaction(true).await;
-        tokio::task::spawn_blocking(move || self.sync_batch())
-            .await
-            .map_err(|_| HubError::WriterGone)??;
-        Ok(())
+        let (result, retirement) = tokio::task::spawn_blocking(move || {
+            self.install_compaction();
+            let result = loop {
+                if let Err(error) = self.sync_batch() {
+                    break Err(error);
+                }
+                if self.retry_log.is_empty() {
+                    break Ok(());
+                }
+            };
+            let retirement = self.retirement.take();
+            // The last published maps may belong to this writer alone.
+            drop(self);
+            (result, retirement)
+        })
+        .await
+        .map_err(|_| HubError::WriterGone)?;
+        if let Some(retirement) = retirement {
+            retirement.await.map_err(|_| HubError::WriterGone)?;
+        }
+        result
     }
 
     pub fn close(&self) {

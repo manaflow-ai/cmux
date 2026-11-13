@@ -76,6 +76,12 @@ impl HubWriter {
         self.compaction_counters
             .peak_excess_bytes
             .fetch_max(log.retained_bytes().saturating_sub(trigger), Ordering::Relaxed);
+        if self.retirement.is_some() {
+            if self.next_compaction.is_none() && log.retained_bytes() >= trigger {
+                self.next_compaction = Some(Instant::now());
+            }
+            return;
+        }
         if self.compaction.is_some() || !self.retry_log.is_empty() {
             return;
         }
@@ -113,18 +119,35 @@ impl HubWriter {
 
     fn compaction_failed(&mut self) {
         self.compaction_counters.failed.fetch_add(1, Ordering::Relaxed);
-        self.next_compaction = Some(Instant::now() + Duration::from_secs(1));
+        self.compaction_backoff = self.compaction_backoff.saturating_mul(2).clamp(1, 64);
+        self.next_compaction = Some(Instant::now() + Duration::from_secs(self.compaction_backoff));
     }
 
     pub(super) async fn finish_compaction(&mut self, join: bool) {
+        if self.retirement.as_ref().is_some_and(|handle| join || handle.is_finished())
+            && let Some(handle) = self.retirement.take()
+        {
+            let _ = handle.await;
+        }
         let ready = self.compaction.as_ref().is_some_and(|job| {
             join || job.ready.is_some() || job.handle.as_ref().is_some_and(JoinHandle::is_finished)
         });
         if !ready {
             return;
         }
+        if let Some(job) = self.compaction.as_mut() {
+            job.wait_ready().await;
+        }
+    }
+
+    /// The ready result is installed only on a blocking writer turn. Overlay
+    /// work is proportional to concurrent changes; retired maps are reclaimed
+    /// by one owned task before another compaction may start.
+    pub(super) fn install_compaction(&mut self) {
+        if !self.compaction.as_ref().is_some_and(|job| job.ready.is_some()) {
+            return;
+        }
         let Some(mut job) = self.compaction.take() else { return };
-        job.wait_ready().await;
         let Some(result) = job.ready.take() else { return };
         match result {
             Ok(Ok(result)) => {
@@ -133,7 +156,10 @@ impl HubWriter {
                     Ordering::Relaxed,
                 );
                 self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
-                self.compaction_counters.failed.fetch_add(result.cleanup_errors, Ordering::Relaxed);
+                if result.cleanup_errors == 0 {
+                    self.compaction_backoff = 0;
+                    self.next_compaction = None;
+                }
                 if let Some(log) = self.log.as_mut() {
                     if result.cleanup_errors == 0 {
                         log.compacted(result.covered_generation, result.seq);
@@ -141,15 +167,19 @@ impl HubWriter {
                     self.compaction_counters.oldest_seq.store(log.oldest_seq(), Ordering::Release);
                 }
                 if result.cleanup_errors != 0 {
-                    // Keep conservative retained-byte accounting until a
-                    // durable install has cleaned the covered generations.
-                    self.next_compaction = Some(Instant::now() + Duration::from_secs(1));
+                    // Keep retained-byte accounting until a durable install
+                    // has cleaned the covered generations; back off on error.
+                    self.compaction_failed();
                 }
                 let current = self.published.load_full();
-                let next = current
-                    .with_compacted_snapshot(result.snapshot, std::mem::take(&mut job.changed));
+                let next = current.with_compacted_snapshot(
+                    result.snapshot,
+                    std::mem::take(&mut job.changed),
+                    result.retained_hot,
+                );
                 self.published.store(Arc::new(next));
-                self.start_hydration();
+                self.hydration = None;
+                self.retirement = Some(tokio::task::spawn_blocking(move || drop(current)));
             }
             _ => self.compaction_failed(),
         }

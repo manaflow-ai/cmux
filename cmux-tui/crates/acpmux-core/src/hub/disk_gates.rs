@@ -154,15 +154,36 @@ fn child_startup() {
         }
         println!("V2_GATE_HOT_ROWS={}", hub.snapshot().len());
     }
+    let mode = std::env::var("V2_GATE_MODE").unwrap_or_default();
+    if let Some(cycle) = mode.strip_prefix("evict-").and_then(|value| value.parse::<usize>().ok()) {
+        // Apply the same 11k old closed summaries to both fixtures. The small
+        // side cycles its 20 ids, while the god side touches 11k ids. This
+        // populates the hot overlay, then compaction must evict every row and
+        // release the old maps before the RSS receipt is taken.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("eviction runtime");
+        runtime.block_on(async {
+            for n in 0..11_000 {
+                let id = format!("row-{:05}", n % cycle);
+                // A different old activity on every update prevents the
+                // 20-key side from becoming 10,980 equality no-ops.
+                writer.apply(summary(id, 2_000_000 + n as u64, "closed")).expect("apply cold row");
+            }
+            writer.sync_batch().expect("sync cold rows");
+            writer.next_compaction = Some(std::time::Instant::now());
+            writer.process_batch();
+            writer.finish_compaction(true).await;
+            writer.process_batch();
+            writer.finish_compaction(true).await;
+        });
+        println!("V2_GATE_HOT_ROWS={}", hub.snapshot().len());
+    }
     println!("V2_GATE_CHILD_RSS_KB={}", rss_kb());
 }
 
-fn exec_child(
-    dir: &std::path::Path,
-    test_name: &str,
-    boot: u64,
-    hydrate: bool,
-) -> (u128, u64, u64) {
+fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> (u128, u64, u64) {
     let start = std::time::Instant::now();
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
@@ -170,7 +191,7 @@ fn exec_child(
         .arg("--ignored")
         .arg("--nocapture")
         .env("V2_GATE_CHILD", "1")
-        .env("V2_GATE_MODE", if hydrate { "hydrate" } else { "startup" })
+        .env("V2_GATE_MODE", mode)
         .env("V2_GATE_DIR", dir)
         .env("V2_GATE_BOOT", boot.to_string())
         .stdout(std::process::Stdio::piped())
@@ -250,13 +271,13 @@ fn pr05b_startup_pages_and_hot_index_gate() {
                 small_dir.path(),
                 &child_name,
                 10_000 + (round * SAMPLES + sample) as u64,
-                false,
+                "startup",
             );
             let (god_ns, god_kb, _) = exec_child(
                 god_dir.path(),
                 &child_name,
                 20_000 + (round * SAMPLES + sample) as u64,
-                false,
+                "startup",
             );
             small_start.last_mut().unwrap().push(small_ns);
             god_start.last_mut().unwrap().push(god_ns);
@@ -382,33 +403,60 @@ fn pr05b_startup_pages_and_hot_index_gate() {
     let (clean_god_dir, _) = fixture(11_000, false, false);
     let mut clean_small_rss = Vec::with_capacity(ROUNDS);
     let mut clean_god_rss = Vec::with_capacity(ROUNDS);
+    let mut evict_small_rss = Vec::with_capacity(ROUNDS);
+    let mut evict_god_rss = Vec::with_capacity(ROUNDS);
     for round in 0..ROUNDS {
         let (_, small_kb, small_hot) =
-            exec_child(clean_small_dir.path(), &child_name, 30_000 + round as u64, true);
+            exec_child(clean_small_dir.path(), &child_name, 30_000 + round as u64, "hydrate");
         let (_, god_kb, god_hot) =
-            exec_child(clean_god_dir.path(), &child_name, 40_000 + round as u64, true);
+            exec_child(clean_god_dir.path(), &child_name, 40_000 + round as u64, "hydrate");
+        let (evict_small_dir, _) = fixture(20, false, false);
+        let (evict_god_dir, _) = fixture(11_000, false, false);
+        let (_, small_evict_kb, small_evict_hot) =
+            exec_child(evict_small_dir.path(), &child_name, 50_000 + round as u64, "evict-20");
+        let (_, god_evict_kb, god_evict_hot) =
+            exec_child(evict_god_dir.path(), &child_name, 55_000 + round as u64, "evict-11000");
         clean_small_rss.push(small_kb as u128);
         clean_god_rss.push(god_kb as u128);
+        evict_small_rss.push(small_evict_kb as u128);
+        evict_god_rss.push(god_evict_kb as u128);
         if small_hot != 0 {
             failures.push(format!("small cold hydration entered hot index: {small_hot}"));
         }
         if god_hot != 0 {
             failures.push(format!("god cold hydration entered hot index: {god_hot}"));
         }
+        if small_evict_hot != 0 {
+            failures.push(format!("small compaction retained {small_evict_hot} hot rows"));
+        }
+        if god_evict_hot != 0 {
+            failures.push(format!("god compaction retained {god_evict_hot} hot rows"));
+        }
     }
-    let small_hot_rss = p95(&mut clean_small_rss);
-    let god_hot_rss = p95(&mut clean_god_rss);
+    let hydration_small_rss = p95(&mut clean_small_rss);
+    let hydration_god_rss = p95(&mut clean_god_rss);
+    let small_hot_rss = p95(&mut evict_small_rss);
+    let god_hot_rss = p95(&mut evict_god_rss);
+    eprintln!(
+        "PR5b hydration_rss_kb small={hydration_small_rss} god={hydration_god_rss}; post_compaction_rss_kb small={small_hot_rss} god={god_hot_rss}"
+    );
     gate("v2.pr05b.hot_rss", small_hot_rss, god_hot_rss, god_hot_rss, "kB");
     if god_hot_rss > small_hot_rss.saturating_mul(12) / 10 {
-        failures.push(format!("cold hydration RSS ratio: small={small_hot_rss} god={god_hot_rss}"));
+        failures
+            .push(format!("post-compaction RSS ratio: small={small_hot_rss} god={god_hot_rss}"));
+    }
+    if hydration_god_rss > hydration_small_rss.saturating_mul(12) / 10 {
+        failures.push(format!(
+            "cold hydration RSS ratio: small={hydration_small_rss} god={hydration_god_rss}"
+        ));
     }
 
     // Decision 97: report startup cost with a tail equal to one and two complete
     // snapshot generations. These are observations, not ratio-gated rows.
     let (one_generation, one_bytes) = full_tail_fixture(11_000, 1);
     let (two_generations, two_bytes) = full_tail_fixture(11_000, 2);
-    let (one_ns, _, _) = exec_child(one_generation.path(), &child_name, 60_001, false);
-    let (two_ns, _, _) = exec_child(two_generations.path(), &child_name, 60_002, false);
+    let (one_ns, _, _) = exec_child(one_generation.path(), &child_name, 60_001, "startup");
+    let (two_ns, _, _) = exec_child(two_generations.path(), &child_name, 60_002, "startup");
     report_tail("full_tail", one_ns, one_bytes);
     report_tail("two_full_tails", two_ns, two_bytes);
 

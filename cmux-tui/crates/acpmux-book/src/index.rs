@@ -201,6 +201,27 @@ impl Summary {
         self.state != "closed"
     }
 
+    pub fn is_hot_at(&self, now: u64) -> bool {
+        self.pinned || self.is_live() || self.last_activity >= now.saturating_sub(30 * 24 * 60 * 60)
+    }
+
+    /// Opaque extension bytes are compared without parsing or re-encoding.
+    pub fn same_content(&self, other: &Self) -> bool {
+        self.chat_id == other.chat_id
+            && self.origin == other.origin
+            && self.title == other.title
+            && self.harness == other.harness
+            && self.state == other.state
+            && self.last_activity == other.last_activity
+            && self.unread == other.unread
+            && self.workspace == other.workspace
+            && self.pinned == other.pinned
+            && self.parent == other.parent
+            && self.fork_of == other.fork_of
+            && self.folder == other.folder
+            && self.extra.get() == other.extra.get()
+    }
+
     pub fn encoded_len(&self) -> usize {
         serde_json::to_vec(self).map_or(0, |bytes| bytes.len())
     }
@@ -382,11 +403,22 @@ impl SummaryIndex {
         &self,
         snapshot: Arc<DiskSnapshot>,
         changed: ChangedRows,
+        mut retained_hot: Self,
     ) -> Self {
-        let mut next = self.clone();
-        next.disk = Some(snapshot);
-        next.shadowed = changed;
-        next
+        // The worker prepared these maps during the snapshot's single pass.
+        // Only changes after its capture need reconciliation on install.
+        for key in &changed {
+            if let Some(row) = self.get_row(key) {
+                retained_hot = retained_hot.apply(self.seq, row.as_ref().clone());
+            } else if let Some(next) = retained_hot.remove_row(self.seq, key) {
+                retained_hot = next;
+            }
+        }
+        retained_hot.seq = self.seq;
+        retained_hot.edition = self.edition;
+        retained_hot.disk = Some(snapshot);
+        retained_hot.shadowed = changed;
+        retained_hot
     }
 
     pub fn edition(&self) -> u32 {
@@ -400,11 +432,7 @@ impl SummaryIndex {
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
-        if self.shadowed.contains(&row.key())
-            || !(row.pinned
-                || row.is_live()
-                || row.last_activity >= now.saturating_sub(30 * 24 * 60 * 60))
-        {
+        if self.shadowed.contains(&row.key()) || !row.is_hot_at(now) {
             return self.clone();
         }
         let mut next = self.clone();

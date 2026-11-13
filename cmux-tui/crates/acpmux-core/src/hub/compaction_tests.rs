@@ -3,6 +3,61 @@ use acpmux_book::index::{IndexRecord, SortedSnapshot};
 use std::time::Instant;
 
 #[tokio::test(flavor = "current_thread")]
+async fn compaction_failures_back_off_and_recover_without_new_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    writer.apply(Summary::new("retained")).unwrap();
+    // A real rename failure: the snapshot destination is a directory.
+    let obstruction = dir.path().join("index.snap");
+    std::fs::create_dir(&obstruction).unwrap();
+    for seconds in [1, 2, 4, 8, 16, 32, 64, 64] {
+        writer.next_compaction = Some(Instant::now());
+        writer = tokio::task::spawn_blocking(move || {
+            writer.process_batch();
+            writer
+        })
+        .await
+        .unwrap();
+        writer.finish_compaction(true).await;
+        let before = Instant::now();
+        writer = tokio::task::spawn_blocking(move || {
+            writer.process_batch();
+            writer
+        })
+        .await
+        .unwrap();
+        let after = Instant::now();
+        assert_eq!(writer.compaction_backoff, seconds);
+        let deadline = writer.next_compaction.unwrap();
+        let delay = std::time::Duration::from_secs(seconds);
+        assert!(deadline >= before + delay && deadline <= after + delay);
+        assert!(writer.compaction.is_none());
+        assert_eq!(writer.log.as_ref().unwrap().generation(), 2);
+    }
+    assert_eq!(hub.compaction_stats().failed, 8);
+    std::fs::remove_dir(obstruction).unwrap();
+    writer.next_compaction = Some(Instant::now());
+    writer = tokio::task::spawn_blocking(move || {
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    writer.finish_compaction(true).await;
+    writer = tokio::task::spawn_blocking(move || {
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    assert_eq!(writer.compaction_backoff, 0);
+    assert!(writer.next_compaction.is_none());
+    assert_eq!(hub.compaction_stats().completed, 1);
+    assert_eq!(writer.log.as_ref().unwrap().retained_bytes(), 0);
+    assert_eq!(hub.snapshot().get("retained").unwrap().chat_id, "retained");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn interrupted_rotation_restarts_compaction_without_new_submissions() {
     let dir = tempfile::tempdir().unwrap();
     let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();

@@ -1,5 +1,5 @@
 //! CRC-framed bounded log records and recoverable generation changes.
-use super::compaction::Compaction;
+use super::compaction::{Compaction, cleanup_stages};
 use super::{DiskSnapshot, IndexRecord, RowKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Seek, SeekFrom, Write};
@@ -29,6 +29,8 @@ impl IndexLog {
         snapshot: Option<&DiskSnapshot>,
     ) -> io::Result<Self> {
         let requested = requested.as_ref();
+        let parent = requested.parent().unwrap_or_else(|| Path::new("."));
+        let mut cleaned = cleanup_stages(parent)?;
         let covered = snapshot.map_or(0, DiskSnapshot::covered_generation);
         let mut seq = snapshot.map_or(0, DiskSnapshot::seq);
         let mut generations = generation_paths(requested)?;
@@ -36,7 +38,6 @@ impl IndexLog {
         let mut active = None;
         let mut retained_bytes = 0;
         let mut oldest = None;
-        let mut cleaned = false;
         let mut previous_generation = None;
         for (generation, path) in generations {
             if previous_generation == Some(generation) {
@@ -61,7 +62,6 @@ impl IndexLog {
             retained_bytes += log.offset;
             active = Some(log);
         }
-        let parent = requested.parent().unwrap_or_else(|| Path::new("."));
         if cleaned {
             File::open(parent)?.sync_all()?;
         }
@@ -212,6 +212,15 @@ impl IndexLog {
         }
         self.sync()?;
         let parent = self.path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
+        // A failed snapshot leaves the active generation empty. Retrying it
+        // must not manufacture another log; the same closed generations are
+        // still the complete input for this captured sequence. This also
+        // retries a failed sync after creation of the active generation.
+        if self.offset == 0 {
+            self.file.sync_all()?;
+            File::open(&parent)?.sync_all()?;
+            return Ok(Compaction::new(parent, self.generation.saturating_sub(1), snapshot_seq));
+        }
         let closed_generation = self.generation;
         if closed_generation == 1
             && self.path.file_name() == Some(std::ffi::OsStr::new("index.log"))
@@ -229,7 +238,7 @@ impl IndexLog {
         let active = parent.join(format!("index.log.{next_generation}"));
         let file = OpenOptions::new().create_new(true).read(true).write(true).open(&active)?;
         // Once created, own the new generation even if its sync fails. A
-        // retry can sync it and rotate again; it must never be wedged behind
+        // retry can sync and reuse it; it must never be wedged behind
         // create_new on an orphan left by a failed cleanup.
         self.closed_bytes = self.closed_bytes.saturating_add(self.offset);
         self.file = file;
