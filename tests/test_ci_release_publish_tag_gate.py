@@ -134,8 +134,7 @@ def is_graphql_endpoint(path: str) -> bool:
     else:
         while endpoint.startswith("./"):
             endpoint = endpoint[2:]
-        endpoint = endpoint.lstrip("/")
-    return endpoint.rstrip("/").casefold() == "graphql"
+    return endpoint.lstrip("/").rstrip("/").casefold() == "graphql"
 
 
 def gh_api_writes_release(args: list[str]) -> bool:
