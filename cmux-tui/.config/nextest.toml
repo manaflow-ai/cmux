@@ -184,3 +184,10 @@ slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(=workspace_registry::output_cleanup::journal_compact_tests::restating_records_shrink_and_replay_to_the_same_state_at_every_revision)'
 success-output = "final"
+
+# The vacuum backlog tests (mux/tests/journal_vacuum_backlog.rs) print what the maintenance
+# ticks wrote (their journal_vacuum_backlog lines: commits, WAL bytes, bytes returned); a
+# fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_vacuum_backlog::/)'
+success-output = "final"
