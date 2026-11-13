@@ -13,10 +13,13 @@
 //!   makes it only when the platform made none)
 //!   the one its first try took while that machine exists; for a send from a
 //!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). The platform binds one
-//!   machine per project, shared by that project's workspaces (leo-workspace
-//!   `design/cloud.md`). A machine that exists is pinned to the
-//!   send before anything runs there, so a retry of the send names it.
+//!   named for chats; and the send's keys ([`Keys`]). One workspace per
+//!   machine: the plan's ensure names no project, so the platform gives each
+//!   workspace its own machine, and new ones until the plan's machine cap
+//!   (leo-workspace `design/cloud.md`; Leo, 2026-11-06: "one workspace per
+//!   machine ... just arbitrarily many until you hit the cap"). A machine
+//!   that exists is pinned to the send before anything runs there, so a
+//!   retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's
 //!   when the workspace has none yet and no other workspace has it.
@@ -31,6 +34,9 @@
 //!   when a seed answered at the chat's head while the machine fills the rest
 //!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
+//! - `trust --folder F --acpmux-home H`: the same trust answer for `F`, read
+//!   before any machine is taken, so a start from a folder this Mac does not
+//!   trust is refused here, never after a lease ([`trust::cli`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -39,6 +45,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: a folder
+//!   in git goes on; a plain one past the copy's limits is refused with `copy.too_large`, naming
+//!   the git working copies right inside it (`repos`) to start in instead ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -51,7 +60,10 @@
 
 mod ledger;
 mod pick;
+mod preflight;
 mod project;
+#[cfg(test)]
+mod refusal_table_tests;
 mod reservations;
 mod spare_warm;
 #[cfg(test)]
@@ -73,10 +85,13 @@ cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --crea
 cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
+cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
+cmux link start-chat preflight --local FOLDER\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)\n       \
+cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -144,6 +159,12 @@ pub(super) fn run(args: &[String]) -> i32 {
                 _ => None,
             }
         }
+        "strand" => match (flags.key(), flags.account(), flags.one("--machine")) {
+            (Some(key), Some(account), Some(machine)) => {
+                Some(strand(&ledger, &key, account, machine))
+            }
+            _ => None,
+        },
         "copy" => StartCopy::of(&flags).map(|copy| {
             // `--store PLATFORM|default`: through the content-addressed store, the cmux
             // credential on stdin; without one the copy goes over the link as before.
@@ -158,6 +179,8 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "preflight" => flags.one("--local").map(preflight::run),
+        "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
             reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
@@ -285,7 +308,7 @@ struct PlanRequest {
     /// The cloud environment the send chose (`cloud.startChat`'s `environment`), echoed for `ensure`.
     #[serde(default)]
     environment: Option<String>,
-    /// The cmux credential is the first line of stdin: a project machine for a send from a local folder, on the
+    /// The cmux credential is the first line of stdin: a new machine for a send from a local folder, on the
     /// personal account, is the platform's workspace machine.
     #[serde(default)]
     credential_on_stdin: bool,
@@ -310,7 +333,7 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     })
 }
 
-/// [`plan`], ensuring the project's machine for a local folder on the personal account ([`ensures`]).
+/// [`plan`], ensuring the workspace's own machine for a local folder on the personal account ([`ensures`]).
 pub(super) fn plan_with(
     ledger: &Path,
     request: &str,
@@ -407,11 +430,11 @@ fn plan_with_calls(
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
-            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
-                Ok(pane) => pane,
+            let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
+                Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
-            json!({"ok": true, "machine": id, "target_pane": pane})
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
@@ -419,7 +442,8 @@ fn plan_with_calls(
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
                 create_key: keys.create,
                 repo: repo.clone(),
-                project_key: project_key.clone().unwrap_or_default(),
+                // No project key: the platform binds one workspace per machine, never a project's shared one.
+                project_key: None,
                 git_ref: None,
                 environment: request.environment.clone(),
                 platform: request.platform.clone(),
@@ -430,7 +454,7 @@ fn plan_with_calls(
                     .map(|_| request.key.to_lowercase()),
             };
             let answer = if credential.0.is_empty() {
-                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
+                Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
             } else {
                 ensure(&ask, credential.0)
             };
@@ -438,11 +462,11 @@ fn plan_with_calls(
                 Ok(body) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
-                    // Pinned before the App opens anything there, as a machine the App made.
+                    let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record(id, &send);
+                        pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
-                            pick::claim_project(pins, workspace, &request.account, id);
+                            pick::claim(pins, workspace, &request.account, id);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -528,7 +552,7 @@ fn reservation_destination(
     json!({"ok": true, "machine": machine})
 }
 
-/// Whether the send uses the platform's project machine: the folder has a project key,
+/// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
 /// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
 fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
@@ -544,10 +568,20 @@ fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
 
 /// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
 /// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+///
+/// Never a refusal of the platform's Cloud table (cmux-platform#1192) but a refused sign-in: a cap, the plan, a rate
+/// limit or a machine's state is the platform's answer for this send, final or retried with the same key, and the
+/// App's own create would only meet it again (a 403 at the team's VM limit went to that create and hit the limit).
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
         E::Status { code: "cloud_environment.not_found", .. } => false,
+        E::Status { code, .. }
+            if *code != "auth.forbidden"
+                && cmux_cloud_machine::refusals::platform(code).is_some() =>
+        {
+            false
+        }
         E::Status { status: 401 | 403 | 404, .. } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
@@ -663,7 +697,8 @@ pub(super) struct Ensure {
     workspace: String,
     create_key: String,
     repo: Option<String>,
-    project_key: String,
+    /// Set only by `ensure --project-key`: the platform then shares that project's machine.
+    project_key: Option<String>,
     git_ref: Option<String>,
     environment: Option<String>,
     platform: Option<String>,
@@ -692,8 +727,12 @@ impl Ensure {
             return None;
         }
         let project_key = match optional("--project-key")? {
-            Some(key) => project::normalize_key(&key)?,
-            None => format!("git:github.com/{}", repo.as_deref()?.to_lowercase()),
+            Some(key) => Some(project::normalize_key(&key)?),
+            // Without a project key the ensure needs the repository.
+            None => {
+                repo.as_ref()?;
+                None
+            }
         };
         Some(Self {
             workspace: flags.workspace()??.to_string(),
@@ -710,7 +749,10 @@ impl Ensure {
 
     /// The request body: the plan's `create_key` as the client key, so a retry gets the same machine.
     pub(super) fn body(&self) -> Value {
-        let mut body = json!({"clientKey": self.create_key, "projectKey": self.project_key});
+        let mut body = json!({"clientKey": self.create_key});
+        if let Some(project_key) = &self.project_key {
+            body.set("projectKey", json!(project_key));
+        }
         if let Some(key) = &self.reservation_key {
             body.set("reservationKey", json!(key));
             body.set("reservationSendKey", json!(self.reservation_send_key));
@@ -862,16 +904,21 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                 None => refused("bad_answer", "the cmux platform answered without the machine"),
             }
         }
-        Err(E::Status { status: 404, code: "" | "not_found" }) => {
+        Err(E::Status { status: 404, code: "" | "not_found", .. }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
-        Err(E::Status { status, code }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!(
-                "the cmux platform refused the workspace's machine: {}",
-                format!("{status} {code}").trim_end()
-            ),
-        ),
+        Err(E::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the workspace's machine: {}{}",
+                    format!("{status} {code}").trim_end(),
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            with_handling(&mut line, status, code, facts);
+            line
+        }
         Err(E::Unreachable(reason)) => {
             refused("unreachable", format!("the cmux platform did not answer: {reason}"))
         }
@@ -879,6 +926,32 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
             "bad_answer",
             format!("the cmux platform answered {status} with no readable body"),
         ),
+    }
+}
+
+/// Adds to a refused `line` how the refusal is handled: final (shown, never retried), a rate
+/// limit's wait (`retry_after_s`: the body's `retryAfterSeconds`, the Retry-After header or
+/// `details.retry_after_ms`), or a retry with the same key. The body's `retryable` decides for
+/// any code, in the platform's Cloud table or not (a workspace's 503
+/// `machine.placement_unavailable`); a code of the table with no flag takes its row's. A code of
+/// neither, with no flag, adds nothing: the App reads the code alone, as before.
+pub(super) fn with_handling(
+    line: &mut Value,
+    status: u16,
+    code: &str,
+    facts: Option<cmux_cloud_machine::refusals::Facts>,
+) {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    let facts = facts.unwrap_or_default();
+    let Value::Object(object) = line else { return };
+    if refusals::platform(code).is_none() && facts.retryable.is_none() {
+        return;
+    }
+    let handling = refusals::handling(status, Some(code), facts.retryable);
+    object.insert("handling".into(), json!(handling));
+    object.insert("retryable".into(), json!(handling != Handling::Final));
+    if handling == Handling::RetryAfter {
+        object.insert("retry_after_s".into(), json!(facts.wait_s()));
     }
 }
 
@@ -899,7 +972,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record(machine, &send);
+        pins.record_pin(machine, &send);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine
@@ -951,6 +1024,17 @@ fn target_pane(ledger: &Path, key: &str, account: &str, machine: &str, pane: &st
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pinned send"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+/// `strand`: the start of the send `key` can't go on and gives up `machine`, the one made for it
+/// ([`Ledger::strand`]). `delete`: true only when no other send is on it, so the App may delete
+/// it; false keeps it for the other sends. A ledger that can't be read answers not ok, and the
+/// App deletes nothing.
+pub(super) fn strand(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.strand(&Send::new(key, account), machine)) {
+        Ok(delete) => json!({"ok": true, "delete": delete}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }

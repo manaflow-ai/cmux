@@ -24,7 +24,11 @@ extension SidebarContainerView {
         widthLeg = WidthLeg(width: (fromWidth, width), reach: (fromReach, target), edge: edge)
         // The leg starts on screen: this frame's layout pass shows the turn, not the old slide's step.
         (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
-        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token) : 0
+        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token, in: window) : 0
+        // The float slides in from the window's edge as a drawer does: the strong ease (a spring's start) over the
+        // token's time, so it reads at once and lands soft; its slide out takes the faster disappear token. The
+        // docked show and hide keep the layout curve, which the content beside them shares. Reduce Motion: 0, instant.
+        widthMotion.activeCurve = isFloatOverlay ? TimedProgress.drawerCurve : TimedProgress.curve
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
     }
 
@@ -69,7 +73,7 @@ extension SidebarContainerView {
     /// as the completion, `snap()` or a drag ends the motion the usual way, so
     /// in the normal case this never fires.
     func armWidthMotionWatchdog(_ token: MotionSpring) {
-        let due = Duration.seconds(Motion.sidebar.duration(token)) + Self.widthMotionSlack
+        let due = Duration.seconds(Motion.sidebar.duration(token, in: window)) + Self.widthMotionSlack
         widthMotionWatchdog.schedule(after: due) { @MainActor [weak self] in
             guard let self, self.isWidthAnimating else { return }
             self.isWidthAnimating = false

@@ -6,7 +6,7 @@
 //! extra argument (`--resume <id>`, a session id) stays its own argv word
 //! that no shell parses again. `terminal <t> process show` keeps that argv
 //! after the agent exits (the tab runs with `--on-exit keep`), so `resume`
-//! reads the launcher and the arguments back from it.
+//! reads the launcher back from it.
 
 use super::super::agent_vocabulary::harness_name;
 
@@ -23,7 +23,7 @@ pub(super) const DEFAULT_LAUNCHER: &str = "claude";
 /// Shells whose `-c SCRIPT NAME ARGS…` sets `$0` and `$@` the POSIX way.
 const POSIX_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
 /// The harnesses `resume` knows, in the order a launcher is searched.
-const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp"];
+const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp", "antigravity"];
 
 /// One agent launch: the shell, the launcher line and its extra arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,25 +102,12 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
         "codex" => &["resume"],
         "opencode" => &["--session"],
         "amp" => &["threads", "continue"],
+        "antigravity" => &["--conversation"],
         _ => return None,
     };
     let mut args: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
     args.push(id.to_owned());
     Some(args)
-}
-
-/// `args` without a resume tail a former `resume` appended, so resuming a
-/// resumed agent does not pile up `--resume` arguments.
-pub(in crate::cli) fn strip_resume(harness: &str, args: &[String]) -> Vec<String> {
-    let Some(shape) = resume_args(harness, "") else { return args.to_vec() };
-    // The tail is the shape's fixed words, then one session id.
-    let Some((_, fixed)) = shape.split_last() else { return args.to_vec() };
-    if let Some((_, rest)) = args.split_last()
-        && let Some(kept) = rest.strip_suffix(fixed)
-    {
-        return kept.to_vec();
-    }
-    args.to_vec()
 }
 
 /// Whether `id` can be a harness session id: what the daemon publishes

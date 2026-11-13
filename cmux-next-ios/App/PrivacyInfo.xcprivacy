@@ -9,10 +9,14 @@
 	<array/>
 
 	<!-- What leaves the device to a cmux service and is kept: the account
-	     (Stack sign-in: email, name, user id) and the device registry
-	     (cmux-mobile-api: a generated device id). Messages, terminal bytes,
-	     photos and audio go to the user's own Mac over the end-to-end
-	     encrypted link and are not collected. No crash or analytics SDK.
+	     (Stack sign-in: email, name, user id), the device registry
+	     (cmux-mobile-api: a generated device id), and a Cloud Chief's
+	     conversation: its messages and the photos attached to them
+	     (ChiefCloudBackend, /v1/home/attachments). Messages, terminal bytes,
+	     photos and audio for an agent on the user's own Mac go over the
+	     end-to-end encrypted link and are not collected. Voice notes become
+	     text on the phone. Connectivity records stay in an on-device journal
+	     (sent only by Copy Logs). No crash or analytics SDK.
 	     Keep in lockstep with the App Store Connect privacy label. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
@@ -64,6 +68,30 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 	</array>
 
 	<!-- Required-reason APIs, first-party use only. -->
@@ -87,6 +115,17 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Artifact previews check free space before a download writes the
+			     file (CmuxMobileArtifacts PreviewStorage,
+			     volumeAvailableCapacityForImportantUsage). -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
 			</array>
 		</dict>
 		<dict>

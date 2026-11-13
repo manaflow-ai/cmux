@@ -2,7 +2,9 @@
 # The Cloud journey in CI (backend.yml journey-* jobs, cmux-platform's deploys): TARGET is a
 # cloud-journey.ts --backend name (preview-N, staging, prod). Runs it as the agent test account's own
 # team, then as PRODUCT_TEAM when set (the never-pause path a product team takes), and writes each
-# run's step table to the job summary. No agent test account in this environment: a notice, exit 0.
+# run's step table to the job summary. No agent test account in this environment (an empty pair: a missing or
+# misnamed secret, as backend.yml journey-preview's CMUX_JOURNEY_DEV_STACK_* was, cmuxterm-hq#8702) is an
+# error and exit 1, verdict not-run: a journey never skips silently. A baseline (below) still exits 0.
 #
 # Around a deploy (cmux-vm.yml): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
@@ -28,10 +30,12 @@ verdict() { # result
   [ "${JOURNEY_PHASE:-}" = baseline ] || echo "::notice title=Cloud journey verdict::target=$TARGET result=$1"
 }
 if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
-  echo "::notice title=Cloud journey not run::this job's environment holds no agent test account (CMUX_*_STACK_EMAIL/_PASSWORD)"
-  printf 'Cloud journey on `%s` not run: no agent test account in this environment.\n' "$TARGET" >> "$summary"
+  echo "::error title=Cloud journey cannot run::this job's environment holds no agent test account: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD are empty (a missing or misnamed secret, or an environment that does not hold the pair)"
+  printf 'Cloud journey on `%s` not run: no agent test account in this environment (a missing or misnamed secret).\n' "$TARGET" >> "$summary"
   verdict not-run
-  exit 0
+  # A baseline never fails its job; the run after the deploy fails on the same empty pair.
+  [ "${JOURNEY_PHASE:-}" = baseline ] && exit 0
+  exit 1
 fi
 phase="${JOURNEY_PHASE:-}"
 status=0

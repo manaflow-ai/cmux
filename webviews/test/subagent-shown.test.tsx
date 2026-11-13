@@ -1,6 +1,7 @@
 // l10n-allow-file: synthetic pane identities and names, never shipped UI.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -39,12 +40,8 @@ afterEach(async () => {
   root = undefined;
   calls.length = 0;
 });
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const workflow = workflowPaneId({ sessionId: "chat", runId: "workflow-run", agentId: "review" });

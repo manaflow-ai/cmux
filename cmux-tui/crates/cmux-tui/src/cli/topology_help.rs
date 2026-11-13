@@ -93,8 +93,8 @@ order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. In the
 cmux app's session, list also gives each connected Cloud machine's
 workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
-id cloud new-workspace answers), machine_name and target machine:<id>;
---machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
+id cloud new-workspace answers), machine_name and target vm:<id>;
+--machine <vm-…|vm:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
@@ -122,7 +122,7 @@ USAGE
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
+    [--fit | --viewport-width <fraction>] [--focus] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
@@ -141,6 +141,14 @@ USAGE
 
 list --name <name> keeps the panes named exactly <name>; list --cwd <path>
 keeps those with a terminal in <path> or a folder inside it.
+
+split --right --fit makes a new column that shares the window: when the
+screen's columns fit it, the new one takes an equal share and the others are
+scaled to fill the rest, so nothing scrolls sideways. Use it to open a pane
+beside a chat. --viewport-width <fraction> makes a column of exactly that
+share of the window, and the row scrolls sideways when the columns are wider
+than the window.
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
