@@ -159,15 +159,24 @@ public struct ConnectivityIncidentDetector: Sendable {
     }
 
     /// The phone's network: nil when it has none, else its kind (`wifi`, `cellular`, `other`). A
-    /// change of network restarts every stretch: links redial onto the new path.
-    public mutating func network(_ kind: String?, at date: Date) -> [Output] {
+    /// change of network restarts every stretch (links redial onto the new path). `changed: false`
+    /// is a report of the current network (the app's own path monitor): it restarts them only when
+    /// the network came back or its kind changed; a new Wi-Fi of the same kind comes as `changed`.
+    public mutating func network(_ kind: String?, at date: Date, changed: Bool = true) -> [Output] {
         let had = hasNetwork
+        let previous = networkKind
         hasNetwork = kind != nil
         if let kind { networkKind = kind }
         guard hasNetwork else { return had ? endAll(.networkLost, at: date) : [] }
+        guard changed || !had || previous != kind else { return [] }
         lastNetworkChange = date
         restartStretches(at: date)
         return []
+    }
+
+    /// A dial to the Mac failed: its reason is the incident's last error.
+    public mutating func dialFailed(macID: String, reason: String) {
+        macs[macID]?.lastError = reason
     }
 
     /// A Mac link's new state.

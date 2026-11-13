@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
-import { audienceOf, parseReport, ReportError } from "./connectivity-alerts.ts"
+import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
 import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
@@ -393,7 +393,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
     // own Macs), so another user's Mac id finds nothing there.
     const liveness = await t
-      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase()))
+      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
       .catch((e) => {
         console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
         return null

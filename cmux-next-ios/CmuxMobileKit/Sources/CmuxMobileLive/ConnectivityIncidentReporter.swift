@@ -1,5 +1,6 @@
 import CmuxConnectivityTelemetry
 import Foundation
+import Network
 import OSLog
 #if canImport(UIKit)
 import UIKit
@@ -170,6 +171,7 @@ public final class ConnectivityIncidentReporter {
     private var retryTask: Task<Void, Never>?
     private var lastSave: Date = .distantPast
     private var lifecycleObservers: [any NSObjectProtocol] = []
+    private var pathMonitor: NWPathMonitor?
     public static let tickInterval: Duration = .seconds(5)
 
     public init(file: URL?, app: ConnectivityIncidentApp = .current(), rules: ConnectivityIncidentDetector.Rules = .init(),
@@ -207,6 +209,14 @@ public final class ConnectivityIncidentReporter {
         ]
         appActive(UIApplication.shared.applicationState == .active)
         #endif
+        // The phone's network from the start (the coordinator's monitor reports changes only).
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let kind = Self.networkKind(path)
+            Task { @MainActor in self?.currentNetwork(kind) }
+        }
+        monitor.start(queue: DispatchQueue(label: "dev.cmux.mobile.connectivity-incidents.path"))
+        pathMonitor = monitor
     }
 
     /// The file a signed-in account's reports wait in.
@@ -229,6 +239,24 @@ public final class ConnectivityIncidentReporter {
 
     public func network(_ kind: String?) {
         handle(detector.network(kind, at: now()))
+    }
+
+    /// The current network as the app's own path monitor sees it (not a change by itself).
+    public func currentNetwork(_ kind: String?) {
+        handle(detector.network(kind, at: now(), changed: false))
+    }
+
+    /// A dial to the Mac failed with `reason`.
+    public func dialFailed(macID: String, reason: String) {
+        detector.dialFailed(macID: macID, reason: reason)
+    }
+
+    /// The kind of network a path uses: `wifi`, `cellular` or `other`; nil when it is not usable.
+    nonisolated static func networkKind(_ path: NWPath) -> String? {
+        guard path.status == .satisfied else { return nil }
+        if path.usesInterfaceType(.wifi) { return "wifi" }
+        if path.usesInterfaceType(.cellular) { return "cellular" }
+        return "other"
     }
 
     public func link(macID: String, name: String, _ state: ConnectivityIncidentDetector.LinkState) {
@@ -256,6 +284,8 @@ public final class ConnectivityIncidentReporter {
         retryTask?.cancel()
         for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
         lifecycleObservers = []
+        pathMonitor?.cancel()
+        pathMonitor = nil
         handle(detector.appActive(false, at: now()).map { output in
             guard case .report(var incident) = output else { return output }
             incident.endReason = .signedOut

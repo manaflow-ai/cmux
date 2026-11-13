@@ -65,6 +65,9 @@ public final class LinkController {
         /// A live link died under the phone (its stream ended or a probe went unanswered); deliberate
         /// redials (a resume, a transport switch, a retarget) are not drops.
         case dropped(reason: String)
+        /// A dial failed (not one a newer dial cancelled); the first is retried at once, without a
+        /// waiting phase, so this is where its reason is seen.
+        case dialFailed(reason: String)
     }
     /// Runs right after a dial, in the same detached step (no main actor):
     /// the coordinator opens the channels it needs first (`auth`, `daemon`)
@@ -270,6 +273,7 @@ public final class LinkController {
                     // A dial cancelled by a newer one (re-target, foreground) is not a failure.
                     if !Task.isCancelled, !(error is CancellationError), generation == self?.machine.generation {
                         events.dialFailed(error, transport: transport)
+                        self?.onSignal?(.dialFailed(reason: Self.reason(error)))
                     }
                     if Self.sessionRevoked(error, afterRefresh: forceRefresh) {
                         // A fresh token was refused too: the account's session is

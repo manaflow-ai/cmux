@@ -58,7 +58,7 @@ export const audienceOf = (
 export type IncidentKind = "mac_unreachable" | "link_unstable"
 export type IncidentState = "open" | "resolved" | "ended"
 /** How an incident ended without the Mac answering again. */
-export type EndReason = "app_backgrounded" | "network_lost" | "mac_offline" | "link_closed" | "signed_out" | "app_relaunched"
+export type EndReason = "app_backgrounded" | "network_lost" | "mac_offline" | "link_closed" | "signed_out" | "app_relaunched" | "no_end_reported"
 
 export interface IncidentReport {
   readonly id: string
@@ -217,16 +217,18 @@ export interface Incident {
   queued?: boolean
   /** The Slack message, once posted. */
   slack?: { channel: string; ts: string }
-  /** A later incident of the same reporter, Mac and kind: posted in this earlier incident's thread. */
+  /** A later incident of the same reporter and Mac: posted in this earlier incident's thread. */
   parent?: string
   suppressed?: Suppressed
+  /** Its message was closed because no end came within OPEN_EXPIRY_MS. */
+  expired?: boolean
 }
 
 export interface DeskMeta {
-  /** New threads posted per route, by time (sliding-hour limits). */
+  /** Messages and thread replies posted for new incidents, by time (sliding-hour limits). */
   posted: Array<{ at: number; reporter: string; route: "team" | "test" }>
-  /** Incidents not posted because of a limit, since the last post on that route. */
-  suppressedSince: Record<"team" | "test", number>
+  /** Incidents held back by a limit and not yet told, per route: the next post says how many in its hour. */
+  held: Record<"team" | "test", Array<{ id: string; at: number }>>
 }
 
 export interface DeskState {
@@ -234,7 +236,16 @@ export interface DeskState {
   meta: DeskMeta
 }
 
-export const emptyDesk = (): DeskState => ({ incidents: {}, meta: { posted: [], suppressedSince: { team: 0, test: 0 } } })
+export const emptyDesk = (): DeskState => ({ incidents: {}, meta: { posted: [], held: { team: [], test: [] } } })
+
+/** A stored desk from before `held` (an older deploy) reads as an empty one. */
+export const normalizeMeta = (meta: Partial<DeskMeta> | undefined): DeskMeta => ({
+  posted: meta?.posted ?? [],
+  held: { team: meta?.held?.team ?? [], test: meta?.held?.test ?? [] }
+})
+
+/** Held-back incidents of the last hour on a route, not yet told. */
+const heldInHour = (desk: DeskState, route: "team" | "test", now: number) => desk.meta.held[route].filter((h) => now - h.at < 3_600_000)
 
 /** One Slack call the desk wants made, in order. `incident` names the message it posts, edits or replies to. */
 export type SlackAction =
@@ -257,19 +268,24 @@ const HOUR = 3_600_000
 /** What the desk knows about the reported Mac when the report arrives. */
 export type MacCheck = { readonly liveness: MacLiveness | null }
 
+/** The moment an incident is judged at: when the phone saw it (never later than now). */
+export const judgedAt = (report: IncidentReport, now: number): number => Math.min(now, Date.parse(report.observedAt))
+
 /**
  * Whether an incident's start may be posted. The cmux service failing the phone always may (that outage is
- * ours, whatever the Mac does). Otherwise the Mac must have proved it is awake with an application ping
- * within ALIVE_WITHIN_MS. A connect alone is no proof: a Mac's dark wake connects and goes back to sleep,
- * and a stretch of 30 s unreachable leaves an awake host time for at least one ping (every 15 s). A late
- * report is held to the same rule: posting one unchecked would page the team for a Mac that slept.
+ * ours, whatever the Mac does). Otherwise the Mac must have proved it was awake with an application ping
+ * within ALIVE_WITHIN_MS of the moment the phone saw the incident (`judgedAt`; the liveness passed in
+ * speaks for that moment), so a report the phone delivered late is judged as it was, not as it is. A
+ * connect alone is no proof: a Mac's dark wake connects and goes back to sleep, and a stretch of 30 s
+ * unreachable leaves an awake host time for at least one ping (every 15 s).
  */
 export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
   if (report.serviceReachable === false) return undefined
   const live = check.liveness
+  const at = judgedAt(report, now)
+  if (live && live.lastPingAt !== null && live.lastPingAt >= at - ALIVE_WITHIN_MS) return undefined
   if (!live || !live.connected) return "mac_offline"
   if (!live.pings) return "mac_liveness_unknown"
-  if (live.lastAliveAt !== null && now - live.lastAliveAt <= ALIVE_WITHIN_MS) return undefined
   return "mac_asleep"
 }
 
@@ -282,6 +298,7 @@ export const startVerdict = (report: IncidentReport, check: MacCheck, now: numbe
 export const applyReport = (desk: DeskState, report: IncidentReport, reporter: Reporter, audience: { route: "team" | "test"; why?: TestReason }, check: MacCheck, now: number): DeskOutcome => {
   const removed: Array<string> = []
   desk.meta.posted = desk.meta.posted.filter((p) => now - p.at < HOUR)
+  for (const route of ["team", "test"] as const) desk.meta.held[route] = heldInHour(desk, route, now)
   for (const [id, incident] of Object.entries(desk.incidents))
     if (now - incident.updatedAt > RETENTION_MS) {
       delete desk.incidents[id]
@@ -338,7 +355,23 @@ export const applyReport = (desk: DeskState, report: IncidentReport, reporter: R
 
 const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, now: number): Omit<DeskOutcome, "changed" | "removed"> => {
   const route = incident.route
-  // The same person and Mac again soon after (the app came back, still unreachable; or its link kept dropping): its thread.
+  // Every new incident counts against the hour's limits, a thread reply too: a person going back and forth
+  // between the app and the background on one dead Mac never posts more than the limit.
+  const mine = desk.meta.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
+  const all = desk.meta.posted.filter((p) => p.route === route).length
+  if (mine >= LIMITS.perReporterPerHour || all >= LIMITS.overallPerHour) {
+    // Counted once, however many of its states arrive while the limit holds.
+    if (!desk.meta.held[route].some((h) => h.id === incident.id)) desk.meta.held[route].push({ id: incident.id, at: now })
+    incident.suppressed = "rate_limited"
+    return { accepted: true, note: "rate_limited", actions: [] }
+  }
+  // A held incident posted now is no longer held.
+  desk.meta.held[route] = desk.meta.held[route].filter((h) => h.id !== incident.id)
+  incident.suppressed = undefined
+  incident.queued = true
+  desk.meta.posted.push({ at: now, reporter: incident.reporter.key, route })
+  // The same person and Mac again soon after (the app came back, still unreachable; or its link kept
+  // dropping): a reply in the first message's thread.
   const parent = Object.values(desk.incidents)
     .filter(
       (i) =>
@@ -351,29 +384,52 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
         now - i.updatedAt <= THREAD_WINDOW_MS
     )
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const text = render(incident, report, desk, now, { announceHeld: true })
+  desk.meta.held[route] = []
   if (parent) {
     incident.parent = parent.id
-    incident.queued = true
-    incident.suppressed = undefined
     parent.updatedAt = now
-    return { accepted: true, actions: [{ kind: "reply", incident: parent.id, text: `Again: ${render(incident, report, desk, now)}` }] }
+    return { accepted: true, actions: [{ kind: "reply", incident: parent.id, text: `Again: ${text}` }] }
   }
-  const mine = desk.meta.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
-  const all = desk.meta.posted.filter((p) => p.route === route).length
-  if (mine >= LIMITS.perReporterPerHour || all >= LIMITS.overallPerHour) {
-    // Counted once, however many of its states arrive while the limit holds.
-    if (incident.suppressed !== "rate_limited") desk.meta.suppressedSince[route] += 1
-    incident.suppressed = "rate_limited"
-    return { accepted: true, note: "rate_limited", actions: [] }
-  }
-  // A held incident posted now is no longer held: it leaves the count it was in.
-  if (incident.suppressed === "rate_limited") desk.meta.suppressedSince[route] = Math.max(0, desk.meta.suppressedSince[route] - 1)
-  incident.suppressed = undefined
-  incident.queued = true
-  desk.meta.posted.push({ at: now, reporter: incident.reporter.key, route })
-  const text = render(incident, report, desk, now, { announceHeld: true })
-  desk.meta.suppressedSince[route] = 0
   return { accepted: true, actions: [{ kind: "post", incident: incident.id, route, text }] }
+}
+
+/** How long an incident may stay open with no end from the phone (killed and never relaunched, removed). */
+export const OPEN_EXPIRY_MS = 3 * HOUR
+
+/** When the next open incident expires, if any. */
+export const nextExpiry = (desk: DeskState): number | undefined => {
+  const due = Object.values(desk.incidents)
+    .filter((i) => i.queued && !i.expired && !i.states.some((s) => s !== "open"))
+    .map((i) => i.receivedAt + OPEN_EXPIRY_MS)
+  return due.length ? Math.min(...due) : undefined
+}
+
+/**
+ * Closes the messages of incidents whose end never came (the app was closed for good or removed), so none
+ * says "and counting" forever. An end that arrives later still edits the message.
+ */
+export const expireStale = (desk: DeskState, now: number): { actions: Array<SlackAction>; changed: Array<string> } => {
+  const actions: Array<SlackAction> = []
+  const changed: Array<string> = []
+  for (const incident of Object.values(desk.incidents)) {
+    if (!incident.queued || incident.expired || incident.states.some((s) => s !== "open")) continue
+    if (now - incident.receivedAt < OPEN_EXPIRY_MS) continue
+    incident.expired = true
+    incident.updatedAt = now
+    changed.push(incident.id)
+    const closed: IncidentReport = {
+      ...incident.report,
+      state: "ended",
+      endReason: "no_end_reported",
+      observedAt: new Date(now).toISOString(),
+      durationMs: now - Date.parse(incident.report.startedAt)
+    }
+    const end = `No end arrived from the phone within ${duration(OPEN_EXPIRY_MS)} (the app was closed or removed); this incident is closed.`
+    if (incident.parent) actions.push({ kind: "reply", incident: incident.parent, text: `${headline(incident, closed)}\n${end}` })
+    else actions.push({ kind: "update", incident: incident.id, text: render(incident, closed, desk, now) }, { kind: "reply", incident: incident.id, text: end })
+  }
+  return { actions, changed }
 }
 
 // MARK: Rendering
@@ -397,7 +453,8 @@ const END_WORDS: Record<EndReason, string> = {
   mac_offline: "the Mac went offline",
   link_closed: "the app stopped using this Mac",
   signed_out: "the account signed out",
-  app_relaunched: "the app was closed before it reconnected"
+  app_relaunched: "the app was closed before it reconnected",
+  no_end_reported: "no end arrived from the phone"
 }
 
 const TEST_WORDS: Record<TestReason, string> = {
@@ -462,8 +519,9 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
   if (report.simulations?.length) lines.push(`• Developer network simulation on: ${report.simulations.join(", ")}`)
   const late = now - Date.parse(report.observedAt)
   if (late > LATE_MS) lines.push(`• Delivered ${duration(late)} late (the phone queued it)`)
-  const suppressed = desk.meta.suppressedSince[incident.route]
-  if (opts.announceHeld && suppressed > 0) lines.push(`• ${suppressed} more incident${suppressed === 1 ? "" : "s"} in the last hour were not posted (rate limit)`)
+  const held = heldInHour(desk, incident.route, now).filter((h) => h.id !== incident.id).length
+  if (opts.announceHeld && held > 0)
+    lines.push(`• ${held} more incident${held === 1 ? " was" : "s were"} held back in the last hour (rate limit)`)
   if (incident.route === "test") lines.push(`• _Test route: ${TEST_WORDS[incident.why ?? "agent_account"]}_`)
   lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · Mac \`${esc(report.mac.id.slice(0, 8))}\`_`)
   return lines.join("\n")
@@ -534,7 +592,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
   static testSlack: SlackCall | undefined
 
   private async loadDesk(): Promise<DeskState> {
-    const meta = (await this.ctx.storage.get<DeskMeta>("meta")) ?? emptyDesk().meta
+    const meta = normalizeMeta(await this.ctx.storage.get<Partial<DeskMeta>>("meta"))
     const incidents: Record<string, Incident> = {}
     for (const [key, incident] of await this.ctx.storage.list<Incident>({ prefix: "inc:" })) incidents[key.slice(4)] = incident
     return { incidents, meta }
@@ -558,6 +616,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     // After the answer: a slow Slack must not make the phone's request time out and resend.
     const retryAt = (await this.ctx.storage.get<number>("retryAt")) ?? 0
     if (outbox.length && retryAt <= Date.now()) this.ctx.waitUntil(this.drain())
+    await this.scheduleAlarm(desk)
     return { accepted: outcome.accepted, ...(outcome.note ? { note: outcome.note } : {}), queued: outcome.actions.length }
   }
 
@@ -571,9 +630,46 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     await this.draining
   }
 
+  /** Retries the Slack outbox when its wait is over, and closes incidents whose end never came. */
   async alarm(): Promise<void> {
-    await this.ctx.storage.delete("retryAt")
+    const now = Date.now()
+    const retryAt = (await this.ctx.storage.get<number>("retryAt")) ?? 0
+    if (retryAt <= now) await this.ctx.storage.delete("retryAt")
+    const desk = await this.loadDesk()
+    const expired = expireStale(desk, now)
+    if (expired.actions.length) {
+      const outbox = await this.outbox()
+      for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
+      const writes: Record<string, unknown> = { outbox }
+      for (const id of expired.changed) writes[`inc:${id}`] = desk.incidents[id]
+      await this.ctx.storage.put(writes)
+      console.log(JSON.stringify({ msg: "connectivity incidents expired", count: expired.changed.length }))
+    }
+    if (retryAt <= now) await this.drain()
+    await this.scheduleAlarm(await this.loadDesk())
+  }
+
+  /** One alarm for whichever comes first: the outbox's retry or the next open incident's expiry. */
+  private async scheduleAlarm(desk: DeskState): Promise<void> {
+    const retryAt = await this.ctx.storage.get<number>("retryAt")
+    const candidates = [retryAt, nextExpiry(desk)].filter((t): t is number => typeof t === "number")
+    if (!candidates.length) return
+    const at = Math.min(...candidates)
+    const current = await this.ctx.storage.getAlarm()
+    if (current === null || current > at || current < Date.now()) await this.ctx.storage.setAlarm(at)
+  }
+
+  /** Test only: closes stale incidents as if `now` were the time (the alarm uses the clock). */
+  async expireAt(now: number): Promise<number> {
+    const desk = await this.loadDesk()
+    const expired = expireStale(desk, now)
+    const outbox = await this.outbox()
+    for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
+    const writes: Record<string, unknown> = { outbox }
+    for (const id of expired.changed) writes[`inc:${id}`] = desk.incidents[id]
+    await this.ctx.storage.put(writes)
     await this.drain()
+    return expired.changed.length
   }
 
   private draining: Promise<void> | undefined

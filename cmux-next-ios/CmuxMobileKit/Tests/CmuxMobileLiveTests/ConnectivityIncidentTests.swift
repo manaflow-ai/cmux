@@ -150,6 +150,30 @@ import Testing
         }
     }
 
+    @Test func theCurrentNetworkSeedsTheKindWithoutRestartingAStretch() throws {
+        var d = Detector(makeID: { "i1" })
+        _ = d.appActive(true, at: t0)
+        _ = d.network("cellular", at: t0, changed: false)
+        _ = d.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
+        // The path monitor reports the same network again: the stretch goes on.
+        _ = d.network("cellular", at: at(20), changed: false)
+        d.dialFailed(macID: "m1", reason: "the Mac didn't answer in time")
+        let tick = d.tick(at: at(30))
+        let id = try #require(checkID(tick))
+        let opened = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(30)))
+        let open = try #require(opened.first)
+        #expect(open.network == "cellular")
+        #expect(open.lastError == "the Mac didn't answer in time")
+        // A different kind is a change: it restarts.
+        var e = Detector(makeID: { "i2" })
+        _ = e.appActive(true, at: t0)
+        _ = e.network("wifi", at: t0, changed: false)
+        _ = e.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
+        _ = e.network("cellular", at: at(20), changed: false)
+        let early = e.tick(at: at(30))
+        #expect(checkID(early) == nil)
+    }
+
     @Test func aNewStretchCountsOnlyItsOwnDials() throws {
         var d = detector()
         _ = unreachable(&d, to: 60)

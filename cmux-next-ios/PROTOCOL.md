@@ -1605,23 +1605,29 @@ as `app_relaunched`, at the time it was last seen.
   builds, Debug builds and reports with a developer network simulation on go to the test channel
   (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
   `CONNECTIVITY_ALERT_CHANNEL`.
-- Asks the caller's own hub whether the Mac is awake (`TeamHub.macLiveness`): its signaling socket is open
-  and it sent an application `ping` (or connected) within the last 45 s. A Mac that sleeps keeps its socket
-  half open, so presence still says online, but its pings stop: such an incident (`mac_asleep`), one whose
-  Mac is not connected (`mac_offline`), and one whose Mac's host predates the pings and connected long ago
-  (`mac_liveness_unknown`) are kept but never posted, start or end. Exceptions: a phone that could not
-  reach the cmux service (`serviceReachable:false`) is always posted, and a report delivered more than two
-  minutes late cannot be checked and is posted.
+- Asks the caller's own hub whether the Mac was awake when the phone saw the incident (`observedAt`, never
+  later than now; `TeamHub.macLiveness`): it sent an application `ping` within 45 s of that moment. The hub
+  keeps each Mac socket's last ping, and the last one of a socket that closed or was replaced, so a report
+  delivered late is judged as it was (a Mac that woke and reconnected since does not count as awake then).
+  A Mac that sleeps keeps its socket half open, so presence still says online, but its pings stop: such an
+  incident (`mac_asleep`), one whose Mac is not connected and did not ping then (`mac_offline`), and one
+  whose Mac never pinged (a dark wake's connect, or a host that predates the pings:
+  `mac_liveness_unknown`) are kept but never posted, start or end. A phone that could not reach the cmux
+  service (`serviceReachable:false`) is always posted. Rollout: until a Mac runs a build with the pings,
+  its incidents are held.
 - One Durable Object (`ConnectivityAlertDesk`) stores each incident under its own key for a week (at most 100
   per reporter) before answering, and keeps an ordered outbox of Slack calls sent after the answer. A start
   posts one message; its end edits that message and replies in its thread. A resend of a state already seen
-  is a no-op. The same reporter's next incident for the same Mac and kind within 30 minutes (the app came
-  back and the Mac is still unreachable) goes in the first one's thread, not a new message.
+  is a no-op. The same reporter's next incident for the same Mac (either kind) within 30 minutes goes in the
+  first one's thread as an "Again:" reply.
+- An incident whose end never comes (the app was closed for good or removed) is closed after 3 hours: its
+  message is edited to say no end arrived from the phone. An end that comes later still edits it.
 - Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm
-  (5 s, 30 s, 2 min, 10 min, then every 30 min; given up after 12 tries or a day). Any other Slack error
+  (5 s, 30 s, 2 min, 10 min, then every 30 min) for as long as the incident is kept. Any other Slack error
   drops that call (logged), so one bad call never holds up the alerts behind it.
-- At most 5 new messages per reporter and 20 overall per hour per channel; held-back incidents are counted
-  in the next post, and an end whose start was held back is posted whole later. A Mac outage that two or
-  more teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
+- At most 5 new incidents per reporter and 20 overall per hour per channel, thread replies included. Each
+  held-back incident is counted once, and the next post (whatever its state) says how many were held back
+  in the last hour; an end whose start was held back is posted whole later. A Mac outage that two or more
+  teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
   service is flagged as a likely service outage.
 - 10 reports a minute per user (`INCIDENT_LIMIT`).

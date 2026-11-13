@@ -30,6 +30,8 @@ extension LiveCoordinator {
                 self.incidents.link(macID: session.macID, name: session.name, Self.incidentState(phase))
             case .dropped(let reason):
                 self.incidents.dropped(macID: session.macID, reason: reason)
+            case .dialFailed(let reason):
+                self.incidents.dialFailed(macID: session.macID, reason: reason)
             }
         }
         session.link.endpoint = { [weak self] macID in
