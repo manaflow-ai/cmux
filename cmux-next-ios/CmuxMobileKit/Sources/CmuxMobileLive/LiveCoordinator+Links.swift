@@ -265,6 +265,9 @@ extension LiveCoordinator {
         // The Mac app's own Feed requests, for as long as this link lives (#33818).
         let needsYou = session.needsYou
         Task { await needsYou.read(on: link, macID: macID) }
+        // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
+        let appearance = self.appearance
+        Task { await appearance.read(on: link, macID: macID) }
         do {
             let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
