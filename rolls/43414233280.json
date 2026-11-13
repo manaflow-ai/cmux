@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43414233280",
+  "recorded_at": "2026-11-13T11:12:57Z",
+  "reason": "cmux-tui 60437cd177c7 changes the image's cmux-tui (pinned 3a2e70f97b7c)",
+  "dry_run": false,
+  "cmux_tui": "60437cd177c7e77e7cc5f11b937d06a4e4a4ab7c",
+  "fixes": [
+    {
+      "sha": "60437cd177c7e77e7cc5f11b937d06a4e4a4ab7c",
+      "mergedAt": "2026-11-13T02:40:24-08:00",
+      "subject": "acpmux stress: simulate one god chat (GB history) through restart, open and streaming to many connections (#41833)"
+    },
+    {
+      "sha": "40e3c5c62d77c7ac1c90075b405a97db33a0d6dc",
+      "mergedAt": "2026-11-13T02:35:42-08:00",
+      "subject": "acpmux: keep peer rows packed as JSON text, not trees (#42391)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T11:12:57Z",
+    "snapshot_id": "sh-a17133969e4144b79025e1abdbd968ae",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43414233280): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "33ca0cfa01ece0c16e60c8196c34be146cfb829b",
+    "image": "cloud-native-auto-60437cd1-43414233280-1",
+    "revision": "ci-43414233280-1",
+    "at": "2026-11-13T11:12:57Z"
+  },
+  "rolled_back": false
+}
