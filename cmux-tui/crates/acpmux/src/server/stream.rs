@@ -45,16 +45,36 @@ pub(super) async fn serve_stream(
     socket_peer: crate::sender_harness::SocketPeer,
     v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
-    let (rd, mut wr) = crate::local_stream::split(stream);
+    let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
-    // The line codec is the only reader, even when v2 is disabled. On an
-    // upgrade it closes v1's input without handing v1 the upgrade or its read-ahead.
-    let (upgrade, (), ()) = tokio::join!(
-        read_lines(rd, in_tx, last_tx, limits, v2.as_deref()),
-        write_lines(&mut wr, out_rx, last_rx),
+    if let Some(v2) = v2 {
+        let reader = read_lines(rd, in_tx, last_tx, limits, Some(&v2));
+        let writer = tokio::spawn(write_lines(wr, out_rx, last_rx));
+        let serving = tokio::spawn(serve_connection_from(
+            hub,
+            in_rx,
+            out_tx,
+            Origin::Local,
+            ConnAuth::LocalSocket,
+            peer,
+            provisioner,
+            socket_peer,
+            None,
+            None,
+            None,
+            None,
+        ));
+        let (upgrade, writer_result, serving_result) = tokio::join!(reader, writer, serving);
+        if let (Some(upgrade), Ok(wr), Ok(())) = (upgrade, writer_result, serving_result) {
+            let _ = upgrade.serve(wr, &v2).await;
+        }
+    } else {
+        // Preserve v1's independent reader/writer tasks exactly when v2 is off.
+        tokio::spawn(read_lines(rd, in_tx, last_tx, limits, None::<&acpmux_core::life::V2>));
+        tokio::spawn(write_lines(wr, out_rx, last_rx));
         serve_connection_from(
             hub,
             in_rx,
@@ -68,10 +88,8 @@ pub(super) async fn serve_stream(
             None,
             None,
             None,
-        ),
-    );
-    if let (Some(upgrade), Some(v2)) = (upgrade, v2) {
-        let _ = upgrade.serve(wr, &v2).await;
+        )
+        .await;
     }
 }
 
@@ -231,7 +249,7 @@ async fn write_lines<W: AsyncWrite + Unpin>(
     mut wr: W,
     mut out_rx: mpsc::Receiver<String>,
     last: oneshot::Receiver<String>,
-) {
+) -> W {
     let last = async move {
         match last.await {
             Ok(line) => line,
@@ -268,6 +286,7 @@ async fn write_lines<W: AsyncWrite + Unpin>(
             }
         }
     }
+    wr
 }
 
 #[cfg(test)]
