@@ -80,13 +80,22 @@ def readline(proc, deadline):
             return proc.stdout.readline()
 
 
+def sample_budget(base_samples, drop_s):
+    """Keep the bench alive through a full drop and at least base_samples successes."""
+    if drop_s is None:
+        return base_samples
+    # The bench counts each second without a marker as a lost sample.  Reserve one
+    # loss slot per dropped second, then retain the requested successful samples.
+    return max(base_samples, int(drop_s) + base_samples)
+
+
 def attempt(args, n, drop_s=None):
     rec = {"attempt": n, "rtt_ms": args.rtt, "loss_pct": args.loss, "ok": False}
     rec["row"] = f"drop-{drop_s:g}s" if drop_s is not None else "baseline"
     if drop_s is not None:
         rec["drop_s"] = drop_s
     session = "netem-" + os.urandom(8).hex()
-    bench_args = [args.bin, "bench", "--link", "1", "--samples", str(args.samples),
+    bench_args = [args.bin, "bench", "--link", "1", "--samples", str(sample_budget(args.samples, drop_s)),
                   "--input", "key"]
     viewer = subprocess.Popen(["ip", "netns", "exec", HOST_NS if args.one_ns else VIEW_NS, *bench_args], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
