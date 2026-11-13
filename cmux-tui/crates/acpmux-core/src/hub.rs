@@ -372,25 +372,27 @@ impl Hub {
         let has_after = rows.len() < index.len();
         // The cursor is the index sequence, not a row id. The current snapshot
         // is exact at `index.seq()` even when the window is short.
-        let mut selected = Vec::with_capacity(rows.len());
-        let mut bytes = 96usize;
-        for summary in rows {
-            let next = summary.encoded_len().saturating_add(2);
-            if !selected.is_empty() && bytes.saturating_add(next) > crate::wire::MAX_PAGE_BYTES {
-                break;
-            }
-            selected.push(summary.as_ref().clone());
-            bytes = bytes.saturating_add(next);
-        }
-        let window = Window::<Summary> {
+        let mut window = Window::<Summary> {
             sid: sub.sid.clone(),
             cursor,
-            rows: selected,
+            rows: Vec::with_capacity(rows.len()),
             has_before,
             has_after,
             edition: 0,
             origins: Vec::new(),
         };
+        // Include the escaped sid, cursor and envelope exactly, not a fixed
+        // estimate. Each additional row contributes its JSON bytes and comma.
+        let mut bytes = Frame::json(FrameKind::Window, &window)?.encoded_len();
+        for summary in rows {
+            let next = summary.encoded_len().saturating_add(usize::from(!window.rows.is_empty()));
+            if bytes.saturating_add(next) > crate::wire::MAX_PAGE_BYTES {
+                window.has_after = true;
+                break;
+            }
+            bytes += next;
+            window.rows.push(summary.as_ref().clone());
+        }
         Frame::json(FrameKind::Window, &window).map_err(HubError::from)
     }
 }
@@ -855,5 +857,19 @@ mod tests {
         assert!(writer.remove("gone").unwrap());
         assert!(hub.snapshot().get("gone").is_none());
         assert!(!writer.remove("gone").unwrap());
+    }
+}
+
+#[cfg(test)]
+mod failed_subscription_tests {
+    use super::*;
+
+    #[test]
+    fn frame_encoding_failure_registers_no_subscriber() {
+        let (hub, _writer) = Hub::new(SummaryIndex::new());
+        let before = hub.subscriber_count();
+        let sub = Sub::new("x".repeat(crate::wire::MAX_FRAME_BYTES), "list");
+        assert!(matches!(hub.subscribe(&sub), Err(HubError::Frame(_))));
+        assert_eq!(hub.subscriber_count(), before);
     }
 }

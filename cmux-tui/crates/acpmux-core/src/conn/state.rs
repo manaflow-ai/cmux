@@ -40,6 +40,7 @@ impl ConnectionMetrics {
 #[derive(Debug, Default)]
 pub struct SubscriptionControl {
     ended: AtomicBool,
+    pub(super) write_start: std::sync::Mutex<()>,
     written: AtomicU64,
     known: AtomicBool,
 }
@@ -48,6 +49,9 @@ impl SubscriptionControl {
         self.ended.load(Ordering::Acquire)
     }
     fn end(&self) {
+        // Linearize the drop with the first non-blocking write poll. A write
+        // that returned Pending has started no frame and can still be freed.
+        let _start = self.write_start.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.ended.store(true, Ordering::Release);
     }
 }
@@ -68,7 +72,7 @@ enum Queued {
 #[derive(Debug)]
 pub struct FrameLease {
     sid: Option<String>,
-    control: Option<Arc<SubscriptionControl>>,
+    pub(super) control: Option<Arc<SubscriptionControl>>,
     cursor: Cursor,
     pub(super) bytes: Vec<u8>,
     notice: bool,
@@ -223,10 +227,7 @@ impl ConnectionState {
             return Offer::UnknownSubscription;
         };
         let bytes = frame.encoded_len();
-        if sub.not_fed
-            || sub.sent.saturating_sub(sub.consumed).saturating_add(bytes as u64)
-                > CREDIT_WINDOW_BYTES
-        {
+        if sub.not_fed || sub.sent.saturating_sub(sub.consumed) >= CREDIT_WINDOW_BYTES {
             sub.not_fed = true;
             return Offer::NotFed;
         }
@@ -359,5 +360,13 @@ impl ConnectionState {
                 true
             }
         });
+    }
+}
+
+impl Drop for ConnectionState {
+    fn drop(&mut self) {
+        self.metrics.queued.store(0, Ordering::Relaxed);
+        self.metrics.outside.store(0, Ordering::Relaxed);
+        self.metrics.notices.store(0, Ordering::Relaxed);
     }
 }

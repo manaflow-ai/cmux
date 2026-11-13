@@ -68,10 +68,10 @@ async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
 }
 
 use crate::hub::Hub;
-use crate::wire::{CREDIT_WINDOW_BYTES, DeltaFrame, MAX_FRAME_BYTES, ReplayMark, Window};
+use crate::wire::{CREDIT_WINDOW_BYTES, Credit, DeltaFrame, MAX_FRAME_BYTES, ReplayMark, Window};
 use acpmux_book::index::{Summary, SummaryIndex};
 use std::time::Duration;
-use tokio::io::DuplexStream;
+use tokio::io::{AsyncWriteExt, DuplexStream};
 
 async fn receive(reader: &mut (impl AsyncRead + Unpin)) -> Frame {
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -433,4 +433,262 @@ async fn reused_sid_finishes_only_the_started_frame_before_its_notice() {
     assert!(state.take().is_none());
     assert_eq!(state.metrics.notices(), 0);
     assert_eq!(state.metrics.outside_budget_bytes(), 0);
+}
+
+struct PageSource;
+impl Source for PageSource {
+    fn subscribe(
+        &self,
+        _sub: &Sub,
+        _person: Option<&[u8]>,
+        _sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        Ok(())
+    }
+    fn resume(&self, _sid: &str, _cursor: Cursor) {}
+    fn end(&self, _sid: &str) {}
+    fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
+        Ok(Frame::json(FrameKind::Page, &json!({"sid":page.sid,"data":"x".repeat(250_000)}))?)
+    }
+}
+
+#[tokio::test]
+async fn sixty_pipelined_page_replies_are_all_written_in_order() {
+    let (mut client, server) = tokio::io::duplex(1024);
+    let (rd, wr) = tokio::io::split(server);
+    let connection =
+        tokio::spawn(
+            async move { run(rd, wr, Arc::new(PageSource), "test", &["list".into()]).await },
+        );
+    hello(&mut client).await;
+    let (mut rd, mut wr) = tokio::io::split(client);
+    let requests = async {
+        for n in 0..60 {
+            send(&mut wr, json!({"method":"page","params":{"sid":n.to_string(),"stream":"list"}}))
+                .await;
+        }
+    };
+    let replies = async {
+        for n in 0..60 {
+            let frame = receive(&mut rd).await;
+            assert_eq!(frame.kind, FrameKind::Page);
+            assert_eq!(
+                frame.decode_json::<serde_json::Value>().unwrap().get("sid"),
+                Some(&json!(n.to_string()))
+            );
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(requests, replies);
+    })
+    .await
+    .unwrap();
+    drop(rd);
+    drop(wr);
+    connection.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn source_window_is_exact_when_a_summary_changes_after_first_offer() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(summary(1)).unwrap();
+    let hub = Arc::new(hub);
+    let source = HubSource::new(hub);
+    let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
+    state.lock().unwrap().subscribe_at("s", None).unwrap();
+    let control = state.lock().unwrap().control("s").unwrap();
+    source
+        .subscribe(
+            &Sub::new("s", "list"),
+            None,
+            Arc::new(ConnectionSink { state: state.clone(), control }),
+        )
+        .unwrap();
+    writer.apply(summary(2)).unwrap(); // pump has never been polled
+    let first = state.lock().unwrap().take().unwrap();
+    let window: Window<Summary> = Frame::from_encoded(&first.bytes).unwrap().decode_json().unwrap();
+    assert_eq!(window.cursor, 1);
+    state.lock().unwrap().written(&first);
+    let next = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(next) = state.lock().unwrap().take() {
+                break next;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let delta: DeltaFrame<Summary> =
+        Frame::from_encoded(&next.bytes).unwrap().decode_json().unwrap();
+    assert!(matches!(delta.ops.as_slice(), [crate::wire::DeltaOp::Summary { seq: 2, .. }]));
+    source.end("s");
+    source.close().await;
+}
+
+struct ReadThenFail(std::io::Cursor<Vec<u8>>);
+impl AsyncRead for ReadThenFail {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if self.0.position() as usize == self.0.get_ref().len() {
+            std::task::Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)))
+        } else {
+            std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+}
+struct WriteThenFail(bool);
+impl AsyncWrite for WriteThenFail {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if self.0 {
+            std::task::Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)))
+        } else {
+            self.0 = true;
+            std::task::Poll::Ready(Ok(bytes.len()))
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+#[tokio::test]
+async fn read_and_write_errors_release_every_source_subscriber() {
+    let input: Vec<_> = [
+        json!({"method":"hello","params":{"protocol":2}}),
+        json!({"method":"sub","params":{"sid":"s","stream":"list"}}),
+    ]
+    .into_iter()
+    .flat_map(|r| Frame::json(FrameKind::Request, &r).unwrap().encode())
+    .collect();
+    let (hub, _writer) = Hub::new(SummaryIndex::new());
+    let hub = Arc::new(hub);
+    let source = Arc::new(HubSource::new(hub.clone()));
+    let result = run(
+        ReadThenFail(std::io::Cursor::new(input.clone())),
+        tokio::io::sink(),
+        source.clone(),
+        "test",
+        &["list".into()],
+    )
+    .await;
+    assert!(matches!(result, Err(ConnError::Io(_))));
+    assert_eq!(source.task_count(), 0);
+    assert_eq!(hub.subscriber_count(), 0);
+    let source = Arc::new(HubSource::new(hub.clone()));
+    // After these requests the reader stays pending, so only the writer can end it.
+    let (mut client, server) = tokio::io::duplex(4096);
+    client.write_all(&input).await.unwrap();
+    let result = run(server, WriteThenFail(false), source.clone(), "test", &["list".into()]).await;
+    assert!(matches!(result, Err(ConnError::Io(_))));
+    assert_eq!(source.task_count(), 0);
+    assert_eq!(hub.subscriber_count(), 0);
+}
+
+#[derive(Default)]
+struct EditionSource {
+    edition: std::sync::atomic::AtomicU32,
+    requested: std::sync::atomic::AtomicU32,
+    resumed: std::sync::atomic::AtomicU64,
+    sink: std::sync::Mutex<Option<Arc<dyn OfferSink>>>,
+}
+impl EditionSource {
+    fn window(&self, sid: &str) -> (Frame, Cursor) {
+        let edition = self.edition.load(std::sync::atomic::Ordering::Acquire);
+        let cursor = Cursor(u64::from(edition) * 10);
+        (
+            Frame::json(
+                FrameKind::Window,
+                &Window::<Summary> {
+                    sid: sid.into(),
+                    edition,
+                    cursor: cursor.0,
+                    rows: Vec::new(),
+                    has_before: false,
+                    has_after: false,
+                    origins: Vec::new(),
+                },
+            )
+            .unwrap(),
+            cursor,
+        )
+    }
+}
+impl Source for EditionSource {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        _person: Option<&[u8]>,
+        sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        self.requested.store(sub.edition.unwrap_or_default(), std::sync::atomic::Ordering::Release);
+        let (frame, cursor) = self.window(&sub.sid);
+        assert_eq!(sink.offer(&sub.sid, frame, cursor), Offer::Taken);
+        *self.sink.lock().unwrap() = Some(sink);
+        Ok(())
+    }
+    fn resume(&self, sid: &str, cursor: Cursor) {
+        self.resumed.store(cursor.0, std::sync::atomic::Ordering::Release);
+        let (frame, cursor) = self.window(sid);
+        assert_eq!(
+            self.sink.lock().unwrap().as_ref().unwrap().offer(sid, frame, cursor),
+            Offer::Taken
+        );
+    }
+    fn end(&self, _sid: &str) {
+        self.sink.lock().unwrap().take();
+    }
+}
+#[tokio::test]
+async fn the_source_decides_editions_and_may_resume_with_a_window() {
+    use std::sync::atomic::Ordering;
+    let source = Arc::new(EditionSource::default());
+    source.edition.store(1, Ordering::Release);
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let driver = source.clone();
+    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"s","stream":"chat:x","cursor":1,"edition":99}}),
+    )
+    .await;
+    let first = receive(&mut client).await;
+    assert_eq!(first.decode_json::<Window<Summary>>().unwrap().edition, 1);
+    assert_eq!(source.requested.load(Ordering::Acquire), 99);
+    let large = Frame::json(
+        FrameKind::Delta,
+        &json!({"sid":"s","ops":[],"padding":"x".repeat(MAX_FRAME_BYTES-60)}),
+    )
+    .unwrap();
+    let consumed = (first.encoded_len() + large.encoded_len()) as u64;
+    let sink = source.sink.lock().unwrap().clone().unwrap();
+    assert_eq!(sink.offer("s", large, Cursor(10)), Offer::Taken);
+    assert_eq!(sink.offer("s", frame(100), Cursor(11)), Offer::NotFed);
+    source.edition.store(2, Ordering::Release);
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Delta);
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":consumed}})).await;
+    let window: Window<Summary> = receive(&mut client).await.decode_json().unwrap();
+    assert_eq!(window.edition, 2);
+    assert_eq!(window.cursor, 20);
+    assert_eq!(source.resumed.load(Ordering::Acquire), 10);
+    drop(client);
+    task.await.unwrap().unwrap();
+    assert!(source.sink.lock().unwrap().is_none());
 }

@@ -359,3 +359,19 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn trigger_admission_cannot_be_followed_by_an_upgrade() {
+    let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+    let v2 = V2::new(hub, writer);
+    let (mut client, server) = tokio::io::duplex(4 * MAX);
+    let (tx, mut rx) = mpsc::channel(16);
+    let (last, _last_rx) = oneshot::channel();
+    let trigger = crate::rpc::Message::request(1, "trigger/chat.ensure", json!({})).to_line();
+    let upgrade = upgrade_line(json!(["list"]));
+    client.write_all(format!("{trigger}{upgrade}").as_bytes()).await.unwrap();
+    client.shutdown().await.unwrap();
+    assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
+    assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
+    assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+}

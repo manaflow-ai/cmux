@@ -2,25 +2,14 @@
 
 use crate::hub::HubError;
 mod list;
-use crate::wire::{
-    Credit, Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub, Unsub,
-};
+use crate::wire::{Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub};
 pub use list::HubSource;
-use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 pub const MAX_SUBSCRIPTIONS: usize = crate::wire::MAX_SUBSCRIPTIONS;
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "method", content = "params", rename_all = "lowercase")]
-pub enum Request {
-    Hello(Hello),
-    Sub(Sub),
-    Page(Page),
-    Credit(Credit),
-    Unsub(Unsub),
-}
+pub use crate::wire::Request;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Offer {
@@ -218,12 +207,34 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             _ = wake.notified() => {}
             _ = std::future::ready(()), if can_process => {
                 let Some(frame) = pending.pop_front() else { continue };
-                let reserved = {
+                let control = {
                     let mut state = state.lock().map_err(|_| poisoned())?;
-                    if hello_seen && known_control(&frame, &state) { true }
-                    else { state.reserve_reply() }
+                    if hello_seen && known_control(&frame, &state) {
+                        // Validate and apply under the SAME lock. A source drop
+                        // cannot turn this reply-free control into an error
+                        // after we chose to process it without a reply reserve.
+                        match frame.decode_json::<Request>()? {
+                            Request::Credit(credit) => {
+                                let sid = credit.sid.clone();
+                                Some(Control::Credit(sid, state.credit(credit)?))
+                            }
+                            Request::Unsub(unsub) => {
+                                state.unsubscribe(&unsub.sid);
+                                Some(Control::End(unsub.sid))
+                            }
+                            _ => return Err(poisoned()),
+                        }
+                    } else if state.reserve_reply() { None }
+                    else { pending.push_front(frame); continue; }
                 };
-                if !reserved { pending.push_front(frame); continue; }
+                if let Some(control) = control {
+                    match control {
+                        Control::Credit(sid, Some(cursor)) => source.resume(&sid, cursor),
+                        Control::Credit(_, None) => {},
+                        Control::End(sid) => source.end(&sid),
+                    }
+                    continue;
+                }
                 let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces);
                 if let Err(error) = result {
                     let reply = error_frame(&frame, &error)?;
@@ -244,8 +255,19 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 fn poisoned() -> ConnError {
     ConnError::InvalidRequest("connection state poisoned".into())
 }
+enum Control {
+    Credit(String, Option<Cursor>),
+    End(String),
+}
+
 fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
     if frame.kind != FrameKind::Request {
+        return false;
+    }
+    if !frame
+        .decode_json::<serde_json::Value>()
+        .is_ok_and(|value| validate_identifiers(&value).is_ok())
+    {
         return false;
     }
     match frame.decode_json::<Request>() {
@@ -398,18 +420,33 @@ async fn write_lease<W: AsyncWrite + Unpin>(
     writing: Option<&mut WritingFrame>,
 ) -> Result<bool, std::io::Error> {
     let Some(writing) = writing else { return std::future::pending().await };
-    if writing.offset == 0 && writing.lease.ended() {
-        writing.cancelled = true;
+    let control = writing.lease.control.clone();
+    let count = std::future::poll_fn(|cx| {
+        let _start = if writing.offset == 0 {
+            control.as_ref().map(|control| {
+                control.write_start.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            })
+        } else {
+            None
+        };
+        if writing.offset == 0 && writing.lease.ended() {
+            writing.cancelled = true;
+            return std::task::Poll::Ready(Ok(0));
+        }
+        let Some(remaining) = writing.lease.bytes.get(writing.offset..) else {
+            return std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid write offset",
+            )));
+        };
+        // poll_write cannot retain a lock across Pending. A drop that follows
+        // this poll either frees an unstarted frame or lets its prefix finish.
+        std::pin::Pin::new(&mut *writer).poll_write(cx, remaining)
+    })
+    .await?;
+    if writing.cancelled {
         return Ok(true);
     }
-
-    let remaining = writing.lease.bytes.get(writing.offset..).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid write offset")
-    })?;
-    if remaining.is_empty() {
-        return Ok(true);
-    }
-    let count = writer.write(remaining).await?;
     if count == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "frame write stopped"));
     }

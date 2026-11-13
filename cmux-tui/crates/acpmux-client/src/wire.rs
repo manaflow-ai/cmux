@@ -27,6 +27,16 @@ const HEADER_BYTES: usize = size_of::<u32>();
 const KIND_BYTES: usize = 1;
 const MAX_PAYLOAD_BYTES: usize = MAX_FRAME_BYTES - HEADER_BYTES - KIND_BYTES;
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "method", content = "params", rename_all = "lowercase")]
+pub enum Request {
+    Hello(Hello),
+    Sub(Sub),
+    Page(Page),
+    Credit(Credit),
+    Unsub(Unsub),
+}
+
 /// A generic stream name. The wire layer does not know which stream is being
 /// served; `list`, `chat:<id>` and `status` are interpreted by the caller.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -412,8 +422,8 @@ pub struct DeltaFrame<T> {
     pub ops: Vec<DeltaOp<T>>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "op")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
 pub enum DeltaOp<T> {
     Summary {
         seq: u64,
@@ -432,6 +442,52 @@ pub enum DeltaOp<T> {
         #[serde(flatten)]
         origin: Origin,
     },
+}
+
+// Deserialize fields directly from the JSON map. Serde's internally tagged
+// enum buffers the map as Content, which cannot preserve Summary.extra's
+// RawValue. This keeps opaque extension bytes on the original JSON decoder.
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", bound(deserialize = "T: Deserialize<'de>"))]
+        struct Fields<T> {
+            op: String,
+            seq: u64,
+            summary: Option<T>,
+            chat_id: Option<String>,
+            bytes: Option<u64>,
+            id: Option<String>,
+            state: Option<OriginState>,
+            since: Option<u64>,
+            extra: Option<serde_json::Value>,
+        }
+        let fields = Fields::<T>::deserialize(deserializer)?;
+        match fields.op.as_str() {
+            "summary" => Ok(Self::Summary {
+                seq: fields.seq,
+                summary: fields.summary.ok_or_else(|| D::Error::missing_field("summary"))?,
+            }),
+            "gone" => Ok(Self::Gone {
+                seq: fields.seq,
+                chat_id: fields.chat_id.ok_or_else(|| D::Error::missing_field("chatId"))?,
+            }),
+            "queue" => Ok(Self::Queue {
+                seq: fields.seq,
+                bytes: fields.bytes.ok_or_else(|| D::Error::missing_field("bytes"))?,
+            }),
+            "origin" => Ok(Self::Origin {
+                seq: fields.seq,
+                origin: Origin {
+                    id: fields.id.ok_or_else(|| D::Error::missing_field("id"))?,
+                    state: fields.state.ok_or_else(|| D::Error::missing_field("state"))?,
+                    since: fields.since.ok_or_else(|| D::Error::missing_field("since"))?,
+                    extra: fields.extra,
+                },
+            }),
+            other => Err(D::Error::unknown_variant(other, &["summary", "gone", "queue", "origin"])),
+        }
+    }
 }
 
 pub fn delta_frame<T: Serialize>(delta: &DeltaFrame<T>) -> Result<Frame, FrameError> {
@@ -674,5 +730,58 @@ mod tests {
             Frame::new(FrameKind::Delta, vec![0; MAX_FRAME_BYTES]),
             Err(FrameError::TooLarge { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod raw_delta_tests {
+    use super::*;
+    use acpmux_book::index::Summary;
+
+    #[test]
+    fn summary_delta_preserves_opaque_json_bytes() {
+        let raw = r#"{ "opaque" : [1,  2], "text": "\u0061" }"#;
+        let mut summary = Summary::new("raw");
+        summary.extra = serde_json::value::RawValue::from_string(raw.into()).unwrap();
+        let frame = delta_frame(&DeltaFrame {
+            sid: "s".into(),
+            replay: Some(ReplayMark::End),
+            ops: vec![DeltaOp::Summary { seq: 1, summary }],
+        })
+        .unwrap();
+        let decoded: DeltaFrame<Summary> = frame.decode_json().unwrap();
+        let Some(DeltaOp::Summary { summary, .. }) = decoded.ops.first() else {
+            panic!("missing summary")
+        };
+        assert_eq!(summary.extra.get(), raw);
+    }
+}
+
+#[cfg(test)]
+mod other_delta_tests {
+    use super::*;
+    #[test]
+    fn every_delta_op_has_one_round_tripping_shape() {
+        let ops = vec![
+            DeltaOp::<serde_json::Value>::Gone { seq: 1, chat_id: "gone".into() },
+            DeltaOp::Queue { seq: 2, bytes: 3 },
+            DeltaOp::Origin {
+                seq: 3,
+                origin: Origin {
+                    id: "peer".into(),
+                    state: OriginState::Down,
+                    since: 4,
+                    extra: None,
+                },
+            },
+        ];
+        let frame = delta_frame(&DeltaFrame {
+            sid: "s".into(),
+            replay: Some(ReplayMark::End),
+            ops: ops.clone(),
+        })
+        .unwrap();
+        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
+        assert_eq!(decoded.ops, ops);
     }
 }
