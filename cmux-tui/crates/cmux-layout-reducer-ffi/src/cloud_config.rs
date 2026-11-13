@@ -274,9 +274,13 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 #[serde(default)]
                 teams: Vec<auth::TeamFacts>,
                 active: Option<String>,
+                /// The signed-in account's email: its sign-in service default team shows as Personal.
+                #[serde(default, rename = "ownEmail")]
+                own_email: Option<String>,
             }
             let request: Request = read(request)?;
-            json!({ "rows": auth::team_rows(&request.teams, request.active.as_deref()) })
+            let rows = auth::team_rows(&request.teams, request.active.as_deref(), request.own_email.as_deref());
+            json!({ "rows": rows })
         }
         b"cloud_vm_agent_key_request" => {
             #[derive(Deserialize)]

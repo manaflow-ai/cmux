@@ -29,6 +29,7 @@ final class CEFHostView: NSView {
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
+    private weak var cardClipArea: PaneContentAreaView?
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
     /// ground: the page window's gap shows this view until Chromium's frame
@@ -272,12 +273,21 @@ final class CEFHostView: NSView {
         enclosingFrameNoticeReaders?.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
+        cardClipArea?.chromeClipReaders.remove(self)
+        cardClipArea = nil
         readGeometry = nil
         readPlacement = nil
         invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
+        let area = superview.flatMap { parent in
+            sequence(first: parent, next: \.superview).first { $0 is PaneContentAreaView } as? PaneContentAreaView
+        }
+        if let area {
+            cardClipArea = area
+            area.chromeClipReaders.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
+        }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
             let geometryOnly = note.userInfo?[browserPagesGeometryOnlyKey] as? Bool ?? false

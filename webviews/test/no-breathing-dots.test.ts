@@ -37,12 +37,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",
   },
   {
-    file: "agent-session/acpmux/dictation.css",
-    keyframes: "acpmux-mic-outside",
-    selector: ".acpmux-mic-outside > span",
-    why: "level bars in the composer mic's place while another app dictates (outsideDictation.ts), not a status dot; Static status indicators, motion off and Reduce Motion hold them still",
-  },
-  {
     file: "agent-session/acpmux/newtab/screen.css",
     keyframes: "nt-player-level",
     selector: ".nt-player-levels",
@@ -55,10 +49,16 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "RUNNING-WAVE (#23995): one shimmer sweeping across Session Info's running subagent avatars, which replaced their out-of-step breathing; Static, Reduce Motion and the motion gate stop it",
   },
   {
-    file: "pages/apps/styles.css",
+    file: "ui/skeleton.css",
     keyframes: "cmux-breathe",
-    selector: ".apps-skeleton",
-    why: "the Apps page's loading skeleton",
+    selector: ".ui-skeleton",
+    why: "the shared loading skeleton (ui/Skeleton.tsx, moved from the Apps page's own), a placeholder block rather than a status dot; Static, Reduce Motion and the motion gate hold it still",
+  },
+  {
+    file: "ui/Skeleton.gallery.css",
+    keyframes: "ui-skeleton-gallery-pulse",
+    selector: '[data-look="pulse"] .ui-skeleton',
+    why: "the gallery's pulse variant of the loading skeleton, a look to compare rather than a status dot; the app never loads this sheet",
   },
   {
     file: "pages/cloud/styles.css",

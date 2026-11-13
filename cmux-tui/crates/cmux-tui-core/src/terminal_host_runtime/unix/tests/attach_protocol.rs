@@ -877,7 +877,10 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
     let (host, parser_commands) = exited_host_fixture_with_parser();
     let parser_host = host.clone();
     let parser = thread::spawn(move || {
-        let ParserCommand::Resize {
+        let ParserCommand::Resize(resize) = parser_commands.recv().unwrap() else {
+            panic!("expected resize command");
+        };
+        let ParserResize {
             cols,
             rows,
             cell_pixels,
@@ -886,10 +889,7 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
             targeted_ack,
             response,
             ..
-        } = parser_commands.recv().unwrap()
-        else {
-            panic!("expected resize command");
-        };
+        } = *resize;
         let result = parser_host.apply_parser_resize(
             cols,
             rows,

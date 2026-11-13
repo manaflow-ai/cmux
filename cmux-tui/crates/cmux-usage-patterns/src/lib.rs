@@ -23,8 +23,11 @@
 //! (`cmux_config::watch`) rereads the setting when the file changes, and one
 //! thread per process waits with no timeout until a count makes the rollup
 //! dirty, then writes the file [`FLUSH_EVERY`] later (at most that often).
-//! Both live as long as the process. A 5-second gate loop here woke every
-//! idle daemon 12 times a minute (`idle_wakeups.rs`).
+//! Both live as long as the process. That thread also rereads the setting
+//! each time it leaves its untimed wait and before each timed write (these
+//! rereads add no wake and no timer), so a change to off still stops the
+//! counting when the watch cannot start. A 5-second gate loop here woke
+//! every idle daemon 12 times a minute (`idle_wakeups.rs`).
 //!
 //! Reset: `cmux usage-patterns reset` deletes the files. A recorder that wrote its file
 //! and finds it gone drops what it holds instead of writing it back.
@@ -32,7 +35,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -55,6 +58,11 @@ pub const MAX_WRITERS: usize = 64;
 pub const OTHER: &str = "other";
 /// How often a changed rollup is written.
 pub const FLUSH_EVERY: Duration = Duration::from_secs(30);
+/// How long a stopping daemon waits for its last counts to be written
+/// ([`flush`]). The write is one small file (the rollup is bounded), so it
+/// normally takes well under a millisecond; a disk that does not answer costs
+/// a stop this much and no more, and loses only those last counts.
+pub const STOP_FLUSH_WAIT: Duration = Duration::from_millis(250);
 const VERSION: u32 = 1;
 const FILE_SUFFIX: &str = ".json";
 
@@ -340,6 +348,9 @@ pub struct Recorder {
     path: PathBuf,
     config: PathBuf,
     enabled: AtomicBool,
+    /// One reread of the setting at a time ([`Recorder::refresh_gate`]): the
+    /// watch's thread and the writer thread both reread it.
+    reread: Mutex<()>,
     state: Mutex<State>,
     wake: Wake,
 }
@@ -355,11 +366,19 @@ struct State {
 }
 
 /// What the writer thread waits on: a count made the rollup dirty, or the
-/// setting changed.
+/// setting changed, or a stop asked for its last write.
 #[derive(Default)]
 struct Wake {
     pending: Mutex<bool>,
     changed: Condvar,
+    /// A writer thread runs [`Recorder::run_writer`]: a stop asks it for the
+    /// last write instead of writing on the stopping thread.
+    writer: AtomicBool,
+    /// Last writes asked for by a stop ([`Recorder::flush_within`]).
+    asked: AtomicU64,
+    /// The newest ask the writer thread wrote for.
+    served: Mutex<u64>,
+    written: Condvar,
 }
 
 impl Recorder {
@@ -376,6 +395,7 @@ impl Recorder {
             path,
             config,
             enabled: AtomicBool::new(false),
+            reread: Mutex::new(()),
             wake: Wake::default(),
             state: Mutex::new(State {
                 written: loaded.is_some(),
@@ -444,8 +464,20 @@ impl Recorder {
     /// The writer thread's loop ([`install`]): waits with no timeout until a
     /// count or a setting change, then writes what was counted
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
+    /// A wake with nothing counted (the setting went on) starts no timed
+    /// wait. A recorder that has made no write yet writes its first count
+    /// [`FLUSH_EVERY`] after that count.
+    /// Each time it wakes, and again before a timed write, it rereads the
+    /// setting ([`Recorder::refresh_gate`]), but not when a stop asked for
+    /// its last write ([`Recorder::flush_within`]). So a recorder with no watch
+    /// stops counting after the setting went off: when the thread was
+    /// asleep, after the next count (each count made before the thread has
+    /// reread the setting is still taken), else at the timed write it was
+    /// waiting for.
     /// Returns only when `stop` says so (tests); the installed one never does.
     pub fn run_writer(&self, flush_every: Duration, stop: &dyn Fn() -> bool) {
+        self.wake.writer.store(true, Ordering::Release);
+        let mut served = 0;
         loop {
             {
                 let pending =
@@ -458,17 +490,34 @@ impl Recorder {
                 *pending = false;
             }
             if stop() {
+                self.wake.writer.store(false, Ordering::Release);
                 return;
             }
-            // Counting stopped: write what was counted now.
-            if !self.enabled() {
-                let _ = self.flush();
+            // Awake for a count, a setting change or a stop's ask. A recorder
+            // whose watch did not start ([`watch_gate`] gave None) has no
+            // other reader of the setting, so it is reread here and before
+            // the timed write. Not for a stop's ask: its write must not wait
+            // for the settings file.
+            if self.wake.asked.load(Ordering::Acquire) == served {
+                self.refresh_gate();
+            }
+            // Counting stopped, or a stop asked: write what was counted now.
+            if !self.enabled() || self.wake.asked.load(Ordering::Acquire) != served {
+                served = self.writer_flush();
                 continue;
             }
-            let since = {
+            let (dirty, since) = {
                 let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                state.last_flush.map(|last| last.elapsed())
+                (state.dirty, state.last_flush.map(|last| last.elapsed()))
             };
+            // Nothing waits for a write. The wake was a setting that went on
+            // (also the one [`Recorder::open`] leaves when it reads the
+            // setting as on), or a count or a stop's ask that an earlier
+            // write already took. No write is due, so there is no timed
+            // wait; the next count wakes this thread again.
+            if !dirty {
+                continue;
+            }
             let wait = since.map_or(flush_every, |since| flush_every.saturating_sub(since));
             // The one timed wait: a write is due, and only while counts wait for it.
             let pending =
@@ -476,14 +525,63 @@ impl Recorder {
             let (mut pending, _) = self
                 .wake
                 .changed
-                .wait_timeout_while(pending, wait, |_| self.enabled() && !stop())
+                .wait_timeout_while(pending, wait, |_| {
+                    self.enabled() && !stop() && self.wake.asked.load(Ordering::Acquire) == served
+                })
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             // The write below takes every count made so far, the ones that
             // woke this wait included.
             *pending = false;
             drop(pending);
-            let _ = self.flush();
+            // The second reread, for a setting that went off during the
+            // wait. The thread is awake for the write, so this adds no wake;
+            // an unchanged file costs one `metadata` call. Not when a stop's
+            // ask ended the wait: its write must not wait for the settings
+            // file.
+            if self.wake.asked.load(Ordering::Acquire) == served {
+                self.refresh_gate();
+            }
+            served = self.writer_flush();
         }
+    }
+
+    /// The writer thread's write: every count made before the newest stop's
+    /// ask is in it, so that stop may return. Returns the ask it served.
+    fn writer_flush(&self) -> u64 {
+        let asked = self.wake.asked.load(Ordering::Acquire);
+        let _ = self.flush();
+        let mut served = self.wake.served.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *served = (*served).max(asked);
+        drop(served);
+        self.wake.written.notify_all();
+        asked
+    }
+
+    /// Writes the rollup for a stopping process, waiting at most `limit`.
+    /// With a writer thread the write runs there, so a disk that does not
+    /// answer holds that thread, not the stop; without one it runs here.
+    /// True when the write finished within `limit` (or nothing was left to
+    /// write); false when it did not, and then only the counts it carried are
+    /// lost. A failed write is ignored here, as every write's error is.
+    /// Nothing is written, and nothing waits, when no count is unwritten
+    /// (counting off).
+    pub fn flush_within(&self, limit: Duration) -> bool {
+        let dirty = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).dirty;
+        if !dirty {
+            return true;
+        }
+        if !self.wake.writer.load(Ordering::Acquire) {
+            return self.flush().is_ok();
+        }
+        let asked = self.wake.asked.fetch_add(1, Ordering::AcqRel) + 1;
+        self.wake_writer();
+        let served = self.wake.served.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (served, _) = self
+            .wake
+            .written
+            .wait_timeout_while(served, limit, |served| *served < asked)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *served >= asked
     }
 
     /// A copy of what this recorder holds now.
@@ -494,6 +592,10 @@ impl Recorder {
     /// Rereads the setting when its file changed (size or modification
     /// time). Returns whether counting is on.
     pub fn refresh_gate(&self) -> bool {
+        // Held for the whole call: a second caller that read the file earlier
+        // cannot store its older answer after a newer one. A count never
+        // takes this lock, so it never waits for the file read.
+        let _reread = self.reread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stamp =
             std::fs::metadata(&self.config).ok().map(|meta| (meta.modified().ok(), meta.len()));
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -605,7 +707,16 @@ pub fn install(writer: &str) -> Option<Arc<Recorder>> {
 /// whenever the file changes: written in place, replaced by rename (editors,
 /// the settings writer), created later, or its folder created later
 /// (`cmux_config::watch` watches the nearest existing folder until then).
-/// None when the watch cannot start; the setting is then read only at start.
+/// None when the watch cannot start. After the read at start
+/// ([`Recorder::open`]), the writer thread's own rereads
+/// ([`Recorder::run_writer`]) are then the only ones: counting stops after
+/// the next count that follows the change to off, or, when the writer was
+/// already in its timed wait, at that write (about [`FLUSH_EVERY`] at
+/// most). A change to on is then read only at the next start, because a
+/// recorder that counts nothing has no thread awake to read it. A settings
+/// file that such a reread finds half written reads as off; the change to
+/// off wakes the writer, which rereads one more time, and a file that is
+/// still not whole then stays off until the next start.
 pub fn watch_gate(recorder: &Arc<Recorder>) -> Option<cmux_config::watch::Watcher> {
     let gate = Arc::clone(recorder);
     cmux_config::watch::Watcher::start(vec![recorder.config.clone()], move || {
@@ -639,13 +750,15 @@ pub fn enabled() -> bool {
     GLOBAL.get().is_some_and(|recorder| recorder.enabled())
 }
 
-/// Writes this process's rollup now. Both daemons call it as they stop (a
-/// graceful shutdown, an update's SIGTERM): the writer thread writes a count
-/// up to [`FLUSH_EVERY`] after it was made, so the last counts would be lost
-/// with the process otherwise.
+/// Writes this process's rollup now, waiting at most [`STOP_FLUSH_WAIT`]
+/// ([`Recorder::flush_within`]). Both daemons call it as they stop (a graceful
+/// shutdown, an update's SIGTERM): the writer thread writes a count up to
+/// [`FLUSH_EVERY`] after it was made, so the last counts would be lost with
+/// the process otherwise. With counting off it writes nothing and waits for
+/// nothing.
 pub fn flush() {
     if let Some(recorder) = GLOBAL.get() {
-        let _ = recorder.flush();
+        let _ = recorder.flush_within(STOP_FLUSH_WAIT);
     }
 }
 
