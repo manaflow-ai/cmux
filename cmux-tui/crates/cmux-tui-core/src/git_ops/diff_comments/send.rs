@@ -50,7 +50,7 @@ pub(super) fn send(
     root: &str,
 ) -> Result<Value, ResourceError> {
     send_with(mux, store, request, root, |session, prompt_id, text, meta| {
-        mux.acp_prompt(session, prompt_id, text, meta)
+        mux.acp_prompt_diff_comments(session, prompt_id, text, meta)
     })
 }
 

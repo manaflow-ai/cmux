@@ -71,6 +71,30 @@ impl crate::mux::Mux {
         text: String,
         meta: Value,
     ) -> Handover {
+        self.acp_prompt_with_scope(session, prompt_id, text, meta, false)
+    }
+
+    /// Hands a diff-comments review to a session that may be mirrored from a
+    /// peer. The session host's acpmux forwards it to that peer; agent.message
+    /// sends use [`acp_prompt`] and keep their existing routing behavior.
+    pub(crate) fn acp_prompt_diff_comments(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+    ) -> Handover {
+        self.acp_prompt_with_scope(session, prompt_id, text, meta, true)
+    }
+
+    fn acp_prompt_with_scope(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+        require_local: bool,
+    ) -> Handover {
         let Some(socket) = self.control_clients.agent_sessions.socket() else {
             return Handover::Unreachable;
         };
@@ -89,7 +113,7 @@ impl crate::mux::Mux {
         };
         // Only a session acpmux runs, by its exact id, takes the prompt.
         let known = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
-        if !known.is_ok_and(|info| local_session_info(&info, session)) {
+        if !known.is_ok_and(|info| session_info(&info, session, require_local)) {
             link.close();
             return Handover::Unreachable;
         }
@@ -210,11 +234,12 @@ impl crate::mux::Mux {
     }
 }
 
-/// `_acpmux/info` can resolve a session mirrored from a peer. A prompt sent
-/// through this daemon must only target a session owned by this machine.
-fn local_session_info(info: &Value, session: &str) -> bool {
+/// `_acpmux/info` can resolve a session mirrored from a peer. Diff-comment
+/// sends run on the session host, so they require a local session; the generic
+/// agent-message path allows acpmux to forward a peer session.
+fn session_info(info: &Value, session: &str, require_local: bool) -> bool {
     info.get("sessionId").and_then(Value::as_str) == Some(session)
-        && info.get("peer").is_none_or(Value::is_null)
+        && (!require_local || info.get("peer").is_none_or(Value::is_null))
 }
 
 /// acpmux's error answer to `_acpmux/prompt_withdraw`: its message and its
@@ -244,14 +269,15 @@ fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawEr
 
 #[cfg(test)]
 mod tests {
-    use super::local_session_info;
+    use super::session_info;
     use serde_json::json;
 
     #[test]
-    fn peer_session_info_is_not_local() {
-        assert!(local_session_info(&json!({"sessionId": "chat"}), "chat"));
-        assert!(local_session_info(&json!({"sessionId": "chat", "peer": null}), "chat"));
-        assert!(!local_session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat"));
-        assert!(!local_session_info(&json!({"sessionId": "other"}), "chat"));
+    fn peer_session_info_is_allowed_only_for_forwarding() {
+        assert!(session_info(&json!({"sessionId": "chat"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": null}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "other"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", false));
     }
 }
