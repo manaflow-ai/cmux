@@ -755,7 +755,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         followDraggedKeyboard(true)
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        followDraggedKeyboard(false)
+        #if DEBUG
+        if decelerate, Self.jumpsMidFling { jumpMidFling() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-jump-mid-fling` (AgentJumpDuringMomentumUITests): a fling's release taps Jump to
+    /// bottom 120 ms later, while the transcript still glides. A UI test's own tap waits for the app
+    /// to go idle, so it only lands once the fling has stopped and never sees the momentum.
+    static let jumpsMidFling = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-jump-mid-fling")
+
+    private func jumpMidFling() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.scrollView.isDecelerating else { return }
+            self.surface.scrollToBottom()
+        }
+    }
+    #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
@@ -792,6 +812,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
@@ -802,6 +824,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
@@ -849,6 +873,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
         view.layoutIfNeeded()
@@ -868,6 +894,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var isHoldingFold: Bool { foldHolding }
 
     private func scroll(to target: CGPoint, animated: Bool) {
+        // A flick's momentum kept moving the page under the animation, so Jump to Bottom
+        // stopped short (Leo, 2026-11-12). Stop it first; the move starts from where it is now.
+        scrollView.haltScrollMomentum()
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the

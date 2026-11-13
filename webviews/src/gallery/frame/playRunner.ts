@@ -4,6 +4,7 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  frameIsOfStep,
   LONG_FRAME_PARTS,
   longFramePart,
   overall,
@@ -406,10 +407,17 @@ async function measured(
   const longFrameParts: string[] = [];
   const stepStart = performance.now();
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
-  const observers: PerformanceObserver[] = [];
+  // Each observer of the step, with how it reads a list of reports: the step's end reads the reports
+  // the engine has queued and not delivered yet (`takeRecords()`) by the same rule as the delivered ones.
+  const hearing: { observer: PerformanceObserver; read: (entries: PerformanceEntryList) => void }[] = [];
+  const hear = (type: string, read: (entries: PerformanceEntryList) => void) => {
+    const observer = new PerformanceObserver((list) => read(list.getEntries()));
+    observer.observe({ type, buffered: false });
+    hearing.push({ observer, read });
+  };
   if (PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as (PerformanceEntry & {
+    hear("layout-shift", (entries) => {
+      for (const entry of entries as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
         sources?: {
@@ -443,21 +451,17 @@ async function measured(
         });
       }
     });
-    observer.observe({ type: "layout-shift", buffered: false });
-    observers.push(observer);
   }
   let rafRunning = !loafSupported;
   if (loafSupported) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (entry.duration <= 16.7) continue;
+    hear("long-animation-frame", (entries) => {
+      for (const entry of entries) {
+        if (entry.duration <= 16.7 || !frameIsOfStep(entry, stepStart)) continue;
         longFrames.push(entry.duration);
         if (longFrameParts.length < LONG_FRAME_PARTS)
           longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
       }
     });
-    observer.observe({ type: "long-animation-frame", buffered: false });
-    observers.push(observer);
   } else {
     void (async () => {
       let last = await nextFrame();
@@ -483,8 +487,8 @@ async function measured(
   performance.clearMeasures(mark);
   rafRunning = false;
   const boxShift = boxes?.stop();
-  for (const observer of observers) {
-    observer.takeRecords();
+  for (const { observer, read } of hearing) {
+    read(observer.takeRecords());
     observer.disconnect();
   }
   const anchorMoves = before

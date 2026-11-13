@@ -290,7 +290,7 @@
   padding: 0;
 }
 .acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
-  margin-inline-end: 0;
+  margin-inline: 0;
 }
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place

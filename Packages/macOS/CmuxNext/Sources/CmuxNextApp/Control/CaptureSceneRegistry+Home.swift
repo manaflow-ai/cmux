@@ -191,8 +191,9 @@ extension CaptureSceneRegistry {
         let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
         var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
         let page = section()?.subviews.first as? PageWebView
-        await page?.waitUntilLoaded() // the section's page is new: a DOM wait before its document loads watches the blank first one
-        let row = await page?.debugWait(selector: ".feed-needs-row", timeoutMilliseconds: 6_000)
+        let rowDeadline = ContinuousClock.now + .seconds(6) // timeout: the row's 6 s, as before; the section's page is new (a DOM wait before its document loads watches the blank first one), so its load shares them and a page that never loads fails the scene
+        if let page, await !page.waitUntilLoaded(within: rowDeadline - .now) { return .object(report.merging(["error": .string("the Needs you page did not load within 6 s"), "scene": .string(scene)]) { $1 }) }
+        let row = await page?.debugWait(selector: ".feed-needs-row", timeoutMilliseconds: max(Int((rowDeadline - .now) / .milliseconds(1)), 1))
         report["row"] = row ?? .null
         if scene.hasSuffix("-resolved"), shown != nil {
             capture.notifyPending()
@@ -208,9 +209,7 @@ extension CaptureSceneRegistry {
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }
-        guard case .object(var result) = await DebugWindowSnapshot.captureAsync(params.merging(["window": .string(windowID)]) { $1 }, services: services) else {
-            return .object(["error": .string("no snapshot"), "scene": .string(scene)])
-        }
+        guard case .object(var result) = await DebugWindowSnapshot.captureAsync(params.merging(["window": .string(windowID)]) { $1 }, services: services) else { return failed("no snapshot") }
         withExtendedLifetime(bridge) {}
         result.merge(["scene": .string(scene), "scene_action": .object(report)]) { $1 }
         return .object(report["withdrawn"] == .bool(false) ? result.merging(["error": .string("the bridge kept the answered prompt in Needs you")]) { $1 } : result)
