@@ -39,8 +39,8 @@
 //! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
 //! machine or `phone` move such a chat out of it (not one held by deny-all, and not a
 //! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
-//! on the unix socket only (a phone's off is kept as the person's choice),
-//! and turning it on needs the person
+//! on the unix socket only (an off is kept, so a phone stays off once turned
+//! off), and turning it on needs the person
 //! (`hub/person.rs`), so an agent on this machine cannot grant it to a
 //! machine it paired itself. The setting is on the device's record, so
 //! revoking the machine ends it; it is read again on every request

@@ -92,8 +92,8 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     does not ask, a chat in one) then goes on marked
     `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
     Full-access setting is on (Settings > Devices on the Mac; on by default for
-    a phone the person paired, since 2026-11-13; off at once when the person
-    turns it off or removes the phone, and an off stays off). Without a
+    a phone the person paired, since 2026-11-13; off at once when it is
+    turned off or the phone is removed, and an off stays off). Without a
     credential, or when acpmux refuses it, the dashboard token and hostd's own
     refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
