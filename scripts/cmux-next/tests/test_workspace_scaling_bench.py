@@ -231,6 +231,22 @@ class SidebarRowMismatchTests(unittest.TestCase):
         self.assertEqual(record["create_failures"], ["ws 0412"])
         self.assertEqual(record["create_failure_count"], 1)
 
+    def test_short_list_names_the_unlisted_workspace(self):
+        """bf98d955f70 on the bench Mac: 999 rows of 1000 with no failed create. The record carries the topology's
+        count and the workspaces no row lists, which decides between a row the list leaves out and a short topology."""
+        topology = {"workspaces": [{"id": "ws_a", "key": "k-a", "name": "ws 0000"},
+                                   {"id": "ws_b", "key": "k-b", "name": "ws 0001"},
+                                   {"id": "ws_c", "key": "k-c", "name": "ws 0002"}]}
+        rows = [{"key": "workspace(k-a)", "title": "ws 0000"}, {"key": "workspace(other)", "title": "ws 0002"}]
+        unlisted, names = bench_launch.unlisted_workspaces(topology, rows)
+        self.assertEqual(unlisted, 1)
+        self.assertEqual(names, [{"name": "ws 0001", "id": "ws_b"}])
+        report = {"sizes": {"999": {"rows_listed": 999, "create_failures": [], "topology_workspaces": 1000,
+                                    "unlisted": unlisted, "unlisted_names": names}}}
+        record = bench.sidebar_row_mismatch(report, 999, 1000)
+        self.assertEqual(record["topology_workspaces"], 1000)
+        self.assertEqual(record["unlisted_names"], [{"name": "ws 0001", "id": "ws_b"}])
+
     def test_full_list_is_no_record(self):
         self.assertIsNone(bench.sidebar_row_mismatch({"sizes": {"99": {"rows_listed": 100}}}, 99, 100))
 

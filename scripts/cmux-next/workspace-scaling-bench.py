@@ -150,6 +150,11 @@ def sidebar_row_mismatch(report, sidebar_count, count):
     if isinstance(size.get("create_failures"), list):
         record["create_failures"] = size["create_failures"][:5]
         record["create_failure_count"] = len(size["create_failures"])
+    # The topology's count and the workspaces no row lists (sidebar-stress-bench.py): a row the list leaves out,
+    # or a topology that holds fewer workspaces than the expectation.
+    for key in ("topology_workspaces", "unlisted", "unlisted_names"):
+        if key in size:
+            record[key] = size[key]
     return record
 
 

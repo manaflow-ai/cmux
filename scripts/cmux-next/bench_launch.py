@@ -241,6 +241,22 @@ def named_terminal(topology, name):
     return None
 
 
+def unlisted_workspaces(topology, rows, limit=10):
+    """The workspaces of a `snapshot.get` topology that no `debug.sidebar_rows` row lists: (their count, up to
+    `limit` of them as {name, id}). A row's key is its `SidebarRowKey` described (`workspace(<model key>)`), so a
+    workspace is listed when its model `key` appears in a row key or its name is a row's title. sidebar-stress-bench
+    listed 999 rows of 1000 with no failed create (cmux#24569); this names the one the list leaves out, or shows the
+    topology holds 999."""
+    rows = [row for row in rows or [] if isinstance(row, dict)]
+    listed = "\n".join(str(row.get("key", "")) for row in rows)
+    titles = {row.get("title") for row in rows if row.get("title")}
+    missing = [{"name": ws.get("name") or ws.get("title"), "id": ws.get("id")}
+               for ws in (topology or {}).get("workspaces") or []
+               if isinstance(ws, dict) and not (ws.get("key") and str(ws["key"]) in listed)
+               and (ws.get("name") or ws.get("title")) not in titles]
+    return len(missing), missing[:limit]
+
+
 def shown_in_window(topology, workspace_id):
     """Whether a window of a `snapshot.get` topology shows `workspace_id` (its `windows[].workspace`)."""
     return any(isinstance(w, dict) and w.get("workspace") == workspace_id for w in (topology or {}).get("windows") or [])

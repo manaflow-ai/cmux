@@ -48,7 +48,7 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app, wait_for_count  # noqa: E402
+from bench_launch import launch_app, unlisted_workspaces, wait_for_count  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -770,8 +770,12 @@ def main():
             action("showMainWindow")
             rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})
             time.sleep(2)
-            entry = {"rows_listed": len(workspace_rows()), "create_failures": list(made["create_failures"]),
-                     "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
+            rows, topo = workspace_rows(), topology()
+            # The topology's workspaces the list leaves out: what decides a rows_listed short of the size.
+            unlisted, unlisted_names = unlisted_workspaces(topo, rows)
+            entry = {"rows_listed": len(rows), "topology_workspaces": len(topo.get("workspaces") or []),
+                     "unlisted": unlisted, "unlisted_names": unlisted_names,
+                     "create_failures": list(made["create_failures"]), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
             want = set(opts.scenarios.split(","))
             if "ticks" in want:
