@@ -213,3 +213,18 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   once one is added. Without a credential the machine falls back to today's coderouter path.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
+
+Revision 2 in the app (lane D): `ModelsState.organization` has no `gateway`; `ModelConnection`
+carries `servesCloud` (acpmux `serves_cloud`) and kind `claude-token`. `{action:"claudeSetupToken"}`
+opens a terminal tab in the person's window running `claude setup-token` (Settings > Agents' own
+terminal path); `{action:"addClaudeToken", token, label?}` refuses a value without the `sk-ant-oat`
+prefix or with whitespace inside, stores it like an API key (account `claude-token-<8 hex>`) and
+sends `_acpmux/connections/claude_token.add {secret: "keychain:...", label?}`; a refused add deletes
+the item. `cmux://settings/models` opens `#/settings/models` and `cmux://settings/models/add`
+`#/settings/models?focus=models.add` (`DeepLink.settingsRoute`). The card applies each
+`_acpmux/connections.changed` note's `ConnectionsState` directly (no second read). A `chatgpt.wait`
+that acpmux refuses ends the attempt at once with acpmux's code (`chatgpt.unknown_attempt`); three
+calls with no answer end it as `unreachable`; both send `chatgpt.cancel {attempt}`.
+Removing an `api-key` or `claude-token` connection reads its route's secret reference
+(`_acpmux/route/show {id}`) first and, once `connections/remove` succeeds, deletes that Keychain
+item only when cmux created it (`keychain:cmux-model-key/...`).
