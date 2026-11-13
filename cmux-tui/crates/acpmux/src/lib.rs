@@ -159,6 +159,7 @@ pub mod parent_watch;
 pub mod parse_budget;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;
@@ -217,6 +218,8 @@ pub mod shell_words;
 pub mod sim_agent;
 #[cfg(test)]
 mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;

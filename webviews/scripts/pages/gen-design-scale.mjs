@@ -58,6 +58,9 @@ function load() {
     levels.join() === "chrome,popover,menu,chip",
     "the glass levels are chrome, popover, menu and chip (design/glass.md)",
   );
+  const material = data.glassMaterial;
+  for (const key of ["neutralLight", "neutralDark", "rimLit", "rimShade"])
+    assert(material[key] >= 0 && material[key] <= 1, `glassMaterial.${key} is a gray level from 0 to 1`);
   assert(data.elevation.length === 2, "exactly two shadows");
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
@@ -74,6 +77,21 @@ const glassVars = (level) => ({
   radius: [`--ds-glass-${level.name}-radius`, px(Number(level.blur.match(GLASS_FILTER)[1]))],
   artTint: level.artTint === undefined ? null : [`--ds-glass-${level.name}-art-tint`, `${level.artTint}%`],
 });
+// A gray level (0 black, 1 white) as an opaque CSS color, 8 bits a channel.
+export const gray = (level) => {
+  const channel = Math.round(level * 255);
+  return `rgb(${channel} ${channel} ${channel})`;
+};
+// The neutral glass material's tokens (glassMaterial): the overlay surface roles mix these at their
+// own opacities (the surface-roles block of ui/glass/glass.css, scripts/cmux-next/check-surface-roles.py).
+// They are opaque grays, named --ds-material-* and not --ds-glass-*: check-glass-never-opaque reads a
+// --*glass* token as a glass fill, and these are only ever mixed at an opacity.
+const materialVars = (material) => [
+  ["--ds-material-neutral-light", gray(material.neutralLight), "the neutral veil's gray on the light side"],
+  ["--ds-material-neutral-dark", gray(material.neutralDark), "the neutral veil's gray on the dark side"],
+  ["--ds-material-rim-lit", gray(material.rimLit), "the lit rim: a top edge, and a dark side's bottom edge"],
+  ["--ds-material-rim-shade", gray(material.rimShade), "the shaded rim: a light side's bottom edge"],
+];
 const colorValue = (color) =>
   `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
 const shadow = (entry, mode) => `${entry.geometry} color-mix(in srgb, black ${entry[mode]}%, transparent)`;
@@ -98,6 +116,8 @@ function cssBlock(data) {
     if (level.kind === "level") out.push(`  ${radius[0]}: ${radius[1]};`);
   }
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
+  out.push(`  /* glass material: ${data.glassMaterial.for} */`);
+  for (const [name, value, note] of materialVars(data.glassMaterial)) out.push(`  ${name}: ${value}; /* ${note} */`);
   for (const entry of data.elevation)
     out.push(`  --elevation-${entry.name}: ${shadow(entry, "light")}; /* ${entry.for} */`);
   for (const color of data.colors) out.push(`  --ds-color-${color.name}: ${colorValue(color)}; /* ${color.for} */`);

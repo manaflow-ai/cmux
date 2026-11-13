@@ -1,7 +1,7 @@
 //! What the tests and the bench share: row texts that are the same for the same rowId, and
 //! reading a log back.
 
-use crate::log::{Anchor, Edge, Log, Options, Recovered, RowRef, Side};
+use crate::log::{Anchor, Edge, Log, Options, RawRange, Recovered, RowRef, Side};
 use crate::row::{Row, RowKind};
 use std::path::Path;
 
@@ -43,7 +43,7 @@ pub(crate) fn open(dir: &Path) -> (Log, Recovered) {
 /// Settles rows `from..=to` in id order, each with [`text`].
 pub(crate) fn settle(log: &mut Log, from: u64, to: u64) {
     for id in from..=to {
-        log.append_settled(id, 1, &text(id)).expect("the row appends");
+        log.append_settled(id, 1, RawRange::NONE, &text(id)).expect("the row appends");
     }
 }
 
@@ -92,7 +92,7 @@ pub(crate) fn copy_book(from: &Path, to: &Path) {
             std::fs::copy(entry.path(), to.join(sub).join(entry.file_name())).expect("copy");
         }
     }
-    for name in ["rows.idx", "seq.idx", "checkpoint"] {
+    for name in ["rows.idx", "seq.idx", "checkpoint", "raw.map"] {
         if from.join(name).exists() {
             std::fs::copy(from.join(name), to.join(name)).expect("copy");
         }

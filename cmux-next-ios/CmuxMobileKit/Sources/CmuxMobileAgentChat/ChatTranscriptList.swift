@@ -548,6 +548,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
+    /// Older turns that came in above the rows shown and were weighed for holding (`reload`):
+    /// each is held out at most once, until its native rows are laid out.
+    private var heldOnce: Set<String> = []
     private var loaded = false
     /// Applies (tests and the rig's log).
     private(set) var applies = 0
@@ -604,6 +607,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         shownIDs = []
         shownTurns = [:]
         fadeIn = []
+        heldOnce = []
         loaded = false
         observe()
         reload()
@@ -625,7 +629,23 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The transcript controller's scroll handling (follow mode, the jump button, the keyboard).
     weak var scrollDelegate: (any UIScrollViewDelegate)?
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollDelegate?.scrollViewDidScroll?(scrollView) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        scrollDelegate?.scrollViewDidScroll?(scrollView)
+        readAheadIfNear()
+    }
+
+    /// Older history is read well before the top shows: within `AgentChatStore.readAheadScreens`
+    /// screens of the oldest row, on every scroll step and after every reload (a page that
+    /// landed and still leaves the reader near the top asks for the next). The source holds one
+    /// more page ahead, so a fling up meets rows, never an empty top. Not on the tab grid's
+    /// card, which holds its transcript.
+    private func readAheadIfNear() {
+        guard loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
+        let screen = collectionView.bounds.height
+        guard screen > 0 else { return }
+        let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        store.readAhead(screensAbove: max(above, 0) / screen)
+    }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollDelegate?.scrollViewWillBeginDragging?(scrollView) }
 
@@ -839,6 +859,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var missing: [String] = []
         // The newest rows on the first reload with a width: laid out as their revision is set below.
         var prime = Set<String>()
+        // Older turns that arrived above the rows shown (a page read ahead as the reader scrolls
+        // up) go in once their native rows are laid out off the main thread, at their real
+        // heights: rows put in at estimates and resized after moved the content under a fling.
+        // Each turn is held once at most; any later reload shows it as it is.
+        var holdable = Set<String>()
+        if loaded, lookup.layouts.environment != nil, let top = shownIDs.first.flatMap({ rows[$0]?.turnID }),
+           let topIndex = built.firstIndex(where: { $0.turnID == top }) {
+            for turn in built[..<topIndex] where heldOnce.insert(turn.turnID).inserted { holdable.insert(turn.turnID) }
+        }
+        var heldRows: [String] = []
+        var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
             primed = true
             for turn in built.reversed() where prime.count < 24 {
@@ -892,13 +923,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 turnItems.append(.init(id: row.id, revision: revision, gap: row.gap, estimate: estimate, exact: exact,
                                        fold: lookup.fold(row)))
             }
+            if holdable.contains(turn.turnID) {
+                let unlaid = turnIDs.filter { id in
+                    guard let row = rows[id], lookup.eligible(row) else { return false }
+                    return !lookup.layouts.has(id, revision: revisions[id] ?? 0, expanded: lookup.expanded(id))
+                }
+                if !unlaid.isEmpty {
+                    heldRows += turnIDs
+                    heldMissing += unlaid
+                    continue
+                }
+            }
             shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems)
             ids += turnIDs
             items += turnItems
         }
         layout.trailingGap = ChatTranscriptBuilder.trailingGap(after: built.last?.rows.last)
-        if ids.count < rows.count {
-            let live = Set(ids)
+        if ids.count + heldRows.count < rows.count {
+            let live = Set(ids).union(heldRows)
             rows = rows.filter { live.contains($0.key) }
             revisions.retain(live)
             lookup.layouts.retain(live)
@@ -907,6 +949,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             lookup.shownPool = lookup.shownPool.filter { live.contains($0.key) }
             let turnIDs = Set(turns.map(\.id))
             shownTurns = shownTurns.filter { turnIDs.contains($0.key) }
+            heldOnce.formIntersection(turnIDs)
         }
         applies += 1
         lastReconfigured = changed.count
@@ -949,9 +992,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             collectionView.contentOffset.y += top - anchor.top
         }
         loaded = true
+        if !heldMissing.isEmpty { prepare(heldMissing, urgent: true) }
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(ids)
         spillIfResting()
+        // After the layout pass that places what this reload put in.
+        if store.hasEarlierHistory, !store.isLoadingEarlier {
+            Task { @MainActor [weak self] in self?.readAheadIfNear() }
+        }
     }
 
     /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on

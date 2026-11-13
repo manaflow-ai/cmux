@@ -327,6 +327,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // Bind before durable startup work, so clients can connect independently of journal replay.
+    // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
+    let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    // The socket as bound, read at once: the home watch and the shutdown's removal use it.
+    let bound_socket = home_watch::Owned::now(&[&socket_path()]);
+    // Gone already: nothing can reach this daemon, so it stops before the startup.
+    if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
+        anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
+    }
+    // Binding depends only on daemon ownership and listener configuration. Opening the
+    // journal scans checkpoint files and replays records, so no per-chat store work belongs
+    // before this boundary. Requests still wait for the hub and this launch's auth tokens.
+    let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
+    gauges.mark("socket ready");
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -334,7 +348,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
-    let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
@@ -405,15 +418,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
 
-    // Bind before any slow startup work, so clients can connect and ask
-    // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
-    let unix_listener = crate::server::bind_unix(&socket_path()).await?;
-    // The socket as bound, read at once: the home watch and the shutdown's removal use it.
-    let bound_socket = home_watch::Owned::now(&[&socket_path()]);
-    // Gone already: nothing can reach this daemon, so it stops before the startup.
-    if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
-        anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
-    }
+    let store = crate::store::open(&config.store, &home())?;
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -747,7 +752,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "listen": bound,
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
-    gauges.mark("socket ready");
+    gauges.mark("requests ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",
@@ -1168,6 +1173,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     Ok(())
 }
 
+// Covers every fallible startup step after bind, including token/config validation. Normal
+// shutdown removes the socket explicitly; a replaced socket is never this guard's to remove.
+struct BoundSocketCleanup(Option<home_watch::Owned>);
+
+impl Drop for BoundSocketCleanup {
+    fn drop(&mut self) {
+        remove_bound_socket(self.0.as_ref());
+    }
+}
+
 /// A startup that fails after the bind removes the socket only while it is still the one this
 /// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
@@ -1346,7 +1361,12 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
+    let _ = client
+        .request(
+            crate::rpc::method::MUX_SHUTDOWN,
+            serde_json::json!({"reason": "handover: another daemon of this home starts"}),
+        )
+        .await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through
