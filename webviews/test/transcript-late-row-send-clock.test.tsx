@@ -5,6 +5,9 @@
 // (SEND_RISE_MS, 1 s) still counts later rows as the send's (no cap under the composer), but a row
 // that lands after the send motion has played (a delayed thinking or tool row, 400 ms on) arrives on
 // the arrival step: passing `sent` there started the 180 ms send curve over after the bubble rested.
+// The product's send step is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
+// just do it."): its send lands at once, with no send chase. The first two tests read the rise a page
+// that sets its own send clock (a gallery) still plays, on the 180 ms it had.
 import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -53,6 +56,16 @@ Object.assign(scope, replacements);
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 installJsdomScroller(dom.window as never, () => VIEWPORT);
+
+// The page's send clock (`--agent-motion-send`): a gallery's 180 ms, or "" for the scale's step (0).
+let sendClock = "180ms";
+const realStyle = dom.window.getComputedStyle.bind(dom.window);
+dom.window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
+  const style = realStyle(element, pseudo);
+  const read = style.getPropertyValue.bind(style);
+  style.getPropertyValue = (name: string) => (name === "--agent-motion-send" && sendClock ? sendClock : read(name));
+  return style;
+}) as typeof dom.window.getComputedStyle;
 
 // The test's clock: performance.now runs on, plus what the test steps it by.
 const realNow = performance.now.bind(performance);
@@ -191,5 +204,45 @@ test("a send that makes a tail that fit overflow rises on the send's clock", asy
   } finally {
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+test("on the product's 0 send clock, a send's rows land at once: no send chase", async () => {
+  sendClock = "";
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const render = (rows: AcpmuxRow[], sends: number) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sessionId="session-3"
+          sends={sends}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await nextFrame();
+    });
+  try {
+    const rows = history.map((item) => ({ ...item, id: `zero-${item.id}` }));
+    await render(rows, 0);
+    stepped += 1_000;
+    await render(
+      rows.map((item) => ({ ...item })),
+      0,
+    );
+    const first = shifts.length;
+    const prompt = row("zero-sent", "user", "A new question");
+    // The prompt and a burst of rows can arrive in one snapshot. The bounded detector must see the
+    // prompt at the append boundary even when it is followed by more than ARRIVAL_TAIL rows.
+    const burst = Array.from({ length: 8 }, (_, index) => row(`zero-burst-${index}`, "toolCall", `Tool ${index}`));
+    await render([...rows, prompt, ...burst], 1);
+    expect(shifts.slice(first).filter((call) => call.sent === true)).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    sendClock = "180ms";
   }
 });
