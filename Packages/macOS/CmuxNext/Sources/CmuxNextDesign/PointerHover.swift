@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// Hover as a function of where the pointer is now and where the view is
 /// now (cx-ww20, cx-3wu5). A tracking area reports only pointer moves: when
@@ -12,7 +13,8 @@ public import AppKit
 /// - every geometry or visibility change, reported by the view that owns the
 ///   geometry (`PointerHover.refresh(in:)`: a sidebar layout pass, a toast
 ///   relayout, a strip scrollbar update),
-/// - every key-window change, and every `debug.mouse` pointer (DEBUG).
+/// - every key-window change that can come with a new window order (`KeyWindowObserver`), and
+///   every `debug.mouse` pointer (DEBUG).
 ///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer.
 @MainActor
@@ -194,7 +196,8 @@ public final class PointerHover: NSObject {
     private static let index = TargetIndex()
     private static var refreshing = false
     private static var pending: [NSWindow] = []
-    private static var keyObserver: KeyWindowObserver?
+    /// The process's one observer of key-window changes (tests set its `mainWindow`).
+    static private(set) var keyObserver: KeyWindowObserver?
 
     /// Recomputes `window`'s hover from the pointer and the current frames: the targets that
     /// hover now (anywhere: a view that left its window or hid must clear), then the targets whose
@@ -224,54 +227,127 @@ public final class PointerHover: NSObject {
         }
     }
 
-    /// A key-window change refreshes that window (a key-window target under the pointer starts or
-    /// ends; the hovering ones elsewhere are recomputed with it).
-    fileprivate static func keyChanged(_ window: NSWindow?) {
-        refresh(in: window)
+    /// `window` became or resigned key: its key-window targets start or end (the other targets do
+    /// not read the key). O(key-window targets), the buttons of a sheet.
+    fileprivate static func keyChanged(in window: NSWindow) {
+        for target in index.keyTargets(in: window) { target.update() }
     }
 
-    /// Becoming or resigning key changes whether key-window targets hover.
+    /// Becoming or resigning key changes whether key-window targets hover, and a key change to
+    /// another window can cover the pointer.
     private static func installKeyObserversIfNeeded() {
         guard keyObserver == nil else { return }
         keyObserver = KeyWindowObserver()
     }
 }
 
-/// Key-window changes refresh that window's hover (`PointerHover`).
+/// What a key-window change does to hover (`PointerHover`).
 ///
-/// Block observers on `queue: .main`, not selectors: AppKit may post these
-/// off the main thread, and a selector into this main-actor class trapped
-/// there (#18771). `queue: .main` runs the block inline when the post is on
-/// main, so key changes and closes keep their synchronous order.
+/// A window that becomes or resigns key recomputes its key-window targets at once. The other
+/// targets do not read the key: for them a key change matters only as a sign that the window
+/// order changed (another window came to the front over a still pointer, and no exit arrives).
+/// So the resign and the become of one key change are read together:
+///
+/// - The key moved inside one window, between it and a Chromium page window of it (`home(of:)`):
+///   nothing is recomputed. A page window is the content of a pane of its window, above it before
+///   and after, so such a change covers and uncovers nothing under the pointer. A workspace switch
+///   between two browser tabs makes two such changes, 4 notices, and each notice used to ask the
+///   window server for the topmost window at the pointer once for each target under it (a
+///   synchronous round trip; 39 main-thread samples of a 10 switch recording). A panel, a sheet or
+///   a popup of the window is not inside it: it can show over the pointer as it takes the key.
+/// - The key moved to another window: both windows are refreshed, as each notice did before.
+/// - A window resigned and no window became key by the end of that pass of the run loop (another
+///   app came to the front): that window is refreshed then, before the pass's frame is committed.
+///
+/// Chromium does the same job with one synthesized mouse move after a change
+/// (`Widget::SynthesizeMouseMoveEvent`), not one hit test for each view at each notice.
+///
+/// The notices arrive through `MainActorObservation` on the main queue, never a selector: AppKit
+/// may post these off the main thread, and a selector into this main-actor class trapped there
+/// (#18771). A post on the main thread runs the handler inline, so key changes and closes keep
+/// their synchronous order.
 @MainActor
-private final class KeyWindowObserver {
-    private var tokens: [any NSObjectProtocol] = []
+final class KeyWindowObserver {
+    private var observations: [MainActorObservation] = []
+    /// The window that resigned key, while no window became key after it.
+    private weak var resigned: NSWindow?
+    /// `resigned`'s home when it resigned (`home(of:)`).
+    private weak var resignedHome: NSWindow?
+    /// The end-of-pass read of `resigned` is queued.
+    private var settles = false
+    /// The app's main window (`NSApp.mainWindow`; nil with no app, as in a test process). A
+    /// Chromium page window never takes main (`ChromiumPageWindowMain`), so the main window is
+    /// the cmux window the person works in while the key is in one of its pages.
+    var mainWindow: @MainActor () -> NSWindow? = { NSApp?.mainWindow }
 
-    init() {
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
-            })
-        }
+    fileprivate init() {
+        let window: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
+        observations.append(MainActorObservation(NSWindow.didResignKeyNotification, read: window) { [weak self] in
+            self?.resign($0)
+        })
+        observations.append(MainActorObservation(NSWindow.didBecomeKeyNotification, read: window) { [weak self] in
+            self?.become($0)
+        })
         #if DEBUG || CMUX_BENCH_HOOKS
         // A closed window's synthesized pointer must not pass to a new window
         // that reuses its address.
-        tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-            guard let window = note.object as? NSWindow else { return }
-            let key = ObjectIdentifier(window)
-            MainActor.assumeIsolated { PointerHover.debugPointers[key] = nil } // main-proof: observer on queue: .main
+        observations.append(MainActorObservation(NSWindow.willCloseNotification, read: window) { closed in
+            if let closed { PointerHover.debugPointers[ObjectIdentifier(closed)] = nil }
         })
         #endif
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for token in tokens { NotificationCenter.default.removeObserver(token) }
+    /// Where the key goes is not known yet: the become of this change posts after the resign, in
+    /// this pass, or no window of the app takes the key.
+    private func resign(_ window: NSWindow?) {
+        guard let window else { return }
+        PointerHover.keyChanged(in: window)
+        // A second resign with no become between them: the first window's key left the app's windows.
+        if let earlier = resigned, earlier !== window { PointerHover.refresh(in: earlier) }
+        resigned = window
+        resignedHome = home(of: window)
+        guard !settles else { return }
+        settles = true
+        MainRunLoopBlock.perform { [weak self] in self?.settle() }
+    }
+
+    private func become(_ window: NSWindow?) {
+        let (old, oldHome) = (resigned, resignedHome)
+        (resigned, resignedHome) = (nil, nil)
+        guard let window else { return }
+        PointerHover.keyChanged(in: window)
+        let newHome = home(of: window)
+        if let old {
+            if let oldHome, oldHome === newHome { return }
+            PointerHover.refresh(in: old)
         }
+        PointerHover.refresh(in: window)
+    }
+
+    /// The window `window` is a part of, for the pointer: itself, or the window a Chromium page
+    /// window (`CefNSWindow`) is the content of: its parent, or with no parent the main window.
+    /// Chromium can make a page window key before the fork places it as its window's child, and
+    /// a page that leaves is ordered out, which takes it from its parent (a workspace switch
+    /// between browser tabs); `WindowKeyFamily` reads a page with no parent the same way.
+    /// Nil: a page with no parent and no main window.
+    private func home(of window: NSWindow) -> NSWindow? {
+        guard let pageClass = NSClassFromString("CefNSWindow") else { return window }
+        var current = window
+        // A page in a page at most; the bound only stops a cycle.
+        for _ in 0..<4 {
+            guard current.isKind(of: pageClass) else { return current }
+            guard let parent = current.parent else { return mainWindow() }
+            current = parent
+        }
+        return nil
+    }
+
+    /// The pass that had a resign ends: with no become since, the key left the app's windows.
+    private func settle() {
+        settles = false
+        guard let window = resigned else { return }
+        (resigned, resignedHome) = (nil, nil)
+        PointerHover.refresh(in: window)
     }
 }
 
@@ -297,6 +373,8 @@ private final class TargetIndex {
     private var byView: [ObjectIdentifier: [Weak]] = [:]
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
+    /// Targets that hover only in the key window (the buttons of a sheet: a handful).
+    private var keyed: [ObjectIdentifier: Weak] = [:]
     private var nextOrder: UInt64 = 0
     /// The entry count at which freed entries are swept (a target freed off the main thread
     /// leaves its entry): twice the count after the last sweep, so sweeps cost O(1) a target.
@@ -310,12 +388,14 @@ private final class TargetIndex {
         var entries = byView[key, default: []].filter { $0.value?.view === view }
         entries.append(Weak(value: target))
         byView[key] = entries
+        if target.requiresKeyWindow { keyed[ObjectIdentifier(target)] = Weak(value: target) }
         if byView.count >= sweepAt { sweep() }
     }
 
     /// A target is freed (its `deinit`, on the main thread): its entries drop out.
     func remove(_ target: ObjectIdentifier, view: ObjectIdentifier) {
         hovering[target] = nil
+        keyed[target] = nil
         guard let entries = byView[view] else { return }
         let live = entries.filter { $0.value != nil }
         byView[view] = live.isEmpty ? nil : live
@@ -323,6 +403,20 @@ private final class TargetIndex {
 
     func noteHovering(_ target: PointerHover, _ hovers: Bool) {
         hovering[ObjectIdentifier(target)] = hovers ? Weak(value: target) : nil
+    }
+
+    /// The key-window targets whose view is in `window` now, in creation order: a key change of
+    /// `window` reads them and no other target.
+    func keyTargets(in window: NSWindow) -> [PointerHover] {
+        var found: [PointerHover] = []
+        for (id, entry) in keyed {
+            guard let target = entry.value else {
+                keyed[id] = nil
+                continue
+            }
+            if target.view?.window === window { found.append(target) }
+        }
+        return found.sorted { $0.order < $1.order }
     }
 
     /// The targets a refresh of `window` reads: the ones that hover now, then the ones whose view

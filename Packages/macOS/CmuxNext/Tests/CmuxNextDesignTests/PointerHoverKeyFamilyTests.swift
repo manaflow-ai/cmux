@@ -16,7 +16,9 @@ import Testing
 /// window is the pane's content, above its window before and after. So it asks nothing. A key
 /// change to another window can come with a new window order (the other window covers the
 /// pointer), so it still recomputes the hover, and so does a window that resigns key to no window
-/// (another app), a panel of the window that takes the key, and a page window of no window.
+/// (another app), a panel of the window that takes the key, and a page window of no window. A page
+/// window with no parent (ordered out as it leaves, or key before the fork places it) is the page
+/// of the main window.
 ///
 /// The tests use a synthesized pointer, with which `PointerHover.isTopmost` returns before its
 /// window server read. They count the asks one step before it: `passThroughWindows` is read
@@ -153,12 +155,16 @@ import Testing
         #expect(!hover.isHovering, "the key going from the page to another window did not recompute the hover")
     }
 
-    /// A page that leaves at a workspace switch can resign the key after it left its parent, and
-    /// the one that shows can take it again before it is a child again: it is still the page of
-    /// the window that a key change last saw it in.
-    @Test func aPageThatLeftItsParentStillBelongsToItsWindow() throws {
+    /// A page that leaves at a workspace switch is ordered out, which takes it from its parent, and
+    /// the one that shows can take the key before the fork makes it a child: a page with no parent
+    /// is the content of the main window.
+    @Test func aPageWithNoParentIsThePageOfTheMainWindow() throws {
         let (window, page, hovers) = try Self.rig(child: Self.pageWindowClass())
-        defer { Self.close(page, window) }
+        let other = Self.makeWindow()
+        defer { Self.close(page, window, other) }
+        let observer = try #require(PointerHover.keyObserver)
+        let appMain = observer.mainWindow
+        defer { observer.mainWindow = appMain }
         Self.key(leaves: window, goesTo: page)
         var asks = 0
         for hover in hovers {
@@ -168,17 +174,23 @@ import Testing
             }
         }
 
+        observer.mainWindow = { window }
         window.removeChildWindow(page)
         Self.key(leaves: page, goesTo: window)
         #expect(asks == 0, "the key coming back from a page that left its parent asked the topmost window \(asks) times")
         Self.key(leaves: window, goesTo: page)
-        #expect(asks == 0, "the key going to a page that is not a child again yet asked the topmost window \(asks) times")
+        #expect(asks == 0, "the key going to a page that is not a child yet asked the topmost window \(asks) times")
         #expect(hovers.allSatisfy { $0.isHovering })
+
+        // Another window is main: the page with no parent is not this window's, and the hover is recomputed.
+        observer.mainWindow = { other }
+        Self.key(leaves: page, goesTo: window)
+        #expect(asks > 0, "the key coming from a page of another main window did not recompute the hover")
     }
 
-    /// A page window that no key change saw as a child of a window belongs to none: it can be a
-    /// window of its own over the pointer, so the hover is recomputed.
-    @Test func aPageWindowThatWasNeverAChildRecomputesTheHover() throws {
+    /// A page window with no parent, when the app has no main window, is no window's page: it
+    /// can be a window of its own over the pointer, so the hover is recomputed.
+    @Test func aPageWindowWithNoParentAndNoMainWindowRecomputesTheHover() throws {
         let window = Self.makeWindow(), page = Self.makeWindow(try Self.pageWindowClass())
         defer { Self.close(page, window) }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
@@ -188,6 +200,10 @@ import Testing
         hover.isHoverable = { hoverable }
         PointerHover.setDebugPointer(NSPoint(x: 50, y: 20), in: window)
         #expect(hover.isHovering)
+        let observer = try #require(PointerHover.keyObserver)
+        let appMain = observer.mainWindow
+        defer { observer.mainWindow = appMain }
+        observer.mainWindow = { nil }
         Self.key(leaves: nil, goesTo: window)
 
         hoverable = false
