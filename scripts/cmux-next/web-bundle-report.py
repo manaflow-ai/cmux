@@ -87,6 +87,8 @@ def load_bundle(
     raw = json.loads(metafile.read_text(encoding="utf-8"))
     outputs = raw.get("outputs", {})
     source_inputs = raw.get("inputs", {})
+    tool = raw.get("tool")
+    is_rolldown = tool == "rolldown"
     modules: dict[str, dict[str, Any]] = {}
     output_rows = []
     for output, details in outputs.items():
@@ -95,17 +97,43 @@ def load_bundle(
         for input_path, contribution in (details.get("inputs") or {}).items():
             row = modules.setdefault(
                 input_path,
-                {"path": input_path, "sourceBytes": 0, "reachableBytes": 0, "outputs": 0},
+                {
+                    "path": input_path,
+                    "sourceBytes": 0,
+                    "reachableBytes": 0,
+                    "renderedBytes": 0,
+                    "emittedBytes": 0,
+                    "unknownBytes": 0,
+                    "outputs": 0,
+                    "attributionMetric": None,
+                },
             )
             # esbuild records original source size in top-level inputs; output input
             # records contain only the contribution and may omit it entirely.
             source_record = source_inputs.get(input_path, {})
             row["sourceBytes"] = max(
                 row["sourceBytes"],
-                int(source_record.get("bytes", 0)),
-                int(contribution.get("bytes", 0)),
+                int(source_record.get("sourceBytes", source_record.get("bytes", 0)) or 0),
+                int(contribution.get("sourceBytes", contribution.get("bytes", 0)) or 0),
             )
-            row["reachableBytes"] += int(contribution.get("bytesInOutput", 0))
+            metric = contribution.get("metric")
+            if metric is None and is_rolldown:
+                # Schema 1 Rolldown reports only had bytesInOutput, which is
+                # rendered pre-minification. Do not silently call it emitted.
+                metric = "unknown"
+            elif metric is None:
+                metric = "emitted"
+            row["attributionMetric"] = metric if row["attributionMetric"] in (None, metric) else "mixed"
+            contribution_bytes = int(contribution.get("bytesInOutput", 0) or 0)
+            if metric == "rolldown-rendered-pre-minification":
+                rendered = int(contribution.get("renderedBytes", contribution_bytes) or 0)
+                row["renderedBytes"] += rendered
+                row["reachableBytes"] += rendered
+            elif metric == "emitted":
+                row["emittedBytes"] += contribution_bytes
+                row["reachableBytes"] += contribution_bytes
+            else:
+                row["unknownBytes"] += contribution_bytes
             row["outputs"] += 1
     rows = []
     commonjs = []
@@ -128,7 +156,7 @@ def load_bundle(
         if source is not None:
             source_paths[path] = source
             source_texts[path] = text
-        row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] else 0
+        row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] and row["attributionMetric"] not in ("unknown", "mixed") else 0
         row["package"] = package_name(path)
         # esbuild reports paths relative to its working directory; Rolldown
         # reports absolute paths. Resolve both before counting installed roots,
@@ -182,11 +210,16 @@ def load_bundle(
     if bundle_dir and bundle_dir.is_dir():
         shipped = sum(p.stat().st_size for p in bundle_dir.rglob("*") if p.is_file())
     rows.sort(key=lambda item: item["reachableBytes"], reverse=True)
+    metrics = {row["attributionMetric"] for row in rows if row["attributionMetric"] is not None}
+    attribution_metric = next(iter(metrics)) if len(metrics) == 1 else ("mixed" if metrics else "unknown")
+    reachable = sum(row["reachableBytes"] for row in rows) if attribution_metric not in ("unknown", "mixed") else None
     return {
         "name": name,
         "metafile": str(metafile),
         "bundleDir": str(bundle_dir) if bundle_dir else None,
         "shippedBytes": shipped,
+        "attributionMetric": attribution_metric,
+        "reachableBytes": reachable,
         "outputs": sorted(output_rows, key=lambda item: item["bytes"], reverse=True),
         "modules": rows,
         "barrels": sorted(barrels, key=lambda item: item["reachableBytes"], reverse=True),
@@ -196,11 +229,12 @@ def load_bundle(
 
 
 def render_markdown(report: dict[str, Any]) -> str:
-    lines = ["# NEXT web bundle attribution", "", "| Bundle | shipped bytes | reachable module bytes | outputs |", "| --- | ---: | ---: | ---: |"]
+    lines = ["# NEXT web bundle attribution", "", "| Bundle | shipped bytes | module attribution bytes | metric | outputs |", "| --- | ---: | ---: | --- | ---: |"]
     for bundle in report["bundles"]:
-        reachable = sum(row["reachableBytes"] for row in bundle["modules"])
-        lines.append(f"| {bundle['name']} | {bundle['shippedBytes']:,} | {reachable:,} | {len(bundle['outputs'])} |")
-    lines += ["", "## Top modules", "", "| Bundle | Module | source bytes | reachable bytes | ratio | flags |", "| --- | --- | ---: | ---: | ---: | --- |"]
+        reachable = bundle["reachableBytes"]
+        value = f"{reachable:,}" if reachable is not None else "unknown"
+        lines.append(f"| {bundle['name']} | {bundle['shippedBytes']:,} | {value} | {bundle['attributionMetric']} | {len(bundle['outputs'])} |")
+    lines += ["", "## Top modules", "", "| Bundle | Module | source bytes | attribution bytes | metric | ratio | flags |", "| --- | --- | ---: | ---: | --- | ---: | --- |"]
     for bundle in report["bundles"]:
         for row in bundle["modules"][:20]:
             flags = []
@@ -210,7 +244,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 flags.append("commonjs")
             if "/gallery/" in row["path"].lower() or ".test." in row["path"].lower() or "/fixtures/" in row["path"].lower():
                 flags.append("dev-only")
-            lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {row['reachableBytes']:,} | {row['ratio']:.2f} | {', '.join(flags)} |")
+            lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {row['reachableBytes']:,} | {row['attributionMetric']} | {row['ratio']:.2f} | {', '.join(flags)} |")
     lines += ["", "## Duplicate packages", "", "| Package | bundles | installed copies | module paths |", "| --- | ---: | ---: | ---: |"]
     for package, entries in sorted(report["duplicates"].items()):
         lines.append(f"| `{package}` | {len(entries['bundles'])} | {len(entries['instances'])} | {len(entries['paths'])} |")

@@ -57,6 +57,51 @@ class WebBundleReportTests(unittest.TestCase):
             metafile = self.write_bundle(root, "one", [("source.ts", 200_000, 1_000)])
             bundle = MODULE.load_bundle("one", metafile, root)
             self.assertEqual(bundle["modules"][0]["sourceBytes"], 200_000)
+            self.assertEqual(bundle["modules"][0]["attributionMetric"], "emitted")
+            self.assertEqual(bundle["modules"][0]["emittedBytes"], 1_000)
+
+    def test_rolldown_rendered_bytes_are_separate_from_emitted_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "rolldown.json"
+            metafile.write_text(json.dumps({
+                "schema": 2,
+                "tool": "rolldown",
+                "outputs": {"entry.js": {"bytes": 600, "inputs": {
+                    "src/module.ts": {
+                        "sourceBytes": 2_000,
+                        "renderedBytes": 1_000,
+                        "bytesInOutput": 1_000,
+                        "metric": "rolldown-rendered-pre-minification",
+                    }
+                }}},
+            }), encoding="utf-8")
+            bundle = MODULE.load_bundle("rolldown", metafile, None)
+            row = bundle["modules"][0]
+            self.assertEqual(bundle["shippedBytes"], 0)
+            self.assertEqual(bundle["reachableBytes"], 1_000)
+            self.assertEqual(bundle["attributionMetric"], "rolldown-rendered-pre-minification")
+            self.assertEqual(row["renderedBytes"], 1_000)
+            self.assertEqual(row["emittedBytes"], 0)
+            self.assertEqual(bundle["outputs"][0]["bytes"], 600)
+
+    def test_legacy_rolldown_bytes_are_unknown_not_emitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "legacy-rolldown.json"
+            metafile.write_text(json.dumps({
+                "schema": 1,
+                "tool": "rolldown",
+                "outputs": {"entry.js": {"bytes": 600, "inputs": {
+                    "src/module.ts": {"bytes": 2_000, "bytesInOutput": 1_000}
+                }}},
+            }), encoding="utf-8")
+            bundle = MODULE.load_bundle("legacy", metafile, None)
+            row = bundle["modules"][0]
+            self.assertIsNone(bundle["reachableBytes"])
+            self.assertEqual(bundle["attributionMetric"], "unknown")
+            self.assertEqual(row["unknownBytes"], 1_000)
+            self.assertEqual(row["emittedBytes"], 0)
 
     def test_relative_inputs_use_metafile_source_root(self):
         with tempfile.TemporaryDirectory() as tmp:
