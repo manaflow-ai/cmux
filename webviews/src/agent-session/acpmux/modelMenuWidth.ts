@@ -8,7 +8,7 @@
 // name").
 import { useSyncExternalStore } from "react";
 
-/// The narrowest a drag makes the menu, in px: the rail, a short model name and an effort level.
+/// The stored width's lower bound in px; the displayed minimum also follows the menu's text size.
 export const MODEL_MENU_MIN_WIDTH = 260;
 /// The shortest a drag makes the menu, in px: the search row and a few rows under it.
 export const MODEL_MENU_MIN_HEIGHT = 160;

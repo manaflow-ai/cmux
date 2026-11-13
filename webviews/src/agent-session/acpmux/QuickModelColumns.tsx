@@ -30,7 +30,6 @@ import {
   type EffortLabel,
   fitMenuHeight,
   MODEL_MENU_MIN_HEIGHT,
-  MODEL_MENU_MIN_WIDTH,
   menuNameFont,
   nameLineWidth,
   naturalMenuWidth,
@@ -398,10 +397,10 @@ function Columns({
     (popup: HTMLElement | null | undefined) => {
       if (!popup || dragging.current) return;
       const room = "var(--available-width, calc(100vw - 24px))";
+      popup.style.minWidth = "";
       if (ownWidth) {
         // A width the person dragged to is theirs, from the drag's floor up to the window.
         popup.style.width = `min(${ownWidth}px, ${room})`;
-        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${room})`;
         popup.style.maxWidth = room;
         return;
       }
@@ -409,7 +408,6 @@ function Columns({
       // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
       // still hold; a name longer than the cap wraps under it.
       popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
-      popup.style.minWidth = "";
       popup.style.maxWidth = "";
     },
     [ownWidth, natural],
@@ -801,7 +799,15 @@ function Columns({
     const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
     const left = (bound?.left ?? 0) + 5;
     const right = (bound?.right ?? doc.defaultView?.innerWidth ?? start.right) - 5;
-    const most = Math.max(MODEL_MENU_MIN_WIDTH, fromEnd ? start.right - left : right - start.left);
+    const most = Math.max(0, Math.floor(fromEnd ? start.right - left : right - start.left));
+    const style = getComputedStyle(popup);
+    // The stylesheet's minimum is in em, so dragging follows the same text scale as the default.
+    const least = Math.min(
+      most,
+      Math.ceil(
+        Number.parseFloat(style.getPropertyValue("--acpmux-cols-min-width")) * Number.parseFloat(style.fontSize),
+      ),
+    );
     let width = start.width;
     // Where the popup's left edge belongs for `width`; the translate makes up whatever Base UI has
     // not placed yet, read live each time it moves the positioner.
@@ -828,11 +834,11 @@ function Columns({
     const apply = () => {
       frame = 0;
       const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
-      const next = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
+      const next = Math.round(Math.min(most, Math.max(least, start.width + delta)));
       if (next === width && popup.style.width === `${width}px`) return;
       width = next;
       popup.style.width = `${width}px`;
-      popup.style.minWidth = `${MODEL_MENU_MIN_WIDTH}px`;
+      popup.style.minWidth = "";
       popup.style.maxWidth = `${most}px`;
       pin();
     };
