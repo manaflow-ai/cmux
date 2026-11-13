@@ -989,12 +989,12 @@ function matches(words: readonly string[], text: string): boolean {
 export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      className={`acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon${kind === "local" ? " acpmux-macbook-icon" : ""}`}
       data-kind={kind}
       style={name && kind !== "local" ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
-      viewBox="0 0 16 16"
+      viewBox={kind === "local" ? "0 0 20 16" : "0 0 16 16"}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}

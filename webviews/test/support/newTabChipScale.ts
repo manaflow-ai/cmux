@@ -6,7 +6,9 @@
 /** One chip's measured parts, in CSS px; null where the chip draws no such part. */
 export type ChipMeasure = {
   chip: string;
+  /** Leading glyph frame height; wide symbols retain their natural aspect. */
   glyph: number | null;
+  glyphInk: { top: number; bottom: number } | null;
   glyphCenterY: number | null;
   label: { size: number; weight: number } | null;
   chevron: number | null;
@@ -25,6 +27,19 @@ export function measureNewTabChips(): ChipMeasure[] {
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     return rect.height === 0 ? null : (rect.top + rect.bottom) / 2;
+  };
+  const verticalInk = (element: Element | null) => {
+    if (!(element instanceof SVGSVGElement)) return null;
+    const rect = element.getBoundingClientRect();
+    const view = element.viewBox.baseVal;
+    const bounds = element.getBBox();
+    const style = getComputedStyle(element.querySelector("path") ?? element);
+    const stroke = style.stroke === "none" ? 0 : Number.parseFloat(style.strokeWidth) || 0;
+    const scale = rect.height / view.height;
+    return {
+      top: rect.top + (bounds.y - view.y - stroke / 2) * scale,
+      bottom: rect.top + (bounds.y - view.y + bounds.height + stroke / 2) * scale,
+    };
   };
   const shown = (element: Element | null | undefined): element is Element => {
     if (!element) return false;
@@ -66,7 +81,8 @@ export function measureNewTabChips(): ChipMeasure[] {
       const glyphCenter = centerY(glyphElement);
       return {
         chip,
-        glyph: square(glyphElement),
+        glyph: glyphElement ? glyphElement.getBoundingClientRect().height : null,
+        glyphInk: verticalInk(glyphElement),
         glyphCenterY: glyphCenter,
         label: style ? { size: Number.parseFloat(style.fontSize), weight: Number(style.fontWeight) } : null,
         chevron: square(chevron),

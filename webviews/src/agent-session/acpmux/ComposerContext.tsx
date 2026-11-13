@@ -1438,11 +1438,11 @@ function FolderIcon() {
 function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
+      className={`acpmux-icon acpmux-location-icon ui-ghost-icon${name ? "" : " acpmux-macbook-icon"}`}
       style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
-      viewBox="0 0 16 16"
+      viewBox={name ? "0 0 16 16" : "0 0 20 16"}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
