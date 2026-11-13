@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+from nightly_workflow_text import expand, write_out_step_aliases  # noqa: E402  (moved step scripts back inline)
+
+
+def nightly_expand(text: str) -> str:
+    """nightly.yml with moved step scripts inline and its YAML-anchored steps written out."""
+    return write_out_step_aliases(expand(text))
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "scripts/ci/fleet-compilation-cache.sh"

@@ -1,7 +1,7 @@
-//! A peer link that read a daemon's list reads only what changed when it links again
-//! (`watch_delta.rs`): over a real listener, served as a peer, a reconnect after the daemon's
-//! listener restarts publishes the whole list again, every row once, from a reply of a few
-//! hundred bytes per thousand rows instead of the list.
+//! A peer link that read a daemon's list reads only what changed when it links again: it
+//! follows the list from its cursor (`hub/row_log.rs`). Over a real listener, served as a peer,
+//! a reconnect after the daemon's listener restarts reads a follow of a few hundred bytes, not the
+//! list, and the hub keeps the rows it held.
 
 use super::ws_shutdown::WsShutdown;
 use super::{WsAuth, bind_ws, peer_auth, serve_ws_until};
@@ -34,8 +34,15 @@ fn hub() -> Arc<crate::hub::Hub> {
     crate::hub::Hub::new(config, store)
 }
 
-/// The rows of the list published before the next `Connected`.
-async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Vec<serde_json::Value> {
+/// What the link published before the next `Connected`: a whole list, or a follow's rows and
+/// gone ids.
+#[derive(Debug)]
+enum Listed {
+    Whole(Vec<serde_json::Value>),
+    Patch(Vec<serde_json::Value>, Vec<String>),
+}
+
+async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Listed {
     let mut listed = None;
     loop {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(60), notices.recv())
@@ -43,10 +50,22 @@ async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Vec<
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
+            PeerNotice::Sessions(rows) => {
+                listed = Some(Listed::Whole(crate::peer::parse_rows(&rows)))
+            }
+            PeerNotice::SessionsPatch { rows, gone } => {
+                listed = Some(Listed::Patch(crate::peer::parse_rows(&rows), gone))
+            }
             PeerNotice::Connected => return listed.expect("a list before Connected"),
             _ => {}
         }
+    }
+}
+
+fn whole(listed: Listed) -> Vec<serde_json::Value> {
+    match listed {
+        Listed::Whole(rows) => rows,
+        other => panic!("a whole list, not {other:?}"),
     }
 }
 
@@ -60,9 +79,9 @@ fn once(rows: &[serde_json::Value]) -> usize {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_reconnecting_peer_link_reads_a_delta_and_publishes_the_whole_list() {
+async fn a_reconnecting_peer_link_follows_from_its_cursor_and_reads_only_what_changed() {
     let hub = hub();
-    let home = std::env::temp_dir().join(format!("acpmux-delta-{}", uuid::Uuid::now_v7()));
+    let home = std::env::temp_dir().join(format!("acpmux-follow-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&home).unwrap();
     let auth = Arc::new(peer_auth::PeerAuth::create(&home).unwrap());
     let peer_token = std::fs::read_to_string(peer_auth::token_path(&home)).unwrap();
@@ -79,21 +98,26 @@ async fn a_reconnecting_peer_link_reads_a_delta_and_publishes_the_whole_list() {
     let url = format!("ws://{address}");
     let peer = Peer::new("box", &url, Some(TOKEN.into()), Some(peer_token.trim().to_owned()), tx);
     let link = tokio::spawn(peer.clone().run());
-    let rows = linked(&mut notices).await;
+    let rows = whole(linked(&mut notices).await);
     assert_eq!(peer.served_as().as_deref(), Some("peer"));
     assert_eq!(once(&rows), ROWS);
-    let (_, whole) = peer.received().read();
+    let (_, list) = peer.received().read();
+    // One chat changes and one goes while the link is down.
+    hub.row_changed_for_test("own-00007", "renamed");
 
     // The daemon's listener restarts (Close 1012): the link comes back at once, to a new one.
     first.restart();
     served.await.unwrap().unwrap();
     let second = serve(bind_ws(&address.to_string()).await.unwrap(), WsShutdown::default());
-    let again = linked(&mut notices).await;
-    assert_eq!(once(&again), ROWS, "the whole list again");
-    assert_eq!(ids(&again), ids(&rows));
-    let (_, delta) = peer.received().read();
-    assert!(delta * 20 < whole, "a delta of {delta} bytes, not the list's {whole}");
-    println!("PERF delta rows={ROWS} whole={whole} reconnect={delta}");
+    let Listed::Patch(again, gone) = linked(&mut notices).await else {
+        panic!("a follow, not the list")
+    };
+    assert_eq!(ids(&again), ["own-00007"], "only the chat that changed");
+    assert!(gone.is_empty(), "{gone:?}");
+    // This link's bytes only (`Peer::received` counts per link).
+    let (_, follow) = peer.received().read();
+    assert!(follow * 20 < list, "a follow of {follow} bytes, not the list's {list}");
+    println!("PERF follow rows={ROWS} whole={list} reconnect={follow}");
     peer.stop();
     link.abort();
     second.abort();
@@ -107,11 +131,11 @@ fn ids(rows: &[serde_json::Value]) -> Vec<String> {
     ids
 }
 
-/// A daemon whose list needed pages of rows (too large to send whole) is asked for a
-/// delta when the link comes back, as its list was read (without tools), and not for the
-/// pages again.
+/// A daemon whose list needed pages of rows (too large to send whole) is asked to follow from
+/// the list's cursor when the link comes back, as its list was read (without tools), and not
+/// for the pages again; a follow it cannot answer (`reset`) is a whole list again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_link_that_read_row_pages_asks_a_delta_when_it_links_again() {
+async fn a_link_that_read_row_pages_follows_from_its_cursor_when_it_links_again() {
     use crate::rpc::{Message, RpcError, method};
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as Frame;
@@ -148,18 +172,24 @@ async fn a_link_that_read_row_pages_asks_a_delta_when_it_links_again() {
                 let params = msg["params"].clone();
                 let reply = match msg["method"].as_str() {
                     Some(method::INITIALIZE) => Ok(json!({"_meta": {"acpmux": {"origin": "peer",
-                        "build": "b1", "features": [crate::watch_delta::FEATURE]}}})),
+                        "build": "b1", "capabilities": [crate::hub::row_log::CAPABILITY]}}})),
                     Some(method::MUX_WATCH) => {
                         let _ = asked_tx.send(params.clone());
-                        match params.get("known").and_then(serde_json::Value::as_object) {
-                            Some(known) => {
-                                let list = json!({"sessions": rows}).to_string();
-                                Ok(serde_json::from_str(
-                                    &crate::watch_delta::delta(&list, known).unwrap(),
-                                )
-                                .unwrap())
+                        let at = |seq: u64| json!({"listEpoch": "run-1", "listSeq": seq});
+                        match params.get("afterSeq").and_then(serde_json::Value::as_u64) {
+                            Some(9) => {
+                                let mut follow = at(12);
+                                follow["follow"] = json!(true);
+                                follow["sessions"] = json!([{"sessionId": "big-03", "status": "running", "updatedAt": 99}]);
+                                follow["gone"] = json!([{"sessionId": "big-04"}]);
+                                Ok(follow)
                             }
-                            None if params.get("limit").is_some() => Ok(json!({"sessions": rows})),
+                            Some(_) => Err(RpcError::internal("asked from the wrong cursor")),
+                            None if params.get("limit").is_some() => {
+                                let mut list = at(9);
+                                list["sessions"] = json!(rows);
+                                Ok(list)
+                            }
                             None => Err(RpcError::too_large(16 << 20)),
                         }
                     }
@@ -179,7 +209,7 @@ async fn a_link_that_read_row_pages_asks_a_delta_when_it_links_again() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", &format!("ws://{address}"), Some(TOKEN.into()), None, tx);
     let link = tokio::spawn(peer.clone().run());
-    assert_eq!(once(&linked(&mut notices).await), 50);
+    assert_eq!(once(&whole(linked(&mut notices).await)), 50);
     // The first link: the list without tools, then pages of rows.
     let mut first = Vec::new();
     while let Ok(params) = asked.try_recv() {
@@ -189,11 +219,13 @@ async fn a_link_that_read_row_pages_asks_a_delta_when_it_links_again() {
     assert!(first[1].get("limit").is_some(), "{first:?}");
 
     close_tx.send(()).unwrap();
-    assert_eq!(once(&linked(&mut notices).await), 50, "the whole list again");
+    let Listed::Patch(changed, gone) = linked(&mut notices).await else { panic!("a follow") };
+    assert_eq!(ids(&changed), ["big-03"]);
+    assert_eq!(gone, ["big-04"]);
     let again = asked.recv().await.unwrap();
-    assert!(again["known"].as_object().is_some_and(|k| k.len() == 50), "{again}");
+    assert_eq!((again["afterSeq"].as_u64(), again["listEpoch"].as_str()), (Some(9), Some("run-1")));
     assert_eq!(again["withTools"], false, "asked as the list was read: {again}");
-    assert!(asked.try_recv().is_err(), "one request: the delta");
+    assert!(asked.try_recv().is_err(), "one request: the follow");
     peer.stop();
     link.abort();
     server.abort();

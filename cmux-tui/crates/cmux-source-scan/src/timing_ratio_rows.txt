@@ -514,3 +514,29 @@ fn ratio_on_counts() {
     let (busy, idle) = (count(), count());
     assert!(busy < idle * 4);
 }
+=== flagged :: dbg!(busy) < idle * 4 :: ratio of two timings :: review of cmux#41567 F1: dbg!(x) is x
+#[test]
+fn dbg_operand() {
+    let (busy, idle) = (helper(), helper());
+    assert!(dbg!(busy) < idle * 4);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41567 F1: an assert in dbg!({ .. })
+#[test]
+fn dbg_block() {
+    dbg!({
+        let (busy, idle) = (helper(), helper());
+        assert!(busy < idle * 4);
+    });
+}
+=== flagged :: lap() < lap() * 4 :: ratio of two timings :: review of cmux#41567 F1: a clock fn a user macro over statements defines
+#[test]
+fn wrapped_clock_fn() {
+    measured! {
+        fn lap() -> Duration {
+            let t = Instant::now();
+            t.elapsed()
+        }
+        let ready = true;
+        assert!(ready && lap() < lap() * 4);
+    }
+}
