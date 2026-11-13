@@ -23,9 +23,9 @@ done
   echo 'Both exact 40-character source pins are required' >&2; exit 2;
 }
 [[ "$SAMPLES" =~ ^[1-9][0-9]*$ ]] || exit 2
+[[ "$OUT" != *'$'* && "$OUT" = /* ]] || { echo "invalid artifact output path: $OUT" >&2; exit 2; }
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-[[ "$OUT" != *'$'* && "$OUT" = /* ]] || { echo "invalid artifact output path: $OUT" >&2; exit 2; }
 [[ ! -e "$OUT/requested-source-pins.txt" ]] || {
   echo "Use a fresh artifact directory; existing receipt: $OUT/requested-source-pins.txt" >&2; exit 2;
 }
@@ -37,7 +37,7 @@ on_exit() {
   printf "%s\n" "$rc" > "$OUT/exit-code.txt"
   if [[ -s "$OUT/summary.json" ]]; then
     echo "shared React runtime proof summary:"
-    cat "$OUT/summary.json"
+    node -e 'const s=require(process.argv[1]); console.log(JSON.stringify({status:s.status,bytes:s.bytes,timing:s.timing.map(({surface,baseline,candidate,p95DeltaMs})=>({surface,baseline,candidate,p95DeltaMs})),runtimeProbes:s.runtimeProbes}))' "$OUT/summary.json"
   fi
   if (( rc != 0 )); then
     for log in "$OUT"/baseline/build.log "$OUT"/candidate/build.log "$OUT/browser.log"; do
@@ -61,6 +61,15 @@ for variant in baseline candidate; do
   git -C "$ROOT" archive "$pin" | tar -x -C "$WORK/$variant"
   (
     cd "$WORK/$variant"
+    # Cheap CJS edge probe before the full production build: the shared externalizer must leave a
+    # browser-resolvable React import for use-sync-external-store's CommonJS shim.
+    (cd webviews && bun install --frozen-lockfile >/dev/null)
+    printf '%s\n' 'import "use-sync-external-store/shim";' > webviews/.shared-react-cjs-smoke.mjs
+    (cd webviews && CMUX_SHARED_REACT_RUNTIME_OUT="$OUT/$variant/bundles/Resources/markdown-viewer/webviews-app/__runtime" \
+      bun scripts/agent-pane/bundle.mjs .shared-react-cjs-smoke.mjs - "$OUT/$variant/cjs-react-smoke.js")
+    grep -q '/__runtime/react.js' "$OUT/$variant/cjs-react-smoke.js" || {
+      echo "$variant: CJS React smoke did not resolve the shared runtime" >&2; exit 1;
+    }
     # No synthetic esbuild entry: exercise all production compiler, JSON and CSS plugins.
     bash scripts/cmux-next/build-web-bundles.sh \
       --out-root "$OUT/$variant/bundles" --report-dir "$OUT/$variant/metafiles"
