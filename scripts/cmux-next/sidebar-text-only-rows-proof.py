@@ -18,6 +18,8 @@ Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
 Stop the app afterwards with "$NX_APP_STOP".
 """
 import argparse, http.server, json, os, socket, struct, subprocess, sys, tempfile, threading, time, zlib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -226,7 +228,7 @@ try:
            "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": "60,60,980,720"}
     log = open(os.path.join(opts.out, "app.log"), "a")
     app = subprocess.Popen([os.path.join(opts.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print("launched pid", app.pid, flush=True)
+    safe_print("launched pid", app.pid, flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rows("workspace"), 180):
         sys.exit("the tagged app did not come up")
     wait(focused_terminal, 30)
@@ -263,12 +265,12 @@ try:
             json.dump(state, f, indent=1)
         shot = subprocess.run(["bash", os.environ["NX_CAPTURE"], "shot", "--pid", str(app.pid), "--out", os.path.join(opts.out, f"window-{label}.png")],
                               capture_output=True, text=True, timeout=120)
-        print("shot", label, shot.returncode, (shot.stdout + shot.stderr).strip()[-300:], flush=True)
+        safe_print("shot", label, shot.returncode, (shot.stdout + shot.stderr).strip()[-300:], flush=True)
         check(shot.returncode == 0, f"{label}: the window is captured")
         ws = workspace_rows(state)
         icons = {title: (ws.get(title) or {}).get("icon", "MISSING") for title in EXPECT}
         tabs = {title: [r.get("icon") for r in tab_rows(title)] for title in ("claude", "codex", "web")}
-        print(label, "workspace icons:", icons, "tab icons:", tabs, flush=True)
+        safe_print(label, "workspace icons:", icons, "tab icons:", tabs, flush=True)
         summary["captures"].append({"label": label, "density": density, "minimal": minimal, "workspace_icons": icons, "tab_icons": tabs,
                                     "pinned_items": [i for i in state.get("items") or [] if i.get("ref_kind") == "workspace"]})
         for title, want in EXPECT.items():
@@ -277,5 +279,5 @@ finally:
     with open(os.path.join(opts.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
     server.shutdown()
-    print(f"{len(failures)} failure(s)", flush=True)
+    safe_print(f"{len(failures)} failure(s)", flush=True)
 sys.exit(1 if failures else 0)

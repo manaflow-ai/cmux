@@ -81,6 +81,7 @@ import {
 } from "./model";
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
+import { focusCameFromKey } from "../../../ui/focusModality";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -93,10 +94,11 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
-/// Whether `node` holds focus the keyboard gave it (`:focus-visible`), not a click's.
+/// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
+/// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
   try {
-    return node.matches(":focus-visible");
+    return focusCameFromKey(node);
   } catch {
     return false;
   }
@@ -152,6 +154,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  latestShadowReach = 0,
   foot,
   railBox,
   scrolls,
@@ -179,6 +182,9 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// How far the reader is from the latest-message starting point, normalized to the transcript's
+  /// edge-fade ramp. The rail uses this only for its bottom shadow; its own list fade remains separate.
+  latestShadowReach?: number;
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
@@ -518,25 +524,42 @@ export function ThreadMinimap({
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
-    const scrolled = () => {
+    const place = () => {
+      frame = undefined;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
+      const top = layoutScrollTop(node);
+      domTop.current = { sessionId: session, top };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
-      // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
-      // would draw the band after this frame paints. Only a scroll that moves the band renders.
+      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
+      // Synchronously: a frame callback is outside React's batch, which would draw the band after
+      // this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
+    };
+    // One read a frame, in the frame's callbacks, never one per scroll event: a trackpad sends
+    // several a frame, and each read of the offset there laid the transcript out again (Leo,
+    // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Asked in the event,
+    // this callback comes before the transcript's own (scrollPacer.ts, asked by its later handler),
+    // so the band is drawn before the rows that frame mounts. A motion's frame callback has already
+    // run its frame's callbacks: it places at once.
+    let frame: number | undefined;
+    const scrolled = () => {
+      if (frame === undefined) frame = requestAnimationFrame(place);
+    };
+    const moved = () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      place();
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
     // band already drawn. A wheel glide or jump (scrollMotion.ts) writes the offset in a frame
     // callback, whose scroll event comes a frame late: it announces its write in that frame too.
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    node.addEventListener(MOTION_SCROLL_EVENT, scrolled);
+    node.addEventListener(MOTION_SCROLL_EVENT, moved);
     return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
       node.removeEventListener("scroll", scrolled, { capture: true });
-      node.removeEventListener(MOTION_SCROLL_EVENT, scrolled);
+      node.removeEventListener(MOTION_SCROLL_EVENT, moved);
     };
   }, [scroller]);
 
@@ -1256,7 +1279,12 @@ export function ThreadMinimap({
       // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
       // that looked deeper would be checked again for every node a streamed chunk inserts.
       data-side={side}
-      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+      style={
+        {
+          "--acpmux-rail-left": `${placement.left}px`,
+          "--acpmux-minimap-latest-shadow-reach": latestShadowReach,
+        } as React.CSSProperties
+      }
     >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
@@ -1289,6 +1317,7 @@ export function ThreadMinimap({
           id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
+          data-shadow-variant="elevation"
           style={
             {
               ...railEdge(side, edge),

@@ -22,6 +22,13 @@ SCRIPT = ROOT / "scripts/ci/webviews_test_history.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import webviews_test_history as history  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 FILE = "test/agent-pane-suggested-tasks.test.ts"
 TEST = f"{FILE} > sends the image"
@@ -95,6 +102,96 @@ class Flaky(unittest.TestCase):
         self.assertEqual(history.flaky(runs(True, False, True), ["test/other.test.ts > x"]), [])
 
 
+class Known(unittest.TestCase):
+    """react-apps-base-check reads a head red's base verdict from a push with the merge parent's inputs."""
+
+    def test_a_red_green_on_every_push_with_the_same_inputs_is_the_changes(self):
+        base, replay = history.known(runs(True, True), "same", {TEST: False, f"{FILE} > other": True})
+        self.assertEqual((base, replay), ({TEST: True}, []))
+
+    def test_the_newest_such_push_decides(self):
+        self.assertEqual(history.known(runs(True, False), "same", {TEST: False}), ({TEST: False}, []))
+        # One old red at the key (a flake) does not excuse a change once a newer push ran it green.
+        self.assertEqual(history.known(runs(False, True), "same", {TEST: False}), ({TEST: True}, []))
+
+    def test_other_inputs_or_a_timed_out_file_say_nothing_and_the_file_replays(self):
+        self.assertEqual(history.known(runs(True, keys=["older"]), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(None), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known([], "same", {TEST: False}), ({}, [FILE]))
+
+    def test_a_file_red_without_names_reads_the_files_own_verdict(self):
+        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({FILE: True}, []))
+        self.assertEqual(history.known(runs(None), "same", {FILE: False}), ({FILE: False}, []))
+
+    def test_a_file_no_such_push_ran_replays_and_a_file_one_ran_answers_every_name(self):
+        other = "test/other.test.ts"
+        pushes = history.record([], "sha0", 1000, {FILE: True, other: True}, "same")
+        head = {TEST: False, f"{other} > x": False, f"{FILE} > new test": False}
+        base, replay = history.known(pushes, "same", head)
+        # FILE's "new test" is answered too (its file ran green); a red name the push never ran keeps the file
+        # whole only when its file did not run.
+        self.assertEqual(replay, [])
+        self.assertEqual(base, {TEST: True, f"{other} > x": True, f"{FILE} > new test": True})
+        pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+        base, replay = history.known(pushes, "same", head)
+        self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class KnownReds(unittest.TestCase):
+    """A head shard skips the alone retry of a file whose every first-run red its base's newest recorded push has red
+    (run-webviews-tests.sh, CMUX_WEB_TEST_BASE_REDS)."""
+
+    def test_a_name_red_on_the_newest_push_at_its_inputs_is_a_known_red(self):
+        self.assertEqual(history.known_reds(runs(True, False), "same"), [TEST])
+        # A newer green at the same inputs answers green, as known() would.
+        self.assertEqual(history.known_reds(runs(False, True), "same"), [])
+        # A timed-out file names itself, and says nothing about its tests.
+        self.assertEqual(history.known_reds(runs(False, None), "same"), [FILE, TEST])
+        self.assertEqual(history.known_reds(runs(False, True, keys=["same", "other"]), "same"), [TEST])
+
+    def test_only_pushes_no_newer_than_the_base_count(self):
+        pushes = runs(False, True, keys=["k", "k"])  # times 1000 and 1001
+        self.assertEqual(history.known_reds(pushes, "k", before=1000), [TEST])
+        self.assertEqual(history.known_reds(pushes, "k", before=1001), [])
+        self.assertEqual(history.base_run(pushes, 1000.5)["sha"], "sha0")
+        self.assertEqual(history.base_run(pushes, 5000)["sha"], "sha1")
+        self.assertIsNone(history.base_run(pushes, 999))
+
+    def test_a_file_skips_only_when_every_red_it_names_is_red_on_the_base(self):
+        other = "test/other.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > a": False, f"{other} > b": False, "test/gone.test.ts": False}
+        self.assertEqual(history.base_red_files({TEST, f"{other} > a", "test/gone.test.ts"}, head),
+                         [FILE, "test/gone.test.ts"])
+        self.assertEqual(history.base_red_files(set(), head), [])
+        self.assertEqual(history.base_red_files({TEST}, {FILE: True}), [])
+
+    def test_the_commands_write_and_read_the_base_reds_and_fail_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            saved = tmp / "history.json"
+            saved.write_text(json.dumps({"runs": runs(True, False, keys=["k", "k"])}))
+            out = tmp / "base-reds.json"
+            done = subprocess.run([sys.executable, str(SCRIPT), "known-reds", str(saved), "--before", "1001", "--out", str(out)],
+                                  capture_output=True, text=True, check=True)
+            self.assertIn("1 names red on the base's push sha1", done.stdout)
+            self.assertEqual(json.loads(out.read_text()), {"sha": "sha1", "inputs": "k", "red": [TEST]})
+            head = tmp / "head.json"
+            head.write_text(json.dumps({TEST: False, "test/new.test.ts > x": False}))
+            done = subprocess.run([sys.executable, str(SCRIPT), "base-red-files", str(out), "--names", str(head)],
+                                  capture_output=True, text=True, check=True)
+            self.assertEqual(done.stdout, f"{FILE}\n")
+            # No push at or before the base: no file at all.
+            none = tmp / "none.json"
+            subprocess.run([sys.executable, str(SCRIPT), "known-reds", str(saved), "--before", "1", "--out", str(none)],
+                           capture_output=True, text=True, check=True)
+            self.assertFalse(none.exists())
+            for bad in ["{not json", json.dumps({"red": [TEST]}), json.dumps({"inputs": "k", "red": "x"}), ""]:
+                (tmp / "bad.json").write_text(bad)
+                done = subprocess.run([sys.executable, str(SCRIPT), "base-red-files", str(tmp / "bad.json"), "--names",
+                                       str(head)], capture_output=True, text=True, check=True)
+                self.assertEqual(done.stdout, "", bad)
+
+
 class Inputs(unittest.TestCase):
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
@@ -126,6 +223,39 @@ class Inputs(unittest.TestCase):
             self.git(repo, "add", "-A")
             self.git(repo, "commit", "-qm", "runner")
             self.assertNotEqual(history.inputs(repo), first)
+
+    def test_the_key_follows_the_web_bundles_routed_inputs_and_the_font_pin(self):
+        # Webview tests import the settings schema; a base break through it must not read as green at an older
+        # push's key (react-apps-base-check's known verdicts, #40223 review).
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            for path, text in (("webviews/test/a.test.ts", "1\n"), ("schemas/settings/settings-schema.json", "{}\n"),
+                               ("scripts/ci/pin-browser-test-font.sh", "pin\n")):
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            first = history.inputs(repo)
+            (repo / "schemas/settings/settings-schema.json").write_text('{"a": 1}\n')
+            self.git(repo, "commit", "-qam", "schema")
+            second = history.inputs(repo)
+            self.assertNotEqual(second, first)
+            (repo / "scripts/ci/pin-browser-test-font.sh").write_text("pin 2\n")
+            self.git(repo, "commit", "-qam", "font")
+            self.assertNotEqual(history.inputs(repo), second)
+            # From a subfolder (the push shards run from webviews/), the key is the top's.
+            self.assertEqual(history.inputs(repo / "webviews"), history.inputs(repo))
+
+    def test_a_tree_with_no_webview_inputs_has_no_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            (repo / "README").write_text("x\n")
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            with self.assertRaises(SystemExit):
+                history.inputs(repo)
 
 
 class Record(unittest.TestCase):
@@ -190,6 +320,97 @@ class Command(unittest.TestCase):
             done = subprocess.run([sys.executable, str(SCRIPT), "flaky", str(tmp / "missing.json"), "--names", str(head)],
                                   capture_output=True, text=True, check=True)
             self.assertEqual(done.stdout, "")
+
+
+def file_runs(*verdicts, file=FILE):
+    """One push a verdict, oldest first, at an hour apart: True green, False a test red, None the file failed whole,
+    "-" the file did not run (another file did)."""
+    out = []
+    for i, verdict in enumerate(verdicts):
+        found = ({"test/other.test.ts": True} if verdict == "-" else {file: False} if verdict is None
+                 else {f"{file} > sends the image": False, f"{file} > ok": True} if verdict is False else {file: True})
+        out = history.record(out, f"{i:040x}", 1_800_000_000 + 3600 * i, found, "k")
+    return out
+
+
+class Stuck(unittest.TestCase):
+    """cmuxterm-hq#10383: react-apps-check was red on every completed feat-cmux-next push run for about 40 hours
+    (78 runs from 2026-11-11 16:59 UTC) and model-picker-scaling on 62 recorded pushes in a row, each excused on
+    every pull request as a base red, until someone read a whole run's failures."""
+
+    def test_a_file_red_on_the_last_n_pushes_is_named_with_its_first_red_and_last_green(self):
+        found = history.stuck(file_runs(True, True, False, False, None, "-", False), streak=4)
+        self.assertEqual([(f["file"], f["reds"]) for f in found], [(FILE, 4)])
+        self.assertEqual(found[0]["first"]["sha"], f"{2:040x}")
+        self.assertEqual(found[0]["green"]["sha"], f"{1:040x}")
+        self.assertEqual(found[0]["tests"], [f"{FILE} > sends the image"])
+
+    def test_a_red_shorter_than_n_or_one_that_went_green_is_not_stuck(self):
+        self.assertEqual(history.stuck(file_runs(True, False, False, False), streak=4), [])
+        self.assertEqual(history.stuck(file_runs(False, False, False, False, True), streak=4), [])
+        # A flake: one green in the stretch ends it.
+        self.assertEqual(history.stuck(file_runs(False, False, True, False, False), streak=4), [])
+        self.assertEqual(history.stuck([], streak=1), [])
+
+    def test_a_red_older_than_the_history_has_no_last_green(self):
+        runs = file_runs(False, False, False)
+        found = history.stuck(runs, streak=3)
+        self.assertIsNone(found[0]["green"])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertIn("no green in the 3 pushes recorded", notes[0])
+        self.assertIn("none recorded", summary)
+
+    def test_report_gives_one_error_a_range_with_its_commits_and_a_summary_row_a_file(self):
+        a = file_runs(True, False, False, False)
+        other = "test/b.test.ts"
+        runs = []
+        for i, run in enumerate(a):
+            found = {name: name not in run["red"] for name in (f"{FILE} > sends the image", f"{FILE} > ok")}
+            found[f"{other} > lays out"] = i == 0
+            runs = history.record(runs, run["sha"], run["time"], found, "k")
+        found = history.stuck(runs, streak=3)
+        self.assertEqual([f["file"] for f in found], [FILE, other])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("::error title=Webview base red for 3 pushes::2 webview test file(s)"))
+        self.assertIn(f"https://github.com/o/r/compare/{0:040x}...{1:040x}", notes[0])
+        self.assertIn(f"Files: {FILE}, {other}", notes[0])
+        self.assertEqual(summary.count("\n| `"), 2)
+        self.assertIn("lays out", summary)
+
+    def test_annotations_stop_at_the_step_limit(self):
+        runs = []
+        names = [f"test/f{i}.test.ts" for i in range(12)]
+        for push in range(14):
+            # File i goes red on push i and stays red: twelve first-red ranges.
+            runs = history.record(runs, f"{push:040x}", 1_800_000_000 + push,
+                                  {f"{n} > t": push < i for i, n in enumerate(names)}, "k")
+        found = history.stuck(runs, streak=2)
+        self.assertEqual(len(found), 12)
+        notes, summary = history.stuck_report(found, runs, 2, "o/r")
+        self.assertEqual(len(notes), history.STUCK_NOTES + 1)
+        self.assertIn("3 more range(s)", notes[-1])
+        self.assertEqual(summary.count("\n| `"), 12)
+
+    def test_the_command_fails_writes_the_summary_and_passes_when_nothing_is_stuck(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved, summary = Path(tmp, "history.json"), Path(tmp, "summary.md")
+            saved.write_text(json.dumps({"runs": file_runs(True, False, False)}))
+            run = lambda *extra: subprocess.run([sys.executable, str(SCRIPT), "stuck", str(saved), "--runs", "2",
+                                                 "--repo", "o/r", "--summary", str(summary), *extra],
+                                                capture_output=True, text=True)
+            done = run("--fail")
+            self.assertEqual(done.returncode, 1, done.stderr)
+            self.assertIn("::error title=Webview base red for 2 pushes::", done.stdout)
+            self.assertIn(f"`{FILE}`", summary.read_text())
+            self.assertEqual(run().returncode, 0)
+            saved.write_text(json.dumps({"runs": file_runs(False, False, True)}))
+            done = run("--fail")
+            self.assertEqual(done.returncode, 0, done.stdout)
+            self.assertNotIn("::error", done.stdout)
+            missing = subprocess.run([sys.executable, str(SCRIPT), "stuck", str(Path(tmp, "none.json")), "--fail"],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 0)
 
 
 def artifact_zip(runs) -> bytes:
@@ -263,8 +484,8 @@ class Fetch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
             done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b"],
-                                  capture_output=True, text=True, env={"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
-                                                                      "GITHUB_API_URL": "http://127.0.0.1:9"})
+                                  capture_output=True, text=True, env=git_fixture_env.fixture_env({"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+                                                                      "GITHUB_API_URL": "http://127.0.0.1:9"}))
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(out.read_text()), {"runs": []})
             self.assertIn("0 push runs", done.stdout)
@@ -275,7 +496,7 @@ class Fetch(unittest.TestCase):
             out = Path(tmp) / "history.json"
             done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b",
                                    "--need-read"], capture_output=True, text=True,
-                                  env={"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"})
+                                  env=git_fixture_env.fixture_env({"PATH": "/usr/bin:/bin", "GITHUB_API_URL": "http://127.0.0.1:9"}))
             self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         upkeep = Workflow().job("webviews-test-history")
         restore = upkeep[upkeep.index("      - name: Restore the history"):]
@@ -303,11 +524,17 @@ class Workflow(unittest.TestCase):
         self.assertIn("timeout-minutes: 5", upkeep)
         # The cache the history used to live in was never restored by the next push (2026-11-08).
         self.assertNotIn("actions/cache", upkeep)
-        # Optional upkeep: every step keeps going, so the job never reddens a push.
+        # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
+        # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
         self.assertTrue(steps)
-        for step in steps:
+        self.assertTrue(steps[-1].startswith("Name webview reds stuck on the base"), steps[-1])
+        for step in steps[:-1]:
             self.assertIn("continue-on-error: true", step, step)
+        self.assertNotIn("continue-on-error", steps[-1])
+        self.assertIn("if: ${{ steps.history-record.outcome == 'success' }}", steps[-1])
+        self.assertIn('webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json"', steps[-1])
+        self.assertIn('--summary "$GITHUB_STEP_SUMMARY" --fail', steps[-1])
         shard = self.job("react-apps-check-shard")
         upload = shard[shard.index("      - name: Upload this push's webview results"):]
         upload = upload[:upload.index("\n      - name:", 10)]
@@ -369,15 +596,109 @@ class Workflow(unittest.TestCase):
                 head = Path(temp, "head-results/webviews-head-results.json")
                 if results is not None:
                     head.write_text(results, encoding="utf-8")
-                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env={
+                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env=git_fixture_env.fixture_env({
                     "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
-                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"})
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"}))
                 return (runner / "fetched").exists()
 
         self.assertFalse(fetched(json.dumps({f"{FILE} > a": True})))
         self.assertTrue(fetched(json.dumps({f"{FILE} > a": False})))
         self.assertTrue(fetched(None))  # missing
         self.assertTrue(fetched("{not json"))  # unreadable
+
+    def test_the_replay_takes_the_bases_verdicts_from_a_push_with_its_inputs(self):
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        other = "test/other.test.ts"
+        with tempfile.TemporaryDirectory() as temp:
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "webviews_test_results.py").write_text(
+                (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+            # fetch writes this history; every other command is the real script's.
+            (runner / "webviews_test_history.py").write_text(
+                "import json, pathlib, runpy, sys\n"
+                "if sys.argv[1] == 'fetch':\n"
+                f"    pathlib.Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)\n"
+                f"    pathlib.Path(sys.argv[2]).write_text(json.dumps({{'runs': {json.dumps(pushes)}}}))\n"
+                "    sys.exit(0)\n"
+                "sys.argv[0] = str(pathlib.Path(__file__).with_name('real_history.py'))\n"
+                "runpy.run_path(sys.argv[0], run_name='__main__')\n", encoding="utf-8")
+            # The merge parent's own copy prints its inputs key.
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text("print('same')\n", encoding="utf-8")
+            head = Path(temp, "head-results/webviews-head-results.json")
+            head.write_text(json.dumps({TEST: False, f"{other} > x": False}), encoding="utf-8")
+            output = Path(temp, "output")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env=git_fixture_env.fixture_env({
+                "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)}))
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
+            self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
+
+    def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
+        import yaml
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
+        gated = {s["name"] for s in steps if "steps.history.outputs.replay != '0'" in str(s.get("if", ""))}
+        # The caches restore either way: a head re-run after an all-answered replay installs from them.
+        self.assertEqual(gated, {"Use the base's bun", "Install webview dependencies", "Build base web bundles",
+                                 "Install headless engines"})
+        names = [s["name"] for s in steps]
+        self.assertLess(names.index("Restore the base's webview test history"), names.index("Use the base's bun"))
+        compare = next(s for s in steps if s["name"] == "Run base reds and compare")
+        self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
+        self.assertIn('base-replay-files', compare["run"])
+        self.assertIn('base-known.json', compare["run"])
+
+    def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
+        # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).
+        shard = self.job("react-apps-check-shard")
+        self.assertIn('webviews_test_history.py inputs > "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key"', shard)
+        upload = shard[shard.index("      - name: Upload this push's webview results"):]
+        upload = upload[:upload.index("\n      - name:", 10)]
+        self.assertIn("webviews-head-results/webviews-inputs-key", upload)
+        upkeep = self.job("webviews-test-history")
+        self.assertNotIn("webviews_test_history.py inputs", upkeep)
+        record = upkeep[upkeep.index("      - name: Add this push to the history"):]
+        record = record[:record.index("\n      - name:", 10)]
+        body = record[record.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            Path(temp, "scripts/ci/web_subareas.py").write_text(
+                (ROOT / "scripts/ci/web_subareas.py").read_text(encoding="utf-8"), encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=temp, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+                           cwd=temp, check=True)
+            Path(temp, "webviews-test-history").mkdir()
+
+            def record(*keys):
+                for i, key in enumerate(keys, 1):
+                    shard = Path(temp, f"history-results/webviews-test-history-shard{i}")
+                    shard.mkdir(parents=True, exist_ok=True)
+                    (shard / "webviews-head-results.json").write_text(json.dumps({FILE: True}), encoding="utf-8")
+                    if key is not None:
+                        (shard / "webviews-inputs-key").write_text(key + "\n", encoding="utf-8")
+                done = subprocess.run(["bash", "-e", "-c", script], cwd=temp, capture_output=True, text=True, env=git_fixture_env.fixture_env({
+                    "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
+                    "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ATTEMPT": "1"}))
+                saved = Path(temp, "webviews-test-history/history.json")
+                runs_ = json.loads(saved.read_text())["runs"] if saved.exists() else []
+                subprocess.run(["rm", "-rf", str(Path(temp, "history-results")), str(saved)], check=True)
+                return done.returncode, [r["inputs"] for r in runs_]
+
+            self.assertEqual(record("k1", "k1"), (0, ["k1"]))
+            self.assertNotEqual(record(None, None)[0], 0)
+            self.assertNotEqual(record("k1", "k2")[0], 0)
+        self.assertNotEqual(subprocess.run([sys.executable, str(SCRIPT), "record", "/nonexistent", "/tmp/x", "--sha", "a",
+                                            "--time", "1", "--inputs", "", "/nonexistent"]).returncode, 0)
 
 
 if __name__ == "__main__":

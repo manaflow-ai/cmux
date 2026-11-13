@@ -156,7 +156,7 @@ extension SidebarListViewComponents {
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
-    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
         let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
@@ -192,7 +192,7 @@ extension SidebarListViewComponents {
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
-            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewportChange.settle`).
             revealedActive = selectionRevealKey
             let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
@@ -402,8 +402,6 @@ extension SidebarListViewComponents {
             groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
-        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
-        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 
@@ -539,10 +537,14 @@ extension SidebarListViewComponents {
         displayed = layout
         spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
+        // A header stuck over the dragged rows stays stuck over the drag's look.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         for i in dragLookRows(layout, realize: realize) {
             let row = layout.rows[i]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             guard let view = rowViews[row.key] else {
                 // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
                 guard target.intersects(realize) else { continue }

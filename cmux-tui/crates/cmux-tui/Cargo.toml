@@ -68,6 +68,7 @@ tempfile = "3"
 cmux-json.workspace = true
 cmux-cloud-client.workspace = true
 cmux-cloud-environment.workspace = true
+cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
@@ -90,6 +91,11 @@ cmux-cloud-config.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+cmux-customize.workspace = true
+cmux-usage-patterns.workspace = true
+# `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
+cmux-app-manifest.workspace = true
+notify.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
@@ -99,7 +105,7 @@ cmux-tui-machine-protocol.workspace = true
 cmux-server.workspace = true
 cmux-server-core.workspace = true
 ratatui.workspace = true
-crossterm = { workspace = true, features = ["serde"] }
+crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
@@ -205,6 +211,8 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

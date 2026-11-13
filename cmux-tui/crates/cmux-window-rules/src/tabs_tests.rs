@@ -184,6 +184,45 @@ fn terminal_chat_routes_by_session_and_harness() {
 }
 
 #[test]
+fn toggle_swaps_a_session_between_its_terminal_and_its_chat() {
+    let facts = |terminal, chat, agent: Option<&str>, session: Option<&str>| ToggleFacts {
+        terminal,
+        chat,
+        agent: agent.map(str::to_owned),
+        session: session.map(str::to_owned),
+    };
+    assert_eq!(
+        terminal_chat_toggle(&facts(true, false, Some("claude-code"), Some(" s-1 "))),
+        TerminalChatToggle::ToChat { harness: "claude".into(), session: "s-1".into() }
+    );
+    assert_eq!(
+        terminal_chat_toggle(&facts(false, true, Some("codex"), Some("abc"))),
+        TerminalChatToggle::ToTerminal { harness: "codex".into(), session: "abc".into() }
+    );
+    assert_eq!(
+        terminal_chat_toggle(&facts(true, false, Some("claude"), None)),
+        TerminalChatToggle::NoSession
+    );
+    assert_eq!(
+        terminal_chat_toggle(&facts(true, false, Some("opencode"), Some("x"))),
+        TerminalChatToggle::UnsupportedHarness
+    );
+    // A chat started in cmux resumes no outside session: it has no terminal to show.
+    assert_eq!(
+        terminal_chat_toggle(&facts(false, true, None, None)),
+        TerminalChatToggle::NoSession
+    );
+    assert_eq!(
+        terminal_chat_toggle(&facts(false, true, Some("opencode"), Some("x"))),
+        TerminalChatToggle::NoSession
+    );
+    assert_eq!(
+        terminal_chat_toggle(&facts(false, false, Some("claude"), Some("s"))),
+        TerminalChatToggle::NotAgentTab
+    );
+}
+
+#[test]
 fn duplicate_leaves_page_tabs_alone() {
     let page = DuplicateFacts { local_page: true, ..Default::default() };
     assert_eq!(duplicate(&[page]), None);
