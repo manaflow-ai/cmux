@@ -1010,7 +1010,6 @@ export const SubagentTray = memo(function SubagentTray({
               title={agentTooltip(t, item.agent)}
               label={subagentTaskLabel(t, item.agent)}
               chevron
-              expanded={isOpen}
               trayColumns
               // A narrow tray's workflow progress wraps under the title, above its time and controls.
               progressAt={row === "below" || narrow ? "below" : "meta"}
@@ -1018,7 +1017,7 @@ export const SubagentTray = memo(function SubagentTray({
               latest={showLatest ? agentLatest : undefined}
               latestAt={latestPlacement}
               via={parent ? subagentTaskLabel(t, parent) : undefined}
-              onOpen={toggleThis}
+              onOpen={() => onOpen(item.agent.id)}
               after={
                 item.agent.state === "running"
                   ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
@@ -1038,14 +1037,6 @@ export const SubagentTray = memo(function SubagentTray({
                 () => stop(item.agent.id),
               ),
           )}
-          <TrayLineFold open={isOpen}>
-            <TrayAgentDetail
-              name={subagentTaskLabel(t, item.agent)}
-              task={item.agent.task}
-              latest={agentLatest}
-              onOpen={() => onOpen(item.agent.id)}
-            />
-          </TrayLineFold>
         </>
       );
     }

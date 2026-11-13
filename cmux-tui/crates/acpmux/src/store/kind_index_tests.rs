@@ -420,3 +420,21 @@ fn inode(path: &Path) -> u64 {
 fn inode(_: &Path) -> u64 {
     0
 }
+
+/// The checked copy is rebuildable. Its atomic replacement needs no durability work.
+#[test]
+fn a_kind_index_write_does_not_sync() {
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    std::fs::create_dir(store.dir("c")).unwrap();
+    let copy = store.kind_index_path("c", 1);
+    let syncs = crate::config::startup_seams::Count::syncs(home.path());
+    // An explicit stamp makes this independent of filesystem birth-time support.
+    let stamp = Stamp { id: (1, 2, 3), len: 0 };
+    store.write_kind_index("c", 1, &stamp, 0, true, b"").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    assert_eq!(first.len(), HEADER_WIDTH);
+    store.write_kind_index("c", 1, &stamp, 0, false, b"").unwrap();
+    assert_ne!(std::fs::read(&copy).unwrap(), first, "the copy was replaced");
+    assert_eq!(syncs.get(), 0, "a derived kind index performed durability work");
+}

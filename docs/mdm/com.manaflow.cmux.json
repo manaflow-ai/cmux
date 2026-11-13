@@ -277,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -302,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,
@@ -701,8 +701,8 @@
     "app.uiScale" : {
       "default" : 1,
       "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
-      "maximum" : 1.5,
-      "minimum" : 0.85,
+      "maximum" : 5,
+      "minimum" : 0.25,
       "title" : "App Zoom",
       "type" : "number"
     },
@@ -2387,7 +2387,7 @@
     },
     "diagnostics.usagePatterns" : {
       "default" : false,
-      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
       "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
