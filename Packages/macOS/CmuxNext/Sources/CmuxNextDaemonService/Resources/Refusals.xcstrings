@@ -27401,16 +27401,394 @@
       "comment": "A Cloud chat's start whose chosen model connection this Mac could not read. %@ is the machine's name.",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على هذا الـ Mac قراءة اتصال النموذج الخاص بالمحادثة على %@. تحقّق منه في الإعدادات > النماذج، ثم أرسل مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije mogao pročitati vezu s modelom za razgovor na %@. Provjerite je u Postavke > Modeli, pa pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kunne ikke læse modelforbindelsen til chatten på %@. Tjek den under Indstillinger > Modeller, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac konnte die Modellverbindung für den Chat auf %@ nicht lesen. Prüfe sie unter Einstellungen > Modelle und sende dann erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "This Mac could not read the model connection for the chat on %@. Check it in Settings > Models, then send again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no pudo leer la conexión de modelo del chat en %@. Revísala en Ajustes > Modelos y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n'a pas pu lire la connexion de modèle du chat sur %@. Vérifiez-la dans Réglages > Modèles, puis renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è riuscito a leggere la connessione al modello per la chat su %@. Controllala in Impostazioni > Modelli, poi invia di nuovo."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ のチャットに使うモデル接続をこの Mac で読み取れませんでした。設定 > モデル で確認してから、もう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះ​មិន​អាច​អាន​ការ​តភ្ជាប់​ម៉ូដែល​សម្រាប់​ការ​ជជែក​នៅ​លើ %@ បាន​ទេ។ សូម​ពិនិត្យ​វា​នៅ​ក្នុង ការកំណត់ > ម៉ូដែល រួច​ផ្ញើ​ម្ដង​ទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 %@의 채팅에 사용할 모델 연결을 읽지 못했습니다. 설정 > 모델에서 확인한 다음 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen kunne ikke lese modelltilkoblingen for chatten på %@. Sjekk den under Innstillinger > Modeller, og send på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie mógł odczytać połączenia z modelem dla czatu na %@. Sprawdź je w Ustawienia > Modele, a potem wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não conseguiu ler a conexão de modelo do chat em %@. Verifique-a em Ajustes > Modelos e envie de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не смог прочитать подключение к модели для чата на %@. Проверьте его в разделе Настройки > Модели и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้อ่านการเชื่อมต่อโมเดลสำหรับแชทบน %@ ไม่ได้ ตรวจสอบใน การตั้งค่า > โมเดล แล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac, %@ üzerindeki sohbetin model bağlantısını okuyamadı. Ayarlar > Modeller bölümünden kontrol edip yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не зміг прочитати підключення до моделі для чату на %@. Перевірте його в Налаштування > Моделі й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này không đọc được kết nối mô hình cho cuộc trò chuyện trên %@. Hãy kiểm tra trong Cài đặt > Mô hình rồi gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 无法读取 %@ 上该聊天使用的模型连接。请在“设置 > 模型”中检查，然后再次发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 無法讀取 %@ 上該聊天使用的模型連線。請在「設定 > 模型」中檢查，然後再次傳送。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.credentialsUnsupported": {
+      "comment": "A Cloud chat on the person's model connection, on a machine whose cmux cannot take it yet. %@ is the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux على %@ تشغيل هذه المحادثة باتصال النموذج الخاص بك بعد. حدّث cmux على ذلك الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %@ još ne može pokrenuti ovaj razgovor na vašoj vezi s modelom. Ažurirajte cmux na tom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %@ kan endnu ikke køre denne chat på din modelforbindelse. Opdater cmux på den maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux auf %@ kann diesen Chat noch nicht über deine Modellverbindung ausführen. Aktualisiere cmux auf diesem Rechner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on %@ can't run this chat on your model connection yet. Update cmux on that machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux en %@ todavía no puede ejecutar este chat con tu conexión de modelo. Actualiza cmux en esa máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sur %@ ne peut pas encore exécuter ce chat avec votre connexion de modèle. Mettez à jour cmux sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux su %@ non può ancora eseguire questa chat sulla tua connessione al modello. Aggiorna cmux su quella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は、まだこのチャットをあなたのモデル接続で実行できません。そのマシンの cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅ​លើ %@ មិន​ទាន់​អាច​ដំណើរការ​ការ​ជជែក​នេះ​តាម​ការ​តភ្ជាប់​ម៉ូដែល​របស់​អ្នក​បាន​ទេ។ សូម​ធ្វើ​បច្ចុប្បន្នភាព cmux នៅ​លើ​ម៉ាស៊ីន​នោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux는 아직 이 채팅을 회원님의 모델 연결로 실행할 수 없습니다. 해당 컴퓨터의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %@ kan ikke kjøre denne chatten på modelltilkoblingen din ennå. Oppdater cmux på den maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %@ nie może jeszcze uruchomić tego czatu przez Twoje połączenie z modelem. Zaktualizuj cmux na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux em %@ ainda não consegue executar este chat na sua conexão de modelo. Atualize o cmux nessa máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %@ пока не может запускать этот чат через ваше подключение к модели. Обновите cmux на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux บน %@ ยังรันแชทนี้ด้วยการเชื่อมต่อโมเดลของคุณไม่ได้ อัปเดต cmux บนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki cmux bu sohbeti henüz model bağlantınızla çalıştıramıyor. O makinedeki cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %@ ще не може запускати цей чат через ваше підключення до моделі. Оновіть cmux на тому комп'ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux trên %@ chưa thể chạy cuộc trò chuyện này bằng kết nối mô hình của bạn. Hãy cập nhật cmux trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 还不能用你的模型连接运行此聊天。请更新那台机器上的 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 還不能用你的模型連線執行此聊天。請更新那台機器上的 cmux。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.credentialMismatch": {
+      "comment": "A Cloud chat whose agent was switched after its model connection was chosen. %@ is the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال النموذج الذي أُعدّت به هذه المحادثة لا يشغّل هذا الوكيل على %@. ابدأ محادثة جديدة لهذا الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s modelom s kojom je ovaj razgovor postavljen ne pokreće ovog agenta na %@. Započnite novi razgovor za ovog agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den modelforbindelse, denne chat blev sat op med, kører ikke denne agent på %@. Start en ny chat til denne agent."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Modellverbindung, mit der dieser Chat eingerichtet wurde, führt diesen Agenten auf %@ nicht aus. Starte einen neuen Chat für diesen Agenten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The model connection this chat was set up with does not run this agent on %@. Start a new chat for this agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de modelo con la que se configuró este chat no ejecuta este agente en %@. Inicia un chat nuevo para este agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion de modèle avec laquelle ce chat a été configuré n'exécute pas cet agent sur %@. Démarrez un nouveau chat pour cet agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione al modello con cui è stata configurata questa chat non esegue questo agente su %@. Avvia una nuova chat per questo agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットに設定したモデル接続では、%@ でこのエージェントを実行できません。このエージェントで新しいチャットを開始してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការ​តភ្ជាប់​ម៉ូដែល​ដែល​ការ​ជជែក​នេះ​បាន​រៀបចំ មិន​ដំណើរការ​ភ្នាក់ងារ​នេះ​នៅ​លើ %@ ទេ។ សូម​ចាប់ផ្ដើម​ការ​ជជែក​ថ្មី​សម្រាប់​ភ្នាក់ងារ​នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에 설정된 모델 연결로는 %@에서 이 에이전트를 실행할 수 없습니다. 이 에이전트로 새 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelltilkoblingen denne chatten ble satt opp med, kjører ikke denne agenten på %@. Start en ny chat for denne agenten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie z modelem, z którym skonfigurowano ten czat, nie uruchamia tego agenta na %@. Rozpocznij nowy czat dla tego agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão de modelo com que este chat foi configurado não executa este agente em %@. Inicie um novo chat para este agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение к модели, с которым настроен этот чат, не запускает этого агента на %@. Начните новый чат для этого агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อโมเดลที่ตั้งค่าไว้สำหรับแชทนี้รันเอเจนต์นี้บน %@ ไม่ได้ เริ่มแชทใหม่สำหรับเอเจนต์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin kurulduğu model bağlantısı bu ajanı %@ üzerinde çalıştırmıyor. Bu ajan için yeni bir sohbet başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення до моделі, з яким налаштовано цей чат, не запускає цього агента на %@. Почніть новий чат для цього агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối mô hình dùng để thiết lập cuộc trò chuyện này không chạy được tác nhân này trên %@. Hãy bắt đầu cuộc trò chuyện mới cho tác nhân này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天设置时使用的模型连接无法在 %@ 上运行此代理。请为此代理开始新聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天設定時使用的模型連線無法在 %@ 上執行此代理。請為此代理開始新聊天。"
           }
         }
       }

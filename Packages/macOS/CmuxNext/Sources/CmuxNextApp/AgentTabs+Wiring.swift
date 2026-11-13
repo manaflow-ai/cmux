@@ -423,7 +423,7 @@ extension AgentTabStore {
             // it is sent, through any daemon (the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
-            if session != nil, host.cloudMachineID != nil { services.cloud.agentCredentials.reattach(chat: key.key, machine: machineID, surface: tab.surface.rawValue, ownerLink: links?.ownerLink, reconnect: reconnect, endpoint: endpoint) }
+            if host.cloudMachineID != nil { host.credentialCheck = { [weak tabs, weak credentials = services.cloud.agentCredentials] surface in guard let tabs else { return }; await credentials?.reattach(chat: tabs.resolvedKey(key).key, machine: machineID, surface: surface, ownerLink: links?.ownerLink, reconnect: reconnect, endpoint: endpoint) } }
             // A start its older daemon refused updates the machine and tries once more on the link it brought back (the owner's machine only).
             if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink, let session = services.machines.session(daemon.machineID) {
                 host.updateMachine = { [weak services, weak session] in

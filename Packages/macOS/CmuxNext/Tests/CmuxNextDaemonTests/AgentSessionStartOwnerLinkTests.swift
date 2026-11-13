@@ -33,6 +33,36 @@ import Testing
         return (refusal, daemon.frames.first { $0["cmd"] as? String == "agent-session-start" })
     }
 
+    /// A chat set up on the owner's model connection never starts on the machine's own route in its
+    /// place: a daemon that takes no credential, or a start with no owner answer, sends no start.
+    @Test func aStartOnTheOwnersCredentialNeverGoesOutWithoutIt() async throws {
+        let credential = AgentSessionAttachClient.LaunchCredential(env: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"], connection: "claude-token", expiresAt: nil)
+        let vmKind = DaemonCapability.agentSessionStartVMKind.rawValue
+        func start(_ extra: [String], _ ownerLink: AgentSessionAttachClient.OwnerLink?) async throws -> (String?, [String: Any]?) {
+            let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
+            defer { daemon.stop() }
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            var refusal: String?
+            do { _ = try await client.start(cwd: "/w", harness: "claude", ownerLink: ownerLink, credentials: credential) } catch let error as AgentSessionAttachError {
+                refusal = error.code
+            }
+            await client.close()
+            return (refusal, daemon.frames.first { $0["cmd"] as? String == "agent-session-start" })
+        }
+        let older = try await start([vmKind], link(3, 3))
+        #expect(older.0 == AgentSessionAttachClient.credentialsUnsupported)
+        #expect(older.1 == nil, "a start that would run on the machine's own route went out")
+        let notOwner = try await start([vmKind, AgentSessionAttachClient.credentialsCapability], nil)
+        #expect(notOwner.0 == "agent_session.host_unverified")
+        #expect(notOwner.1 == nil)
+        let owned = try await start([vmKind, AgentSessionAttachClient.credentialsCapability], link(3, 3))
+        let sent = try #require(owned.1?["credentials"] as? [String: Any])
+        #expect(sent["connection"] as? String == "claude-token")
+        // With no credential an older daemon still starts the chat (the machine's own route).
+        let plain = try await start([vmKind], link(3, 3))
+        #expect(plain.1 != nil)
+    }
+
     @Test func aCloudStartGoesOutOnlyOnTheOwnerAnswerOfTheSameLink() async throws {
         let vmKind = [DaemonCapability.agentSessionStartVMKind.rawValue]
         let owned = try await start(serving: vmKind, ownerLink: link(3, 3))

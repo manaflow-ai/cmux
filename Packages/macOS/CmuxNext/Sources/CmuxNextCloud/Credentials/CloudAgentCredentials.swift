@@ -95,16 +95,17 @@ public final class CloudAgentCredentials {
         return credential
     }
 
-    /// The credential a chat's start sends, read now: nil when its Cloud start chose no connection
-    /// (`connection`, the seed's) or when the agent it starts is of another family than the
-    /// connection's (the person switched agent after the choice; `family`: ``CloudSetup/family(of:)``).
-    /// A chosen connection that cannot be read throws `refusal` (the start says so) instead of
-    /// starting on the machine's own route.
-    public func launchCredential(connection: String?, family: String?, refusal: @autoclosure () -> any Error) async throws -> CloudAgentCredential? {
+    /// The credential a chat's start sends, read now: nil only when its Cloud start chose no
+    /// connection (`connection`, the seed's: a team key, or the machine's own route). A chosen
+    /// connection never falls back to the machine's own route: one that cannot be read throws
+    /// `refusal`, and one of another family than the agent it starts (the person switched agent
+    /// after the choice; `family`: ``CloudSetup/family(of:)``) throws `mismatch`.
+    public func launchCredential(connection: String?, family: String?, refusal: @autoclosure () -> any Error,
+                                 mismatch: @autoclosure () -> any Error) async throws -> CloudAgentCredential? {
         guard let connection else { return nil }
         let credential: CloudAgentCredential
         do { credential = try await self.credential(forConnection: connection) } catch { throw refusal() }
-        guard family == nil || credential.family == family else { return nil }
+        guard family == nil || credential.family == family else { throw mismatch() }
         return credential
     }
 
@@ -116,19 +117,21 @@ public final class CloudAgentCredentials {
         keep(ChatKey(machine: machine, chat: chat), refresher.track(credential, push: push))
     }
 
-    /// This app attached the chat tab `chat` on `machine` again (a relaunch, a reconnect): when its
-    /// machine says it runs on the owner's credential (`status`), its connection is read again and a
-    /// ChatGPT plan token is kept fresh from the expiry the machine has; a credential the machine's
-    /// acpmux lost in a restart is sent again at once (`push`), so the chat goes on rather than
-    /// waiting with "needs your Mac". Once per chat while it is kept; a chat on the machine's own
-    /// route, or one whose connection this Mac no longer has, is left as it is (the chat says it
-    /// needs this Mac to reconnect when its token runs out).
+    /// The page of chat tab `chat` on `machine` connected to it (each connection: opening the tab,
+    /// a reconnect after the machine or its acpmux restarted, which ends every attachment): its
+    /// machine says whether it runs on the owner's credential (`status`). One its acpmux lost (a
+    /// restart keeps only the reference) is read again from this Mac and sent at once (`push`),
+    /// whatever its kind (a ChatGPT plan token, a Claude token, an API key), so the chat goes on
+    /// rather than waiting with "needs your Mac"; a ChatGPT plan token is then kept fresh from the
+    /// expiry the machine has. One status read at a time per chat; a chat already kept fresh whose
+    /// machine still holds its credential reads nothing more. A chat on the machine's own route, or
+    /// one whose connection this Mac no longer has, is left as it is (the chat says it needs this
+    /// Mac to reconnect).
     public func reattach(chat: String, machine: String, status: @escaping Status, push: @escaping CloudAgentCredentialRefresher.Push) {
         let key = ChatKey(machine: machine, chat: chat)
-        if let id = tracked[key], refresher.isTracked(id) { return }
         guard !reattaching.contains(key) else { return }
         reattaching.insert(key)
-        // task-owner: this chat's reattach (one status read, one credential read, at most one push); cancelled by machineRemoved
+        // task-owner: this chat's reattach (one status read, at most one credential read and one push); cancelled by machineRemoved
         reattaches[key] = Task { [weak self] in
             let found = try? await status()
             await self?.reattached(key, found.flatMap { $0 }, push: push)
@@ -137,8 +140,10 @@ public final class CloudAgentCredentials {
 
     private func reattached(_ key: ChatKey, _ status: AgentSessionAttachClient.CredentialStatus?, push: @escaping CloudAgentCredentialRefresher.Push) async {
         defer { reattaching.remove(key); reattaches[key] = nil }
-        guard let status, let connection = status.connection,
-              let credential = try? await credential(forConnection: connection) else { return }
+        guard let status, let connection = status.connection else { return }
+        let kept = tracked[key].map(refresher.isTracked) ?? false
+        guard status.lost || (status.chatgpt && !kept) else { return }
+        guard let credential = try? await credential(forConnection: connection) else { return }
         var delivered = status.expiresAt ?? credential.expiresAt
         if status.lost {
             guard await push(credential.launch) == .delivered else { return }

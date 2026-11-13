@@ -38,7 +38,8 @@ struct CloudCredentialLaunchChainTests {
         let seed = admitted.seed(cwd: "/home/cmux/work/app")
         #expect(seed.cloudConnection == "chatgpt-1")
         let credential = try #require(try await credentials.launchCredential(connection: seed.cloudConnection, family: CloudSetup.family(of: seed.harness),
-                                                                             refusal: CloudAgentCredentials.Failure.unavailable(connection: "x")))
+                                                                             refusal: CloudAgentCredentials.Failure.unavailable(connection: "x"),
+                                                                             mismatch: CloudAgentCredentials.Failure.unavailable(connection: "mismatch")))
         #expect(asked == ["chatgpt-1"])
         let params = AgentSessionAttachClient.startParams(cwd: nil, harness: seed.harness, homeConfirmed: false, personKey: nil, servesKeyedReason: false,
                                                           callerOwnsVM: true, servesVMKind: true, servesCredentials: true, credentials: credential.launch)
@@ -72,9 +73,12 @@ struct CloudCredentialLaunchChainTests {
             Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
         }
         let refusal = CloudAgentCredentials.Failure.unavailable(connection: "refused")
-        #expect(try await credentials.launchCredential(connection: nil, family: "claude", refusal: refusal) == nil, "no choice")
-        #expect(try await credentials.launchCredential(connection: "claude-token", family: "codex", refusal: refusal) == nil, "switched to Codex")
+        let mismatch = CloudAgentCredentials.Failure.unavailable(connection: "mismatch")
+        #expect(try await credentials.launchCredential(connection: nil, family: "claude", refusal: refusal, mismatch: mismatch) == nil, "no choice")
+        await #expect(throws: mismatch, "switched to Codex: refused, never the machine's own route") {
+            try await credentials.launchCredential(connection: "claude-token", family: "codex", refusal: refusal, mismatch: mismatch)
+        }
         let unreadable = CloudAgentCredentials { _ in Data(#"{"error":"signed_out"}"#.utf8) }
-        await #expect(throws: refusal) { try await unreadable.launchCredential(connection: "claude-token", family: "claude", refusal: refusal) }
+        await #expect(throws: refusal) { try await unreadable.launchCredential(connection: "claude-token", family: "claude", refusal: refusal, mismatch: mismatch) }
     }
 }
