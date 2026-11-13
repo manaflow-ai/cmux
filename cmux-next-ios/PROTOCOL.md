@@ -1577,7 +1577,10 @@ Only when the signed-in account's connectivity audience is the team (`Connectivi
   answer, the phone itself is offline, nothing is sent, and the 30 s start again from that check.
   `serviceReachable` says whether the cmux service answered.
 - `link_unstable`: three drops of a live link that came back within 20 s while the Mac stayed online (a
-  drop where the Mac itself went away, or that turned into an unreachable stretch, is not instability) (its stream ended or a probe went unanswered) in five
+  drop where the Mac itself went away, or that turned into an unreachable stretch, is not instability; the
+  service also holds it, `mac_restarted`, when the Mac's signaling socket reconnected inside the window: a
+  host that crashed and came back within a second never shows the Mac offline). If the Mac then stops
+  answering for 30 s, the unstable incident ends (`became_unreachable`) and an unreachable one takes over. (its stream ended or a probe went unanswered) in five
   minutes, not counting drops in the 10 s after the app came to the front or the network changed. The
   same reachability check gates it. At most one per Mac per 30 minutes. It is reported only once the link is up again (the Mac is then awake; one that went to sleep never reconnects).
 - Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
@@ -1633,7 +1636,8 @@ as `app_relaunched`, at the time it was last seen.
 - Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm
   (5 s, 30 s, 2 min, 10 min, then every 30 min) for as long as the incident is kept. Any other Slack error
   drops that call (logged), so one bad call never holds up the alerts behind it.
-- At most 5 new incidents per reporter and 20 overall per hour per channel, thread replies included. Each
+- At most 5 new incidents per reporter and 20 overall per hour (both routes share one channel, so they share
+  the limits), thread replies included. Each
   held-back incident is counted once; the next post (whatever its state) says how many were held back
   since the last post, and if none comes within the hour the desk posts that count (and whose) on its own.
   An end whose start was held back is posted whole later. One open incident per Mac at a time.

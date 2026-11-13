@@ -284,11 +284,22 @@ import Testing
         let id = try #require(checkID(third))
         let opened = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(142)))
         #expect(opened.map(\.kind) == [.linkUnstable])
-        // While it is open the link goes down for a minute: no second (unreachable) incident.
+        // While it is open the Mac stops answering for good: the unstable link ends, handing over to an
+        // unreachable incident, so a real outage is never hidden and one incident stays open.
         var out = d.link(macID: "m1", name: "Studio", Self.trying, at: at(200))
-        for second in stride(from: 205.0, through: 270, by: 5) { out += d.tick(at: at(second)) }
-        #expect(checkID(out) == nil)
-        #expect(reports(out).isEmpty)
+        var outage: [Detector.Incident] = []
+        for second in stride(from: 205.0, through: 240, by: 5) {
+            let step = d.tick(at: at(second))
+            out += step
+            if let check = checkID(step) {
+                outage += reports(d.reachability(macID: "m1", checkID: check, internet: true, service: true, at: at(second)))
+            }
+        }
+        #expect(outage.map(\.kind) == [.linkUnstable, .macUnreachable])
+        #expect(outage.first?.state == .ended)
+        #expect(outage.first?.endReason == .becameUnreachable)
+        #expect(outage.last?.state == .open)
+        #expect(d.openIncidents.count == 1)
     }
 
     @Test func goingToTheBackgroundOrLosingTheNetworkEndsOpenIncidents() throws {

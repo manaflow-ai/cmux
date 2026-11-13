@@ -125,6 +125,11 @@ describe("whether the Mac was awake", () => {
     expect(startVerdict(long, { liveness: { connected: true, lastPingAt: T0 - ALIVE_WITHIN_MS - 1, pings: true } }, T0)).toBe("mac_asleep")
     // A link that kept dropping is reported once the link is up again: the Mac is awake.
     expect(startVerdict(report({ kind: "link_unstable", drops: 3 }, T0), { liveness: null }, T0)).toBeUndefined()
+    // ...unless the Mac's host restarted during it (its socket reconnected inside the window): restarts,
+    // not a failing link. A host connected since before the window is fine.
+    const unstable = report({ kind: "link_unstable", drops: 3, startedAt: new Date(T0 - 81_000).toISOString(), durationMs: 81_000 }, T0)
+    expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 - 1000, pings: true, connectedAt: T0 - 20_000 } }, T0)).toBe("mac_restarted")
+    expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 - 1000, pings: true, connectedAt: T0 - 600_000 } }, T0)).toBeUndefined()
     // A connect alone proves nothing (a dark wake connects and sleeps again).
     expect(startVerdict(open, { liveness: { connected: true, lastPingAt: null, pings: false } }, T0)).toBe("mac_liveness_unknown")
     expect(startVerdict(open, { liveness: { connected: false, lastPingAt: null, pings: false } }, T0)).toBe("mac_offline")
@@ -284,8 +289,8 @@ describe("the desk", () => {
     const busy = emptyDesk()
     for (let i = 0; i < LIMITS.overallPerHour; i++) applyReport(busy, onMac(i), { key: `u${i}`, email: `u${i}@cmux.com` }, TEAM, AWAKE(T0), T0)
     expect(applyReport(busy, onMac(1), { key: "u99", email: "u99@cmux.com" }, TEAM, AWAKE(T0), T0).note).toBe("rate_limited")
-    // The test route has its own budget.
-    expect(applyReport(busy, onMac(1), { key: "u99", email: "u99@cmux.com" }, { route: "test", why: "simulator" }, AWAKE(T0), T0).actions).toHaveLength(1)
+    // Both routes post to one channel: the test route shares the budget.
+    expect(applyReport(busy, onMac(1), { key: "u98", email: "u98@cmux.com" }, { route: "test", why: "simulator" }, AWAKE(T0), T0).note).toBe("rate_limited")
   })
 
   it("counts a held incident once and says so in the next post, even when that post is an end", () => {
@@ -372,20 +377,21 @@ describe("the hub's application ping", () => {
     const pong = new Promise<string>((resolve) => mac.ws.addEventListener("message", (e) => typeof e.data === "string" && e.data === "pong" && resolve(e.data)))
     expect(await pong).toBe("pong")
     const hubs = (env as unknown as { TEAM_HUB: DurableObjectNamespace }).TEAM_HUB
-    type Live = { connected: boolean; lastPingAt: number | null; pings: boolean }
+    type Live = { connected: boolean; lastPingAt: number | null; pings: boolean; connectedAt?: number | null }
     const hub = hubs.get(hubs.idFromName("user:tina")) as unknown as { macLiveness(owner: string, id: string, at?: number): Promise<Live> }
     const live = await hub.macLiveness("tina", macId)
     expect(live.connected).toBe(true)
     expect(live.pings).toBe(true)
     expect(live.lastPingAt).toBeGreaterThanOrEqual(before - 1000)
-    expect(await hub.macLiveness("tina", crypto.randomUUID())).toEqual({ connected: false, lastPingAt: null, pings: false })
+    expect(await hub.macLiveness("tina", crypto.randomUUID())).toEqual({ connected: false, lastPingAt: null, pings: false, connectedAt: null })
     // The Mac reconnects (it woke): its new socket has not pinged. For a moment before the reconnect, the
     // old socket's recorded ping speaks; for now, the new socket (no ping yet) does.
     const firstPing = live.lastPingAt!
     const again = await connect(tok, "personal-tina", macId)
     await again.until((s) => s.frames.some((f) => f.type === "hello"))
     const beforeReconnect = await hub.macLiveness("tina", macId, firstPing + 1)
-    expect(beforeReconnect).toEqual({ connected: true, lastPingAt: firstPing, pings: true })
+    expect(beforeReconnect).toMatchObject({ connected: true, lastPingAt: firstPing, pings: true })
+    expect(beforeReconnect.connectedAt).toBeGreaterThan(firstPing)
     expect((await hub.macLiveness("tina", macId, Date.now() + 1000)).lastPingAt).toBeNull()
     again.ws.close()
     mac.ws.close()

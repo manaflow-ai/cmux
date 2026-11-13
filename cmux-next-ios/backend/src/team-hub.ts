@@ -43,6 +43,8 @@ export interface MacLiveness {
   readonly lastPingAt: number | null
   /** Whether this Mac's host sends application pings at all (one that predates them never does). */
   readonly pings: boolean
+  /** When the Mac's current signaling socket connected (ms), if connected: a host that restarted reconnects. */
+  readonly connectedAt?: number | null
 }
 
 /** A sealed reply for a Mac (PROTOCOL.md "Reply mailbox"): the hub never holds a key that opens it. */
@@ -410,12 +412,12 @@ export class TeamHub extends DurableObject<Env> {
     this.bind(ownerKey)
     const recorded = this.recordedPing(deviceId)
     const ws = this.open(deviceId)
-    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastPingAt: recorded, pings: recorded !== null }
+    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastPingAt: recorded, pings: recorded !== null, connectedAt: null }
     const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null
     const connectedAt = this.attach(ws).connectedAt ?? 0
     // A socket opened after the moment cannot speak for it: the last socket before it does.
     const lastPingAt = connectedAt > at ? recorded : pinged
-    return { connected: true, lastPingAt, pings: pinged !== null || recorded !== null }
+    return { connected: true, lastPingAt, pings: pinged !== null || recorded !== null, connectedAt: connectedAt || null }
   }
 
   /** The last application ping recorded for a Mac when one of its sockets closed or was replaced. */

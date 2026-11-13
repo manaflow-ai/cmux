@@ -58,7 +58,7 @@ export const audienceOf = (
 export type IncidentKind = "mac_unreachable" | "link_unstable"
 export type IncidentState = "open" | "resolved" | "ended"
 /** How an incident ended without the Mac answering again. */
-export type EndReason = "app_backgrounded" | "network_lost" | "mac_offline" | "link_closed" | "signed_out" | "app_relaunched" | "no_end_reported"
+export type EndReason = "app_backgrounded" | "network_lost" | "mac_offline" | "link_closed" | "signed_out" | "app_relaunched" | "no_end_reported" | "became_unreachable"
 
 export interface IncidentReport {
   readonly id: string
@@ -91,7 +91,7 @@ export interface IncidentReport {
 const ID = /^[A-Za-z0-9-]{8,64}$/
 const KINDS = new Set<IncidentKind>(["mac_unreachable", "link_unstable"])
 const STATES = new Set<IncidentState>(["open", "resolved", "ended"])
-const END_REASONS = new Set<EndReason>(["app_backgrounded", "network_lost", "mac_offline", "link_closed", "signed_out", "app_relaunched"])
+const END_REASONS = new Set<EndReason>(["app_backgrounded", "network_lost", "mac_offline", "link_closed", "signed_out", "app_relaunched", "became_unreachable"])
 const WORD = /^[a-z0-9_]{1,32}$/
 const SIMULATIONS = new Set(["relay_only", "block_udp"])
 
@@ -199,7 +199,7 @@ export interface Reporter {
 }
 
 /** Why an incident was not posted. */
-export type Suppressed = "rate_limited" | "mac_asleep" | "mac_offline" | "mac_liveness_unknown"
+export type Suppressed = "rate_limited" | "mac_asleep" | "mac_offline" | "mac_liveness_unknown" | "mac_restarted"
 
 export interface Incident {
   readonly id: string
@@ -284,8 +284,10 @@ export const judgedAt = (report: IncidentReport, now: number): number => {
 /**
  * Whether an incident's start may be posted.
  * - The cmux service failing the phone always may (that outage is ours, whatever the Mac does).
- * - A link that kept dropping always may: the phone reports it only once its link to the Mac is up again,
- *   so the Mac is demonstrably awake (a Mac that sleeps never reconnects).
+ * - A link that kept dropping may, unless the Mac's host restarted during it: the phone reports it only
+ *   once its link to the Mac is up again (the Mac is then awake), but a host that crashed and came back
+ *   within a second never shows the Mac offline, and its drops are restarts, not a failing link. The Mac's
+ *   signaling socket reconnecting inside the window says so (`mac_restarted`).
  * - A Mac the phone could not reach must have sent an application ping after the link stopped working
  *   (`startedAt`, and within ALIVE_WITHIN_MS of the moment the phone saw it; the liveness passed in speaks
  *   for that moment, so a late report is judged as it was). An awake host pings every 15 s through the 30 s
@@ -294,12 +296,15 @@ export const judgedAt = (report: IncidentReport, now: number): number => {
  */
 export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
   if (report.serviceReachable === false) return undefined
-  if (report.kind === "link_unstable") return undefined
   const live = check.liveness
   const at = judgedAt(report, now)
-  // The link stopped `startedAt..observedAt` before the phone saw it, both by the phone's clock: that
-  // difference is free of the phone's clock offset; the moment itself is the server's (`at`).
+  // The link stopped (or the drops began) `startedAt..observedAt` before the phone saw it, both by the
+  // phone's clock: that difference is free of the phone's clock offset; the moment itself is the server's.
   const stoppedFor = Math.max(0, Date.parse(report.observedAt) - Date.parse(report.startedAt))
+  if (report.kind === "link_unstable") {
+    const restartedAt = live?.connectedAt
+    return restartedAt != null && restartedAt >= at - stoppedFor ? "mac_restarted" : undefined
+  }
   const since = Math.max(at - stoppedFor, at - ALIVE_WITHIN_MS)
   if (live && live.lastPingAt !== null && live.lastPingAt >= since) return undefined
   if (!live || !live.connected) return "mac_offline"
@@ -383,8 +388,9 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
   const route = incident.route
   // Every new incident counts against the hour's limits, a thread reply too: a person going back and forth
   // between the app and the background on one dead Mac never posts more than the limit.
-  const mine = desk.meta.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
-  const all = desk.meta.posted.filter((p) => p.route === route).length
+  // Both routes post to the same channel: the limits count every route together.
+  const mine = desk.meta.posted.filter((p) => p.reporter === incident.reporter.key).length
+  const all = desk.meta.posted.length
   if (mine >= LIMITS.perReporterPerHour || all >= LIMITS.overallPerHour) {
     // Counted once, however many of its states arrive while the limit holds.
     if (!desk.meta.held[route].some((h) => h.id === incident.id)) desk.meta.held[route].push({ id: incident.id, at: now })
@@ -505,7 +511,8 @@ const END_WORDS: Record<EndReason, string> = {
   link_closed: "the app stopped using this Mac",
   signed_out: "the account signed out",
   app_relaunched: "the app was closed before it reconnected",
-  no_end_reported: "no end arrived from the phone"
+  no_end_reported: "no end arrived from the phone",
+  became_unreachable: "the Mac then stopped answering (next reply)"
 }
 
 const TEST_WORDS: Record<TestReason, string> = {

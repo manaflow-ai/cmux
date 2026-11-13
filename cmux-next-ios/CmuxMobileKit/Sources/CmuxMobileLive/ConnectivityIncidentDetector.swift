@@ -58,6 +58,9 @@ public struct ConnectivityIncidentDetector: Sendable {
             case linkClosed = "link_closed"
             case signedOut = "signed_out"
             case appRelaunched = "app_relaunched"
+            /// An unstable link that turned into a Mac the phone cannot reach: the unreachable
+            /// incident takes over (one open incident per Mac).
+            case becameUnreachable = "became_unreachable"
         }
 
         public var id: String
@@ -274,9 +277,14 @@ public struct ConnectivityIncidentDetector: Sendable {
         }
         track.check = .none
         var out: [Output] = []
-        // One open incident per Mac: an unreachable stretch during an unstable link is part of it.
-        if let since = track.downSince, track.isTrying, track.unreachable == nil, track.unstable == nil,
+        // One open incident per Mac: an unstable link that turns into a Mac the phone cannot reach ends,
+        // and the unreachable incident takes over.
+        if let since = track.downSince, track.isTrying, track.unreachable == nil,
            date.timeIntervalSince(since) >= rules.unreachableAfter {
+            if let unstable = track.unstable {
+                out.append(.report(unstable.with(.ended, at: date, endReason: .becameUnreachable)))
+                track.unstable = nil
+            }
             let incident = Incident(id: makeID(), kind: .macUnreachable, state: .open, startedAt: since, observedAt: date,
                                     macID: macID, macName: track.name, attempts: track.attempts, lastError: track.lastError,
                                     transport: track.transport, serviceReachable: service, network: networkKind)
@@ -346,7 +354,7 @@ public struct ConnectivityIncidentDetector: Sendable {
         if case .phoneOffline(let at) = track.check, date.timeIntervalSince(at) >= rules.recheckAfter { track.check = .none }
         // A pending drop the link did not recover from in time is not a drop of an unstable link.
         if let drop = track.pendingDrop, date.timeIntervalSince(drop) > rules.dropRecoverWithin { track.pendingDrop = nil }
-        let unreachableDue = track.isTrying && track.unreachable == nil && track.unstable == nil
+        let unreachableDue = track.isTrying && track.unreachable == nil
             && track.downSince.map { date.timeIntervalSince($0) >= rules.unreachableAfter } == true
         let unstableDue = track.unstable == nil && track.unreachable == nil && unstableWindowStart(track, at: date) != nil
         if (unreachableDue || unstableDue), track.check == .none {
