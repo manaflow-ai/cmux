@@ -2,10 +2,10 @@
 """The nightly-next tick's rolling rule (scripts/ci/nightly_next_rolling.py).
 
 The tick runs at landing; this rule decides whether it promotes now. Nothing building:
-promote at once. A build running: promote once the oldest landing it does not carry has
-waited the window (10 minutes), so a burst of landings becomes one build of the newest tip
-beside the running one. A run that has not started (queued 10 minutes without a runner)
-is not building anything.
+promote at once. A nightly-next push run building (any commit's): wait, because nightly-next
+pushes share one concurrency group and a promotion now would get the run waiting on it
+cancelled; the build's own finish ticks again and promotes the newest tip. A run that has
+not started (queued 10 minutes without a runner) is not building anything.
 """
 from __future__ import annotations
 
@@ -80,11 +80,24 @@ class RollingRuleTests(unittest.TestCase):
         self.assertFalse(go, reason)
         self.assertIn("runs/2", reason)
 
-    def test_a_landing_that_waited_the_window_builds_beside_the_running_one(self):
-        """Rulebook, Nightly freshness: a newer tip builds alongside a running one."""
+    def test_a_landing_that_waited_the_window_still_waits_for_the_running_build(self):
+        """ask-4f5b99b22b (2026-11-12 00:40-02:56Z): nightly-next pushes share one concurrency group, so
+        each promotion beside a running build got the run waiting on that group cancelled, 13 of 17."""
         go, reason = decide(head_runs=[run(3, 25)], waited_minutes=10.5)
-        self.assertTrue(go, reason)
-        self.assertIn("beside", reason)
+        self.assertFalse(go, reason)
+        self.assertIn("cancel", reason)
+
+    def test_an_older_commit_s_running_build_holds_the_promotion(self):
+        """nightly-next moved on (its head's run waits on the push group) while an older commit's run
+        builds: that build holds the group, so promoting would cancel the head's waiting run."""
+        holder = run(15, 30, head_sha="e" * 40)
+        waiting = run(16, 12, status="pending", head_sha=HEAD)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[waiting],
+                                    jobs_of=lambda r: BUILDING if r["id"] == 15 else [], promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
+                                    starts=[holder, waiting])
+        self.assertFalse(go, reason)
+        self.assertIn("runs/15", reason)
 
     def test_a_queued_run_that_never_started_is_not_building(self):
         """Run 40738012059: `decide` queued 73 minutes on a label that started nothing."""
@@ -116,11 +129,72 @@ class RollingRuleTests(unittest.TestCase):
         go, _ = decide(head_runs=[run(7, 45, status="waiting")], jobs=gated, waited_minutes=5)
         self.assertFalse(go)
 
-    def test_a_published_run_is_done_even_while_its_deltas_run(self):
-        """Run 40799674473 published at 34 min and ran deltas until 47: the feed already had it."""
+    def test_a_published_run_still_holds_the_push_group_while_its_tail_runs(self):
+        """Run 40799674473 published at 34 min and ran deltas until 47. The feed had it, but the run held
+        the push group until 47, so a promotion before then got the run waiting on it cancelled."""
         published = {8: [job("publish-nightly", "completed", 13, "r"),
                          job("generate-nightly-deltas (arm64)", "in_progress", 13, "mac")]}
         go, reason = decide(head_runs=[run(8, 47)], jobs=published, waited_minutes=5)
+        self.assertFalse(go, reason)
+        go, reason = decide(head_runs=[run(8, 47, status="completed")], jobs=published, waited_minutes=5)
+        self.assertTrue(go, reason)
+
+    def test_the_loop_s_retry_holds_the_push_group(self):
+        """Review of e39fee31: a retry (workflow_dispatch, 'Retry nightly-next (N of 2)') takes the push
+        group; another dispatch on nightly-next (a sign stage, a resume) does not."""
+        retry = run(17, 20, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)", head_sha="e" * 40)
+        sign = run(18, 20, event="workflow_dispatch", display_title="Sign nightly-next run 1 attempt 1", head_sha="e" * 40)
+        for holder, holds in ((retry, True), (sign, False)):
+            with self.subTest(title=holder["display_title"]):
+                go, reason = rolling.decide(NOW, head=HEAD, head_runs=[], jobs_of=lambda r: BUILDING, promotions=[],
+                                            oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
+                                            starts=[holder])
+                self.assertEqual(go, not holds, reason)
+
+    def test_a_retry_of_nightly_next_s_head_does_not_hold_a_newer_landing(self):
+        """Tick 43440928169 (2026-11-13 14:15:01Z) waited on retry 43440656795 ('Retry nightly-next (2 of 2)',
+        created 14:13:19Z) of 6ed5ffc2e386, nightly-next's head, a build that had already failed: "the newest
+        build started 3 of 5 min ago; the next start ... waits for it to finish". The retry leaves the build
+        slot only when a newer nightly-next push arrives (resolve-leave-build-slot.sh on feat-cmux-next),
+        and no tick promoted one while it ran, so each such retry cost 19-41 min (43395284047, 43440656795).
+        A retry of the head with a newer commit waiting is neither a holder nor a start: promote."""
+        head = "6ed5ffc2e386abe13409809e500022e1a73586ef"
+        retry = run(43440656795, 1.7, event="workflow_dispatch", display_title="Retry nightly-next (2 of 2)",
+                    head_sha=head)
+        go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING, promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[retry],
+                                    window_minutes=5)
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+        with self.subTest("nothing waits after the head: the retry is the newest build, so it holds"):
+            go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
+                                        promotions=[], oldest_waiting=None, starts=[retry], window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("a retry of an older commit (nightly-next moved past it) still holds"):
+            older = {**retry, "head_sha": "e" * 40}
+            go, reason = rolling.decide(NOW, head=head, head_runs=[], jobs_of=lambda r: BUILDING, promotions=[],
+                                        oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[older],
+                                        window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("an ordinary push build of the head still holds"):
+            push = run(43440000000, 1.7, head_sha=head)
+            go, reason = rolling.decide(NOW, head=head, head_runs=[push], jobs_of=lambda r: BUILDING, promotions=[],
+                                        oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[push],
+                                        window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("a promotion seconds old still counts as a start"):
+            promo = run(43440000002, 0.07, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
+            go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
+                                        promotions=[promo], oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
+                                        starts=[retry], window_minutes=5)
+            self.assertFalse(go, reason)
+
+    def test_evaluate_promotes_past_a_retry_of_the_head(self):
+        """The same tick through evaluate's one listing (retries are dispatches in it)."""
+        retry = run(43440656795, 1.7, event="workflow_dispatch", display_title="Retry nightly-next (2 of 2)",
+                    head_sha=HEAD)
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=[retry])
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, window_minutes=5)
         self.assertTrue(go, reason)
 
     def test_a_fresh_promotion_counts_as_building(self):
@@ -143,8 +217,10 @@ class RollingRuleTests(unittest.TestCase):
     def test_an_unknown_gap_counts_as_an_old_landing(self):
         go, reason = rolling.decide(NOW, head=HEAD, head_runs=[run(14, 12)], jobs_of=lambda r: BUILDING,
                                     promotions=[], oldest_waiting=rolling.UNKNOWN)
+        self.assertFalse(go, "a running build holds even an unknown gap")
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[run(14, 40, status="completed")],
+                                    jobs_of=lambda r: [], promotions=[], oldest_waiting=rolling.UNKNOWN)
         self.assertTrue(go, reason)
-        self.assertIn("unknown", reason)
 
 
 class OneStartPerWindowTests(unittest.TestCase):
@@ -167,12 +243,15 @@ class OneStartPerWindowTests(unittest.TestCase):
         self.assertFalse(go, reason)
         self.assertIn("started 4 of 10 min ago", reason)
 
-    def test_once_the_newest_start_is_a_window_old_the_newest_tip_starts_beside_it(self):
+    def test_a_window_old_start_still_waits_while_it_builds(self):
         start = run(31, 12, head_sha=HEAD)
         go, reason = rolling.decide(NOW, head=HEAD, head_runs=[start], jobs_of=lambda r: BUILDING, promotions=[],
                                     oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[start])
-        self.assertTrue(go, reason)
-        self.assertIn("beside", reason)
+        self.assertFalse(go, reason)
+        done = {**start, "status": "completed"}
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[done], jobs_of=lambda r: [], promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[done])
+        self.assertTrue(go, "its finish promotes the newest tip")
 
     def test_an_older_commit_s_newer_start_still_counts(self):
         """The newest start may be another commit's run (nightly-next moved on since)."""
@@ -246,11 +325,11 @@ class OneStartPerWindowTests(unittest.TestCase):
                                    promotions=promos, starts=starts,
                                    oldest_waiting=(WAITING, self.at_clock(oldest)))
             decisions.append((clock, go))
-        # 04:25:35 is the promotion that did happen (0bb2's build started 21 min before); every later
-        # tick waits until 185716ef's build is a window old (04:36:08), then the newest tip starts.
-        # Before: 04:28:13 and 04:29:13 started 68e51e81 and 913e9372 as well.
-        self.assertEqual(decisions, [("04:25:35", True), ("04:25:53", False), ("04:28:13", False),
-                                     ("04:29:13", False), ("04:31:41", False), ("04:36:20", True)])
+        # Every tick waits while a build runs (one push group: a promotion would cancel the waiting
+        # run); the builds' own finishes promote the newest tip. Before: 04:28:13 and 04:29:13 started
+        # 68e51e81 and 913e9372 as well, and 04:25:35 and 04:36:20 promoted beside a running build.
+        self.assertEqual(decisions, [("04:25:35", False), ("04:25:53", False), ("04:28:13", False),
+                                     ("04:29:13", False), ("04:31:41", False), ("04:36:20", False)])
 
     def test_evaluate_reads_one_listing_of_nightly_next_runs(self):
         api = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(37, 4, head_sha=HEAD)])
@@ -258,11 +337,13 @@ class OneStartPerWindowTests(unittest.TestCase):
         self.assertFalse(go, reason)
         listing = [p for p in api.paths if "branch=nightly-next" in p]
         self.assertEqual(len(listing), 1)
-        self.assertIn("event=push", listing[0])
+        self.assertNotIn("event=", listing[0], "the loop's retries are dispatches; one listing reads both")
         self.assertNotIn("head_sha=", listing[0])
 
 
 TIP = "c" * 40
+# nightly-next's head built and finished: nothing holds the push group, so the rule promotes.
+IDLE = [run(21, 40, status="completed", head_sha=HEAD)]
 
 
 class Api:
@@ -322,7 +403,8 @@ class ApiReadTests(unittest.TestCase):
         self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
 
     def test_a_rate_limited_refs_api_still_decides_when_ls_remote_answers(self):
-        api = api_for(compare("ahead", [(WAITING, 30)]), ref=OSError("HTTP 403: API rate limit exceeded for installation"))
+        api = api_for(compare("ahead", [(WAITING, 30)]), ref=OSError("HTTP 403: API rate limit exceeded for installation"),
+                      runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD)
         self.assertNotIn("could not read nightly-next", reason)
         self.assertTrue(go, reason)
@@ -340,18 +422,18 @@ class ApiReadTests(unittest.TestCase):
 
     def test_the_oldest_waiting_commit_is_page_one_of_a_one_per_page_compare(self):
         """Page 1 at per_page=1 is the oldest commit after nightly-next (the API's documented order)."""
-        api = api_for(compare("ahead", [(WAITING, 11)], ahead_by=2))
-        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
-        self.assertTrue(go, reason)
-        self.assertIn(WAITING[:12], reason)
+        api = api_for(compare("ahead", [(WAITING, 11)], ahead_by=2), runs=[run(20, 12, head_sha=HEAD)])
+        self.assertEqual(rolling.oldest_after(api, "o/r", HEAD, TIP)[0], WAITING)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
 
     def test_a_gap_past_250_commits_still_finds_its_oldest_landing(self):
         """An unpaginated compare stops at 250 commits ending at the newest; page 1 of one per page
         is the oldest whatever the gap, and no shallow checkout is involved."""
-        api = api_for(compare("ahead", [(WAITING, 300)], ahead_by=400))
+        api = api_for(compare("ahead", [(WAITING, 300)], ahead_by=400), runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
         self.assertTrue(go, reason)
-        self.assertIn("waited 300 min", reason)
+        sha, landed = rolling.oldest_after(api, "o/r", HEAD, TIP)
+        self.assertEqual((sha, round((NOW - landed).total_seconds() / 60)), (WAITING, 300))
         self.assertTrue(all("/compare/" not in p or p.endswith("?per_page=1&page=1") for p in api.paths), api.paths)
 
     def test_a_tip_at_or_behind_nightly_next_waits_for_nothing(self):
@@ -361,13 +443,13 @@ class ApiReadTests(unittest.TestCase):
                 self.assertFalse(go, reason)
 
     def test_an_unknown_gap_promotes(self):
-        """A failed compare, a diverged nightly-next (a train commit) or an empty list: the oldest
-        landing counts as old."""
+        """A failed compare, a diverged nightly-next (a train commit) or an empty list: unknown, which
+        promotes when nothing builds (and waits, like any gap, while a push run builds)."""
         for answer in (OSError("502"), compare("diverged", [(WAITING, 1)]), compare("ahead", [], ahead_by=3)):
             with self.subTest(answer=repr(answer)[:40]):
-                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(answer))
+                self.assertEqual(rolling.oldest_after(api_for(answer), "o/r", HEAD, TIP), rolling.UNKNOWN)
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(answer, runs=IDLE))
                 self.assertTrue(go, reason)
-                self.assertIn("unknown", reason)
 
     def test_an_unreadable_nightly_next_waits_for_the_backstop_and_says_so(self):
         """Never a silent go: the feed watch's dispatch for one commit skips this rule."""
@@ -493,7 +575,7 @@ class LocalGapTests(unittest.TestCase):
     def test_evaluate_reads_compare_when_the_head_is_not_in_the_checkout(self):
         def missing(head, tip):
             raise LookupError("not here")
-        api = api_for(compare("ahead", [(WAITING, 30)]))
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD, local_gap=missing)
         self.assertTrue(go, reason)
         self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)

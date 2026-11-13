@@ -419,7 +419,10 @@
     "signupPendingBody": "すでにアカウントをお持ちの場合は、以前に使用した方法でサインインしてください。新しくアカウントを作成した場合は、サインインする前にメールアドレスを確認してください。",
     "genericTitle": "サインインを完了できませんでした",
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
-    "backToSignIn": "サインインに戻る"
+    "backToSignIn": "サインインに戻る",
+    "chatgptLinkTitle": "ChatGPT を連携するには一度サインインしてください",
+    "chatgptLinkBody": "このメールアドレスには既に cmux アカウントがあります。以前の方法でサインインすると、そのアカウントに ChatGPT が連携されます。",
+    "chatgptEmailUnverifiedBody": "ChatGPT アカウントのメールアドレスが確認されていません。OpenAI で確認するか、別の方法でサインインしてください。"
   },
   "cloudPublicationAccess": {
     "title": "アクセス権がありません",
