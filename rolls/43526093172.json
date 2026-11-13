@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43526093172",
+  "recorded_at": "2026-11-13T23:26:43Z",
+  "reason": "cmux-tui 3dfac3b2a8b9 changes the image's cmux-tui (pinned e4e971ad047f)",
+  "dry_run": false,
+  "cmux_tui": "3dfac3b2a8b967d1bc057d2bbe784ee797dabc19",
+  "fixes": [
+    {
+      "sha": "48b35679378b874727bd577c893b978d01b1896d",
+      "mergedAt": "2026-11-13T14:52:39-08:00",
+      "subject": "cmux-tui: a gate cargo profile so acpmux's v2 gate rows can be measured (#42703)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T23:26:43Z",
+    "snapshot_id": "sh-70f4a0b8284d4651a52fbefd3c71a324",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43526093172): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "308943e0bb0dd6e25fd585b52bae1c7c98d05ff1",
+    "image": "cloud-native-auto-3dfac3b2-43526093172-1",
+    "revision": "ci-43526093172-1",
+    "at": "2026-11-13T23:26:43Z"
+  },
+  "rolled_back": false
+}
