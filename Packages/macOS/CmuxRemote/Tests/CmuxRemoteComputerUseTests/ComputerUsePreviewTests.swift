@@ -67,6 +67,33 @@ import VideoToolbox
         #expect(!backlog.dropping && backlog.pending == 3)
     }
 
+    /// A preview session's channel after it ended: a write queued before the close (the encoder's
+    /// last frames, a status, a still) must never reach the descriptor number once the next
+    /// connection reuses it (round-2 review of f9ff124: agent A's frames landed in B's stream).
+    @Test func aWriteAfterCloseNeverReachesAReusedDescriptor() throws {
+        var first: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &first) == 0)
+        let channel = LineChannel(socket: first[0])
+        let number = first[0]
+        channel.shutdown()
+        #expect(!channel.write(Data("after shutdown\n".utf8)), "a shut-down channel refuses writes")
+        channel.close()
+        close(first[1])
+        // The next connection gets the lowest free number: the one the closed channel had.
+        var second: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &second) == 0)
+        defer { close(second[0]); close(second[1]) }
+        let reused = second[0] == number ? second[0] : (second[1] == number ? second[1] : -1)
+        try #require(reused >= 0, "the descriptor number was not reused; the test cannot show the race")
+        let peer = reused == second[0] ? second[1] : second[0]
+        #expect(!channel.write(Data("agent A's frame\n".utf8)), "a closed channel refuses writes")
+        channel.close() // a second close must not close the reused number either
+        #expect(fcntl(reused, F_GETFD) != -1, "the reused descriptor is still open")
+        _ = fcntl(peer, F_SETFL, O_NONBLOCK)
+        var byte: UInt8 = 0
+        #expect(read(peer, &byte, 1) == -1 && errno == EAGAIN, "nothing reached the reused descriptor")
+    }
+
     @Test func aBlockedOrUnnamedAppIsNeverShown() {
         var asked: [String] = []
         let denied: (String, String) -> Bool = { id, _ in

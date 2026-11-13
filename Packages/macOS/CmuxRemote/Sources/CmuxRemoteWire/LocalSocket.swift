@@ -10,8 +10,11 @@ public final class LineChannel: Sendable {
     public let readDescriptor: Int32
     public let writeDescriptor: Int32
     private let state = OSAllocatedUnfairLock(initialState: State())
-    /// False once ``closeWrite()`` ran: writes refuse instead of reaching a reused descriptor.
+    /// False once ``closeWrite()`` or ``close()`` ran: writes refuse instead of reaching a reused descriptor.
     private let writeLock = OSAllocatedUnfairLock(initialState: true)
+    /// True once ``close()`` ran: the descriptors are closed once, and ``shutdown()`` never touches
+    /// a number another connection may own by then.
+    private let descriptorsClosed = OSAllocatedUnfairLock(initialState: false)
 
     private struct State: Sendable {
         var buffer = LineBuffer()
@@ -112,11 +115,32 @@ public final class LineChannel: Sendable {
         }
     }
 
-    /// Ends both directions: a blocked `readLine` on another thread returns nil.
+    /// Ends both directions and closes the descriptors, once: a blocked `readLine` on another
+    /// thread returns nil, and every later ``write(_:)`` refuses (it never reaches the descriptor
+    /// number, which the next connection may reuse).
     public func close() {
-        _ = shutdown(readDescriptor, SHUT_RDWR)
-        Darwin.close(readDescriptor)
-        if writeDescriptor != readDescriptor { Darwin.close(writeDescriptor) }
+        descriptorsClosed.withLock { closed in
+            guard !closed else { return }
+            closed = true
+            // No write is in flight once this returns, and none follows.
+            let writeWasOpen = writeLock.withLock { open in
+                defer { open = false }
+                return open
+            }
+            _ = Darwin.shutdown(readDescriptor, SHUT_RDWR)
+            Darwin.close(readDescriptor)
+            if writeDescriptor != readDescriptor, writeWasOpen { Darwin.close(writeDescriptor) }
+        }
+    }
+
+    /// Ends both directions without closing the descriptors: a blocked `readLine` returns nil and
+    /// writes fail, while the owner closes the channel later, once nothing can write to it.
+    public func shutdown() {
+        descriptorsClosed.withLock { closed in
+            guard !closed else { return }
+            _ = Darwin.shutdown(readDescriptor, SHUT_RDWR)
+            if writeDescriptor != readDescriptor { _ = Darwin.shutdown(writeDescriptor, SHUT_RDWR) }
+        }
     }
 
     /// The kernel's record of the connected peer (sockets only).

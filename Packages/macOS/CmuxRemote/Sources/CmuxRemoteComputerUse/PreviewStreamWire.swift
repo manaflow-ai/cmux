@@ -20,6 +20,9 @@ enum PreviewStreamWire {
     static let parameterSets: UInt8 = 0x50
     static let frame: UInt8 = 0x46
     static let still: UInt8 = 0x4A
+    /// The one line the app sends after its request: `K`, when it dropped frames and needs a
+    /// keyframe to decode again. Any other line is ignored.
+    static let keyframeRequest = Data("K".utf8)
     /// The largest message either side accepts.
     static let maximumPayload = 8 * 1024 * 1024
 

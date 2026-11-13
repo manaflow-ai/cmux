@@ -151,24 +151,36 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         timer.setEventHandler { [weak self] in self?.look() }
         queue.sync { self.timer = timer }
         timer.resume()
-        // The app sends nothing more: a read ends when it closes the channel.
+        // The app sends only keyframe requests (`K` lines) after this; a read ends when it closes
+        // the channel or ``end()`` shuts it down. This thread is the only one that closes the
+        // channel, after its last read and after every write queued on `writes` ran (to a shut-down
+        // socket, so they fail): a write can never reach the descriptor number once another
+        // connection reuses it.
         let reader = Thread { [weak self] in
-            while self?.channel.readLine() != nil {}
-            self?.end()
+            guard let self else { return }
+            while let line = channel.readLine() {
+                if line == PreviewStreamWire.keyframeRequest { queue.async { self.forceKeyframe = true } }
+            }
+            end()
+            queue.sync {} // end() ran: the encoder's last frames are queued on `writes`
+            writes.sync {} // and written (or refused)
+            channel.close()
+            closed.signal()
         }
         reader.name = "remote-cu-preview-read"
         reader.start()
         closed.wait()
     }
 
+    /// Ends the session: no more looks, the stream stops, and the channel shuts down, which ends
+    /// the reader thread; that thread closes it.
     private func end() {
         queue.async {
             guard !self.ended else { return }
             self.ended = true
             self.timer?.cancel()
             self.stopStream()
-            self.channel.close()
-            self.closed.signal()
+            self.channel.shutdown()
         }
     }
 
@@ -261,9 +273,16 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
             Task.detached { try? await stream.stopCapture() }
             return
         }
+        guard let encoder = Self.makeEncoder(width: size.width, height: size.height) else {
+            // No encoder (no hardware session): stop the capture and send stills instead.
+            logger.notice("Computer Use preview: no encoder for \(size.width, privacy: .public)x\(size.height, privacy: .public); stills instead")
+            // task-owner: stops the capture that has no encoder; nothing waits for it.
+            Task.detached { try? await stream.stopCapture() }
+            return streamFailed(id)
+        }
         self.stream = stream
         self.size = size
-        encoder = Self.makeEncoder(width: size.width, height: size.height)
+        self.encoder = encoder
         send(state: "streaming", extra: ["width": size.width, "height": size.height])
     }
 
