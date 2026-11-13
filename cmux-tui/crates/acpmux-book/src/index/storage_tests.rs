@@ -324,3 +324,31 @@ fn backward_page_can_read_a_large_row_before_a_small_anchor() {
     assert_eq!(page.rows.first().unwrap().chat_id, "previous");
     assert!(!page.has_before);
 }
+
+#[test]
+fn hot_page_flags_match_the_selected_interval_for_every_anchor_side() {
+    let mut index = SummaryIndex::new();
+    for n in 0..8 {
+        let mut row = Summary::new(format!("row-{n}"));
+        row.last_activity = 16 - n * 2;
+        index = index.apply(n + 1, row);
+    }
+    let ordered: Vec<_> = index.iter().map(|row| SortKey::of(row)).collect();
+    for activity in 0..=18 {
+        let anchor = SortKey { last_activity: activity, row: RowKey::new("local", "absent") };
+        for key in ordered.iter().chain(std::iter::once(&anchor)) {
+            for side in [ReadSide::Before, ReadSide::After, ReadSide::Around] {
+                for inclusive in [false, true] {
+                    for limit in [1, 3, 8] {
+                        let page =
+                            index.read_page(Some(key), side, inclusive, limit, 8192, None).unwrap();
+                        if let (Some(first), Some(last)) = (&page.before_key, &page.after_key) {
+                            assert_eq!(page.has_before, ordered.iter().any(|key| key < first));
+                            assert_eq!(page.has_after, ordered.iter().any(|key| key > last));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

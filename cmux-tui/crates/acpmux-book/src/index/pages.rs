@@ -188,24 +188,26 @@ impl SummaryIndex {
             .collect();
         let first = piece.first().map(|(key, _)| key.clone());
         let last = piece.last().map(|(key, _)| key.clone());
+        // The extra hot candidate already proves whether the requested side
+        // continues. Only the opposite side of a directional anchor needs a
+        // lookup; querying both selected endpoints repeated tree walks even
+        // for an unanchored first window.
         let has_before = disk_before
-            || (piece.is_empty()
+            || left > 0
+            || (side == ReadSide::After
                 && anchor.is_some_and(|key| {
                     !self.before(key, 1).is_empty()
-                        || (side != ReadSide::Before
+                        || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
-                }))
-            || left > 0
-            || first.as_ref().is_some_and(|key| !self.before(key, 1).is_empty());
+                }));
         let has_after = disk_after
-            || (piece.is_empty()
+            || right < candidates.len()
+            || (side == ReadSide::Before
                 && anchor.is_some_and(|key| {
                     !self.after(Some(key), 1).is_empty()
-                        || (side != ReadSide::After
+                        || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
-                }))
-            || right < candidates.len()
-            || last.as_ref().is_some_and(|key| !self.after(Some(key), 1).is_empty());
+                }));
         Ok(IndexPage {
             rows: selected,
             has_before,
