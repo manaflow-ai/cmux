@@ -89,7 +89,8 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteTranscriptMount } from "./flickerLog";
+import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
+import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
@@ -4275,6 +4276,27 @@ function TranscriptView({
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
     followChase.current?.alongside(turnEnd.current?.animations);
   }, [rows, sessionId, stopFollowMotion]);
+  // The detector for a reply the chat holds but does not paint (conversation/replyPainted.ts): once
+  // the turn has ended and the page has settled, the followed view must show its final reply, or
+  // the flicker ring file says why (`reply-unpainted`). Each reply is judged once.
+  const judgedReply = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (working || loading) return;
+    const id = finalReplyId(rows);
+    if (!id || judgedReply.current === id) return;
+    const timer = setTimeout(() => {
+      const scroller = ref.current;
+      const host = thread.current;
+      if (!scroller || !host || document.visibilityState !== "visible" || !scrolledTo.current.atLatest) return;
+      judgedReply.current = id;
+      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+      const node = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      const view = scroller.getBoundingClientRect();
+      const why = replyUnpainted(node, host, { top: view.top, bottom: view.bottom - dockSpace });
+      if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
+    }, REPLY_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [rows, working, loading, dockSpace]);
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
     () => () => {
@@ -5895,6 +5917,8 @@ function TranscriptView({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
+                        // Session-list metadata can arrive after cached rows paint. It must not
+                        // change their keys; reply bodies fence their own identity and timestamp.
                         key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
