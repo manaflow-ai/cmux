@@ -541,6 +541,25 @@ import Testing
         #expect(second.pending.isEmpty)
     }
 
+    @Test func aRelaunchEndsTheIncidentWhenItWasLastSeenNotWhenItOpened() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "incidents-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let sent = Sent()
+        let now = Now()
+        let first = reporter(team: true, sent: sent, now: now, file: file)
+        await driveOutage(first, now: now, seconds: 40)
+        await settle { sent.all.count == 1 }
+        let opened = try #require(sent.all.first?.0)
+        // Ten more seconds in front, then the app is killed (no end sent).
+        now.advance(10)
+        first.tick()
+        let second = reporter(team: true, sent: sent, now: now, file: file)
+        await settle { sent.all.count == 2 && second.pending.isEmpty }
+        let ended = try #require(sent.all.last?.0)
+        #expect(ended.endReason == .appRelaunched)
+        #expect(ended.duration >= opened.duration + 10)
+    }
+
     @Test func aReportTheServiceRefusesIsDropped() async {
         let sent = Sent()
         sent.failures = [LiveAPI.Failure(status: 403, code: "not_team", message: "no")]

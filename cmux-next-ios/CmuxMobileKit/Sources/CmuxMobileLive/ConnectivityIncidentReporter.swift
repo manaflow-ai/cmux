@@ -270,8 +270,9 @@ public final class ConnectivityIncidentReporter {
     /// Time passed (the tick loop calls it; tests call it directly).
     public func tick() {
         handle(detector.tick(at: now()))
-        // Open incidents' last-seen time, for relaunch recovery, at most every 30 s.
-        if !outbox.open.isEmpty, now().timeIntervalSince(lastSave) >= 30 {
+        // Open incidents' last-seen time, for relaunch recovery: every tick (5 s) while one is open, so an
+        // end after a kill says how long the person really waited (a small file, rewritten only then).
+        if !outbox.open.isEmpty {
             let date = now()
             for id in outbox.open.keys { outbox.open[id]?.lastSeen = date }
             save()
