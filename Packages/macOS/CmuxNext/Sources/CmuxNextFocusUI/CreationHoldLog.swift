@@ -53,14 +53,14 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
         gone = 0
         if end == .replyBoundReached {
             // cmux-ad m12: a creation whose reply never came keeps the person's keys no longer.
-            return logger.notice("creation hold of window \(window, privacy: .public) ended at its reply bound: \(keys, privacy: .public) held key(s) go on now, \(untyped, privacy: .public) for a new terminal had no terminal to go to")
+            return Self.logger.notice("creation hold of window \(window, privacy: .public) ended at its reply bound: \(keys, privacy: .public) held key(s) go on now, \(untyped, privacy: .public) for a new terminal had no terminal to go to")
         }
         guard end == .limitReached else {
-            if untyped > 0 { logger.notice("creation hold of window \(window, privacy: .public) ended: \(untyped, privacy: .public) key(s) for a new terminal had no terminal to go to and are lost") }
+            if untyped > 0 { Self.logger.notice("creation hold of window \(window, privacy: .public) ended: \(untyped, privacy: .public) key(s) for a new terminal had no terminal to go to and are lost") }
             return
         }
         // The person's keys for a new terminal waited the whole bound and go on now, each to the terminal it was typed for.
-        logger.notice("creation hold of window \(window, privacy: .public) ended at its limit, not on focus: \(keys, privacy: .public) held key(s) go on now, \(untyped, privacy: .public) for a new terminal had no terminal to go to and are lost; last action \(lastAction ?? "-", privacy: .public)")
+        Self.logger.notice("creation hold of window \(window, privacy: .public) ended at its limit, not on focus: \(keys, privacy: .public) held key(s) go on now, \(untyped, privacy: .public) for a new terminal had no terminal to go to and are lost; last action \(lastAction ?? "-", privacy: .public)")
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
