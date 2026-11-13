@@ -871,7 +871,7 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
-/// sessions are attached, looking again every minute, and stops waiting when
+/// sessions are attached, looking again every BUSY_RETRY, and stops waiting when
 /// the role stops.
 #[cfg(target_os = "linux")]
 #[test]
@@ -880,7 +880,7 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
         vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
     let mut carrier = || looks.pop().flatten();
     // `wait` with no message times out after BUSY_RETRY: too slow for a test,
-    // so a Check stands in for each minute.
+    // so a Check stands in for each look.
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
