@@ -39,20 +39,14 @@ import Testing
     }
 
     @Test func aRequestFromTheListGoesFullScreenOnlyOnceTheHubAnswers() {
-        #expect(!ScreenSharingPage.showsViewer(.idle))
-        #expect(!ScreenSharingPage.showsViewer(.requesting(.full)))
-        #expect(!ScreenSharingPage.showsViewer(.refused(.notShared, requested: .full)))
-        #expect(ScreenSharingPage.showsViewer(.waitingForApproval(sessionID: "s", scope: .full)))
-        #expect(ScreenSharingPage.showsViewer(.approved(sessionID: "s", scope: .full)))
-        #expect(ScreenSharingPage.showsViewer(.streaming(sessionID: "s", scope: .full)))
-        #expect(ScreenSharingPage.showsViewer(.declined(.full)))
-        #expect(ScreenSharingPage.showsViewer(.ended(reason: nil)))
-    }
-
-    @Test func alertSaysWhatTheCardSaid() {
-        let alert = ScreenSharingMacAlert(hostID: "mbp", hostName: "Aziz's MacBook Pro", refusal: .notShared, requested: .full)
-        #expect(alert.title == ScreenSharingRefusal.notShared.title("Aziz's MacBook Pro"))
-        #expect(alert.refusal.message == "Turn on Share This Mac in the Mac's Settings › Devices.")
+        #expect(!ScreenSharingViewer.Phase.idle.goesFullScreen)
+        #expect(!ScreenSharingViewer.Phase.requesting(.full).goesFullScreen)
+        #expect(!ScreenSharingViewer.Phase.refused(.notShared, requested: .full).goesFullScreen)
+        #expect(ScreenSharingViewer.Phase.waitingForApproval(sessionID: "s", scope: .full).goesFullScreen)
+        #expect(ScreenSharingViewer.Phase.approved(sessionID: "s", scope: .full).goesFullScreen)
+        #expect(ScreenSharingViewer.Phase.streaming(sessionID: "s", scope: .full).goesFullScreen)
+        #expect(ScreenSharingViewer.Phase.declined(.full).goesFullScreen)
+        #expect(ScreenSharingViewer.Phase.ended(reason: nil).goesFullScreen)
     }
 }
 #endif

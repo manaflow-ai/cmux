@@ -74,6 +74,8 @@ public final class ScreenSharingService {
     public private(set) var hub: DeviceHub?
     /// The viewer on screen: one session at a time from this phone.
     public private(set) var viewer: ScreenSharingViewer?
+    /// Why the tapped Mac can't be shared, shown as an alert over the list (nil: none).
+    public internal(set) var alert: ScreenSharingMacAlert?
     /// The person's viewer choices (input mode, quality, stats), kept on this phone.
     public let preferences: ScreenSharingPreferences
 
@@ -210,6 +212,7 @@ public final class ScreenSharingService {
         startTask = nil
         viewer?.close(reason: .signedOut)
         viewer = nil
+        alert = nil
         if let hub {
             hub.onSessionPush = nil
             let alreadySignedOut = signedOut
@@ -276,6 +279,43 @@ public final class ScreenSharingService {
 
     // MARK: Sessions
 
+    /// The viewer to show full screen: one past asking the hub (see `ScreenSharingViewer.shown`).
+    public var viewerOnScreen: ScreenSharingViewer? {
+        guard let viewer, viewer.shown else { return nil }
+        return viewer
+    }
+
+    /// A tap on a Mac in the list: connect, or say in the alert why it can't be shared.
+    public func select(_ mac: HubDevice, scope: SessionScope? = nil) {
+        let scope = scope ?? preferences.defaultScope
+        if let refusal = unavailability(of: mac) {
+            alert = ScreenSharingMacAlert(hostID: mac.id, hostName: mac.name, refusal: refusal, requested: scope)
+        } else {
+            connect(to: mac, scope: scope)
+        }
+    }
+
+    /// An alert's action for the listed Mac `id` (a Mac gone from the list since does nothing).
+    func select(_ id: String, scope: SessionScope) {
+        guard let mac = macs.first(where: { $0.id == id }) else { return }
+        select(mac, scope: scope)
+    }
+
+    /// Check Again: reads the list again, then connects if the Mac can be shared now, or says
+    /// why it still can't. Nothing when a request for that Mac already started meanwhile.
+    func checkAgain(_ id: String, scope: SessionScope) async {
+        await refresh()
+        guard viewer?.hostID != id else { return }
+        select(id, scope: scope)
+    }
+
+    /// The page went away while a request still waited for the hub's first answer: nothing
+    /// would show it, so it ends here instead of going live off screen.
+    public func leaveUnshownRequest() {
+        guard let viewer, !viewer.shown else { return }
+        dismissViewer()
+    }
+
     /// Asks `mac` for a session and puts its viewer on screen.
     @discardableResult
     public func connect(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
@@ -287,6 +327,12 @@ public final class ScreenSharingService {
             self.viewer?.close(reason: .viewerDisconnected)
             viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
             viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
+            viewer.refusedBeforeShown = { [weak self, weak viewer] refusal, requested in
+                guard let self, let viewer, self.viewer === viewer else { return }
+                // A refused request has no session and nothing running: it only leaves the list.
+                self.viewer = nil
+                alert = ScreenSharingMacAlert(hostID: viewer.hostID, hostName: viewer.hostName, refusal: refusal, requested: requested)
+            }
             prepareViewer(viewer)
             self.viewer = viewer
         }
@@ -320,6 +366,16 @@ public final class ScreenSharingService {
         default: break
         }
     }
+}
+
+/// Why a tapped Mac can't be shared, as a native alert over the list.
+public struct ScreenSharingMacAlert: Identifiable, Equatable, Sendable {
+    public let id = UUID()
+    public let hostID: String
+    public let hostName: String
+    public let refusal: ScreenSharingRefusal
+    /// The scope the tap asked for (Check Again and Try Again ask for it again).
+    public let requested: SessionScope
 }
 
 extension HubDevice {
