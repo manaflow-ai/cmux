@@ -380,6 +380,14 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
     assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "cached")).is_some());
     assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
 
+    // A running peer may mark a row before the saved-peer cache is loaded. The tee
+    // observes the mark but must not turn the cache's temporary absence into a gone.
+    state.mark_remote("saved", "missing");
+    let mut expiries = Expiries::default();
+    drain_marks(&v1, &v2, &state, &mut expiries);
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
     // This remote row models load_peer_cache after start_saved_peers. The remote half now
     // compares the complete table, so the missing row is gone and a removed origin is cut.
     let remote = Hub::remote_summary(
@@ -393,6 +401,9 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
     );
     state.remote_ready();
     reconcile_remote(&v1, &v2, &state).await;
+    while state.has_pending() {
+        drain_marks(&v1, &v2, &state, &mut expiries);
+    }
     v2.hub.close();
     v2.take_writer().unwrap().run().await.unwrap();
 
