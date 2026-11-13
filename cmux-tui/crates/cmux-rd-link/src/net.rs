@@ -30,7 +30,23 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Media may not wait in the rd-link handoff longer than cmux-wg's media
+/// scheduler budget. Control and handshake records use the command queue and
+/// are never aged by this limit.
+const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+
+struct QueuedMedia {
+    queued_at: Instant,
+    datagram: Vec<u8>,
+}
+
+impl QueuedMedia {
+    fn stale_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
+    }
+}
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -177,7 +193,7 @@ pub struct Net {
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
-    media: mpsc::SyncSender<Vec<u8>>,
+    media: mpsc::SyncSender<QueuedMedia>,
 }
 
 /// A send-only handle for a running link. The owner remains the sole reader of
@@ -186,13 +202,21 @@ pub struct Net {
 pub struct NetSender {
     commands: mpsc::Sender<Command>,
     command_wake: Arc<Pipe>,
-    media: mpsc::SyncSender<Vec<u8>>,
+    media: mpsc::SyncSender<QueuedMedia>,
 }
 
 impl NetSender {
     pub fn send_datagram(&self, datagram: Vec<u8>) {
-        // Best-effort UDP: keep the overlay from building an unbounded outer queue.
-        if self.media.try_send(datagram).is_ok() {
+        // Handshake/control traffic is not media: preserve it on the reliable
+        // command queue, where the media age budget cannot discard it.
+        self.command(Command::Datagram(datagram));
+    }
+    pub fn send_media(&self, datagram: Vec<u8>) {
+        // Best-effort media: keep the overlay from building an unbounded outer
+        // queue, and timestamp before the bounded handoff so a stalled driver
+        // cannot deliver stale frames after cmux-wg's 50 ms budget.
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram };
+        if self.media.try_send(queued).is_ok() {
             self.command_wake.wake();
         }
     }
@@ -485,7 +509,7 @@ struct StunQuery {
 }
 
 struct Driver {
-    media: mpsc::Receiver<Vec<u8>>,
+    media: mpsc::Receiver<QueuedMedia>,
     barriers: Vec<mpsc::Sender<()>>,
     socket: UdpSocket,
     endpoint: Endpoint,
@@ -785,9 +809,12 @@ impl Driver {
                 }
             }
             for _ in 0..256 {
-                let Ok(datagram) = self.media.try_recv() else { break };
+                let Ok(queued) = self.media.try_recv() else { break };
+                if queued.stale_at(Instant::now()) {
+                    continue;
+                }
                 if self.endpoint.link().is_established() {
-                    for transmit in self.endpoint.send_datagram(&datagram)? {
+                    for transmit in self.endpoint.send_datagram(&queued.datagram)? {
                         self.send(transmit.route, &transmit.packet, now);
                     }
                 }
@@ -833,5 +860,17 @@ impl Driver {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod media_queue_tests {
+    use super::*;
+
+    #[test]
+    fn stalled_rd_media_handoff_expires_without_aging_control() {
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram: vec![1] };
+        assert!(!queued.stale_at(queued.queued_at + Duration::from_millis(50)));
+        assert!(queued.stale_at(queued.queued_at + Duration::from_millis(51)));
     }
 }

@@ -10,6 +10,7 @@ use std::os::unix::net::UnixDatagram;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc as channel, Notify};
 
 struct Underlay {
@@ -19,6 +20,13 @@ struct Underlay {
 impl cmux_wg::Underlay for Underlay {
     fn send(&mut self, packet: &[u8]) {
         self.sender.send_datagram(packet.to_vec());
+    }
+    fn send_classified(&mut self, packet: &[u8], priority: Priority) {
+        if priority == Priority::Media {
+            self.sender.send_media(packet.to_vec());
+        } else {
+            self.sender.send_datagram(packet.to_vec());
+        }
     }
     fn has_peer(&self) -> bool {
         true
@@ -48,9 +56,22 @@ impl cmux_wg::Underlay for Underlay {
     }
 }
 
+const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+
+struct QueuedMedia {
+    queued_at: Instant,
+    payload: Vec<u8>,
+}
+
+impl QueuedMedia {
+    fn stale_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
+    }
+}
+
 pub(super) struct Session {
     input: channel::Sender<Vec<u8>>,
-    commands: channel::Sender<Vec<u8>>,
+    commands: channel::Sender<QueuedMedia>,
     output: mpsc::Receiver<Vec<u8>>,
     wake: UnixDatagram,
     state: Arc<AtomicU8>,
@@ -66,7 +87,7 @@ impl Session {
     ) -> io::Result<Self> {
         let max_datagram = usize::from(config.mtu) - 48;
         let (input, input_rx) = channel::channel(QUEUE);
-        let (commands, mut commands_rx) = channel::channel::<Vec<u8>>(QUEUE);
+        let (commands, mut commands_rx) = channel::channel::<QueuedMedia>(QUEUE);
         let (output_tx, output) = mpsc::sync_channel(QUEUE);
         let (wake, notify) = UnixDatagram::pair()?;
         wake.set_nonblocking(true)?;
@@ -88,8 +109,12 @@ impl Session {
                         let target = SocketAddr::new(IpAddr::V4(peer), MEDIA_PORT);
                         loop {
                             tokio::select! {
-                                payload = commands_rx.recv() => {
-                                    let Some(payload) = payload else { return Ok::<(), io::Error>(()) };
+                                queued = commands_rx.recv() => {
+                                    let Some(queued) = queued else { return Ok::<(), io::Error>(()) };
+                                    if queued.stale_at(Instant::now()) {
+                                        continue;
+                                    }
+                                    let payload = queued.payload;
                                     socket.send_to(&payload, target, Priority::Media).await.map_err(io::Error::other)?;
                                 }
                                 received = socket.recv_from() => {
@@ -132,7 +157,8 @@ impl Session {
                 "WG media exceeds negotiated MTU",
             ));
         }
-        match self.commands.try_send(payload.to_vec()) {
+        let queued = QueuedMedia { queued_at: Instant::now(), payload: payload.to_vec() };
+        match self.commands.try_send(queued) {
             Ok(()) | Err(channel::error::TrySendError::Full(_)) => Ok(()), // unreliable media drops on overload
             Err(channel::error::TrySendError::Closed(_)) => {
                 Err(io::Error::new(io::ErrorKind::BrokenPipe, "WG media closed"))
@@ -142,6 +168,18 @@ impl Session {
     pub fn drain(&self, output: &mut Vec<Vec<u8>>) {
         while self.wake.recv(&mut [0; 64]).is_ok() {}
         output.extend(self.output.try_iter());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stalled_media_queue_expires_at_handoff() {
+        let queued = QueuedMedia { queued_at: Instant::now(), payload: vec![1] };
+        assert!(!queued.stale_at(queued.queued_at + Duration::from_millis(50)));
+        assert!(queued.stale_at(queued.queued_at + Duration::from_millis(51)));
     }
 }
 impl Drop for Session {
