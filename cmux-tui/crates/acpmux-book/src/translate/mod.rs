@@ -933,10 +933,10 @@ impl State {
         if stream.block.take_cut_inside_line() {
             row.fields.insert("insideLine".into(), "true".into());
         }
-        if let Some(marker) = stream.block.fence_marker() {
-            if row.field("fence", &marker) {
-                self.cut_fields = self.cut_fields.saturating_add(1);
-            }
+        if let Some(marker) = stream.block.fence_marker()
+            && row.field("fence", &marker)
+        {
+            self.cut_fields = self.cut_fields.saturating_add(1);
         }
         if row.field("messageId", &stream.message) {
             self.cut_fields = self.cut_fields.saturating_add(1);
