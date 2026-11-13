@@ -67,7 +67,7 @@ if [[ "$presented_observer" == 1 ]]; then
     echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
     exit 2
   }
-  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^[2-9][0-9]*$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
+  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
     echo "screen-stream-eval.sh: presented observer needs capture-pixel marker origin, cell size >=2 and input point" >&2
     exit 2
   }

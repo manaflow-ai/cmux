@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Regression checks for the no-build Apple prebuilt route. These are source-level
-# checks because the target is macOS-only; the fleet runs the actual Swift build.
+# Portable build/connection regressions; platform commands use isolated fakes.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,6 +59,88 @@ if [[ -z "$launcher_else" || "$launcher_else" -ge "$launcher_install" ]]; then
   echo "FAIL: launcher install is not behind the non-prebuilt branch"
   fail=1
 fi
+
+python3 - "$apple" "$harness" <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+apple = Path(sys.argv[1]).read_text()
+harness = Path(sys.argv[2]).read_text()
+prefix, dispatch = apple.split('case "$verb" in', 1)
+with tempfile.TemporaryDirectory(prefix="screen-eval-regression-") as directory:
+    root = Path(directory)
+    prebuilt = root / "prebuilt"
+    binary = root / "bin"
+    prebuilt.mkdir()
+    binary.mkdir()
+    helper = prebuilt / "screen-eval-window-id"
+    helper.write_text("#!/bin/sh\necho 42\n")
+    helper.chmod(0o755)
+    env = {**os.environ, "EVAL_PREBUILT": str(prebuilt), "EVAL_BIN": str(binary),
+           "EVAL_ROOT": str(root), "EVAL_STATE": str(root), "EVAL_PEER": "192.0.2.1"}
+    stubs = '''
+screen_sharing_app() { echo /fixture/ScreenSharing.app; }
+screencapture() { return 0; }
+swiftc() { echo unexpected-compiler >&2; return 99; }
+'''
+    script = prefix + stubs + 'case "$verb" in' + dispatch
+    def run(source, verb, **variables):
+        return subprocess.run(["bash", "-c", source, "test", verb],
+                              env={**env, **variables}, text=True, capture_output=True)
+    result = run(script, "build")
+    assert result.returncode == 0, result.stderr
+    copied = binary / helper.name
+    assert copied.read_bytes() == helper.read_bytes() and os.access(copied, os.X_OK)
+    for executable in (False, None):
+        if executable is False:
+            helper.chmod(0o644)
+        else:
+            helper.unlink()
+        result = run(script, "build")
+        assert result.returncode != 0 and "missing or not executable" in result.stderr
+        assert "unexpected-compiler" not in result.stderr
+
+    # Run the actual connect function in the same || context as production.
+    connection = prefix + stubs + '''
+open() { return 0; }
+osascript() { cat >/dev/null; return "$PROFILE_STATUS"; }
+ps() { echo '7 Screen Sharing'; }
+connect || exit 1
+'''
+    receipt = root / "apple-connection.json"
+    result = run(connection, "host-stop", PROFILE_STATUS="1")
+    assert result.returncode != 0 and not receipt.exists(), result.stderr
+    result = run(connection, "host-stop", PROFILE_STATUS="0")
+    assert result.returncode == 0 and receipt.is_file(), result.stderr
+
+    # Execute the real tools-only branch and inspect the actual tar archive.
+    block = harness.split('if [[ "$tools_only" == 1 ]]; then', 1)[1].split('\nfi', 1)[0]
+    work = root / "work"
+    out = root / "out"
+    work.mkdir()
+    out.mkdir()
+    (work / "bin").mkdir()
+    build = '''set -euo pipefail
+swiftc() {
+  while [[ "$1" != -o ]]; do shift; done
+  printf '#!/bin/sh\\nexit 0\\n' >"$2"
+  chmod +x "$2"
+}
+bash() { printf '#!/bin/sh\\nexit 0\\n' >"$EVAL_BIN/cmux-rd"; chmod +x "$EVAL_BIN/cmux-rd"; }
+git() { echo test-revision; }
+''' + block
+    result = run(build, "build", EVAL_BIN=str(work / "bin"), work=str(work), out=str(out),
+                 root=str(root), here=str(root))
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(out / "tools.tar.gz") as archive:
+        entry = archive.getmember("tools/screen-eval-window-id")
+        assert entry.isfile() and entry.mode & 0o111
+print("prebuilt copy, fail-closed profile, and executable archive regressions: ok")
+PY
 
 if [[ "$fail" -eq 0 ]]; then
   echo "screen-stream-eval prebuilt checks: ok"

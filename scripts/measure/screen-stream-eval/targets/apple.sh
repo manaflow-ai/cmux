@@ -22,7 +22,7 @@ connect() {
     echo "apple-$mode: requires a second Mac; set lan=/viewer-of= or EVAL_APPLE_HOST" >&2
     return 1
   }
-  app=$(screen_sharing_app)
+  app=$(screen_sharing_app) || return 1
   if ! open -g -a "$app" "vnc://$host" >/dev/null 2>&1; then
     echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
     return 1
@@ -32,7 +32,7 @@ connect() {
   # View menu contains the quality items directly (no Quality submenu).
   quality_item="Adaptive Quality"
   [[ "$mode" == high ]] && quality_item="Full Quality"
-  osascript - "$quality_item" <<'OSA'
+  osascript - "$quality_item" <<'OSA' || return 1
 on run argv
   tell application "System Events"
     tell process "Screen Sharing"
@@ -44,7 +44,10 @@ on run argv
           delay 0.1
           click menu bar item "View" of menu bar 1
           set mark to value of attribute "AXMenuItemMarkChar" of menu item item_name of menu 1 of menu bar item "View" of menu bar 1
-          if mark is "✓" or mark is "checkmark" then return
+          if mark is "✓" or mark is "checkmark" then
+            key code 53
+            return
+          end if
         end try
       end repeat
     end tell
@@ -89,6 +92,15 @@ case "$verb" in
       }
     else
       swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$EVAL_ROOT/scripts/measure/screen-stream-eval/window-id.swift"
+    fi
+    if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]]; then
+      # Apple-only viewer steps otherwise never build/copy the rd executable.
+      if [[ -n "${EVAL_PREBUILT:-}" ]]; then
+        [[ -x "$EVAL_PREBUILT/cmux-rd" ]] || { echo "apple-$mode: prebuilt cmux-rd observer missing or not executable" >&2; exit 1; }
+        cp "$EVAL_PREBUILT/cmux-rd" "$EVAL_BIN/cmux-rd"
+      else
+        bash "$EVAL_ROOT/scripts/measure/screen-stream-eval/targets/rd.sh" build
+      fi
     fi
     ;;
   host-start)
@@ -158,6 +170,7 @@ PY
 import json, sys
 raw = json.load(open(sys.argv[1]))
 json.dump({"g2g_ms": raw.get("g2g_ms") or {}, "lost": raw.get("lost"),
+           "observer": raw.get("observer"),
            "split": {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None,
                      "decode_ms": None, "method": raw.get("split", {}).get("method")}}, open(sys.argv[2], "w"))
 PY
