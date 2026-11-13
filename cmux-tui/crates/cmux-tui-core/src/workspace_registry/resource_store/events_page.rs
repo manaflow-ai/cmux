@@ -8,6 +8,29 @@ impl WorkspaceRegistry {
     }
 }
 
+/// The changes of the resource event committed at `revision`, as its journal
+/// record states them; `None` when the journal holds no record of that
+/// revision. A mutation whose ledger row names its change instead of storing
+/// it answers a retry from here (`window_record.put`).
+pub(crate) fn query_resource_event_changes_at(
+    connection: &Connection,
+    revision: u64,
+) -> anyhow::Result<Option<Value>> {
+    let sequence = connection
+        .query_row(
+            "SELECT sequence FROM journal_event_index WHERE resource_revision = ?1 LIMIT 1",
+            [i64::try_from(revision).context("resource revision exceeds SQLite range")?],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let Some(sequence) = sequence else { return Ok(None) };
+    let sequence = u64::try_from(sequence).context("resource event sequence is negative")?;
+    let record = session_journal::query_session_journal_sequences(connection, &[sequence])?
+        .into_iter()
+        .next();
+    Ok(record.and_then(|record| record.payload.get("changes").cloned()))
+}
+
 /// The resource events after `revision` (one page), read on `connection`.
 ///
 /// Shared by the registry (its own connection, under the registry lock) and

@@ -55,12 +55,37 @@ test("an offline chat uses a neutral status spinner", async () => {
         onReconnect={() => undefined}
         onResume={() => undefined}
         onClose={() => undefined}
+        noteDelayMs={0}
       />,
     );
   });
   expect(container.querySelector('[role="status"]')).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector(".cv-spinner")).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        noteDelayMs={40}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
+  expect(container.textContent).toBe("");
+  await act(async () => void jest.advanceTimersByTime(39));
+  expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1));
+  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
   expect(container.textContent).toContain("Reconnecting…");
 });
 

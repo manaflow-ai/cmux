@@ -343,7 +343,8 @@ export const gridScenes: GridScene[] = [
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
   // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More in Claude's
-  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), then its time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), and no time (the
+  // Codex app shows none; Lawrence, 2026-11-11 standup). A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
   // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
   // `footer` variant points at, is the one action row the transcript draws.
   scene(
@@ -354,7 +355,6 @@ export const gridScenes: GridScene[] = [
     [
       value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
       ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-      mid(".cv-turn-time", ".cv-iconbtn"),
     ],
   ),
   card(

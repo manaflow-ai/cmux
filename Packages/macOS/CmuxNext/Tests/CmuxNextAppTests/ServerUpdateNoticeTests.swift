@@ -1,4 +1,5 @@
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextUpdater
@@ -42,6 +43,31 @@ struct ServerUpdateNoticeTests {
                                 snoozes: ServerUpdateSnoozeStore(defaults: defaults), now: { now })
     }
 
+    /// "Update ready" showed on the handshake right after launch or a daemon handoff. A handshake now
+    /// holds new offers until its connection has held for `offerHold`; the next handshake starts it again.
+    @Test func anOfferWaitsUntilTheConnectionHeld() async throws {
+        let clock = ManualClock()
+        let center = ServerUpdateCoordinator(policy: ServerSkewPolicy(catalog: Self.catalog),
+                                             restarter: FakeRestarter(next: Self.newDaemon()),
+                                             snoozes: ServerUpdateSnoozeStore(defaults: Self.defaults()), clock: clock)
+        #expect(center.holdsOffers, "no handshake yet")
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: "new5678")
+        #expect(center.notices.count == 1, "the notice is known at once; only its toast waits")
+        #expect(center.holdsOffers)
+        try await clock.waitForSleeper()
+        clock.advance(by: ServerUpdateCoordinator.offerHold - .seconds(1))
+        await Task.yield()
+        #expect(center.holdsOffers)
+        // A handoff: the new daemon's handshake starts the hold again.
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: "new5678")
+        clock.advance(by: .seconds(2))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.holdsOffers)
+        clock.advance(by: ServerUpdateCoordinator.offerHold)
+        for _ in 0..<200 where center.holdsOffers { await Task.yield() }
+        #expect(!center.holdsOffers)
+    }
+
     /// Version skew: the features the old daemon lacks are off, and the notice names them.
     @Test func anOlderDaemonTurnsItsMissingCapabilitiesOffAndNamesThem() throws {
         let center = Self.coordinator(FakeRestarter(next: Self.newDaemon()))
@@ -67,6 +93,23 @@ struct ServerUpdateNoticeTests {
         center.report(Self.newDaemon(), appCapabilities: Self.app, bundledBuild: "new5678")
         #expect(center.notices.isEmpty)
         #expect(center.supports("tab-groups-v1", kind: .cmuxTUI, host: .local))
+    }
+
+    /// The first launch after an update attaches to the older build's daemon while the launch check
+    /// hands it off by itself: no "Update ready for cmux-tui" toast and no Restart row for it. The
+    /// same daemon reported again without the handoff shows the notice.
+    @Test func aDaemonTheLaunchIsHandingOffShowsNoNotice() throws {
+        let restarter = FakeRestarter(next: Self.newDaemon())
+        let center = Self.coordinator(restarter)
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: nil, handingOff: true)
+        #expect(center.notices.isEmpty)
+        #expect(!center.supports("tab-groups-v1", kind: .cmuxTUI, host: .local), "its capabilities still count")
+        let row = try #require(center.settingsReport(socketPath: nil, tailnetAddress: nil).rows.first)
+        #expect(row.restart == nil)
+        #expect(restarter.calls.isEmpty)
+
+        center.report(Self.oldDaemon(), appCapabilities: Self.app, bundledBuild: nil)
+        #expect(center.notices.count == 1)
     }
 
     /// Reporting skew never restarts anything: only a confirmed restart does.

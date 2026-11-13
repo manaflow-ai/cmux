@@ -32,12 +32,17 @@ pub(super) fn serve_line_connection(
 ) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
+    // Every descriptor of the daemon's end: `stream` (this reader),
+    // `write_half` (the writer thread) and `control` (the sink, for a kick).
+    // All three close before this returns, also while a clone of `writer`
+    // lives on elsewhere: a peer blocked in a read sees the end only then.
+    let control = SinkControl::unix(control);
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         render_service,
     );
     let writer_outbound = outbound;
@@ -58,6 +63,7 @@ pub(super) fn serve_line_connection(
         })
     else {
         writer.close();
+        control.close();
         return;
     };
     let peer_key = stream.peer_process_key();
@@ -83,6 +89,7 @@ pub(super) fn serve_line_connection(
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
         let _ = writer_thread.join();
+        control.close();
         return;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -187,13 +194,23 @@ pub(super) fn serve_line_connection(
     }
     if drain_accepted {
         surface_scheduler.finish_and_wait();
-        // The git requests it sent still answer before it closes (server/git_lane.rs).
-        mux.control_clients.git_lane.drain(client);
+        // A client that only ended its writes still reads: the git requests
+        // it sent answer before it closes. One that closed its whole end reads
+        // nothing, so nothing waits for it (server/git_lane.rs). Asked once.
+        if !reader.get_ref().peer_gone() {
+            git_lane::GitLane::drain(&mux, client, &writer);
+        }
     } else {
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
-        mux.control_clients.git_lane.abandon(client);
     }
+    // Nobody reads a reply now: the reads that still wait start no git.
+    mux.control_clients.git_lane.abandon(client);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
+    control.close();
     drop(connection_permit);
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "line_connection_close_tests.rs"]
+mod close_tests;

@@ -43,7 +43,7 @@ public struct RecoveryGalleryRoot: View {
         Group {
             switch scene {
             case "terminal":
-                TerminalConnectingView(state: .offline(mac: "Aziz's Mac Studio"), topInset: 60) {}
+                TerminalConnectingView(topInset: 60)
                     .background(Color.black)
             case "card":
                 cards

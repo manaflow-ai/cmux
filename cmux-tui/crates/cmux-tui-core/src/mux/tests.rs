@@ -42,6 +42,7 @@ mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
@@ -56,6 +57,7 @@ mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
 mod project_observe_at_rest;
+mod project_watch_burst;
 mod read_paths;
 mod registry_premigrate;
 mod registry_reads;
@@ -84,6 +86,7 @@ mod terminal_views;
 mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
+mod window_record_put_cost;
 #[cfg(unix)]
 mod workspace_close_cost;
 #[cfg(unix)]
