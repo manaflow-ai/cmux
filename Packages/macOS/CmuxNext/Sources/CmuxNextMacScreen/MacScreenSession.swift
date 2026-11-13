@@ -373,7 +373,8 @@ public final class MacScreenSession {
 
     /// A frame reached the screen: counts it for the stats (once a second, no timer).
     func framePresented(size: CGSize) {
-        if size != frameSize, size.width >= 1 { frameSize = size }
+        setStreamFrameSize(size)
+        if fallback != nil { return }
         frameWindow.frames += 1
         stats.framesDecoded += 1
         let elapsed = frameWindow.start.duration(to: .now)
