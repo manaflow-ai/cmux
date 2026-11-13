@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,9 +13,11 @@ export const SHARED_REACT_SPECIFIERS = new Map([
 
 /** Resolve React imports to one same-origin runtime mounted by every native page host. */
 export function sharedReactExternalPlugin() {
+  const runtimeOut = process.env.CMUX_SHARED_REACT_RUNTIME_OUT;
   return {
     name: "cmux-shared-react-runtime",
     setup(context) {
+      if (!runtimeOut) return;
       context.onResolve({ filter: /^react(?:-dom(?:\/client)?|\/jsx-runtime|\/compiler-runtime)?$/ }, (args) => {
         const file = SHARED_REACT_SPECIFIERS.get(args.path);
         return file ? { path: `/__runtime/${file}`, external: true } : undefined;
@@ -26,11 +28,13 @@ export function sharedReactExternalPlugin() {
 
 /** The equivalent resolver for Vite/Rolldown's webviews-app graph. */
 export function sharedReactVitePlugin() {
+  const runtimeOut = process.env.CMUX_SHARED_REACT_RUNTIME_OUT;
   return {
     name: "cmux-shared-react-runtime",
     apply: "build",
     enforce: "pre",
     resolveId(source) {
+      if (!runtimeOut) return null;
       const file = SHARED_REACT_SPECIFIERS.get(source);
       return file ? { id: `/__runtime/${file}`, external: true } : null;
     },
@@ -100,7 +104,7 @@ const exportsByFacade = {
 };
 
 /** Build one production React graph and tiny import-compatible facades. */
-export async function buildSharedReactRuntime(outdir) {
+export async function buildSharedReactRuntime(outdir, metafile) {
   await mkdir(outdir, { recursive: true });
   const webviewsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const entry = [
@@ -121,8 +125,10 @@ export async function buildSharedReactRuntime(outdir) {
     minify: true,
     legalComments: "none",
     outfile: path.join(outdir, "react-runtime.js"),
+    metafile: Boolean(metafile),
     logLevel: "warning",
   });
+  if (metafile) await writeFile(metafile, JSON.stringify(result.metafile));
   const namespaces = {
     "react.js": "React",
     "react-dom.js": "ReactDOM",
@@ -139,7 +145,10 @@ export async function buildSharedReactRuntime(outdir) {
 }
 
 if (import.meta.main) {
-  const outdir = process.argv[2];
+  const args = process.argv.slice(2);
+  const outdir = args.find((arg) => !arg.startsWith("--"));
+  const metafileIndex = args.indexOf("--metafile");
+  const metafile = metafileIndex >= 0 ? args[metafileIndex + 1] : undefined;
   if (!outdir) throw new Error("usage: shared-react-runtime.mjs OUTDIR");
-  await buildSharedReactRuntime(path.resolve(outdir));
+  await buildSharedReactRuntime(path.resolve(outdir), metafile && path.resolve(metafile));
 }

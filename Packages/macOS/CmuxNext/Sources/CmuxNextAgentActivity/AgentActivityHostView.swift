@@ -148,11 +148,11 @@ private final class AgentActivitySchemeHandler: NSObject, WKURLSchemeHandler {
         active.insert(id)
         // main-hop-allow: this scheme callback only delivers one already-read resource to WebKit.
         Task { @MainActor [weak self] in
-            guard let data = await Self.read(file) else {
-                self?.active.remove(id)
+            let data = await Self.read(file)
+            guard let self, self.active.remove(id) != nil else { return }
+            guard let data else {
                 task.didFailWithError(URLError(.fileDoesNotExist)); return
             }
-            guard let self, self.active.remove(id) != nil else { return }
             let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             let response = URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil)
             task.didReceive(response); task.didReceive(data); task.didFinish()

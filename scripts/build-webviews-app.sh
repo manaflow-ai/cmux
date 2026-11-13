@@ -89,7 +89,8 @@ if [ "$MODE" = "--check" ]; then
   (
     cd "$SRC_DIR"
     bun install --frozen-lockfile
-    CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" build_app
+    CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" CMUX_SHARED_REACT_RUNTIME_OUT="$tmp_dir/__runtime" build_app
+    bun scripts/shared-react-runtime.mjs "$tmp_dir/__runtime"
     write_agent_session_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
   )
@@ -105,9 +106,12 @@ mkdir -p "$OUT_DIR"
   bun install --frozen-lockfile
   if [ -n "$REPORT_DIR" ]; then
     mkdir -p "$REPORT_DIR"
-    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" build_app
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" \
+      CMUX_SHARED_REACT_RUNTIME_OUT="$OUT_DIR/__runtime" build_app
+    bun scripts/shared-react-runtime.mjs "$OUT_DIR/__runtime" --metafile "$REPORT_DIR/shared-react-runtime.json"
   else
-    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_SHARED_REACT_RUNTIME_OUT="$OUT_DIR/__runtime" build_app
+    bun scripts/shared-react-runtime.mjs "$OUT_DIR/__runtime"
   fi
 )
 write_agent_session_html "$OUT_DIR"

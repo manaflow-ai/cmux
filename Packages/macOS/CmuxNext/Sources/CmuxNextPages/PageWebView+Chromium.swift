@@ -466,10 +466,11 @@ extension PageWebView {
     /// page host. A dynamic path is a 404 here.
     /// `bundledOnly` keeps imports beside a document served directly by the shim, outside the live loop.
     public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL,
+                                           runtimeRoot: URL? = Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:)),
                                            bundledOnly: Bool = false) async -> PageChromiumResponse {
         guard PageSchemeHandler.dynamicRequest(for: url, page: page) == nil else { return .notFound }
         if bundledOnly {
-            guard let file = PageSchemeHandler.fileURL(for: url, page: page, root: root),
+            guard case .file(let file) = PageSchemeHandler.route(for: url, page: page, root: root, runtimeRoot: runtimeRoot),
                   let body = await PageSchemeHandler.read(file) else { return .notFound }
             return PageSchemeHandler.chromiumResponse(PageSchemeHandler.reply(url: url, csp: page.csp,
                 status: 200, mimeType: PageSchemeHandler.mimeType(forExtension: file.pathExtension), body: body))
