@@ -129,6 +129,19 @@ jobs:
           # A later v2 PR adds its gate run here; it writes one JSONL line to V2_GATE_OUT.
           cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$RUNNER_TEMP/quality/v2-god-small.json"
 
+      # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
+      # None yet, or no token: the report says "no input given" for god-vs-small.
+      - name: Fetch the degenerate lab's god-small rows
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list -R "$GITHUB_REPOSITORY" --workflow cmux-next-degenerate-lab.yml --status completed -L 1 \
+            --json databaseId -q '.[0].databaseId')"
+          [ -n "$run_id" ] && gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n degenerate-lab-god-small -D "$RUNNER_TEMP/god-small"
+
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
         env:
@@ -144,10 +157,20 @@ jobs:
             --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
-          if [[ -f "$out/v2-god-small.json" ]]; then
-            report_args+=(--god-small "$out/v2-god-small.json")
+          # God-vs-small rows from the v2 bench and the degenerate lab, merged into one input.
+          god_inputs=()
+          [[ -f "$out/v2-god-small.json" ]] && god_inputs+=("$out/v2-god-small.json")
+          [[ -f "$RUNNER_TEMP/god-small/god-small.json" ]] && god_inputs+=("$RUNNER_TEMP/god-small/god-small.json")
+          if (( ${#god_inputs[@]} )); then
+            python3 -I -c 'import json, sys
+          rows = []
+          for path in sys.argv[2:]:
+              data = json.load(open(path))
+              rows += data["rows"] if isinstance(data, dict) else data
+          json.dump({"rows": rows}, open(sys.argv[1], "w"))' "$out/god-small.json" "${god_inputs[@]}"
+            report_args+=(--god-small "$out/god-small.json")
           else
-            echo "v2 god-small bench did not produce input; report records no input given" >&2
+            echo "no god-small input (v2 bench or degenerate lab); report records no input given" >&2
           fi
           python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"

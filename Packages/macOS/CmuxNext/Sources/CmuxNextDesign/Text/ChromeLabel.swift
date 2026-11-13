@@ -269,6 +269,9 @@ open class ChromeLabel: NSView {
     /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
     /// selected row's color and its plain one) swaps images and draws each weight once.
     private var images: [Int: CGImage] = [:]
+    /// How many times the glyphs were drawn into a new image (a swap to a kept weight's image and an empty text are not one). For tests
+    /// that name the labels a pane width change draws again (HomeResizeChromeWasteTests, HomeResizeHistoryLabelTests).
+    private(set) var glyphDraws = 0
 
     nonisolated override open var wantsUpdateLayer: Bool { true }
 
@@ -295,7 +298,9 @@ open class ChromeLabel: NSView {
         guard drawn?.ink != ink || drawn?.weight != weight else { return }
         if drawn?.ink != ink { images = [:] }
         drawn = (ink, weight)
-        let image = images[weight] ?? glyphImage(ink, color: color)
+        let kept = images[weight]
+        if kept == nil, ink.text.length > 0 { glyphDraws += 1 }
+        let image = kept ?? glyphImage(ink, color: color)
         images[weight] = image
         glyphs.contents = image
         // The image at its own pixel size, top edge on top.
@@ -416,16 +421,6 @@ open class ChromeLabel: NSView {
         return attributedStringValue.attributedSubstring(from: range)
     }
 }
-
-/// A view that shows a line of text: a stock `NSTextField` or a ``ChromeLabel``.
-public protocol ShownText: NSView {
-    var stringValue: String { get set }
-    var textColor: NSColor? { get set }
-    var font: NSFont? { get set }
-}
-
-extension NSTextField: ShownText {}
-extension ChromeLabel: ShownText {}
 
 /// The label defaults of AppKit's label factories, read once.
 private struct LabelDefaults {

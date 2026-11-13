@@ -217,6 +217,7 @@ impl Hub {
             mark_stale(&mut summary, saved.last_seen);
             // An older build saved rows with a peer's own display line.
             super::drop_display_lines(&mut summary);
+            let summary = PeerRow::new(&summary);
             let remote = RemoteSession { peer: peer.name.clone(), summary, receipt };
             map.insert(remote.receipt.qualified_id(), remote);
         }

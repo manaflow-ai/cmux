@@ -24,7 +24,12 @@ fn a_send_to_a_session_is_this_files_and_a_send_to_a_chief_is_not() {
     assert_eq!(command(&["chat", "send", "s-1", "hi"]), Some(strings(&["s-1", "hi"])));
     assert_eq!(command(&["chat", "send", "--to", "chief", "--text", "hi"]), None);
     assert_eq!(command(&["chat", "send", "--to=chief", "hi"]), None);
-    assert_eq!(command(&["chat", "send", "--help"]), None);
+    // `cmux chat --help` points at `cmux chat send --help` for the session form; with --to
+    // the help is the Chief form's.
+    assert_eq!(command(&["chat", "send", "--help"]), Some(strings(&["--help"])));
+    assert_eq!(command(&["chat", "send", "-h"]), Some(strings(&["-h"])));
+    assert_eq!(command(&["chat", "send", "--to", "chief", "--help"]), None);
+    assert_eq!(command(&["chat", "send", "--text", "hi", "-h"]), None);
     assert_eq!(
         command(&["chat", "--resume", "s-1", "go on"]),
         Some(strings(&["--resume", "s-1", "go on"]))
