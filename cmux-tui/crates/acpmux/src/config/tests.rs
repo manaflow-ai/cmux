@@ -2,6 +2,36 @@ use super::*;
 use crate::test_exec::write_executable;
 
 #[test]
+fn v2_surfaces_are_opt_in_and_default_empty() {
+    let config = Config::default();
+    assert!(config.acpmux_v2.is_empty());
+    assert!(config.acpmux_v2.enabled().is_empty());
+
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "acpmux.v2": ["list", "chat", "unknown", "start"]
+    }))
+    .unwrap();
+    let enabled = config.acpmux_v2.enabled();
+    assert!(enabled.contains("list"));
+    assert!(enabled.contains("chat"));
+    assert!(enabled.contains("start"));
+    assert!(enabled.contains("books"), "chat/start imply the books surface");
+    assert!(!enabled.contains("unknown"));
+}
+
+#[test]
+fn v2_surfaces_round_trip_without_writing_the_empty_default() {
+    let empty = serde_json::to_value(Config::default()).unwrap();
+    assert!(empty.get("acpmux.v2").is_none());
+
+    let config = Config { acpmux_v2: V2Surfaces(vec!["peers".into()]), ..Config::default() };
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["acpmux.v2"], serde_json::json!(["peers"]));
+    let parsed: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(parsed.acpmux_v2, config.acpmux_v2);
+}
+
+#[test]
 fn cli_session_resource_settings_are_config_values() {
     let mut config = Config::default();
     config.set_session_resource("session.memory_mb", "6144").unwrap();

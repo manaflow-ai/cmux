@@ -49,6 +49,8 @@ cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+acpmux-book = { path = "../acpmux-book" }
+acpmux-core = { path = "../acpmux-core" }
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
