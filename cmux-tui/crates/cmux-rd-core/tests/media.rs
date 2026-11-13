@@ -49,13 +49,17 @@ proptest! {
         let max = if vpc { MAX_DATAGRAM_VPC } else { MAX_DATAGRAM_DEFAULT };
         let mut p = Packetizer::new(0, max);
         let out = p.packetize(1, flags::KEYFRAME, &body(1, len, true), parity).expect("packetize");
-        if out.datagrams.len() == 1 {
+        if out.datagrams.len() == 1 && out.parity_shards == 0 {
             // A lone shard without parity is not padded.
             prop_assert_eq!(out.datagrams[0].len(), HEADER_LEN + FRAME_PREFIX_LEN + len);
         } else {
-            prop_assert!(out.datagrams.iter().all(|d| d.len() == max));
+            // Multi-shard and FEC frames use one balanced per-frame width. It
+            // may be smaller than max_datagram, but every shard is equal-sized.
+            prop_assert!(out.datagrams.iter().all(|d| d.len() <= max));
+            let payload_len = out.datagrams[0].len() - HEADER_LEN;
+            prop_assert!(out.datagrams.iter().all(|d| d.len() - HEADER_LEN == payload_len));
         }
-        prop_assert_eq!(out.datagrams.len(), usize::from(out.data_shards) + parity);
+        prop_assert_eq!(out.datagrams.len(), usize::from(out.data_shards) + usize::from(out.parity_shards));
     }
 
     #[test]
@@ -97,6 +101,85 @@ proptest! {
         prop_assert_eq!(ids, expected);
         for f in &released {
             prop_assert_eq!(&f.body, &body(f.frame, sizes[f.frame as usize - 1], f.frame == 1));
+        }
+    }
+}
+
+fn old_padded_wire_bytes(
+    encoded_len: usize,
+    max_datagram: usize,
+    requested_parity: usize,
+) -> usize {
+    let max_payload = max_datagram - HEADER_LEN;
+    let data_shards = encoded_len.div_ceil(max_payload).max(1);
+    let parity = if data_shards + requested_parity > cmux_rd_core::fec::MAX_SHARDS {
+        0
+    } else {
+        requested_parity
+    };
+    if data_shards == 1 && parity == 0 {
+        HEADER_LEN + encoded_len
+    } else {
+        (data_shards + parity) * max_datagram
+    }
+}
+
+/// Synthetic packetizer accounting only: representative encoded body sizes,
+/// separate from the historical screen-run measurements in the audit.
+#[test]
+fn balanced_shards_reduce_padding_without_changing_frame_shape() {
+    for max_datagram in [MAX_DATAGRAM_VPC, MAX_DATAGRAM_DEFAULT] {
+        let max_payload = max_datagram - HEADER_LEN;
+        let access_lengths = [
+            0,
+            max_payload - FRAME_PREFIX_LEN - 1,
+            max_payload - FRAME_PREFIX_LEN,
+            max_payload - FRAME_PREFIX_LEN + 1,
+            max_payload * 2 - FRAME_PREFIX_LEN,
+            max_payload * 2 + 137 - FRAME_PREFIX_LEN,
+            max_payload * 255 - FRAME_PREFIX_LEN,
+        ];
+        for access_len in access_lengths {
+            for requested_parity in [0, 3] {
+                let b = body(77, access_len, true);
+                let encoded = b.encode();
+                let expected_data = encoded.len().div_ceil(max_payload).max(1);
+                let expected_parity = if expected_data + requested_parity > fec::MAX_SHARDS {
+                    0
+                } else {
+                    requested_parity
+                };
+                let mut p = Packetizer::new(0, max_datagram);
+                let out =
+                    p.packetize(77, flags::KEYFRAME, &b, requested_parity).expect("packetize");
+                assert_eq!(out.data_shards as usize, expected_data);
+                assert_eq!(out.parity_shards as usize, expected_parity);
+                assert_eq!(out.datagrams.len(), expected_data + expected_parity);
+                assert!(out.datagrams.iter().all(|d| d.len() <= max_datagram));
+                if out.datagrams.len() > 1 || out.parity_shards > 0 {
+                    let width = out.datagrams[0].len();
+                    assert!(out.datagrams.iter().all(|d| d.len() == width));
+                }
+                let new_total: usize = out.datagrams.iter().map(Vec::len).sum();
+                let old_total =
+                    old_padded_wire_bytes(encoded.len(), max_datagram, requested_parity);
+                assert!(
+                    new_total <= old_total,
+                    "new={new_total} old={old_total} max={max_datagram} access={access_len} parity={requested_parity}"
+                );
+                if expected_data > 1 && expected_parity == 0 && encoded.len() % max_payload != 0 {
+                    assert!(new_total < old_total);
+                }
+                // Data shards retain exactly the encoded frame bytes; only trailing
+                // zero padding differs from the historical max-width packetizer.
+                let mut data = Vec::new();
+                for d in out.datagrams.iter().take(expected_data) {
+                    let (_, payload) = DatagramHeader::decode(d).expect("decode");
+                    data.extend_from_slice(payload);
+                }
+                data.truncate(encoded.len());
+                assert_eq!(data, encoded);
+            }
         }
     }
 }

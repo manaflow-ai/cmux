@@ -1,6 +1,7 @@
 //! Splits one encoded frame into `cmux.rd/1` datagrams: data shards sized to
-//! the session's `max_datagram`, then parity shards of the same size. A frame
-//! of one shard without parity is not padded.
+//! one per-frame width (never larger than the session's `max_datagram`), then
+//! parity shards of the same size. A frame of one shard without parity is not
+//! padded.
 
 use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS};
 
@@ -77,25 +78,34 @@ impl Packetizer {
         parity: usize,
     ) -> Result<PacketizedFrame, PacketizeError> {
         let bytes = body.encode();
-        let shard_len = self.shard_len();
-        let data_shards = bytes.len().div_ceil(shard_len).max(1);
+        let max_shard_len = self.shard_len();
+        let data_shards = bytes.len().div_ceil(max_shard_len).max(1);
         if data_shards > MAX_FRAME_SHARDS as usize {
             return Err(PacketizeError::FrameTooLarge);
         }
         // A frame larger than one FEC block (a big keyframe) goes without parity; NACKs
         // and recovery cover its losses.
         let parity = if data_shards + parity > MAX_SHARDS { 0 } else { parity };
-        let mut shards: Vec<Vec<u8>> = bytes.chunks(shard_len).map(<[u8]>::to_vec).collect();
+        // All shards in a frame must have one length for FEC and reassembly. Use the
+        // smallest width that can hold the encoded body in the same shard count instead
+        // of padding the final shard to max_datagram. This preserves packet count,
+        // quality, and loss behavior while removing deterministic tail padding.
+        let frame_shard_len = bytes.len().div_ceil(data_shards);
+        let mut shards: Vec<Vec<u8>> = bytes
+            .chunks(frame_shard_len)
+            .map(|chunk| {
+                let mut shard = chunk.to_vec();
+                shard.resize(frame_shard_len, 0);
+                shard
+            })
+            .collect();
         if shards.is_empty() {
             shards.push(Vec::new());
         }
-        // Shards of one frame share one length (the reassembler refuses
-        // others, and parity needs it); a lone shard without parity keeps its
-        // own length, so a small frame (an Opus packet) costs its bytes only.
-        if (shards.len() > 1 || parity > 0)
-            && let Some(last) = shards.last_mut()
-        {
-            last.resize(shard_len, 0);
+        // A lone shard without parity keeps its own length, so a small frame costs
+        // only its encoded bytes. With parity, its width is already the body length.
+        if shards.len() == 1 && parity == 0 {
+            shards[0] = bytes;
         }
         let parity_shards = if parity == 0 {
             Vec::new()
