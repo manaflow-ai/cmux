@@ -85,12 +85,12 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
-  searchWords,
   inStrip,
   shellEntry,
   shortHost,
   type CreateKind,
   type ScreenRow,
+  searchWords,
   arrowStep,
   stripStep,
 } from "./screenModel";
