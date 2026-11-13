@@ -40,9 +40,9 @@ pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -66,6 +66,10 @@ pub const AGENT_SESSION_SIDE_CAPABILITY: &str = "agent-session-side-v1";
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
 /// capability in `set-client-info`: an older app ends its attachment on an event it does not know.
 pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
+/// `attending` and `seen_seq` on `agent-session-view`: whether the person attends the chat their
+/// window shows, passed to acpmux's `_acpmux/view`, so a chat on this machine keeps its turns
+/// unread while they are away from it (acpmux `hub/seen.rs`), and the answer's `lastReturn`.
+pub const AGENT_SESSION_ATTENTION_CAPABILITY: &str = "agent-session-attention-v1";
 /// `agent-session-set-model`, `agent-session-set-mode` and `agent-session-set-config`: the
 /// person's model, mode and option picks for the attached chat, as acpmux's ACP
 /// `session/set_model`, `session/set_mode` and `session/set_config_option` on the tab's own
@@ -499,6 +503,14 @@ struct TypingParams {
 struct ViewParams {
     surface: SurfaceId,
     visible: bool,
+    /// Whether the person attends the chat it shows (`agent-session-attention-v1`, acpmux
+    /// `hub/seen.rs`); absent, acpmux counts them attending.
+    #[serde(default)]
+    attending: Option<bool>,
+    /// The chat's log seq at the person's last input, where a chat they stopped attending is left
+    /// off.
+    #[serde(default)]
+    seen_seq: Option<u64>,
 }
 
 /// `agent-session-set-model`: the model the attached chat uses from its next turn.
@@ -1528,8 +1540,17 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 }
             })
         }
-        AgentSessionCommand::View(ViewParams { visible, .. }) => {
-            let params = attachment.stamp(json!({"sessionId": session, "visible": visible}));
+        AgentSessionCommand::View(ViewParams { visible, attending, seen_seq, .. }) => {
+            let mut fields = serde_json::Map::new();
+            fields.insert("sessionId".into(), json!(session));
+            fields.insert("visible".into(), json!(visible));
+            if let Some(attending) = attending {
+                fields.insert("attending".into(), json!(attending));
+            }
+            if let Some(seen_seq) = seen_seq {
+                fields.insert("seenSeq".into(), json!(seen_seq));
+            }
+            let params = attachment.stamp(Value::Object(fields));
             attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
         }
         // The person's picks, on the tab's own session; acpmux's answer goes back unchanged (a

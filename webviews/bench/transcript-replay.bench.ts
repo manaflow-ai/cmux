@@ -42,7 +42,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { benchFixture, godLog, scaledPerfRow } from "./godFixture";
@@ -144,7 +145,7 @@ const changed = (p: Play) =>
 
 // ---------- the page side ----------
 /** Init script: the replay clock, layout-shift and long-task buffers. Self-contained (Playwright serializes it). */
-function instrument(start: number) {
+export function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
     __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
@@ -197,12 +198,12 @@ function instrument(start: number) {
   }
 }
 
-const paint = (page: Page, frames: number) =>
+export const paint = (page: Page, frames: number) =>
   page.evaluate(async (count) => {
     for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
   }, frames);
 /// Resolves once the transcript's offset and height have held, with nothing animating, for 12 painted frames.
-const rest = (page: Page) =>
+export const rest = (page: Page) =>
   page.evaluate(async () => {
     const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll");
     const moving = () =>
@@ -713,9 +714,6 @@ if (import.meta.main) {
     });
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
     });
     releases.push(() => browser.close());
@@ -760,10 +758,13 @@ if (import.meta.main) {
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
-          // And where a record's time goes at the largest checkpoint, growing or not.
-          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
-          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
-            console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the smallest and the largest checkpoint, growing or
+          // not: the smallest is the cost every chat pays, however short.
+          for (const at of [first, last]) {
+            console.log(`  ${kind}: most self ms per record at ${at.rows} rows`);
+            for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+              console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          }
         }
       } catch (error) {
         failed += 1;

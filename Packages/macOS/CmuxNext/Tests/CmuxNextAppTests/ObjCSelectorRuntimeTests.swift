@@ -34,6 +34,9 @@ struct ObjCSelectorRuntimeTests {
         "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",
         // NSDraggingDestination's optional end (NSView has none): no super call.
         "CmuxNextBrowser.CEFHostView.draggingEnded:",
+        "CmuxNextHome.HomeNativeTranscriptView.draggingEnded:",
+        // Forwards to its drop target, no super call.
+        "CmuxNextHome.HomeSidebarSplitView.draggingEnded:",
         // Calls super only when WKWebView.instancesRespond(to: draggingEnded:) (WebKitDrag.ended).
         "CmuxNextPages.PageWKWebView.draggingEnded:",
         // NSStandardKeyBindingResponding's Escape: closes the modal, no super call.

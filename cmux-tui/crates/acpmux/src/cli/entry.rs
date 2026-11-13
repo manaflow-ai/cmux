@@ -93,7 +93,7 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 8] = [
+const STDIO_MCP_SERVERS: [&str; 9] = [
     "acpmux-mcp",
     "subsession-mcp",
     "forum-mcp",
@@ -102,11 +102,21 @@ const STDIO_MCP_SERVERS: [&str; 8] = [
     "cua-mcp",
     "repo-mcp",
     "hosted-mcp",
+    "github-mcp",
 ];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
 const MCP_WORKERS: usize = 2;
+/// Worker threads of `tools-mcp` (`tools_mcp.rs`), acpmux's own servers in one process per chat:
+/// each call is a daemon request it waits on, so one worker serves them, and the process is a
+/// main thread, this worker and the parent watch. Still a multi-thread runtime, so
+/// `block_in_place` works.
+const TOOLS_MCP_WORKERS: usize = 1;
+/// The longest a stopping daemon waits for its queued log lines to be written: a log output
+/// that takes no bytes must not keep a stopped daemon from exiting.
+// timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
+const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -115,6 +125,9 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
     let command = words.next()?;
     // `bridge mcp` is the desktop apps' stdio server (`cli/bridge.rs`).
     let bridge_mcp = command == "bridge" && words.next().is_some_and(|a| a == "mcp");
+    if command == crate::tools_mcp::ARG {
+        return Some(TOOLS_MCP_WORKERS);
+    }
     (bridge_mcp || STDIO_MCP_SERVERS.iter().any(|name| command == name)).then_some(MCP_WORKERS)
 }
 
@@ -255,12 +268,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             dev,
             take_over,
         }) => {
-            tracing_subscriber::fmt()
+            let logs = tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
                 )
-                .with_target(false)
-                .init();
+                .with_target(false);
+            // A logging thread only queues its line: a log output that takes no bytes (a full
+            // pipe, a stalled disk) never stops the daemon (`log_sink.rs`).
+            match crate::log_sink::Sink::start(std::io::stdout()) {
+                Ok(sink) => {
+                    sink.install();
+                    logs.with_writer(sink).init();
+                }
+                Err(e) => {
+                    logs.init();
+                    tracing::warn!(
+                        "no log writer thread, lines are written where they are logged: {e}"
+                    );
+                }
+            }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
@@ -269,18 +295,26 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));
             }
-            let result = crate::daemon::run(DaemonOptions {
-                ws_listen: listen,
-                ws_token: token,
-                insecure_network_listen,
-                memory,
-                ready_fd,
-                person_key_fd,
-                dev_origins: allow_dev_origin,
-                dev,
-                take_over,
-            })
+            // Handoff writers retain the home lock until drained or process exit. This scope
+            // outlives daemon::run's deadline and the final log flush below.
+            let exit_tasks = cmux_scope::Scope::new("daemon-exit");
+            let result = crate::daemon::run(
+                DaemonOptions {
+                    ws_listen: listen,
+                    ws_token: token,
+                    insecure_network_listen,
+                    memory,
+                    ready_fd,
+                    person_key_fd,
+                    dev_origins: allow_dev_origin,
+                    dev,
+                    take_over,
+                },
+                &exit_tasks,
+            )
             .await;
+            // The lines logged so far reach the log before the process ends.
+            crate::log_sink::flush(crate::daemon::shutdown_time_left().unwrap_or(LOG_FLUSH_BUDGET));
             if let Err(error) = result {
                 // A systemd start can race the daemon that is handing over
                 // this home. Keep its lock refusal a distinct, prevented
@@ -304,6 +338,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s); 74 when its store
             // asked for a restart (`daemon::EXIT_REPAIR`).
+            crate::heap_profile::finish();
             std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
@@ -439,7 +474,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
         Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
+        Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
+        Some(Command::ToolsMcp) => crate::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -496,12 +533,16 @@ mod tests {
             "cua-mcp",
             "repo-mcp",
             "hosted-mcp",
+            "github-mcp",
         ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }
         let bridge = os(&["bridge", "mcp", "--as", "codex-desktop"]);
         assert_eq!(runtime_workers(&bridge), Some(MCP_WORKERS));
+        // acpmux's own servers in one process per chat: one worker.
+        assert_eq!(runtime_workers(&os(&["tools-mcp"])), Some(TOOLS_MCP_WORKERS));
+        assert_eq!(runtime(&os(&["tools-mcp"])).unwrap().metrics().num_workers(), 1);
     }
 
     #[test]
