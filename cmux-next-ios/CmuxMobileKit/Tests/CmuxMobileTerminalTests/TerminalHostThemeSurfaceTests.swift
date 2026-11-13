@@ -2,12 +2,13 @@
 import CmuxMobileDesign
 import Foundation
 import GhosttyNextKit
+import IOSurface
 import Testing
 import UIKit
 @testable import CmuxMobileTerminal
 
 /// The phone's terminal shows the terminal theme of the Mac its session runs on, through the real
-/// Ghostty surface: the terminal answers color queries with the Mac's colors, follows the Mac's
+/// Ghostty surface: the terminal draws the Mac's background, follows the Mac's
 /// next theme live, and keeps none of the phone's own theme settings.
 @MainActor
 @Suite(.serialized) struct TerminalHostThemeSurfaceTests {
@@ -19,52 +20,65 @@ import UIKit
     @MainActor final class Rig {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 360, height: 600))
-        var replies = Data()
 
         init(macID: String) {
             surface.themeMacID = macID
-            surface.onInput = { [weak self] in self?.replies.append($0) }
             window.isHidden = false
             window.addSubview(surface)
         }
 
-        /// Whether the terminal answers `query` with a reply containing `expected` within two
-        /// seconds: the query is asked again until then, because a config change reaches the
-        /// terminal through Ghostty's mailbox and a reply reaches the main thread asynchronously.
-        func answers(_ query: String, with expected: String) async -> Bool {
+        /// Whether the presented frame's background (its bottom-right corner, away from the
+        /// cursor) is `hex` within two seconds. A mirror-mode surface answers no color query (the
+        /// Mac's terminal does), so the drawn frame is what shows the colors it uses. Each try feeds
+        /// a carriage return so the surface draws a frame after the config change.
+        func shows(_ hex: String) async -> Bool {
+            guard let want = CmuxMobileTerminalTheme.rgb(hex) else { return false }
+            let target = (Int(want.0 * 255), Int(want.1 * 255), Int(want.2 * 255))
             let deadline = ContinuousClock.now + .seconds(2)
             while ContinuousClock.now < deadline {
-                replies.removeAll()
                 await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                    surface.feed(Data(query.utf8), completion: { done.resume() })
+                    surface.feed(Data("\r".utf8), completion: { done.resume() })
                 }
-                for _ in 0..<20 {
-                    if String(decoding: replies, as: UTF8.self).contains(expected) { return true }
-                    try? await Task.sleep(for: .milliseconds(5))
+                try? await Task.sleep(for: .milliseconds(40))
+                if let pixel = cornerPixel(), [pixel.0 - target.0, pixel.1 - target.1, pixel.2 - target.2].allSatisfy({ abs($0) <= 8 }) {
+                    return true
                 }
             }
             return false
         }
+
+        /// The bottom-right pixel of the frame on screen, as 8-bit RGB (BGRA or RGBA surfaces).
+        func cornerPixel() -> (Int, Int, Int)? {
+            guard let contents = surface.layer.sublayers?.first?.contents else { return nil }
+            let frame = unsafeBitCast(contents as AnyObject, to: IOSurfaceRef.self)
+            guard CFGetTypeID(frame) == IOSurfaceGetTypeID(), IOSurfaceGetBytesPerElement(frame) == 4 else { return nil }
+            let width = IOSurfaceGetWidth(frame), height = IOSurfaceGetHeight(frame)
+            guard width > 4, height > 4 else { return nil }
+            IOSurfaceLock(frame, .readOnly, nil)
+            defer { IOSurfaceUnlock(frame, .readOnly, nil) }
+            let row = IOSurfaceGetBaseAddress(frame) + (height - 3) * IOSurfaceGetBytesPerRow(frame)
+            let bytes = (row + (width - 3) * 4).assumingMemoryBound(to: UInt8.self)
+            // 'BGRA' is the usual Metal drawable; anything else is read as RGBA.
+            let bgra = IOSurfaceGetPixelFormat(frame) == 0x4247_5241
+            return bgra ? (Int(bytes[2]), Int(bytes[1]), Int(bytes[0])) : (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+        }
     }
 
-    @Test func theTerminalAnswersWithItsMacsColorsAndFollowsTheNextTheme() async throws {
+    @Test func theTerminalDrawsItsMacsColorsAndFollowsTheNextTheme() async throws {
         let macID = "mac-\(UUID().uuidString)"
         CmuxMobileTerminalThemes.shared.apply(Self.appearance(
             ["background = #2b0b3f", "foreground = #f9e79f", "palette = 1=#ff3864"]), macID: macID)
         let rig = Rig(macID: macID)
         try #require(rig.surface.surface != nil)
         #expect(rig.surface.hostTheme?.background == "#2b0b3f")
-        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:2b2b/0b0b/3f3f"))
-        #expect(await rig.answers("\u{1B}]10;?\u{1B}\\", with: "rgb:f9f9/e7e7/9f9f"))
-        #expect(await rig.answers("\u{1B}]4;1;?\u{1B}\\", with: "rgb:ffff/3838/6464"))
+        #expect(await rig.shows("#2b0b3f"))
 
         // The Mac switches theme: the open terminal takes the new one, no relaunch.
         CmuxMobileTerminalThemes.shared.apply(Self.appearance(
             ["background = #fdf6e3", "foreground = #586e75", "palette = 1=#dc322f"]), macID: macID)
         #expect(rig.surface.hostTheme?.background == "#fdf6e3")
         #expect(rig.surface.backgroundColor == UIColor(red: 0xfd / 255, green: 0xf6 / 255, blue: 0xe3 / 255, alpha: 1))
-        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:fdfd/f6f6/e3e3"))
-        #expect(await rig.answers("\u{1B}]4;1;?\u{1B}\\", with: "rgb:dcdc/3232/2f2f"))
+        #expect(await rig.shows("#fdf6e3"))
     }
 
     /// Another Mac's theme change leaves this terminal as it is.
@@ -75,7 +89,7 @@ import UIKit
         CmuxMobileTerminalThemes.shared.apply(Self.appearance(["background = #ffffff", "foreground = #000000"]),
                                               macID: "other-\(UUID().uuidString)")
         #expect(rig.surface.hostTheme?.background == "#112233")
-        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:1111/2222/3333"))
+        #expect(await rig.shows("#112233"))
     }
 
     /// The phone's own settings for theme keys never survive the Mac's theme: each key the Mac

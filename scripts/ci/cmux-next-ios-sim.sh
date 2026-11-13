@@ -54,7 +54,7 @@
 #           DerivedData. Copy the identical head benchmark test to the baseline
 #           tree; baseline mode selects its original-view adapter.
 #           bench/ retains each log, console output and result bundle.
-#   pair-e2e
+#   pair-e2e [theme]
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
 #           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
@@ -66,6 +66,9 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
+#           `theme`: the Mac runs a distinctive Ghostty terminal theme, and once
+#           paired the phone opens the Mac's terminal (DEBUG demo live-terminal);
+#           screens/theme-phone-terminal.png and theme-mac-window.png show both.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -100,6 +103,13 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
 
 mode="${1:-build}"
 case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline|listperf) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, chief-live-perf, chief-live-perf-baseline or listperf, got '$mode'" >&2; exit 2 ;; esac
+pair_args=()
+if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
+  for sel in "${@:2}"; do
+    [[ "$sel" == theme ]] || { echo "cmux-next-ios-sim.sh: pair-e2e takes only 'theme' after it, got '$sel'" >&2; exit 2; }
+    pair_args=(--theme)
+  done
+fi
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -821,7 +831,7 @@ if [[ "$mode" == pair-e2e ]]; then
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
-    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary" ${pair_args[@]+"${pair_args[@]}"}
   pair_status=$?
   set -e
 fi
