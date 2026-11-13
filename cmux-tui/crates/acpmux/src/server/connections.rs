@@ -555,6 +555,12 @@ pub(super) fn announce_later(hub: &Arc<Hub>) {
 
 /// Refuses a credential or token read on an agent's connection: those secrets go to the app
 /// for a Cloud machine launch, never to an agent running on this Mac.
+///
+/// This stops only an agent that identifies itself: a connection that proved its session
+/// (`Conn::caller`) or declared at `initialize` that it runs in one (`cli_caller::Declared`). Any
+/// other process of this user on the unix socket is trusted like the app, the same boundary as
+/// the Keychain the secrets come from (the socket is owner-only; its listener refuses another
+/// user's peers). It is no defense against a same-user process that lies about itself.
 pub(super) fn refuse_agent(m: &str, agent: bool) -> Result<(), RpcError> {
     let secret =
         matches!(m, method::MUX_CONNECTIONS_CREDENTIAL | method::MUX_CONNECTIONS_CHATGPT_TOKEN);

@@ -419,14 +419,15 @@ impl Client {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Failure::new("invalid_id_token", "no ID token"))?;
         let claims = self.verify_id_token(&id_token, &client_id, &pending.nonce).await?;
-        // The granted scopes: the token answer's, else the callback's `scope`; neither names
-        // them: not granted (never assumed from what was asked).
+        // The granted scopes: the token answer's, else the callback's `scope`. Neither names them:
+        // the requested ones, as RFC 6749 section 5.1 lets a server omit `scope` when it grants
+        // what was asked. Only a returned list without the plan scope is a refusal.
         let scopes = answer
             .scopes()
             .or_else(|| {
                 query.get("scope").map(|s| s.split_whitespace().map(str::to_owned).collect())
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| SCOPES.split_whitespace().map(str::to_owned).collect());
         let refresh = answer.refresh_token.clone().filter(|r| !r.is_empty());
         if !scopes.iter().any(|s| s == PLAN_SCOPE) {
             if let Some(refresh) = refresh {
@@ -447,7 +448,7 @@ impl Client {
             (places.clone(), pending.reauth.clone(), client_id.clone(), claims.sub.clone());
         let id = tokio::task::spawn_blocking(move || choose_id(&p, reauth, &c, &sub))
             .await
-            .map_err(joined)?;
+            .map_err(joined)??;
         // The account's lock: a refresh in flight for it finishes first, and cannot then write
         // its record over this new sign-in's.
         let lock = locks.for_id(&id);
@@ -519,28 +520,42 @@ fn valid_client_id(id: &str) -> bool {
 }
 
 /// The route id a sign-in of (`client_id`, `sub`) saves to: its existing record's, a reauth's
-/// own (the same person under a new client id), else the next free `chatgpt[-N]`.
-fn choose_id(places: &Places, reauth: Option<String>, client_id: &str, sub: &str) -> String {
+/// own (the same person under a new client id), else the next free `chatgpt[-N]`, reserved
+/// before this returns. One choice at a time in this daemon (so two sign-ins of one new person
+/// share one id), and a new id is claimed by creating its record file, never by overwriting one
+/// (so two choices never take the same id, from this daemon or another).
+pub(super) fn choose_id(
+    places: &Places,
+    reauth: Option<String>,
+    client_id: &str,
+    sub: &str,
+) -> Result<String, Failure> {
+    static CHOOSING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = CHOOSING.lock().unwrap_or_else(|p| p.into_inner());
     let dir = places.routes.as_deref();
     let records = store::all(&places.home);
     let same = |r: &Record| r.client_id == client_id && r.sub == sub;
-    records
-        .iter()
-        .find(|(_, r)| same(r))
-        .map(|(id, _)| id.clone())
-        .or_else(|| {
-            // A reauth of the same person whose client id changed keeps its connection.
-            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == sub))
-        })
-        .unwrap_or_else(|| {
-            let taken = |id: &str| {
-                records.iter().any(|(rid, _)| rid == id) || routes::find(dir, id).is_ok()
-            };
-            std::iter::once("chatgpt".to_owned())
-                .chain((2..).map(|n| format!("chatgpt-{n}")))
-                .find(|id| !taken(id))
-                .unwrap_or_else(|| "chatgpt".to_owned())
-        })
+    if let Some((id, _)) = records.iter().find(|(_, r)| same(r)) {
+        return Ok(id.clone());
+    }
+    // A reauth of the same person whose client id changed keeps its connection.
+    if let Some(id) = reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == sub)) {
+        return Ok(id);
+    }
+    let reservation =
+        Record { client_id: client_id.to_owned(), sub: sub.to_owned(), ..Record::default() };
+    for id in std::iter::once("chatgpt".to_owned()).chain((2..1000).map(|n| format!("chatgpt-{n}")))
+    {
+        if records.iter().any(|(rid, _)| *rid == id) || routes::find(dir, &id).is_ok() {
+            continue;
+        }
+        match store::create(&places.home, &id, &reservation) {
+            Ok(()) => return Ok(id),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(Failure::new("storage", e.to_string())),
+        }
+    }
+    Err(Failure::new("storage", "no free ChatGPT connection id"))
 }
 
 /// Writes the account's record and its `chatgpt-plan` route under `id`; the route id.
