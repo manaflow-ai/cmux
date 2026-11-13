@@ -77,9 +77,12 @@ import Testing
                 func isTip(_ row: Int) -> Bool { a(0, row) >= body / 2 && a(w - 1, row) < body / 3 }
                 func isCap(_ row: Int) -> Bool { a(0, row) < body / 3 && a(w - 1, row) < body / 3 && a(w / 2, row) >= body / 2 }
                 let ends = [(tip: 2, cap: h - 3), (tip: h - 3, cap: 2)]
-                let rows = { (r: Int) in "left \(a(0, r)) middle \(a(w / 2, r)) right \(a(w - 1, r))" }
-                #expect(ends.contains { isTip($0.tip) && isCap($0.cap) },
-                        "\(c): no katana over a round cap: row 2 \(rows(2)), row \(h - 3) \(rows(h - 3)), body \(body)")
+                if !ends.contains(where: { isTip($0.tip) && isCap($0.cap) }) {
+                    let dump = (Array(0..<min(h, 8)) + Array(max(0, h - 8)..<h)).map { r in
+                        "\(r):" + (0..<w).map { String(format: "%02x", a($0, r)) }.joined(separator: " ")
+                    }.joined(separator: " | ")
+                    Issue.record("\(c): no katana over a round cap, w \(w) h \(h) body \(body) rows \(dump)")
+                }
                 // Below the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
                 let tip = Int((SidebarGroupLineShape.tipLength(width: frame.width) * Self.scale).rounded())
                 #expect(a(w - 1, tip + 2) >= body / 2 && a(w - 1, h - 1 - tip - 2) >= body / 2, "\(c): the rail is not full width past its ends")
