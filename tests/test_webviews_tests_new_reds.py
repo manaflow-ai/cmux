@@ -443,6 +443,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
+            shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
@@ -589,7 +590,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
@@ -664,7 +665,7 @@ class Workflow(unittest.TestCase):
         (bins / "bun").write_text(FAKE_BUN)
         (bins / "bun").chmod(0o755)
         (runner_temp / "head-results/runner").mkdir(parents=True)
-        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.

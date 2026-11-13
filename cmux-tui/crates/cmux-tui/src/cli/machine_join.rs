@@ -449,9 +449,10 @@ pub(crate) struct Platform {
 }
 
 /// Why a platform call failed. Nothing the server answered is kept but its
-/// status, a code this file knows and, for a code of the platform's Cloud
-/// refusal table, the numbers its body carries (`facts`: a cap's limit and
-/// use, a rate limit's window, whether it may be retried).
+/// status, a code this file knows and the numbers its body carries (`facts`: a
+/// cap's limit and use, a rate limit's window, whether it may be retried), for
+/// every code: a refusal outside the platform's Cloud table (a workspace's
+/// `machine.placement_unavailable` 503) still says whether it may be retried.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CallError {
     Status { status: u16, code: &'static str, facts: Option<refusals::Facts> },
@@ -577,8 +578,7 @@ impl Platform {
             .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
             .and_then(Value::as_str);
         let code = known_code(code);
-        let facts = refusals::platform(code)
-            .map(|_| refusals::Facts::read(Some(&parsed), retry_after.as_deref()));
+        let facts = Some(refusals::Facts::read(Some(&parsed), retry_after.as_deref()));
         Err(CallError::Status { status, code, facts })
     }
 

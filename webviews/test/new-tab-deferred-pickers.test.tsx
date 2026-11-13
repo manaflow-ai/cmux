@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
 import { effortLevel } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -65,12 +66,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;

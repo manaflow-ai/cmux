@@ -175,7 +175,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
-        let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = content.map { contentHost.placesInHold($0) } ?? false, row = content.map { contentHost.keepsSizeInHold($0) } ?? false ? nil : tabRowSharer // held: a key hold's area places a terminal's host or a browser's chrome (and the Home, which keeps its size: the row stays the strip's); any other content lays out here in each frame
+        let room = bounds.width - toolbarWidth(shown: shown, sharing: true), held = content.map { contentHost.placesInHold($0) } ?? false, row = content.map { contentHost.keepsOutOfTabRowInHold($0) } ?? false ? nil : tabRowSharer // held: a key hold's area places a terminal's host or a browser's chrome (and the Home, which keeps its size: the row stays the strip's); any other content lays out here in each frame
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
@@ -186,6 +186,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
@@ -197,8 +198,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
-        // After the host frame: a strip pinned to a browser's band reads its
-        // frame from constraints that depend on the host frame.
+        // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
         toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at
