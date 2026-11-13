@@ -95,7 +95,7 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil)) } catch { result = .failure(error) } // the Cloud send's mode pick, own machine only
         let phases = await client.startPhases
         await client.close()
         switch result {
@@ -123,7 +123,7 @@ extension AgentTabStore {
 /// The start of a new chat on another machine, as the remote pane host calls it.
 nonisolated enum AgentTabRemoteStart {
     static let registryPrefix = MachineRegistry.registryHostPrefix
-    /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
+    /// Each request of the start's client but the start (`AgentSessionAttachClient.startTimeout`).
     static let timeout: Duration = .seconds(75)
 
     /// The project list of a chat on another machine: its workspaces' folders, then the folders the

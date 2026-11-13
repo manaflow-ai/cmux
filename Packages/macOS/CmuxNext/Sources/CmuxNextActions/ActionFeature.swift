@@ -23,7 +23,7 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
         // Apps: the App Store catalog's own actions, by membership, not by an
         // "app." prefix (Share cmux is `app.shareCmux` and is not an Apps action).
         if appsActionIDs.contains(descriptor.id) { return .apps }
-        if lowered.contains("cloud") || id == "switchRightSidebarToMachines" { return .cloud }
+        if lowered.contains("cloud") { return .cloud }
         return nil
     }
 }

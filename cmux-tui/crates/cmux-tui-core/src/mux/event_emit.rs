@@ -192,11 +192,17 @@ impl Mux {
 
     pub(super) fn emit_committed_workspace_delta(
         &self,
-        _registry: &WorkspaceRegistry,
-        delta: TreeDelta,
+        registry: &WorkspaceRegistry,
+        mut delta: TreeDelta,
         selection_resync: bool,
     ) {
         debug_assert!(delta.workspace_revision.is_some());
+        // One read per delta, here, instead of one per subscriber in
+        // `tree_delta_json`. A failed read leaves the fields out, as before.
+        delta.mutation = delta
+            .workspace_revision
+            .and_then(|revision| registry.event_mutation(revision).ok().flatten())
+            .map(|(origin, mutation_id)| Arc::new(DeltaMutation { origin, mutation_id }));
         self.emit_tree_delta(delta, selection_resync);
     }
 
@@ -229,6 +235,8 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(state.workspaces.len());
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {

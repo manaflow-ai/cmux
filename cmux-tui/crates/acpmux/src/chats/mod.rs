@@ -3,8 +3,9 @@
 //! `cmux-chat-index` holds the adapters, root discovery and the merged
 //! index as pure code. This module wires them to the daemon: the login
 //! environment, the guarded-folder refusal, the recorded roots file, one
-//! file-system watcher over the root real paths (FSEvents on macOS, no
-//! polling), and the change feed that `_acpmux/chats_watch` forwards.
+//! file-system watcher over the root real paths (`watch.rs`: FSEvents with a
+//! coalescing latency on macOS, no polling), and the change feed that
+//! `_acpmux/chats_watch` forwards.
 //!
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
@@ -13,6 +14,9 @@ use cmux_json::JsonSet as _;
 
 mod activity;
 pub(crate) mod brand;
+mod follow;
+#[cfg(target_os = "macos")]
+mod fsevents;
 mod open;
 mod query;
 mod resolve;
@@ -162,7 +166,7 @@ impl ChatService {
     fn index_text(&self) {
         let every = ChatQuery { limit: usize::MAX, ..ChatQuery::default() };
         let chats = self.listed_from(&every).unwrap_or_default();
-        self.text.update(&chats, &|entry| transcript_turns(entry).ok());
+        self.text.follow(&chats, &|entry| transcript_turns(entry).ok());
     }
 
     /// What was said in each chat (`text.rs`).
@@ -225,8 +229,8 @@ impl ChatService {
 
     /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
     /// the time of its newest chat (a chat another chat started left out), by harness id then
-    /// path. acpmux groups its own index, so the app relays a few rows, never every chat. None
-    /// while chats are off.
+    /// path. acpmux groups its own index, so the cmux daemon reads a few rows, never every chat.
+    /// None while chats are off.
     pub fn projects(&self, activity: &ChatActivity) -> Option<Vec<Value>> {
         let state = lock(&self.state);
         if !state.settings.enabled {
@@ -415,7 +419,9 @@ impl ChatService {
                 // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
                 let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
                     .map_err(std::io::Error::other)
-                    .and_then(|()| state.recorded.record(spec.clone()));
+                    .and_then(|()| {
+                        state.recorded.record_with(spec.clone(), &crate::home_fs::write_index_file)
+                    });
                 match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
@@ -435,7 +441,11 @@ impl ChatService {
             (state.recorded.roots().to_vec(), state.settings.clone())
         };
         let (found, settings_refused) = discover_roots(&self.sources, &recorded, &settings);
-        let paths: Vec<PathBuf> = found.roots.iter().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = found
+            .roots
+            .iter()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         let known: HashSet<String> = state.index.roots().map(|root| root.id()).collect();
@@ -535,16 +545,20 @@ impl ChatService {
     fn save(&self, index: &ChatIndex) {
         let path = cache_path(&self.sources);
         // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
-        let saved = crate::config::refuse_lost_home(&path)
-            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        let saved = crate::config::refuse_lost_home(&path).and_then(|()| {
+            index.save_with(&path, &crate::home_fs::write_index_file).map_err(anyhow::Error::from)
+        });
         if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
 
     fn rewatch(self: &Arc<Self>) {
-        let paths: Vec<PathBuf> =
-            lock(&self.state).index.roots().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = lock(&self.state)
+            .index
+            .roots()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         state.watch_errors = errors;
@@ -567,7 +581,8 @@ fn text_path(sources: &ChatSources) -> PathBuf {
 }
 
 /// The text thread reads changed chats this long after a change, so a chat being written is read
-/// once per burst, not per line.
+/// once per burst, not per line (a Claude Code or Codex chat from where its last read ended,
+/// `follow.rs`).
 const TEXT_SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn settings_path(sources: &ChatSources) -> PathBuf {
@@ -580,33 +595,31 @@ fn settings_path(sources: &ChatSources) -> PathBuf {
 pub fn transcript_turns(
     entry: &cmux_chat_index::ChatEntry,
 ) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
-    use cmux_chat_index::AdapterKind;
-    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
-    let family = match entry.harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        kind => {
-            return cmux_chat_index::transcript::read_turns(
-                kind,
-                &entry.source_path,
-                &entry.session_id,
-            );
-        }
+    use cmux_chat_index::transcript::TranscriptError;
+    let Some(family) = follow::family(entry.harness) else {
+        return cmux_chat_index::transcript::read_turns(
+            entry.harness,
+            &entry.source_path,
+            &entry.session_id,
+        );
     };
     // adopt's reader answers an unreadable file with no turns.
     std::fs::File::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
-    Ok(turns
-        .into_iter()
-        .map(|t| Turn {
-            prompt: capped(t.prompt),
-            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
-            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
-            answer: capped(t.answer),
-            prompt_at: t.prompt_at,
-        })
-        .collect())
+    Ok(turns.into_iter().map(turn_of).collect())
+}
+
+/// One of adopt's turns as a transcript turn, with the transcript reader's caps.
+fn turn_of(t: crate::adopt_replay::PastTurn) -> cmux_chat_index::transcript::Turn {
+    use cmux_chat_index::transcript::capped;
+    cmux_chat_index::transcript::Turn {
+        prompt: capped(t.prompt),
+        // No answer yet has no answer time (adopt's reader starts it at the prompt's).
+        answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
+        answer: capped(t.answer),
+        prompt_at: t.prompt_at,
+    }
 }
 
 /// The roots to read under `settings`: none when chats are off; only the
@@ -743,3 +756,9 @@ impl crate::hub::Hub {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What one appended transcript line costs the chats page's text, god chat and small (manual;
+// it reads Linux's `/proc/self/io`).
+#[cfg(all(test, target_os = "linux"))]
+#[path = "follow_bench.rs"]
+mod follow_bench;

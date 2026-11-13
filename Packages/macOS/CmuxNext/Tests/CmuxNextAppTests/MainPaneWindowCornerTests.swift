@@ -42,8 +42,14 @@ extension MainPaneGutterSuites {
                 // it keeps from the window's edge (10 pt in the 16 pt window across the 6 pt gutter), not the 8 pt
                 // pane radius.
                 let inset = Metrics.windowEdgeInset(gutter, in: window)
-                #expect(root.contentHost.layer?.cornerRadius == windowRadius - inset,
-                        "the pane's corner is the window's \(windowRadius) pt less its \(inset) pt inset")
+                // Lawrence 2026-11-11, "same roundness as chrome": a card a pill strip nests in, with no outline and no
+                // radius the person set, rounds from its tabs (the tab radius plus the strip's inset), concentric with
+                // the first pill, instead of the window-concentric radius.
+                let concentric = windowRadius - inset
+                let expected = Metrics.mainPaneRoundsFromTabs
+                    ? Metrics.chromeRowConcentricCardRadius(windowCornerRadius: windowRadius) : concentric
+                #expect(root.contentHost.layer?.cornerRadius == expected,
+                        "the pane's corner is \(expected) pt (the window's \(windowRadius) pt less its \(inset) pt inset is \(concentric) pt)")
             }
         }
 

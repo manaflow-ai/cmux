@@ -10,6 +10,14 @@ extension DaemonService {
     /// Cancels the split that shows provisional pane `handle`; false for any other pane.
     public func cancelCreation(pane handle: PaneID) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(pane: handle) } }
 
+    /// Close Pane on `pane`: cancels the split that shows it when it is a provisional pane, and returns the ids of its
+    /// tabs, read before the cancel takes the pane from the records (the caller drops the keys held for them); nil for
+    /// any other pane.
+    public func cancelCreation(showing pane: PaneModel) -> [String]? {
+        let tabs = pane.tabs.map(\.id)
+        return cancelCreation(pane: pane.handle) ? tabs : nil
+    }
+
     /// Close Pane on pane `handle`, on this pane's own daemon. A stand-in pane still opening (a dock's, Cmd-N's first
     /// pane) leaves the records in this turn (``DaemonStore/intendStandInPaneClose(_:)``) and its close waits, off the
     /// key's turn, for the daemon's pane that takes it over (``DaemonStore/daemonTarget(_:)``). The close's intent

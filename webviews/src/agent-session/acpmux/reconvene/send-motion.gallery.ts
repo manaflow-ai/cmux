@@ -43,6 +43,25 @@ const afterSend = chat([...history, user(PROMPT, 0, { id: SENT_ID })], {
   isWorking: true,
 });
 
+/// The pane sends through the chat's `chat.send` action, which only a connected acpmux client
+/// installs (App.tsx: "Until acpmux connects nothing takes a prompt; the composer keeps it"). This
+/// stage has no daemon, so a send never left the composer and no host call came for an `afterCall`
+/// to answer. The play stands in for the client's action: acpmux takes the prompt, and its next
+/// snapshot (`afterSend`) arrives in a task after, as the transport sends it.
+const standInSend = (ctx: PlayContext) => {
+  const page = ctx.document.defaultView as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+    cmuxAcpmuxBridge?: { receive(snapshot: unknown): void };
+  };
+  page.cmuxAcpmuxActions = {
+    ...page.cmuxAcpmuxActions,
+    "chat.send": async (params) => {
+      for (const done of [params.accepted, params.taken]) if (typeof done === "function") done();
+      setTimeout(() => page.cmuxAcpmuxBridge?.receive(structuredClone(afterSend)), 0);
+    },
+  };
+};
+
 /// Types the prompt at the latest row and sends it, then waits until the sent row is drawn, the
 /// composer is empty and every motion rests: the moment just after a send.
 const send = async (ctx: PlayContext) => {
@@ -64,10 +83,16 @@ const send = async (ctx: PlayContext) => {
   await ctx.waitFor(sent, { capMs: 10_000 });
   const thread = ctx.document.querySelector<HTMLElement>(".acpmux-thread");
   await ctx.waitFor(() => !thread?.style.translate, { capMs: 2_000 });
+  // The turn the send started runs on: its Thinking line's shimmer and the stop button's spinner
+  // loop for as long as it does, so only the motions that end count.
   await ctx.waitFor(
     () =>
       !ctx.document.querySelector("[data-send-morph-layer] [data-send-morph-ghost]") &&
-      ctx.document.getAnimations().every((animation) => animation.playState !== "running"),
+      ctx.document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
     { capMs: 2_000 },
   );
 };
@@ -107,9 +132,9 @@ const MINIMAL = { "follow-glide": "off", "send-morph": "inplace", "send-entrance
 const variant = (note: string, arm?: Arm) => ({
   note,
   snapshot: chat(history, { title: "Fetch retries" }),
-  afterCall: { "chat.send": afterSend },
   ...(arm ? { documentAttributes: MINIMAL } : {}),
   play: async (ctx: PlayContext) => {
+    standInSend(ctx);
     if (arm) await showArm(ctx, { css: arm.css });
     await send(ctx);
     if (arm) await showArm(ctx, arm);

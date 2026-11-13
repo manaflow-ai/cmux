@@ -17,7 +17,7 @@ import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "./paneStrings";
-import { HomeChannelsPage } from "./HomeChannelsPage";
+import { APP_ACTION_RUN, HomeChannelsPage, RESTART_SERVER } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
@@ -70,10 +70,14 @@ export function mountDaemonHomeChannelsPage(
       if (data.command === QUOTE_COMMAND) quoteSelection(document);
     })
     .catch(() => {});
+  // In the app, a refused page listener's fix: the app's Restart cmux-tui (it asks first).
+  const restart = client
+    ? () => void client.call(APP_ACTION_RUN, { action: RESTART_SERVER }).catch(() => undefined)
+    : undefined;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <ComposerEdit.Provider value={edit}>
-        <DaemonGate source={source} strings={strings}>
+        <DaemonGate source={source} strings={strings} restart={restart}>
           {(daemon, _pages, owner) => (
             <div className="hc-daemon">
               <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
@@ -102,7 +106,7 @@ function DaemonHome({
   carry: PendingCarry;
 }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
-  // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
+  // Web links: the page could send them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation
   // (cx-ebm.59.6), the page leaves link clicks to the host.

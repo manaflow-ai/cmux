@@ -381,9 +381,12 @@ class Session:
         ended = time.time()
         files = sampler.stop()
         if not exited:
-            # Over every bound: record the stack, then end it so the run can report.
-            log(f"quit {label}: still running after {ended - started:.1f} s; stopping pid {pid}")
-            bench.stop([pid], timeout=10)
+            # Over every bound: record the stack, then end it so the run can report. The stop is in a finally: a
+            # log line to a closed stdout must never leave the app running (cmux#41803 review class).
+            try:
+                log(f"quit {label}: still running after {ended - started:.1f} s; stopping pid {pid}")
+            finally:
+                bench.stop([pid], timeout=10)
         launch.process.wait()
         # The marks the quit wrote: the pipe ends (EOF) with the process.
         launch.wait_for("quit.never", 2)
