@@ -33,18 +33,38 @@ pub(super) fn peer_session(key: Option<&str>) -> Option<u32> {
 
 /// [`admit`] for a client in process session `session` (nil when the kernel
 /// names no peer process).
-///
-/// A session with a seat is a terminal's. A session with no seat is an
-/// outside client's now; the lease keeps the session, and a terminal that
-/// takes its seat for it later takes the connection over
-/// (`ConnectionLease::admitted_outside`).
 pub(super) fn admit_session(
     connections: &Arc<ConnectionStats>,
     stream: &dyn transport::Stream,
     session: Option<u32>,
 ) -> Result<ConnectionPermit, ClientKind> {
-    if let Some(terminal) = session.filter(|session| connections.terminal_seated(*session)) {
-        return claim_watched_terminal_connection(connections, stream, Some(terminal))
+    admit_session_by(connections, stream, session, parent_process)
+}
+
+/// The parent of process `pid`, as the seats ask for it
+/// (`ConnectionStats::seated_terminal`): one read of that process.
+pub(super) fn parent_process(pid: u32) -> Option<u32> {
+    crate::process_resources::parent_process(pid)
+}
+
+/// [`admit_session`] with the read of a process's parent (`parent_of`).
+///
+/// A session with a seat is a terminal's, and so is a session whose leader
+/// is the child of a host that starts a terminal: the connection is counted
+/// in that terminal's share from its first moment, by its session. A
+/// session with neither is an outside client's now; the lease keeps the
+/// session, and a terminal that takes its seat for it later takes the
+/// connection over (`ConnectionLease::admitted_outside`).
+pub(super) fn admit_session_by(
+    connections: &Arc<ConnectionStats>,
+    stream: &dyn transport::Stream,
+    session: Option<u32>,
+    parent_of: impl FnOnce(u32) -> Option<u32>,
+) -> Result<ConnectionPermit, ClientKind> {
+    if let Some(session) = session
+        && connections.seated_terminal(session, parent_of).is_some()
+    {
+        return claim_watched_terminal_connection(connections, stream, Some(session))
             .ok_or(ClientKind::Terminal);
     }
     let permit = claim_watched_connection(connections, stream).ok_or(ClientKind::Local)?;

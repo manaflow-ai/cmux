@@ -1,15 +1,20 @@
 //! The accept loop counts a connection as a terminal's from the terminals'
 //! seats (`diagnostics/terminal_seats.rs`, `server/terminal_admission.rs`):
 //! with no read of the session state, and also for a connection that came
-//! before its terminal had its seat.
+//! before its terminal had its seat. The terminal of a host that the daemon
+//! starts has no such connection: its host has a seat first.
 
 use std::os::unix::net::UnixStream;
 
 use super::*;
-use crate::diagnostics::{ClientKind, ConnectionStats, LongConnectionsFull};
+use crate::diagnostics::{
+    ClientKind, ConnectionStats, HostSeating, LongConnectionsFull, SeatedTerminal,
+};
 use crate::platform::transport::Stream;
 use crate::server::listen::ServedSession;
-use crate::server::terminal_admission::{admit, admit_session, peer_session};
+use crate::server::terminal_admission::{
+    admit, admit_session, admit_session_by, parent_process, peer_session,
+};
 
 const LIMIT: u64 = MAX_SERVER_CONNECTIONS as u64;
 const LANE: u64 = MAX_TERMINAL_CONNECTIONS as u64;
@@ -17,6 +22,9 @@ const LONG: u64 = message_writer::long_connection::MAX_LONG_TERMINAL_CONNECTIONS
 
 /// A process session that no process of the test holds.
 const SESSION: u32 = 4_000_001;
+
+/// The process of a terminal host that no process of the test holds.
+const HOST: u32 = 4_100_001;
 
 /// `(short connections, of them in the terminals' lane, long connections)`.
 fn held(connections: &ConnectionStats) -> (u64, u64, u64) {
@@ -29,6 +37,34 @@ fn connect(connections: &Arc<ConnectionStats>, session: u32) -> (ConnectionPermi
     let (daemon_side, client) = UnixStream::pair().unwrap();
     let permit = admit_session(connections, &daemon_side, Some(session)).expect("a free slot");
     (permit, client)
+}
+
+/// One connection of a client in process session `session` whose leader's
+/// parent is `parent`, as the accept loop admits it, with the client's end.
+/// The accept asks only for the parent of the session's leader.
+fn connect_under(
+    connections: &Arc<ConnectionStats>,
+    session: u32,
+    parent: Option<u32>,
+) -> (ConnectionPermit, UnixStream) {
+    let (daemon_side, client) = UnixStream::pair().unwrap();
+    let parent_of = |leader| {
+        assert_eq!(leader, session, "the accept asks for the parent of the session's leader");
+        parent
+    };
+    let permit =
+        admit_session_by(connections, &daemon_side, Some(session), parent_of).expect("a free slot");
+    (permit, client)
+}
+
+/// The terminal of a client in process session `session` by the seats, for
+/// a session that has a seat or while no host starts: the parent of the
+/// session's leader is not read then.
+fn seated_with_no_parent_read(connections: &ConnectionStats, session: u32) -> Option<Arc<str>> {
+    let seated = connections.seated_terminal(session, |leader| {
+        panic!("the accept read the parent of process {leader}")
+    });
+    seated.and_then(|terminal| terminal.id)
 }
 
 /// Starts a stream on the connection of `permit`, as a `subscribe` does.
@@ -69,7 +105,7 @@ fn the_accept_loop_takes_the_state_lock_zero_times() {
     let before = crate::mux::state_locks_taken_on_this_thread();
     served.serve(Box::new(outside_side));
     assert_eq!(held(&connections), (1, 0, 0), "no seat: an outside client");
-    let seat = connections.seat_terminal(Some(session));
+    let seat = connections.seat_terminal(Some(session), None);
     served.serve(Box::new(terminal_side));
     assert_eq!(held(&connections), (2, 2, 0), "a seat: both are the terminal's");
     assert_eq!(
@@ -92,7 +128,7 @@ fn a_peer_with_no_process_session_is_an_outside_client() {
     let connections = Arc::new(ConnectionStats::default());
     let (daemon_side, _client) = UnixStream::pair().unwrap();
     let permit = admit_session(&connections, &daemon_side, None).expect("a free slot");
-    let seat = connections.seat_terminal(Some(SESSION));
+    let seat = connections.seat_terminal(Some(SESSION), None);
     assert_eq!(held(&connections), (1, 0, 0));
     drop((permit, seat));
     assert_eq!(held(&connections), (0, 0, 0));
@@ -112,7 +148,7 @@ fn an_accept_under_a_held_state_lock_sees_a_seat_taken_under_it() {
     let state = mux.state.lock().unwrap();
     let outside = admit(&connections, &daemon_side).expect("a free slot");
     assert_eq!(held(&connections), (1, 0, 0), "no seat: an outside client");
-    let seat = connections.seat_terminal(Some(session));
+    let seat = connections.seat_terminal(Some(session), None);
     let (second_daemon_side, _second_client) = UnixStream::pair().unwrap();
     let terminal = admit(&connections, &second_daemon_side).expect("a free slot");
     drop(state);
@@ -155,14 +191,14 @@ fn a_terminal_has_its_seat_before_it_is_in_the_session_state() {
 #[test]
 fn a_session_stays_seated_until_its_last_seat_is_gone() {
     let connections = Arc::new(ConnectionStats::default());
-    let old = connections.seat_terminal(Some(SESSION));
-    let new = connections.seat_terminal(Some(SESSION));
+    let old = connections.seat_terminal(Some(SESSION), None);
+    let new = connections.seat_terminal(Some(SESSION), None);
     assert_eq!(old.process_id(), Some(SESSION));
     drop(old);
     assert!(connections.terminal_seated(SESSION));
     drop(new);
     assert!(!connections.terminal_seated(SESSION));
-    let none = connections.seat_terminal(None);
+    let none = connections.seat_terminal(None, None);
     assert_eq!(none.process_id(), None);
 }
 
@@ -181,7 +217,7 @@ fn a_connection_that_came_before_its_terminal_joins_it_at_the_seat() {
     start_stream(&long).expect("an outside connection starts a stream with no gate");
     assert_eq!(held(&connections), (3, 0, 0), "three outside connections");
 
-    let seat = connections.seat_terminal(Some(SESSION));
+    let seat = connections.seat_terminal(Some(SESSION), None);
     assert_eq!(held(&connections), (2, 1, 1));
     assert!(long.lease().is_long() && !short.lease().is_long() && !other.lease().is_long());
 
@@ -212,8 +248,10 @@ fn streams_that_came_before_their_terminals_give_the_slots_back() {
         .collect();
     assert_eq!(held(&connections), (LIMIT - 1, 0, 0));
 
-    let seats: Vec<_> =
-        holders.iter().map(|(_, _, session)| connections.seat_terminal(Some(*session))).collect();
+    let seats: Vec<_> = holders
+        .iter()
+        .map(|(_, _, session)| connections.seat_terminal(Some(*session), None))
+        .collect();
     assert_eq!(held(&connections), (0, 0, LIMIT - 1));
 
     // A hook or a typed command of each terminal finds the lane free, up to
@@ -265,12 +303,14 @@ fn a_long_lane_above_its_limit_refuses_each_claim_until_it_is_under_it() {
         })
         .collect();
     assert_eq!(held(&connections), (EARLY, 0, LONG));
-    let seats: Vec<_> =
-        early.iter().map(|(_, _, session)| connections.seat_terminal(Some(*session))).collect();
+    let seats: Vec<_> = early
+        .iter()
+        .map(|(_, _, session)| connections.seat_terminal(Some(*session), None))
+        .collect();
     assert_eq!(held(&connections), (0, 0, LONG + EARLY), "the lane is above its limit");
     assert!(early.iter().all(|(permit, _, _)| permit.lease().is_long()));
 
-    let next_seat = connections.seat_terminal(Some(SESSION + 500));
+    let next_seat = connections.seat_terminal(Some(SESSION + 500), None);
     let (next, _next_client) = connect(&connections, SESSION + 500);
     let refused_with_the_bound = |lane: u64| {
         assert_eq!(held(&connections), (1, 1, lane));
@@ -317,7 +357,7 @@ fn a_hung_up_connection_does_not_join_a_terminal() {
     let (next, _next_client) = connect(&connections, SESSION + 1);
     assert!(gone.lease().is_hung_up(), "the accept at the limit took the slot back");
 
-    let seat = connections.seat_terminal(Some(SESSION));
+    let seat = connections.seat_terminal(Some(SESSION), None);
     assert_eq!(held(&connections), (LIMIT, 0, 0));
     assert_eq!(connections.snapshot(LIMIT).hung_up, 1);
     drop((gone, fill, next, seat));
@@ -329,12 +369,12 @@ fn a_hung_up_connection_does_not_join_a_terminal() {
 #[test]
 fn a_refused_connection_names_its_lane() {
     let connections = Arc::new(ConnectionStats::default());
-    let _seat = connections.seat_terminal(Some(SESSION));
+    let _seat = connections.seat_terminal(Some(SESSION), None);
     let (daemon_side, _client) = UnixStream::pair().unwrap();
     let terminals: Vec<_> = (0..LANE)
         .map(|index| {
             let session = SESSION + 1 + u32::try_from(index).unwrap();
-            (connections.seat_terminal(Some(session)), connect(&connections, session))
+            (connections.seat_terminal(Some(session), None), connect(&connections, session))
         })
         .collect();
     let refused = admit_session(&connections, &daemon_side, Some(SESSION)).err();
@@ -365,7 +405,7 @@ fn a_connection_and_its_terminals_seat_at_one_moment_meet() {
             })
         };
         start.wait();
-        let seat = connections.seat_terminal(Some(SESSION));
+        let seat = connections.seat_terminal(Some(SESSION), None);
         let permit = accept.join().expect("the accept's thread");
         assert_eq!(held(&connections), (1, 1, 0), "round {round}");
         drop((permit, seat));
@@ -406,7 +446,7 @@ fn a_seat_a_stream_and_a_hang_up_at_one_moment_keep_the_counts() {
             })
         };
         start.wait();
-        let seat = connections.seat_terminal(Some(SESSION));
+        let seat = connections.seat_terminal(Some(SESSION), None);
         stream.join().expect("the stream's thread");
         let next = take_back.join().expect("the accept's thread");
 
@@ -423,4 +463,213 @@ fn a_seat_a_stream_and_a_hang_up_at_one_moment_keep_the_counts() {
         assert_eq!(held(&connections), (0, 0, 0), "round {round}");
         assert_eq!(connections.snapshot(LIMIT).hung_up, 0, "round {round}");
     }
+}
+
+/// The host of a new terminal takes its seat before it starts the terminal's
+/// process, and that process leads its own session as the host's child. Its
+/// first connection is then its terminal's: in the terminals' lane and with
+/// the terminal's id, before the terminal has its own seat. The terminal's
+/// seat takes nothing over (no count changes), and the host's seat ends with
+/// no gap: the session is the same terminal's before, at and after it.
+#[test]
+fn a_new_terminals_first_connection_is_its_terminals_while_its_host_starts() {
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None, "no host starts");
+    let host_seat = seating.seat(HOST);
+    assert!(!connections.terminal_seated(SESSION), "the terminal has no seat of its own yet");
+
+    let (first, _first_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 1, 0), "the first connection is in the terminals' lane");
+    let terminal = Some(SeatedTerminal { id: Some(Arc::from("terminal-1")) });
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal);
+
+    // The child of a process that is no host, a process with no parent that
+    // the daemon can read, and the host's own session are outside clients.
+    let (other, _other_client) = connect_under(&connections, SESSION + 1, Some(HOST + 1));
+    let (orphan, _orphan_client) = connect_under(&connections, SESSION + 2, None);
+    let (host, _host_client) = connect_under(&connections, HOST, Some(1));
+    assert_eq!(held(&connections), (4, 1, 0));
+    assert_eq!(connections.seated_terminal(SESSION + 1, |_| Some(HOST + 1)), None);
+    assert_eq!(connections.seated_terminal(HOST, |_| Some(1)), None);
+
+    let seat = connections.seat_terminal(Some(SESSION), Some("terminal-1"));
+    assert_eq!(held(&connections), (4, 1, 0), "the terminal's seat takes no connection over");
+    assert_eq!(connections.seated_terminal(SESSION, |_| Some(HOST)), terminal);
+    drop(host_seat);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION).as_deref(), Some("terminal-1"));
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION + 1), None, "no host starts");
+
+    start_stream(&first).expect("a long place");
+    assert_eq!(held(&connections), (3, 0, 1), "the first connection is the terminal's long one");
+    drop((first, other, orphan, host, seat));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// A host whose launch fails, or that ends before its terminal has a seat,
+/// leaves no seat: a process that has its process id as its parent after
+/// that is an outside client, and the parent is not read.
+#[test]
+fn a_host_that_ends_before_its_terminal_leaves_no_seat() {
+    let connections = Arc::new(ConnectionStats::default());
+    let seating = HostSeating::of(connections.clone(), Some("terminal-1"));
+    let first = seating.seat(HOST);
+    let again = seating.seat(HOST);
+    drop(first);
+    let (inside, _inside_client) = connect_under(&connections, SESSION, Some(HOST));
+    assert_eq!(held(&connections), (1, 1, 0), "one seat of the host is left");
+    drop(again);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
+    let (outside, _outside_client) = connect(&connections, SESSION);
+    assert_eq!(held(&connections), (2, 1, 0), "no seat: an outside client");
+
+    // A terminal with no session to seat it (`HostSeating::default`) seats
+    // no host.
+    let unseated = HostSeating::default().seat(HOST);
+    assert_eq!(seated_with_no_parent_read(&connections, SESSION), None);
+    drop((inside, outside, unseated));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// The parent that the accept reads is the system's: this test's process
+/// has the parent that `getppid` names.
+#[test]
+fn the_parent_of_a_process_is_the_systems() {
+    // SAFETY: `getppid` has no arguments and cannot fail.
+    let parent = unsafe { libc::getppid() };
+    assert_eq!(parent_process(std::process::id()), u32::try_from(parent).ok());
+}
+
+/// A burst of 300 terminals whose hosts the daemon starts, each with one
+/// event stream that its process opens before the terminal has its seat.
+/// The counts, with no clock:
+/// - 0 connections come as outside ones (each is in the terminals' lane at
+///   its accept);
+/// - 0 connections join a terminal at its seat (no count changes there);
+/// - the long lane is never above its limit of 256: the 44 streams above it
+///   are refused with the limit's error.
+///
+/// The last part shows that the count is live: a terminal that starts
+/// another way has no host seat, its early stream joins at the seat, and
+/// the lane is then above its limit by that one.
+#[test]
+fn a_burst_of_300_hosted_terminals_joins_nothing_and_keeps_the_long_lane_at_its_limit() {
+    const TERMINALS: u32 = 300;
+    let connections = Arc::new(ConnectionStats::default());
+    let mut streams = Vec::new();
+    let mut refused = Vec::new();
+    let mut seats = Vec::new();
+    for index in 0..TERMINALS {
+        let (host, session) = (HOST + index, SESSION + index);
+        let id = format!("terminal-{index}");
+        let host_seat = HostSeating::of(connections.clone(), Some(id.as_str())).seat(host);
+        let long = u64::from(index).min(LONG);
+        let short = u64::try_from(refused.len()).unwrap();
+        assert_eq!(held(&connections), (short, short, long), "terminal {index}: before");
+
+        let (permit, client) = connect_under(&connections, session, Some(host));
+        assert_eq!(
+            held(&connections),
+            (short + 1, short + 1, long),
+            "terminal {index}: its first connection came as an outside one"
+        );
+        match start_stream(&permit) {
+            Ok(_) => {
+                assert!(long < LONG, "terminal {index}: a stream started above the limit");
+                assert!(permit.lease().is_long());
+                streams.push((permit, client));
+            }
+            Err(error) => {
+                assert_eq!(long, LONG, "terminal {index}: refused under the limit: {error}");
+                let full = error
+                    .get_ref()
+                    .and_then(|inner| inner.downcast_ref::<LongConnectionsFull>())
+                    .expect("the error of the bound");
+                assert_eq!(full.limit, LONG);
+                refused.push((permit, client));
+            }
+        }
+        let at_the_seat = held(&connections);
+        assert!(at_the_seat.2 <= LONG, "terminal {index}: the long lane is above its limit");
+        seats.push(connections.seat_terminal(Some(session), Some(id.as_str())));
+        assert_eq!(held(&connections), at_the_seat, "terminal {index}: a join at its seat");
+        drop(host_seat);
+        assert_eq!(seated_with_no_parent_read(&connections, session).as_deref(), Some(id.as_str()));
+    }
+    let above = u64::from(TERMINALS) - LONG;
+    assert_eq!((streams.len(), refused.len()), (256, 44));
+    assert_eq!(held(&connections), (above, above, LONG));
+    drop(refused);
+    assert_eq!(held(&connections), (0, 0, LONG));
+
+    // The count is live: with no host seat the early stream is an outside
+    // one, and it joins above the limit at its terminal's seat.
+    let (early, _early_client) = connect(&connections, SESSION + TERMINALS);
+    start_stream(&early).expect("an outside connection starts a stream with no gate");
+    assert_eq!(held(&connections), (1, 0, LONG));
+    let late_seat = connections.seat_terminal(Some(SESSION + TERMINALS), None);
+    assert_eq!(held(&connections), (0, 0, LONG + 1), "one join above the limit");
+    drop((streams, early, seats, late_seat));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// Each connection that the terminal in process session `session` gets
+/// from now to its first refusal: the rest of its share of the terminals'
+/// lane.
+fn fill_the_share(
+    connections: &Arc<ConnectionStats>,
+    session: u32,
+) -> Vec<(ConnectionPermit, UnixStream)> {
+    let mut taken = Vec::new();
+    loop {
+        let (daemon_side, client) = UnixStream::pair().unwrap();
+        match admit_session(connections, &daemon_side, Some(session)) {
+            Ok(permit) => taken.push((permit, client)),
+            Err(lane) => {
+                assert_eq!(lane, ClientKind::Terminal, "the terminals' lane refuses");
+                return taken;
+            }
+        }
+    }
+}
+
+/// A terminal's first connection, which comes while its host starts, counts
+/// in that terminal's own share of the terminals' lane (the share is by the
+/// client's process session, before and after the terminal's seat). The
+/// count: beside one connection of another terminal, a terminal with an
+/// early connection gets as many connections in all as the same terminal
+/// with none. An early connection that is counted for no terminal, or for
+/// another key, is one more place beside the share.
+#[test]
+fn an_early_connection_counts_in_its_own_terminals_share() {
+    let connections = Arc::new(ConnectionStats::default());
+    let other_seat = connections.seat_terminal(Some(SESSION + 1), None);
+    let (other, _other_client) = connect(&connections, SESSION + 1);
+    let host_seat = HostSeating::of(connections.clone(), Some("terminal-1")).seat(HOST);
+    let early = connect_under(&connections, SESSION, Some(HOST));
+    let seat = connections.seat_terminal(Some(SESSION), Some("terminal-1"));
+    drop(host_seat);
+    let mut own = vec![early];
+    own.extend(fill_the_share(&connections, SESSION));
+    let with_an_early_one = u64::try_from(own.len()).unwrap();
+    assert_eq!(held(&connections), (with_an_early_one + 1, with_an_early_one + 1, 0));
+
+    let reference = Arc::new(ConnectionStats::default());
+    let reference_seats = (
+        reference.seat_terminal(Some(SESSION + 1), None),
+        reference.seat_terminal(Some(SESSION), Some("terminal-1")),
+    );
+    let reference_other = connect(&reference, SESSION + 1);
+    let share = u64::try_from(fill_the_share(&reference, SESSION).len()).unwrap();
+    assert!(share > 1 && share < LANE - 1, "the share of one terminal is {share} of {LANE}");
+    assert_eq!(
+        with_an_early_one, share,
+        "a terminal with an early connection holds {with_an_early_one} places of the lane; its \
+         share is {share}"
+    );
+
+    // The other terminal still finds a place.
+    let (next, _next_client) = connect(&connections, SESSION + 1);
+    drop((own, other, next, seat, other_seat, reference_other, reference_seats));
+    assert_eq!(held(&connections), (0, 0, 0));
 }

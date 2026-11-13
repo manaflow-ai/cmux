@@ -123,6 +123,29 @@ impl Drop for InputAckReceipt {
     }
 }
 
+/// The process of a host that a launch started, with the host's seat among
+/// the session's terminals (`diagnostics/terminal_seats.rs`).
+///
+/// The seat is never held without the process: it ends before the process
+/// is given to the reaper or is waited for. So the host's process id names
+/// this host for as long as its seat is there.
+pub(crate) struct LaunchedHost {
+    seat: crate::diagnostics::HostSeat,
+    process: SpawnedHostProcess,
+}
+
+impl LaunchedHost {
+    pub(crate) fn new(process: SpawnedHostProcess, seat: crate::diagnostics::HostSeat) -> Self {
+        Self { seat, process }
+    }
+
+    /// The host's process, after its seat ended.
+    fn into_process(self) -> SpawnedHostProcess {
+        drop(self.seat);
+        self.process
+    }
+}
+
 pub struct HostAttachment {
     pub record: TerminalHostRecord,
     pub record_path: PathBuf,
@@ -140,7 +163,7 @@ pub struct HostAttachment {
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
-    pub(crate) launch_process: Option<SpawnedHostProcess>,
+    pub(crate) launch_process: Option<LaunchedHost>,
     /// The first authenticated admin attachment may inherit a protocol-v4
     /// launch barrier. A launcher releases it after committing topology;
     /// an adopter releases an abandoned barrier after validating the host.
@@ -778,15 +801,15 @@ impl HostAttachment {
     /// setup step succeeds. Until then, dropping this attachment exact-
     /// kills and waits the child process through SpawnedHostProcess.
     pub(crate) fn commit_launched_host(&mut self) {
-        if let Some(process) = self.launch_process.take() {
-            process.commit();
+        if let Some(launched) = self.launch_process.take() {
+            launched.into_process().commit();
         }
     }
 
     /// The uncommitted launched host runs inside the daemon's kill-on-close
     /// job (Windows, breakaway denied): its terminal ends with that job.
     pub(crate) fn launch_ends_with_daemon_job(&self) -> bool {
-        self.launch_process.as_ref().is_some_and(SpawnedHostProcess::ends_with_daemon_job)
+        self.launch_process.as_ref().is_some_and(|host| host.process.ends_with_daemon_job())
     }
 
     /// Release a newly launched protocol-v4 host only after its public
@@ -880,7 +903,8 @@ impl HostAttachment {
 
 impl Drop for HostAttachment {
     fn drop(&mut self) {
-        let Some(mut process) = self.launch_process.take() else { return };
+        let Some(launched) = self.launch_process.take() else { return };
+        let mut process = launched.into_process();
         // Surface setup failed after an authenticated launch. Ask the
         // still-live host to perform its bounded PTY group shutdown and
         // record cleanup, then wait on the exact owned host process. Only

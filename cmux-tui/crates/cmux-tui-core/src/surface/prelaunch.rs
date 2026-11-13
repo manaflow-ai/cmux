@@ -43,6 +43,7 @@ impl Surface {
             terminal_id,
             standby,
             workspace_key,
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Ok(PrelaunchedHost {
             id,
@@ -88,6 +89,7 @@ impl Surface {
             terminal_id,
             None,
             (seed, ""),
+            &terminal_runtime::host_seating(&mux, &terminal_public_id),
         )?;
         Self::spawn_hosted(
             id,
