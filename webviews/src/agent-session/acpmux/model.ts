@@ -2114,6 +2114,9 @@ export type AcpmuxMessageRun = {
   failed: number;
   running: boolean;
   rows: string[];
+  /// The newest log seq among the rows it folds: the line is unseen while any of them is
+  /// (jumpControl.ts `newestSeq`); the row's own `seq` is its first's, where it sorts.
+  through?: number;
 };
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report

@@ -226,9 +226,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case "_acpmux/watch", "_acpmux/attach", "_acpmux/events":
             guard method == "_acpmux/watch" || names(params["sessionId"]) else { return refuse(id, method) }
             let page = Self.page(params, method: method)
+            // The daemon's attach only pages, so a chat opened while its page is hidden or its person
+            // away says so with a view before the attach answers: the page counts that state as told
+            // (direct.ts `sendAttach`) and sends no view of its own, so turns then stay unseen there too.
+            let visible = params["visible"] as? Bool ?? true
+            let attending = params["attending"] as? Bool ?? visible
+            let tell = method == "_acpmux/attach" && (!visible || !attending)
             run(id) { [weak self] client in
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
-                return try await self.page(method, page, client: client)
+                let result = try await self.page(method, page, client: client)
+                if tell { _ = try? await client.view(visible, attending: attending, seenSeq: nil) }
+                return result
             }
         case "link.inspect":
             // Remote paths are classified by the host that owns the chat. Image paths are

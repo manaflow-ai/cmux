@@ -6055,6 +6055,9 @@ export class AcpmuxDirectClient {
     // Shown but not attended (attention.ts): acpmux keeps the chat shown and its turns unread.
     const visible = pageShown();
     const attending = readerHere();
+    // Where the reader left off is kept with the view too: a return while the attach is out moves
+    // `seenAt`, and the queued away view must still say where they stopped (rows since stay unseen).
+    const seenAt = this.seenAt;
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
@@ -6067,7 +6070,7 @@ export class AcpmuxDirectClient {
         return;
       const was = this.shownToAcpmux;
       if (was.visible === visible && (was.attending ?? was.visible) === attending) return;
-      const seen = this.seenAt?.sessionId === sessionId ? this.seenAt.seq : undefined;
+      const seen = seenAt?.sessionId === sessionId ? seenAt.seq : undefined;
       await this.typed("_acpmux/view", {
         sessionId,
         visible,
@@ -7718,6 +7721,9 @@ export class AcpmuxDirectClient {
     if (event.seq <= this.lastSeq) return;
     this.holdLive(event);
     this.sawPrompt(event);
+    // Where the reader left off is the seq at their last input, so a live record that lands after
+    // it is not counted seen when idle is noticed (`seenSeq`), as on the fed path (`feed`).
+    this.noteSeen();
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;

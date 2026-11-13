@@ -62,8 +62,15 @@ function seqNear(rows: readonly AcpmuxRow[], index: number): number | undefined 
   return undefined;
 }
 
+/// The newest record a row draws: a folded run of messages (conversation/messageRuns.ts) sorts by
+/// its first record but draws them all, so it stays unseen while any of them is.
+function newestSeq(row: AcpmuxRow): number | undefined {
+  return row.messageRun?.through ?? row.seq;
+}
+
 /// The first index whose seq is above `seq` (rows sort by the record that began them, direct.ts
-/// `OrderedRows`), by binary search: O(log n).
+/// `OrderedRows`), by binary search: O(log n). A folded run that began at or before `seq` but folds
+/// records after it is included: the search steps back over it (a few rows at most).
 export function firstIndexAfter(rows: readonly AcpmuxRow[], seq: number): number {
   let lo = 0;
   let hi = rows.length;
@@ -73,11 +80,18 @@ export function firstIndexAfter(rows: readonly AcpmuxRow[], seq: number): number
     if (at === undefined || at <= seq) lo = mid + 1;
     else hi = mid;
   }
-  return lo;
+  let first = lo;
+  for (let back = lo - 1; back >= 0 && back > lo - 8; back -= 1) {
+    const through = rows[back]?.messageRun?.through;
+    if (through !== undefined && through > seq) first = back;
+  }
+  return first;
 }
 
 /// What `firstUnseen` read last, so the next read of mostly the same rows costs O(new rows).
 export type UnseenScan = {
+  /// The chat read (its session id): row ids such as `user-${seq}` repeat across chats.
+  chat?: string;
   rows?: readonly AcpmuxRow[];
   length: number;
   lastId?: string;
@@ -92,20 +106,21 @@ export const emptyUnseenScan = (): UnseenScan => ({ length: 0, found: -1, from: 
 
 /// The index of the first unseen row (`countsUnseen`, seq above `readThrough`), -1 when none.
 /// Amortized O(1) per render: rows mostly append and the cursor only moves forward, so a read picks
-/// up where the last stopped; another chat, a rebuild or a cursor moved back reads again from a
-/// binary search. Undefined `readThrough` (not known yet): none.
+/// up where the last stopped; another chat (`chat`, the scan is kept across switches), a rebuild or
+/// a cursor moved back reads again from a binary search. Undefined `readThrough` (not known yet): none.
 export function firstUnseen(
   rows: readonly AcpmuxRow[],
   readThrough: number | undefined,
   scan: { current: UnseenScan },
   me = "owner",
+  chat = "",
 ): number {
   if (readThrough === undefined) {
     scan.current = emptyUnseenScan();
     return -1;
   }
   const last = scan.current;
-  const same = last.me === me && last.readThrough !== undefined;
+  const same = last.me === me && last.chat === chat && last.readThrough !== undefined;
   const appended =
     same &&
     last.length > 0 &&
@@ -129,13 +144,14 @@ export function firstUnseen(
   if (found < 0) {
     for (; from < rows.length; from += 1) {
       const row = rows[from]!;
-      if ((row.seq === undefined || row.seq > readThrough) && countsUnseen(row, me)) {
+      const newest = newestSeq(row);
+      if ((newest === undefined || newest > readThrough) && countsUnseen(row, me)) {
         found = from;
         break;
       }
     }
   }
-  scan.current = { rows, length: rows.length, lastId: rows.at(-1)?.id, readThrough, me, found, from };
+  scan.current = { chat, rows, length: rows.length, lastId: rows.at(-1)?.id, readThrough, me, found, from };
   return found;
 }
 
@@ -174,7 +190,7 @@ export function seenThrough(
   for (let at = view.last; at >= view.first && at > view.last - VIEW_SCAN; at -= 1) {
     const row = rows[at];
     if (row && countsUnseen(row, me)) {
-      newest = seqNear(rows, at);
+      newest = row.messageRun?.through ?? seqNear(rows, at);
       break;
     }
   }

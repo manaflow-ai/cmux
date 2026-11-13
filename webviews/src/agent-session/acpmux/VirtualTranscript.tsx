@@ -6041,7 +6041,7 @@ function TranscriptView({
   const movedThrough = useSyncExternalStore(subscribeReadThrough, readThroughNow, readThroughNow);
   const through =
     readThrough === undefined || movedThrough === undefined ? readThrough : Math.max(readThrough, movedThrough);
-  const unseenIndex = jumpButton ? firstUnseen(rows, through, unseenScan, promptAuthor) : -1;
+  const unseenIndex = jumpButton ? firstUnseen(rows, through, unseenScan, promptAuthor, sessionId ?? "") : -1;
   // The reader went to the latest message (`caughtUp`), read once per render.
   const caught = caughtUp.current;
   // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the

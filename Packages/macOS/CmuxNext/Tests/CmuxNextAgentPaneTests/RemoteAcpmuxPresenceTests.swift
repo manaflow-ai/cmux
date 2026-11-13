@@ -89,6 +89,25 @@ import Testing
         #expect(client.calls.withLock { $0 } == ["attach", "view true"])
     }
 
+    @Test func aChatOpenedHiddenOrAwayTellsTheDaemonWithItsAttach() async throws {
+        for (params, view) in [
+            (#""visible":false"#, "view false"),
+            // Shown to a person who is away: the fake hears only whether it shows (no attention-v1).
+            (#""visible":true,"attending":false"#, "view true"),
+        ] {
+            let client = FakeClient(readOnly: false)
+            let frames = Frames()
+            let wire = RemoteAcpmuxWire(client: client, session: "sub")
+            try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+            wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"sub",\#(params)}}"#) { _ in }
+            try await Self.waitUntil { frames.reply(1) != nil }
+            #expect(client.calls.withLock { $0 } == ["attach", view])
+        }
+        // Shown and attended (or saying nothing): the attach alone, as before.
+        let (_, client, _) = try await Self.attached(readOnly: false)
+        #expect(client.calls.withLock { $0 } == ["attach"])
+    }
+
     private static func waitUntil(_ condition: @Sendable () -> Bool) async throws {
         for _ in 0..<500 where !condition() { try await Task.sleep(for: .milliseconds(5)) }
         #expect(condition())

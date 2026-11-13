@@ -179,6 +179,14 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
         ...(row.joined ?? []),
       ]),
     };
+    // The seqs of the records it folds: the line sorts by its first and is unseen while its newest
+    // is (jumpControl.ts), so a run that came after the reader's seen cursor sends Jump up to it.
+    let from: number | undefined;
+    for (const row of members) {
+      if (row.seq === undefined) continue;
+      from ??= row.seq;
+      run.through = Math.max(run.through ?? row.seq, row.seq);
+    }
     // The line's id is its first row's key, or the key of the row Find or a link opened it for
     // (`revealFolds`): while that key is in the fold set the line is open, and a click on it
     // closes it by that same key.
@@ -198,6 +206,7 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
       version: members.reduce((sum, row) => (sum * 31 + row.version) % 1_000_003, members.length) * 2 + (open ? 1 : 0),
       at: first.at,
       kind: MESSAGE_RUN,
+      ...(from !== undefined && { seq: from }),
       foldOpen: open,
       messageRun: run,
       ...(first.settled && { settled: true }),

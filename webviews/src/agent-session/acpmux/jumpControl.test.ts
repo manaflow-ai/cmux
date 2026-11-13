@@ -228,3 +228,18 @@ test("less than a screen of new content while idle brings no up arrow; a screen 
   const noise = [...before, ...Array.from({ length: 12 }, (_, i) => row(`s${i}`, 41 + i, "status"))];
   expect(atLatest(noise)).toBe("hidden");
 });
+
+test("another chat with the same row ids and cursor reads again: the scan is kept across chat switches", () => {
+  const memo = scan();
+  // Chat A: its first unseen row is its second.
+  const a = [row("user-1", 1, "user"), row("assistant-2", 2), row("assistant-3", 3)];
+  expect(firstUnseen(a, 1, memo, "owner", "chat-a")).toBe(1);
+  // Chat B: same shape and ids (they are per chat), all of it from the reader: nothing unseen.
+  const b = [
+    row("user-1", 1, "user"),
+    row("assistant-2", 2, "user"),
+    row("assistant-3", 3, "user"),
+    row("user-4", 4, "user"),
+  ];
+  expect(firstUnseen(b, 1, memo, "owner", "chat-b")).toBe(-1);
+});
