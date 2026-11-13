@@ -56,12 +56,24 @@ enum ThemePhone {
             .appendingPathComponent("phone-wallpaper", isDirectory: true)
     }
 
-    /// Follows the app's theme and picture and hands each new state to the iPhone host.
+    /// Whether a phone can get the appearance: iPhone connections are on and one is paired. Until
+    /// then nothing is decoded or written; the follow wakes when either changes.
+    static func wanted(_ iphone: IPhoneHostService) -> Bool {
+        iphone.allowed && !(iphone.paired?.devices.isEmpty ?? true)
+    }
+
+    /// Follows the app's theme and picture and hands each new state to the iPhone host, while a
+    /// phone can get it (``wanted(_:)``).
     static func follow(scope: ThemeScope, iphone: IPhoneHostService) -> Task<Void, Never> {
         let folder = folder
         // task-owner: IPhoneHostService.followingAppearance; event-driven (Observation), cancelled by stop().
         return Task { [weak iphone] in
-            for await shown in ObservationStream({ shown(scope) }) {
+            let states = ObservationStream { [weak iphone] () -> Shown? in
+                guard let iphone, wanted(iphone) else { return nil }
+                return shown(scope)
+            }
+            for await next in states {
+                guard let shown = next else { continue }
                 var appearance = shown.appearance
                 if let picture = shown.picture {
                     let dark = shown.dark

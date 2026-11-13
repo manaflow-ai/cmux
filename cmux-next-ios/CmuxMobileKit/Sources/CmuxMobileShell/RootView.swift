@@ -294,10 +294,6 @@ public struct RootView: View {
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
         }
-        // A Mac theme's light or dark look follows it under System (ask-87d30da8e5).
-        .onChange(of: CmuxMobileMacTheme.shared.interfaceStyle) { _, _ in
-            applyAppearance(settings.appearance)
-        }
     }
 
     private func open(_ opened: OpenedURL) {
@@ -511,9 +507,7 @@ public struct RootView: View {
         let style: UIUserInterfaceStyle = switch mode {
         case .light: .light
         case .dark: .dark
-        // Under System the window takes the Mac theme's look while the chrome follows the Mac, as
-        // the Mac's own windows do; an explicit Light or Dark stays the person's.
-        case .system: CmuxMobileMacTheme.shared.interfaceStyle ?? .unspecified
+        case .system: .unspecified
         }
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }

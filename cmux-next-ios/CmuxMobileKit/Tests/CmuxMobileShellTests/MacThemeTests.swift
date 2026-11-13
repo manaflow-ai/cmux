@@ -10,6 +10,7 @@ import UIKit
 /// from the theme the Mac sends with the Mac's own code, kept on disk so launch and offline paint
 /// it before any link, replaced by what a connected Mac sends, and never overrides a look the
 /// person chose on the phone (Match Mac theme off, an accent picked, an explicit Light or Dark).
+@MainActor
 @Suite struct MacThemeTests {
     static func defaults() -> UserDefaults {
         let name = "MacThemeTests.\(UUID().uuidString)"
@@ -78,29 +79,39 @@ import UIKit
     }
 
     /// Launch and offline: the last theme and wallpaper are read from disk before any link.
-    @Test func theCacheIsReadBeforeAnyLink() throws {
+    @Test func theCacheIsReadBeforeAnyLink() async throws {
         let cache = Self.cache()
         let bytes = Self.png()
         var appearance = Self.mocha
         appearance.wallpaper = .init(id: "a1b2", bytes: bytes.count, tintOpacity: 0.6)
-        CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache).apply(appearance, wallpaper: bytes)
-        // The next launch, with no Mac reachable.
+        let first = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
+        first.apply(appearance, wallpaper: bytes)
+        // The colors change at once; the picture is written and decoded off the main actor.
+        #expect(first.palette == CmuxMobileMacPalette(Self.mocha))
+        #expect(!first.needsWallpaper(appearance))
+        await first.settled()
+        #expect(first.wallpaper?.image != nil)
+        // The next launch, with no Mac reachable: the colors are there before the first frame.
         let relaunched = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
         #expect(relaunched.appearance == appearance)
         #expect(relaunched.palette == CmuxMobileMacPalette(Self.mocha))
+        await relaunched.settled()
         #expect(relaunched.wallpaper?.tint == 0.6)
         #expect(relaunched.wallpaper?.image != nil)
         #expect(!relaunched.needsWallpaper(appearance))
     }
 
     /// A connected Mac's theme replaces the cached one, live and on disk.
-    @Test func theMacsThemeWinsOverTheCachedOne() throws {
+    @Test func theMacsThemeWinsOverTheCachedOne() async throws {
         let cache = Self.cache()
-        CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache).apply(Self.mocha)
+        let earlier = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
+        earlier.apply(Self.mocha)
+        await earlier.settled()
         let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
         #expect(theme.palette?.isDark == true)
         theme.apply(Self.solarizedLight)
         #expect(theme.palette == CmuxMobileMacPalette(Self.solarizedLight))
+        await theme.settled()
         #expect(CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache).palette == CmuxMobileMacPalette(Self.solarizedLight))
         // A frame the phone cannot derive from leaves the last good one.
         var bad = Self.mocha
@@ -127,12 +138,30 @@ import UIKit
         let token = theme.token(stock) { $0.bg }
         #expect(token.dark == CmuxMobileRGBA(hex: "#1e1e2e"))
         #expect(token.light == stock.light)
-        #expect(theme.interfaceStyle == .dark)
         theme.apply(Self.solarizedLight)
         let light = theme.token(stock) { $0.bg }
         #expect(light.light == CmuxMobileRGBA(hex: "#fdf6e3"))
         #expect(light.dark == stock.dark)
-        #expect(theme.interfaceStyle == .light)
+    }
+
+    /// Appearance System keeps iOS's own light or dark: with iOS in dark mode and a light Mac theme,
+    /// the chrome resolves to the dark slot, the stock dark color; in light mode, the Mac's.
+    @Test func systemDarkUnderALightMacThemeTakesTheDarkSlot() {
+        let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: Self.cache())
+        theme.apply(Self.solarizedLight)
+        let stock = CmuxMobileColors.stockBg
+        let token = theme.token(stock) { $0.bg }
+        let dark = token.uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        let light = token.uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        #expect(Self.rgba(dark) == Self.rgba(stock.dark.uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))))
+        #expect(Self.rgba(light) == Self.rgba(CmuxMobileRGBA(hex: "#fdf6e3").uiColor))
+    }
+
+    /// `color`'s sRGB components, rounded to 8 bits.
+    static func rgba(_ color: UIColor) -> [Int] {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
     }
 
     /// Match Mac theme off: the stock chrome, whatever the Mac sent; the choice persists.
@@ -144,7 +173,6 @@ import UIKit
         theme.matchesMac = false
         #expect(theme.palette == nil)
         #expect(theme.macPalette != nil)
-        #expect(theme.interfaceStyle == nil)
         #expect(theme.token(CmuxMobileColors.stockLabel) { $0.label } == CmuxMobileColors.stockLabel)
         #expect(CmuxMobileMacTheme(defaults: store, cache: cache).matchesMac == false)
     }

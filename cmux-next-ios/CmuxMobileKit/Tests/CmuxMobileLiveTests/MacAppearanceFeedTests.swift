@@ -5,6 +5,8 @@ import Foundation
 import Testing
 
 #if os(iOS)
+import UIKit
+
 /// ask-87d30da8e5: each Mac's `appearance` frames; the focused Mac's reach the chrome, the
 /// wallpaper is fetched once per content id and only when it is what the Mac announced.
 @MainActor
@@ -43,10 +45,10 @@ import Testing
         let feed = MacAppearanceFeed(theme: theme)
         feed.focus(macID: "mac")
         let picture = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4])
-        var fetches = 0
+        let fetches = Counter()
         // Bytes that are not the announced picture are dropped: the colors still apply.
         await feed.apply(Self.frame(background: "#101010", wallpaper: (Self.id(picture), picture.count)), macID: "mac") { _ in
-            fetches += 1
+            fetches.count += 1
             return Data([0, 1, 2, 3, 4, 5, 6, 7])
         }
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#101010"))
@@ -54,15 +56,15 @@ import Testing
         #expect(theme.needsWallpaper(theme.appearance!))
         // The right bytes are kept under their id; the same picture again is never fetched.
         await feed.apply(Self.frame(background: "#101010", wallpaper: (Self.id(picture), picture.count)), macID: "mac") { _ in
-            fetches += 1
+            fetches.count += 1
             return picture
         }
         #expect(!theme.needsWallpaper(theme.appearance!))
         await feed.apply(Self.frame(background: "#303030", wallpaper: (Self.id(picture), picture.count)), macID: "mac") { _ in
-            fetches += 1
+            fetches.count += 1
             return picture
         }
-        #expect(fetches == 2)
+        #expect(fetches.count == 2)
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#303030"))
     }
 
@@ -74,5 +76,39 @@ import Testing
         #expect(theme.palette == nil)
         #expect(feed.latest.isEmpty)
     }
+
+    /// First pairing, or a switch to a Mac whose frame came while another was focused: the focus
+    /// shows that Mac's theme at once, even with its wallpaper not cached, and fetches the picture.
+    @Test func aFocusShowsTheThemeAtOnceAndFetchesAMissingWallpaper() async {
+        let theme = Self.theme()
+        let feed = MacAppearanceFeed(theme: theme)
+        feed.focus(macID: "mac-a")
+        let picture = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).pngData { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }
+        let fetches = Counter()
+        // mac-b's frame arrives while mac-a is focused: nothing shows, nothing is fetched yet.
+        await feed.apply(Self.frame(background: "#404040", wallpaper: (Self.id(picture), picture.count)), macID: "mac-b") { _ in
+            fetches.count += 1
+            return picture
+        }
+        #expect(theme.palette == nil)
+        #expect(fetches.count == 0)
+        feed.focus(macID: "mac-b")
+        // The colors are there before the picture.
+        #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#404040"))
+        await feed.focusFetch?.value
+        #expect(fetches.count == 1)
+        #expect(!theme.needsWallpaper(theme.appearance!))
+        await theme.settled()
+        #expect(theme.wallpaper?.tint == 0.6)
+    }
+}
+
+/// A fetch count the test's fetch closures share.
+@MainActor
+final class Counter {
+    var count = 0
 }
 #endif

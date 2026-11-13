@@ -195,6 +195,11 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
         wallpaperFile(id: id).flatMap { try? Data(contentsOf: $0) }
     }
 
+    /// Whether wallpaper `id` is on disk (its file exists, not read).
+    public func hasWallpaper(id: String) -> Bool {
+        wallpaperFile(id: id).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
     public func save(_ appearance: CmuxMobileMacAppearance) {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -221,6 +226,10 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
 /// one is connected and from the cache otherwise, and the sidebar and Home show its wallpaper. Off,
 /// or before any Mac sent one, the phone keeps its black and white chrome. SwiftUI views that read a
 /// token in their body redraw when it changes (Observation), as with the accent.
+///
+/// The palette is set at once on the main actor (a derivation, no disk). The disk work (the JSON and
+/// wallpaper writes, the folder listing) and the picture's decode run off the main actor, one after
+/// another in order, and the decoded picture is published back on the main actor.
 @Observable
 public final class CmuxMobileMacTheme: @unchecked Sendable {
     public static let shared = CmuxMobileMacTheme()
@@ -229,6 +238,14 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let cache: CmuxMobileMacAppearanceCache
+    /// The last queued disk job: each one waits for it, so writes land in order.
+    @ObservationIgnored private var diskTail: Task<Void, Never>?
+    /// The last queued picture load, published on the main actor when it ends.
+    @ObservationIgnored private var pictureLoad: Task<Void, Never>?
+    /// The wallpaper id the newest picture load is for.
+    @ObservationIgnored private var loadingPictureID: String?
+    /// The picture whose fetched bytes are queued for the disk: held, not to be fetched again.
+    @ObservationIgnored private var heldPictureID: String?
 
     /// Whether the chrome follows the Mac's theme.
     public var matchesMac: Bool {
@@ -238,9 +255,12 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     public private(set) var appearance: CmuxMobileMacAppearance?
     /// Its palette, whatever ``matchesMac`` says (Settings previews it).
     public private(set) var macPalette: CmuxMobileMacPalette?
-    /// Its wallpaper, decoded once.
+    /// Its wallpaper, decoded off the main actor, and the id it was decoded for.
     public private(set) var macWallpaper: UIImage?
+    private var macWallpaperID: String?
 
+    /// Reads the cached appearance (one small JSON file: the first frame is already themed); its
+    /// picture decodes off the main actor and shows when ready.
     public init(defaults: UserDefaults = .standard, cache: CmuxMobileMacAppearanceCache = .standard) {
         self.defaults = defaults
         self.cache = cache
@@ -248,53 +268,93 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         if let cached = cache.load() {
             appearance = cached
             macPalette = CmuxMobileMacPalette(cached)
-            macWallpaper = cached.wallpaper.flatMap { cache.wallpaper(id: $0.id) }.flatMap(UIImage.init(data:))
+            loadPicture(cached.wallpaper?.id, bytes: nil)
         }
     }
 
     /// The palette the chrome draws with now: nil when off or no Mac ever sent one.
     public var palette: CmuxMobileMacPalette? { matchesMac ? macPalette : nil }
-    /// The wallpaper behind the sidebar and Home, with the Mac's tint over it.
+    /// The wallpaper behind the sidebar and Home, with the Mac's tint over it: only the picture the
+    /// current appearance names (another Mac's or an earlier one never shows under this tint).
     public var wallpaper: (image: UIImage, tint: Double)? {
-        guard matchesMac, let image = macWallpaper, let info = appearance?.wallpaper else { return nil }
+        guard matchesMac, let image = macWallpaper, let info = appearance?.wallpaper, macWallpaperID == info.id else { return nil }
         return (image, info.tintOpacity)
     }
 
-    /// Whether `appearance`'s wallpaper must be fetched (not cached under its id).
+    /// Whether `appearance`'s wallpaper must be fetched: no file under its id (an existence check).
     public func needsWallpaper(_ appearance: CmuxMobileMacAppearance) -> Bool {
-        guard let id = appearance.wallpaper?.id else { return false }
-        return cache.wallpaper(id: id) == nil
+        guard let id = appearance.wallpaper?.id, id != heldPictureID else { return false }
+        return !cache.hasWallpaper(id: id)
     }
 
     /// A Mac's appearance, live: it wins over the cached one and is kept for the next launch.
-    /// `wallpaper` is the picture's bytes when they were just fetched.
+    /// `wallpaper` is the picture's bytes when they were just fetched. The palette changes at once;
+    /// the writes and the picture's decode happen off the main actor (``settled()`` awaits them).
+    @MainActor
     public func apply(_ appearance: CmuxMobileMacAppearance, wallpaper: Data? = nil) {
         guard let palette = CmuxMobileMacPalette(appearance) else { return }
-        if let id = appearance.wallpaper?.id, let wallpaper { cache.saveWallpaper(wallpaper, id: id) }
-        cache.save(appearance)
         let newID = appearance.wallpaper?.id
-        // Decode only when the picture changed (or was missing): a color change keeps the image.
-        if newID != self.appearance?.wallpaper?.id || (newID != nil && macWallpaper == nil) {
-            macWallpaper = newID.flatMap { cache.wallpaper(id: $0) }.flatMap(UIImage.init(data:))
-        }
         if self.appearance != appearance { self.appearance = appearance }
         if macPalette != palette { macPalette = palette }
+        let cache = cache
+        enqueue { cache.save(appearance) }
+        // Load only when the picture changed, just arrived, or is still missing: a color change keeps it.
+        if wallpaper != nil || newID != loadingPictureID || (newID != nil && macWallpaper == nil) {
+            loadPicture(newID, bytes: wallpaper)
+        }
     }
 
-    /// `stock` in the slot of the Mac theme's appearance replaced by `pick`'s color, while the
-    /// chrome follows the Mac. The other appearance keeps the stock color: a phone set to Light
-    /// under a dark Mac theme keeps the light chrome.
+    /// Waits for the queued writes and picture loads (tests, and anything that reads the cache next).
+    public func settled() async {
+        await diskTail?.value
+        await pictureLoad?.value
+    }
+
+    /// Queues `job` off the main actor after every earlier one.
+    @discardableResult
+    private func enqueue<T: Sendable>(_ job: @escaping @Sendable () -> T) -> Task<T, Never> {
+        let previous = diskTail
+        let task = Task.detached(priority: .userInitiated) { () -> T in
+            await previous?.value
+            return job()
+        }
+        diskTail = Task { _ = await task.value }
+        return task
+    }
+
+    /// Keeps `bytes` as picture `id` when given, then decodes picture `id` off the main actor and
+    /// shows it if the appearance still names it.
+    private func loadPicture(_ id: String?, bytes: Data?) {
+        loadingPictureID = id
+        if bytes != nil { heldPictureID = id }
+        let cache = cache
+        let decoded = enqueue { () -> UIImage? in
+            if let id, let bytes { cache.saveWallpaper(bytes, id: id) }
+            guard let id, let data = cache.wallpaper(id: id), let image = UIImage(data: data) else { return nil }
+            return image.preparingForDisplay() ?? image
+        }
+        let previous = pictureLoad
+        pictureLoad = Task { @MainActor [weak self] in
+            await previous?.value
+            let image = await decoded.value
+            guard let self, self.loadingPictureID == id else { return }
+            if image != nil || self.macWallpaperID != id {
+                self.macWallpaper = image
+                self.macWallpaperID = image == nil ? nil : id
+            }
+        }
+    }
+
+    /// `stock` with the Mac's color in the slot of the Mac theme's own look (`pick`'s color), while
+    /// the chrome follows the Mac. The phone keeps its own light or dark (System follows iOS; Light
+    /// and Dark are the person's), and the slot of the other look keeps the stock color: a light
+    /// Mac theme on a phone in dark mode shows the stock dark chrome.
     public func token(_ stock: CmuxMobileColorToken, _ pick: (CmuxMobileMacPalette) -> CmuxMobileRGBA) -> CmuxMobileColorToken {
         guard let palette else { return stock }
         let value = pick(palette)
         return palette.isDark
             ? CmuxMobileColorToken(dark: value, light: stock.light, lightHighContrast: stock.lightHighContrast)
             : CmuxMobileColorToken(dark: stock.dark, light: value, darkHighContrast: stock.darkHighContrast)
-    }
-
-    /// The window style under appearance `System`: the Mac theme's own, as the Mac's windows take it.
-    public var interfaceStyle: UIUserInterfaceStyle? {
-        palette.map { $0.isDark ? .dark : .light }
     }
 }
 #endif

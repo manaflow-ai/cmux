@@ -12,6 +12,7 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "appearance")
 /// every change); the newest frame of each linked Mac is kept here, and the focused Mac's goes to
 /// ``CmuxMobileMacTheme``, which derives the palette, keeps it on disk and paints it. A wallpaper
 /// is fetched once per content id (`appearance-wallpaper`); a cached one is never fetched again.
+/// The theme shows as soon as a frame arrives or its Mac is focused; the picture follows.
 /// A Mac whose host predates the service refuses it, and the phone keeps what it had.
 @MainActor
 public final class MacAppearanceFeed {
@@ -20,37 +21,57 @@ public final class MacAppearanceFeed {
     /// The largest picture taken (hostd serves at most this).
     public static let maxWallpaperBytes = 8 << 20
 
+    /// Brings a wallpaper's bytes from one Mac.
+    typealias Fetch = @MainActor (CmuxMobileMacAppearance.Wallpaper) async -> Data?
+
     private let theme: CmuxMobileMacTheme
     /// The newest appearance of each Mac, by Mac id.
     private(set) var latest: [String: CmuxMobileMacAppearance] = [:]
+    /// How to fetch a wallpaper from each linked Mac (its last link's), by Mac id.
+    private var fetchers: [String: Fetch] = [:]
     /// The Mac whose appearance the phone shows.
     private(set) var focusedMacID: String?
+    /// The wallpaper fetch the focus started, if any (tests await it).
+    private(set) var focusFetch: Task<Void, Never>?
 
     public init(theme: CmuxMobileMacTheme = .shared) {
         self.theme = theme
     }
 
-    /// The focused Mac changed: its newest appearance shows at once (no fetch; a wallpaper not
-    /// cached yet comes with its next frame).
+    /// The focused Mac changed: its newest theme shows at once, and a wallpaper not cached yet is
+    /// fetched from it then (first pairing, or a switch to a Mac whose picture this phone lacks).
     public func focus(macID: String?) {
         focusedMacID = macID
-        if let macID, let appearance = latest[macID], !theme.needsWallpaper(appearance) { theme.apply(appearance) }
+        focusFetch?.cancel()
+        focusFetch = nil
+        guard let macID, let appearance = latest[macID] else { return }
+        theme.apply(appearance)
+        guard theme.needsWallpaper(appearance), let fetch = fetchers[macID] else { return }
+        // task-owner: focusFetch; one picture fetch per focus, cancelled by the next focus.
+        focusFetch = Task { [weak self] in await self?.show(appearance, of: macID, fetch: fetch) }
     }
 
     /// One `appearance` frame of `macID`. `fetch` brings the wallpaper's bytes when they are not cached.
-    func apply(_ message: Data, macID: String, fetch: (CmuxMobileMacAppearance.Wallpaper) async -> Data?) async {
+    func apply(_ message: Data, macID: String, fetch: @escaping Fetch) async {
         guard let appearance = CmuxMobileMacAppearance.decode(message) else {
             log.error("appearance: unusable frame")
             return
         }
         latest[macID] = appearance
+        fetchers[macID] = fetch
         guard macID == focusedMacID else { return }
-        var bytes: Data?
-        if theme.needsWallpaper(appearance), let wallpaper = appearance.wallpaper {
-            bytes = await fetch(wallpaper).flatMap { Self.verified($0, wallpaper) }
-        }
+        // The theme shows at once; the picture follows when it arrives.
+        theme.apply(appearance)
+        await show(appearance, of: macID, fetch: fetch)
+    }
+
+    /// Fetches `appearance`'s wallpaper when it is not cached, and hands it over if `appearance` is
+    /// still `macID`'s newest and `macID` still the focused Mac.
+    private func show(_ appearance: CmuxMobileMacAppearance, of macID: String, fetch: Fetch) async {
+        guard theme.needsWallpaper(appearance), let wallpaper = appearance.wallpaper else { return }
+        let bytes = await fetch(wallpaper).flatMap { Self.verified($0, wallpaper) }
         // A newer frame or another Mac's focus came while the picture loaded: that one wins.
-        guard macID == focusedMacID, latest[macID] == appearance else { return }
+        guard let bytes, !Task.isCancelled, macID == focusedMacID, latest[macID] == appearance else { return }
         theme.apply(appearance, wallpaper: bytes)
     }
 

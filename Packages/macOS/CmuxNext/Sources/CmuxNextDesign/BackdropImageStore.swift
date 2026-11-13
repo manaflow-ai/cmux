@@ -266,15 +266,27 @@ extension BackdropImageStore {
     /// A phone-sized JPEG of the picture at `source` (light or `dark` frame, a video's poster) in
     /// `folder`, for the iPhone's copy of this Mac's wallpaper (ask-87d30da8e5). Named by the
     /// source's path, size and date, so an unchanged picture is written once; nil when it does not
-    /// decode. Off the main thread: it decodes.
+    /// decode. The folder keeps only the copy it returns: the phone fetches the current picture
+    /// alone, so an earlier one is deleted once the new one is in place. Off the main thread: it decodes.
     public nonisolated static func phoneCopy(of source: URL, dark: Bool, maxPixelSize: Int = 1600, in folder: URL) -> URL? {
         let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path)
         let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes?[.size] as? NSNumber)?.intValue ?? 0
         let file = folder.appendingPathComponent(digest("\(source.path)|\(bytes)|\(modified)|\(dark)|\(maxPixelSize)") + ".jpg")
-        if FileManager.checked.fileExists(atPath: file.path) { return file }
-        guard let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
-        write(image, to: file)
-        return FileManager.checked.fileExists(atPath: file.path) ? file : nil
+        if !FileManager.checked.fileExists(atPath: file.path) {
+            guard let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
+            write(image, to: file)
+            guard FileManager.checked.fileExists(atPath: file.path) else { return nil }
+        }
+        removePhoneCopies(in: folder, except: file)
+        return file
+    }
+
+    /// Deletes every earlier phone copy in `folder` but `kept`.
+    private nonisolated static func removePhoneCopies(in folder: URL, except kept: URL) {
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasSuffix(".jpg") && name != kept.lastPathComponent {
+            try? FileManager.checked.removeItem(at: folder.appendingPathComponent(name))
+        }
     }
 }
