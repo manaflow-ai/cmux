@@ -24,23 +24,30 @@ public final class ChiefCloudSocketSignals: Sendable {
 
     init() {}
 
+    private struct Registered: Sendable {
+        let token: UUID
+        let call: Observer
+    }
+
     // lint:allow lock - one observer slot, set at sign-in and read on each socket change.
-    private let observer = OSAllocatedUnfairLock<(token: UUID, call: Observer)?>(initialState: nil)
+    private let observer = OSAllocatedUnfairLock<Registered?>(initialState: nil)
 
     /// Makes `newObserver` the one observer; the token it returns stops it.
     public func observe(_ newObserver: @escaping Observer) -> UUID {
         let token = UUID()
-        observer.withLock { $0 = (token, newObserver) }
+        observer.withLock { $0 = Registered(token: token, call: newObserver) }
         return token
     }
 
     /// Stops the observer `token` started, unless a newer one replaced it (a later sign-in).
     public func stopObserving(_ token: UUID) {
-        observer.withLock { if $0?.token == token { $0 = nil } }
+        observer.withLock { registered in
+            if registered?.token == token { registered = nil }
+        }
     }
 
     func emit(_ socket: String, _ signal: Signal) {
-        let current = observer.withLock { $0?.call }
+        let current: Observer? = observer.withLock { $0?.call }
         current?(socket, signal)
     }
 }
