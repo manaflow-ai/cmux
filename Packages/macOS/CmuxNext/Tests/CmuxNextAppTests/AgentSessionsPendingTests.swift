@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextDaemon
+@testable import CmuxNextDaemonService
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import Foundation
@@ -218,6 +220,88 @@ import Testing
         #expect(machine.isComplete)
     }
 
+    /// The sessions of all machines are one list (the vault, the agents palette page, resume by id): newest
+    /// activity first over all machines, minus the sessions that Clear History or Remove from History hid.
+    @Test func theSessionsOfAllMachinesAreOneListNewestFirstMinusTheHiddenOnes() {
+        let other = AgentSession(machine: "mini", provider: "codex", sessionID: "s-other", startedAt: Date(timeIntervalSinceNow: -120),
+                                 lastActivityAt: Date(timeIntervalSinceNow: -120))
+        let local = [SessionVaultTests.session("s-old", minutesAgo: 3), SessionVaultTests.session("s-new", minutesAgo: 1),
+                     SessionVaultTests.session("s-hidden", minutesAgo: 0.5)]
+        let machines = [MachineAgentSessions(machine: "local", listed: local), MachineAgentSessions(machine: "mini", listed: [other])]
+        var hidden = HiddenHistory()
+        hidden.hide(entry: "local/claude/s-hidden")
+        #expect(machines.sessions(minus: hidden).map(\.sessionID) == ["s-new", "s-other", "s-old"])
+        #expect(machines.sessions(minus: HiddenHistory()).map(\.sessionID) == ["s-hidden", "s-new", "s-other", "s-old"])
+    }
+
+    /// A machine that gave no answer yet has no list, so its list is not the whole list. Its first answer, an
+    /// empty one too, is.
+    @Test func aMachineThatGaveNoAnswerYetHasNoCompleteList() {
+        var machine = MachineAgentSessions(machine: "cloud-1")
+        #expect(!machine.isComplete, "no answer yet: a session can exist on that machine")
+        #expect(machine.sessions.isEmpty)
+        machine.take(listed: [], complete: true)
+        #expect(machine.isComplete, "the daemon's own answer is the whole list, an empty one too")
+        #expect(MachineAgentSessions(machine: "cloud-2", listed: []).isComplete)
+        #expect(MachineAgentSessions(fold: AgentSessionFold(machine: "old-1")).isComplete, "a fold of an older daemon's journal is its answer")
+    }
+
+    /// This Mac's daemon is not connected yet: its start can take minutes while it builds its registry again. It
+    /// gave no answer, so the app holds no whole list: resume by id says "still loading" and not "no session",
+    /// and the vault shows its "not complete" mark and not its "no sessions yet" text.
+    @Test func whileThisMacsDaemonGaveNoAnswerYetNoSessionIsSaidToNotExist() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let local = services.machines.local
+        if case .connected = local.store.connectionState { Issue.record("the test's daemon must not be connected") }
+        let work = services.registry.capturingWork {
+            services.registry.perform("history.resumeAgentSession", invocation: ActionInvocation(arguments: ["session": .string("s-any")]))
+        }
+        let pending = try #require(await work.first?.value, "an id that no list has resumed something")
+        #expect(pending.message == HistoryAppStrings.stillLoading, "a daemon that gave no answer cannot say that a session does not exist")
+        #expect(pending.refusal == .unavailable)
+        #expect(!services.history.agents.isComplete)
+        // The vault over the app's own source: its one read gets no answer, and it says that the list is not complete.
+        await services.vault.reload()
+        #expect(services.vault.isPartial, "the vault shows its mark, not the text of an empty list")
+        #expect(services.vault.rows.isEmpty)
+        // The daemon's first answer, an empty list: now the session does not exist.
+        var machine = try #require(services.history.agents.machines[local.machineID], "the read kept that this Mac's daemon gave no answer")
+        machine.take(listed: [], complete: true)
+        services.history.agents.machines[local.machineID] = machine
+        #expect(services.history.agents.isComplete)
+        await services.vault.reload()
+        #expect(!services.vault.isPartial)
+    }
+
+    /// A healthy start: this Mac's daemon connects, and its first answer comes some hundred ms later. Words that
+    /// show and go at each start are a flash, and the text of an empty list is false, so the vault shows neither.
+    /// The words wait for a state that says that the daemon is slow or down: a restore reported, failed, dropped.
+    @Test func theVaultsNotCompleteWordsWaitUntilTheDaemonIsSaidToBeSlowOrDown() async {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let local = services.machines.local
+        await services.vault.reload()
+        #expect(services.vault.isPartial, "no answer: the list is not complete, so the view shows no text of an empty list")
+        #expect(!services.vault.showsNotCompleteMark, "the daemon connects and nothing says that it is slow: no words")
+        // The daemon reports that it restores (its start builds the registry again): the words show, and go with the report.
+        local.recovery.noteRestoring(RestoreProgressReport(session: "cmux-app", pid: 4242, waitedMs: 5_000, updatedAt: Date()))
+        #expect(services.vault.showsNotCompleteMark, "a daemon that restores is slow: the words show")
+        local.recovery.noteRestoring(nil)
+        #expect(!services.vault.showsNotCompleteMark)
+        // The startup deadline passes with no answer, no report and no failure: the store still says "connecting".
+        local.startupClock = DeadlineNowClock()
+        local.armStartupDeadline()
+        for await unavailable in ObservationStream({ local.startup.isUnavailable }) where unavailable { break }
+        #expect(local.store.connectionState == .connecting)
+        #expect(services.vault.showsNotCompleteMark, "the deadline passed: the daemon is slow, the words show")
+        // The store says that the daemon failed.
+        local.store.markFailed("no daemon")
+        #expect(services.vault.showsNotCompleteMark, "a daemon that failed: the words show")
+    }
+
     /// Resume by id (`history.resumeAgentSession {session}`) reads one time and answers at once.
     @Test func resumeByIdSaysStillLoadingForAnIdThatAListNotCompleteDoesNotHave() async throws {
         _ = NSApplication.shared
@@ -242,4 +326,20 @@ import Testing
         let gone = try #require(await resume("s-newer"))
         #expect(gone.message == HistoryAppStrings.noSession, "only a complete list says that a session does not exist")
     }
+}
+
+/// A clock whose sleeps complete on the next task turn: the startup deadline passes at once.
+private struct DeadlineNowClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration = .zero
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now: Instant { Instant() }
+    var minimumResolution: Duration { .nanoseconds(1) }
+
+    func sleep(until _: Instant, tolerance _: Duration?) async throws {}
 }
