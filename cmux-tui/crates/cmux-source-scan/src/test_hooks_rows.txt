@@ -308,6 +308,31 @@ fn setup() {
 const _: () = {
     static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
 };
+=== refused local.rs 2 closure :: review of cmux#41567 F1: a static in dbg!({ .. })
+fn f() {
+    dbg!({ static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); });
+}
+=== refused local.rs 3 closure :: review of cmux#41567 F1: a static in a user macro over statements
+fn f() {
+    wrapped! {
+        static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+        let ready = true;
+    }
+}
+=== refused local.rs 5 closure :: review of cmux#41567 F1: an alias a user macro over statements defines
+wrapped! {
+    type Hook = Box<dyn Fn()>;
+    let ready = true;
+}
+static H: std::sync::OnceLock<Hook> = std::sync::OnceLock::new();
+=== passes local.rs :: review of cmux#41567 F1: a thread_local! in dbg!({ .. }) is still per thread
+fn f() {
+    dbg!({
+        thread_local! {
+            static AFTER: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+        }
+    });
+}
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;

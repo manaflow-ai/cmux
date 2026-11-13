@@ -81,6 +81,9 @@ struct WriterState {
     kept: u64,
     /// The target of the newest copy saved durable.
     synced: u64,
+    /// The last successful save, or the value read from the store before startup repairs.
+    /// Versions count commits, so alone they miss direct changes such as log catch-up.
+    saved: Option<SessionMeta>,
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -91,6 +94,20 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
+    pub(super) fn note_saved(&self, meta: SessionMeta) {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = Some(meta);
+    }
+
+    /// A writer in flight must get a later version even if memory matches the last save:
+    /// its older copy may differ from a change made and then taken back meanwhile.
+    /// Successful kept copies are synced by the final store flush, without another save.
+    pub(super) fn needs_flush(&self, session: &Session) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.writing
+            || state.requested > state.durable
+            || !state.saved.as_ref().is_some_and(|saved| session.read_meta(|meta| meta == saved))
+    }
+
     /// Takes the next version for the change the caller just made, and commits it: as the
     /// writer, when none is at work; else it waits for the writer (`Wait::Durable`) or returns
     /// (`Wait::No`). `write` copies the metadata and writes the copy.
@@ -367,6 +384,9 @@ impl Hub {
             ShowAfter::Durable => self.store.save(&meta),
             ShowAfter::Written => self.store.save_kept(&meta),
         };
+        if saved.is_ok() {
+            session.meta_writer.note_saved(meta);
+        }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)
