@@ -80,7 +80,7 @@ nonisolated enum AppsStrings {
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
+        case .noAppHost: t("apps.store.disconnected.noAppHost", "Apps can’t run in this build of cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason

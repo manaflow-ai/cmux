@@ -6,15 +6,14 @@ use bincode::Options;
 use std::io::Cursor;
 impl State {
     pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
-        let mut translator = self.clone();
-        let queue = std::mem::take(&mut translator.queue);
+        // Queue records follow this serde segment exactly once, at fixed width.
         let mut bytes =
-            codec().serialize(&(VERSION, &translator)).map_err(|_| Error::CheckpointInvalid)?;
+            codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
         if bytes.len() + 4 > MAX_TRANSLATOR_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
-        bytes.extend_from_slice(&(queue.len() as u32).to_le_bytes());
-        for entry in queue.values() {
+        bytes.extend_from_slice(&(self.queue.len() as u32).to_le_bytes());
+        for entry in self.queue.values() {
             bytes.extend_from_slice(&entry.id_hash.to_le_bytes());
             bytes.extend_from_slice(&entry.at_state.to_le_bytes());
             bytes.extend_from_slice(&entry.place.to_le_bytes());
@@ -31,11 +30,13 @@ impl State {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
         let mut cursor = Cursor::new(bytes);
-        let (version, mut state): (u32, Self) =
+        let version: u32 =
             codec().deserialize_from(&mut cursor).map_err(|_| Error::CheckpointInvalid)?;
         if version != VERSION {
             return Err(Error::CheckpointVersion);
         }
+        let mut state: Self =
+            codec().deserialize_from(&mut cursor).map_err(|_| Error::CheckpointInvalid)?;
         let pos = cursor.position() as usize;
         let count = u32::from_le_bytes(
             bytes

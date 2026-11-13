@@ -18,12 +18,13 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-# tests/workflow_jobs.py, loaded by path as well (`python3 -I`).
-_workflow_jobs_spec = _git_fixture_importlib.spec_from_file_location(
-    "workflow_jobs", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "workflow_jobs.py"))
-workflow_jobs = _git_fixture_importlib.module_from_spec(_workflow_jobs_spec)
-_workflow_jobs_spec.loader.exec_module(workflow_jobs)
 import sys
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 

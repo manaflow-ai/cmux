@@ -62,7 +62,7 @@ const TITLE_CHARS: usize = 200;
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
 /// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
 /// left as a head a peer's masking no longer knows (`peer_text.rs`).
-fn summary_title(title: &str) -> String {
+pub(super) fn summary_title(title: &str) -> String {
     if title.chars().nth(TITLE_CHARS).is_none() {
         title.to_owned()
     } else {
@@ -1049,9 +1049,18 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
+        // Never waits on a chat's child lock: a start or a detach holds it while its agent starts
+        // or ends (`detach_child` through the agent's kill), and every pane's handshake asks this
+        // (`AgentPaneHost` lookup), so one chat ending slowly drew "Waiting for the agent service"
+        // in every pane (cmuxterm-hq#8489). A held lock is an agent starting or ending: live, as
+        // the idle reaper counts it (`idle.rs`), its build read on the next status.
         let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
-            if let Some(child) = s.child.lock().await.as_ref() {
+            let Ok(slot) = s.child.try_lock() else {
+                live += 1;
+                continue;
+            };
+            if let Some(child) = slot.as_ref() {
                 live += 1;
                 if host_build_differs(child.host_build().as_deref(), build()) {
                     other_build += 1;
@@ -1153,6 +1162,10 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+#[cfg(test)]
+#[path = "views_status_tests.rs"]
+mod status_tests;
 
 /// `true` when this daemon runs in the user's login session (its agents read the
 /// login keychain), `false` when it does not, `"unknown"` when its security session
