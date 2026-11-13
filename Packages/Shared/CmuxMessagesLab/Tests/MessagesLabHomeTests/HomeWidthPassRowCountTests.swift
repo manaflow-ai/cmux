@@ -131,6 +131,7 @@ import Testing
         var out = Drag()
         out.loadedRows = demo.model.liveCount
         var width: CGFloat = 700
+        let measureCalls = demo.measureWindowCalls, measureStarts = demo.measureWindowStarts
         for _ in 0..<30 {
             width -= 4
             let visited = demo.widthRowsVisited, passes = MessagesWindowView.widthPasses, near = demo.widthPassesNearViewport
@@ -142,6 +143,10 @@ import Testing
             out.nearPasses.append(demo.widthPassesNearViewport - near)
             out.shownAtOtherWidth += Self.shownAtOtherWidth(demo)
         }
+        // No assert: the count for the PR text. The loop above gives the main queue no turn, so a measure that started
+        // cannot end in it: the calls are how often the rest signal fired in a drag with one width step a frame.
+        print("HOMEWIDTHPASS rows \(rows) in the 30 steps the rest signal asked for the measure of every loaded message"
+              + " \(demo.measureWindowCalls - measureCalls) times, the measure started \(demo.measureWindowStarts - measureStarts) times")
         // The person scrolls to the oldest row at once (no turn of the main queue since the last step, so the exact
         // rows of the resting width are not in): the rows that come on screen are at the transcript's width.
         demo.collection.contentOffset = CGPoint(x: demo.collection.contentOffset.x, y: demo.minOffset)
@@ -268,6 +273,84 @@ import Testing
         #expect(loaded == 0, "\(loaded) loaded rows were measured at another width for the new scale")
         let rested = try await rest(rig, demo)
         #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// The pane grows to four times its height before the width rests (a split below it closes): the rows that the
+    /// taller view shows are at the transcript's width.
+    @Test func aTallerViewBeforeTheRestShowsEveryRowAtTheTranscriptWidth() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        var width: CGFloat = 700
+        for _ in 0..<30 {
+            width -= 4
+            rig.resize(width: width)
+        }
+        try #require(Self.rowsAtOtherWidth(demo) > 0, "rows far from the viewport wait for the rest")
+        rig.view.frame = NSRect(x: 0, y: 0, width: width, height: 3_600)
+        rig.window.setContentSize(NSSize(width: width, height: 3_600))
+        rig.frame()
+        try #require(demo.bounds.height >= 3_500 && demo.bounds.width == width, "the view is 3600 pt high at the same width (\(demo.bounds.size))")
+        let shown = Self.shownAtOtherWidth(demo)
+        print("HOMEWIDTHPASS taller view before the rest: \(demo.collection.visibleCells.count) rows on screen, at another width \(shown)")
+        #expect(shown == 0, "\(shown) rows on screen were at another width in a view that grew to 3600 pt")
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// One large step with no motion between (a pane zoom with motion off: a 200 pt tile to a 1400 pt pane). The pass
+    /// near the viewport reaches two screens at the rows' OLD heights; a long text row in the wide column is about a
+    /// sixth as high, so the view shows rows from outside that reach.
+    @Test func oneLargeWidthStepShowsEveryRowAtTheTranscriptWidth() async throws {
+        let rig = try await HomeChatRig(history: 40, width: 200, height: 900)
+        defer { rig.stop() }
+        let demo = try #require(rig.view.controller.demo)
+        let paragraph = (0..<10).map { "The pane takes sentence \($0) of a long paragraph and wraps it at the width it has now." }.joined(separator: " ")
+        for i in 0..<60 {
+            let posted = await rig.post("\(i): \(paragraph)", key: IdempotencyKey("long_\(i)"))
+            try #require(posted, "the Chief posted long message \(i)")
+        }
+        func ready() -> Bool { demo.model.liveCount >= 100 && !demo.model.rows.contains(where: { $0.spec.estimated }) }
+        for _ in 0..<20_000 where !ready() {
+            rig.frame()
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        try #require(ready(), "the Home shows the long messages, exact (\(demo.model.liveCount) rows)")
+        try #require(Self.rowsAtOtherWidth(demo) == 0, "every loaded row is at 200 pt before the step")
+        let near = demo.widthPassesNearViewport, passes = MessagesWindowView.widthPasses
+        rig.resize(width: 1_400)
+        try #require(demo.bounds.width == 1_400, "the view is 1400 pt wide (\(demo.bounds.width))")
+        let shown = Self.shownAtOtherWidth(demo)
+        print("HOMEWIDTHPASS one large step 200 -> 1400 pt: \(demo.collection.visibleCells.count) rows on screen, at another width \(shown)"
+              + ", loaded rows at another width \(Self.rowsAtOtherWidth(demo)) of \(demo.model.liveCount), width passes"
+              + " \(MessagesWindowView.widthPasses - passes) (near the viewport \(demo.widthPassesNearViewport - near))")
+        #expect(shown == 0, "\(shown) rows on screen were at another width after one large step")
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// Return in the field of a Home scrolled 6 screens up, before the width rests: the send takes the transcript to
+    /// its newest rows, which the drag did not measure. They are at the transcript's width when they show.
+    @Test func aSendFromAScrolledUpHomeBeforeTheRestShowsEveryRowAtTheTranscriptWidth() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        let scrolled = Self.scroll(rig, demo, by: -6_000)
+        rig.frame()
+        try #require(scrolled <= -5_900, "the scroll went 6 screens toward the oldest row (it went \(scrolled) pt)")
+        var width: CGFloat = 700
+        for _ in 0..<30 {
+            width -= 4
+            rig.resize(width: width)
+        }
+        try #require(Self.rowsAtOtherWidth(demo) > 0, "rows far from the viewport wait for the rest")
+        try #require(Self.shownAtOtherWidth(demo) == 0)
+        rig.view.controller.dispatch(.setDraft("a send before the width rests"))
+        let refusal = rig.view.projection.send()
+        try #require(refusal == nil, "the send was taken (\(refusal ?? ""))")
+        rig.frame()
+        try #require(rig.view.controller.store?.state.ui.scroll.pinnedToBottom == true, "the send took the transcript to its newest row")
+        let shown = Self.shownAtOtherWidth(demo)
+        print("HOMEWIDTHPASS send from a scrolled-up Home before the rest: rows on screen at another width \(shown)")
+        #expect(shown == 0, "\(shown) rows on screen were at another width after a send from a scrolled-up Home")
     }
 
     /// A scroll while a row fades (the typing row that went away is a ghost for a moment), before the width rests:

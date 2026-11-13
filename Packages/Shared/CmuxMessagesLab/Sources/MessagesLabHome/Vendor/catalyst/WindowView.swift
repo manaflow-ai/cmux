@@ -618,6 +618,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux: this view's width passes that measured only the rows near the viewport (`widthPassNearViewport`; test
     /// evidence: which tests of a width change go that way and which go through the pass over every loaded row).
     private(set) var widthPassesNearViewport = 0
+    /// cmux: how often the rest signal asked for the exact rows of every loaded message (`measureWindow`), and how
+    /// often that measure started (one runs at a time). Tests read them.
+    private(set) var measureWindowCalls = 0, measureWindowStarts = 0
     /// cmux: a width pass near the viewport left rows outside it at an older width (`widthPassNearViewport`); false
     /// again once every row is at this view's width (a whole pass, or `measureWindow`'s exact rows).
     private(set) var staleWidthRows = false
@@ -953,8 +956,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private func measureWindow(width: CGFloat) {
+        measureWindowCalls += 1 // cmux
         guard measuringWidth == nil else { return }
         measuringWidth = width
+        measureWindowStarts += 1 // cmux
         let msgs = store.state.conversation.messages, scale = renderScale
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             MeasureCache.shared.prefetch(msgs, width: width, scale: scale)
