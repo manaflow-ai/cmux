@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43337119436",
+  "recorded_at": "2026-11-13T00:36:24Z",
+  "reason": "cmux-tui 756fe5ef7d95 changes the image's cmux-tui (pinned d92e7a703e74)",
+  "dry_run": false,
+  "cmux_tui": "756fe5ef7d955db5aae2961ed541c2388cf38840",
+  "fixes": [
+    {
+      "sha": "756fe5ef7d955db5aae2961ed541c2388cf38840",
+      "mergedAt": "2026-11-12T21:52:13Z",
+      "subject": "perf(cmux-tui): the conversation-kind pre-check runs after the base contains check, inlined"
+    },
+    {
+      "sha": "24e9a6034461ecd89d74dfba4513517a2323b4c4",
+      "mergedAt": "2026-11-12T21:52:13Z",
+      "subject": "test(cmux-tui): the conversation-kind pre-check sends the bytes of the always-rewrite path for generated trees"
+    },
+    {
+      "sha": "35dab1a2debb7082e367f32140dcfd3222dbe44c",
+      "mergedAt": "2026-11-12T21:52:13Z",
+      "subject": "perf(cmux-tui): the outbound tab projection parses only a message that names a conversation kind"
+    },
+    {
+      "sha": "1083d7556859cd29f34f86ef8dae50902c57adc7",
+      "mergedAt": "2026-11-12T21:52:12Z",
+      "subject": "test(cmux-tui): a tree reply with no conversation tab is parsed again for an older connection (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T00:36:24Z",
+    "snapshot_id": "sh-037702f772a6449a9e3d5387cbbda97f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43337119436): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1c79133c6df694dad5821ed75ac0b0cc21eb2146",
+    "image": "cloud-native-auto-756fe5ef-43337119436-1",
+    "revision": "ci-43337119436-1",
+    "at": "2026-11-13T00:36:24Z"
+  },
+  "rolled_back": false
+}
