@@ -43,6 +43,24 @@ extension CloudHandlers {
                 return .refused(RefusalStrings.describe(error))
             }
         }
+        registry.bindEffect("cloudSetupDesktop", unavailable: reason) { invocation in
+            do {
+                let session = try machine(invocation, context)
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.notConnected)) {
+                    runTracked("set up Cloud desktop", context) {
+                        try await attached(session, invocation, waitsForLink: true)
+                        try Task.checkCancellation()
+                        try await cloud.machineAPI.setupDesktop(session.machineID)
+                        await cloud.refresh()
+                        let repaired = try machine(invocation, context)
+                        try openDesktop(repaired, context, viewer: invocation["viewer"]?.stringValue)
+                    }
+                    return nil
+                }
+            } catch {
+                return .refused(RefusalStrings.describe(error))
+            }
+        }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
