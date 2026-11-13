@@ -45,6 +45,7 @@ fn c_abi_catalog_in_each_language() {
     let japanese = catalog("ja-JP");
     assert_eq!(japanese["locale"], "ja");
     assert_ne!(title(&japanese, "newSurface"), "New Terminal Tab");
+    assert_eq!(title(&japanese, "cloudSetupDesktop"), "デスクトップを起動…");
     assert_eq!(catalog("xx")["locale"], "en");
     assert_eq!(catalog("pt_BR")["locale"], "pt-BR");
 }
