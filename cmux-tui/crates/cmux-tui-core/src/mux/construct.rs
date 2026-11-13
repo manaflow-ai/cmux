@@ -428,6 +428,7 @@ impl Mux {
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
             startup_timings: Mutex::new(None),
+            startup_after_ready: Default::default(),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -575,9 +576,9 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
-        // After each restore step, before the first request (startup_restore.rs).
-        mux.restate_session_at_start();
-        timings.lap("session.restate");
+        // After each restore step. It does not wait: the parts run after ready
+        // (startup_restore/restate_parts.rs).
+        mux.start_session_restate();
         mux.start_journal_maintenance()?;
         if let Err(error) = mux.start_output_cleanup() {
             eprintln!("cmux-tui: output cleanup: not started: {error:#}");

@@ -8,11 +8,12 @@
 //!
 //! That full projection was also a repair: it stated again each value that a row had got with no
 //! journal record of its own, and it wrote each row that the restore of a start had left
-//! different from the live tree. The repair is now ONE full projection commit at each daemon
-//! start, before the first request (`Mux::restate_session_at_start`): it moves the restatement
-//! from the first create of a person to the start, it does not remove it. So these tests assert
-//! what a reader of the journal gets (the journal folded from revision 0), not only what a
-//! commit cost.
+//! different from the live tree. The repair now runs after each daemon start in parts of a few
+//! workspaces, each one scoped commit (`mux/startup_restore/restate_parts.rs`, tested in
+//! `restate_parts.rs` beside this file): it moves the restatement out of the first create of a
+//! person and out of the start, it does not remove it. In this crate's unit tests the parts run
+//! before the start returns, unless the test holds them. So these tests assert what a reader of
+//! the journal gets (the journal folded from revision 0), not only what a commit cost.
 
 use std::collections::BTreeSet;
 
@@ -23,11 +24,11 @@ use super::super::workspaces::{
 use super::super::*;
 use crate::WorkspaceId;
 use crate::mux::resource_content::without_crosscheck;
-use crate::mux::startup_restore::RESTATE_AT_START;
+use crate::mux::startup_restore::restate_parts::{RESTATE_PART, holding_the_parts};
 use crate::resource_name::NameSource;
 
 /// One full projection commit: every live resource is stated, and the fold is complete after it.
-fn restate(mux: &Arc<Mux>, key: &str) {
+pub(super) fn restate(mux: &Arc<Mux>, key: &str) {
     let operation = "test.restate";
     let fingerprint = serde_json::json!({"operation": operation, "fixture": key});
     let expected_revision = mux.with_state(|state| state.resource_revision);
@@ -46,12 +47,12 @@ fn restate(mux: &Arc<Mux>, key: &str) {
 }
 
 /// The registry loses its fold, as after a commit whose receipt did not come.
-fn lose_the_fold(mux: &Mux) {
+pub(super) fn lose_the_fold(mux: &Mux) {
     mux.workspace_registry.lock().unwrap().abandon_effect_commit();
 }
 
 /// (id, key, public id) of the workspace at `index`.
-fn workspace_at(mux: &Mux, index: usize) -> (WorkspaceId, String, String) {
+pub(super) fn workspace_at(mux: &Mux, index: usize) -> (WorkspaceId, String, String) {
     mux.with_state(|state| {
         let workspace = &state.workspaces[index];
         (workspace.id, workspace.key.clone(), workspace.public_id.to_string())
@@ -59,12 +60,12 @@ fn workspace_at(mux: &Mux, index: usize) -> (WorkspaceId, String, String) {
 }
 
 /// Public ids of the live workspaces, in order.
-fn workspace_ids(mux: &Mux) -> Vec<String> {
+pub(super) fn workspace_ids(mux: &Mux) -> Vec<String> {
     mux.with_state(|state| state.workspaces.iter().map(|w| w.public_id.to_string()).collect())
 }
 
 /// Public ids of the tabs under the workspace `workspace` (a public id), as the rows hold them.
-fn tab_ids(mux: &Mux, workspace: &str) -> BTreeSet<String> {
+pub(super) fn tab_ids(mux: &Mux, workspace: &str) -> BTreeSet<String> {
     let topology = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
     let screens = topology
         .screens
@@ -88,7 +89,7 @@ fn tab_ids(mux: &Mux, workspace: &str) -> BTreeSet<String> {
 
 /// (kind, resource, id) of each change of each journal record after `revision`, one list for
 /// each record.
-fn records_after(mux: &Mux, revision: u64) -> Vec<Vec<(String, String, String)>> {
+pub(super) fn records_after(mux: &Mux, revision: u64) -> Vec<Vec<(String, String, String)>> {
     let text = |value: &Value| value.as_str().unwrap_or_default().to_string();
     mux.resource_events_after(revision)
         .unwrap()
@@ -109,27 +110,30 @@ fn records_after(mux: &Mux, revision: u64) -> Vec<Vec<(String, String, String)>>
 }
 
 /// (kind, resource, id) of each change the journal recorded after `revision`.
-fn changes_after(mux: &Mux, revision: u64) -> Vec<(String, String, String)> {
+pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<(String, String, String)> {
     records_after(mux, revision).into_iter().flatten().collect()
 }
 
 /// How many of `workspaces` the changes state again (an upsert of the workspace value).
-fn workspaces_stated(changes: &[(String, String, String)], workspaces: &[String]) -> usize {
+pub(super) fn workspaces_stated(
+    changes: &[(String, String, String)],
+    workspaces: &[String],
+) -> usize {
     workspaces
         .iter()
         .filter(|id| changes.contains(&("upsert".into(), "workspace".into(), (*id).clone())))
         .count()
 }
 
-fn full_projections(mux: &Mux) -> u64 {
+pub(super) fn full_projections(mux: &Mux) -> u64 {
     mux.resource_projection_stats().full_projections
 }
 
-fn fold_is_complete(mux: &Mux) -> bool {
+pub(super) fn fold_is_complete(mux: &Mux) -> bool {
     mux.workspace_registry.lock().unwrap().public_fold_complete_for_test()
 }
 
-fn new_root(name: &str) -> std::path::PathBuf {
+pub(super) fn new_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("cmux-{name}-{}", crate::workspace_registry::new_uuid_v4()))
 }
 
@@ -209,14 +213,17 @@ fn a_workspace_close_after_a_lost_fold_is_scoped_and_the_journal_follows() {
     mux.shutdown();
 }
 
-/// The designed cost of a lost fold: the first commit of a workspace value after it states each
-/// workspace one time (the fold holds none, and that commit writes each workspace row), in a
-/// scoped commit. The next one states only what it changes.
+/// D181. A new workspace that a person makes after a lost fold (each daemon start loses it)
+/// states its own value and, because the focus moves to it, the value of the workspace that the
+/// focus left (`focused` is a field of the value): at most 2 workspace values, and no value of
+/// a workspace that it does not change. Before, that record stated each workspace of the
+/// session (826 values for one new workspace at a large session).
 #[test]
-fn the_first_workspace_commit_after_a_lost_fold_states_each_workspace_one_time() {
+fn a_new_workspace_after_a_lost_fold_states_no_workspace_that_it_does_not_change() {
     let mux = without_crosscheck(|| session_in(test_mux(), 5));
     let before = workspace_ids(&mux);
     assert_eq!(before.len(), 5);
+    let (_, _, was_active) = workspace_at(&mux, mux.with_state(|state| state.active_workspace));
     let empty_workspace = |name: &str| {
         let (revision, full) =
             (mux.with_state(|state| state.resource_revision), full_projections(&mux));
@@ -225,14 +232,33 @@ fn the_first_workspace_commit_after_a_lost_fold_states_each_workspace_one_time()
         });
         let changes = changes_after(&mux, revision);
         assert_eq!(full_projections(&mux), full, "{name}: the commit ran a full projection");
+        let made_public = mux.with_state(|state| {
+            let workspace = state.workspaces.iter().find(|workspace| workspace.id == made);
+            workspace.unwrap().public_id.to_string()
+        });
+        assert!(
+            changes.contains(&("upsert".into(), "workspace".into(), made_public.clone())),
+            "{name}: the record does not state the new workspace: {changes:?}"
+        );
+        let others = changes
+            .iter()
+            .filter(|(_, resource, id)| resource == "workspace" && *id != made_public)
+            .map(|(_, _, id)| id.clone())
+            .collect::<Vec<_>>();
+        assert_journal_states_the_session(&mux);
         assert!(without_crosscheck(|| mux.close_workspace(made)), "{name} did not close");
-        workspaces_stated(&changes, &before)
+        others
     };
 
     lose_the_fold(&mux);
-    assert_eq!(empty_workspace("first"), 5, "workspaces stated by the first commit");
+    let others = empty_workspace("first");
+    assert!(
+        others.iter().all(|id| *id == was_active),
+        "the record of a new workspace states a workspace that it did not change: {others:?}"
+    );
+    assert!(others.len() <= 1, "workspace values of other workspaces: {others:?}");
     let again = empty_workspace("second");
-    assert!(again <= 1, "the second commit stated {again} of the 5 workspaces again");
+    assert!(again.len() <= 1, "the second commit stated {again:?} of the 5 workspaces again");
     assert_journal_states_the_session(&mux);
     mux.shutdown();
 }
@@ -255,8 +281,9 @@ fn no_commit_reads_whether_the_fold_is_complete() {
             mux.create_terminal_in_workspace(first, None, None, None, Some((80, 24))).unwrap();
             mux.create_empty_workspace(Some(format!("made {lost}")), None, None).unwrap();
             assert!(mux.rename_workspace(first, format!("renamed {lost}")));
+            // The parts of a start, then one full projection.
+            mux.restate_session_in_parts().unwrap();
             restate(&mux, &format!("restate-{lost}"));
-            assert!(mux.restate_session().unwrap(), "the start's commit, lost {lost}");
         }
         lose_the_fold(&mux);
         let mutation = WorkspaceMutation::daemon("close-counted", "test").unwrap();
@@ -281,9 +308,9 @@ fn no_commit_reads_whether_the_fold_is_complete() {
 /// THE REPAIR THAT THE FULL PROJECTION WAS, AND WHERE IT RUNS NOW. The open of a registry
 /// rewrites a row with no journal record: a default-shaped name (`workspace-9`) that an older
 /// daemon stored as the person's goes back to the automatic namer
-/// (`migrate_workspace_name_authority`). The start states the session again, so a reader of the
-/// journal gets the name source that the row holds BEFORE any request; then a create in ANOTHER
-/// workspace is scoped and leaves it so.
+/// (`migrate_workspace_name_authority`). The parts after the start state the session again with
+/// no full projection, so a reader of the journal gets the name source that the row holds; then
+/// a create in ANOTHER workspace is scoped and leaves it so.
 #[test]
 fn a_create_in_another_workspace_after_a_restart_leaves_the_journal_equal_to_the_rows() {
     let session = "open-rewrite-journal";
@@ -320,7 +347,7 @@ fn a_create_in_another_workspace_after_a_restart_leaves_the_journal_equal_to_the
     mux.shutdown();
     drop(mux);
 
-    let reopened = open_persistent_test_mux(session, &root);
+    let reopened = holding_the_parts(|| open_persistent_test_mux(session, &root));
     reopened.stop_journal_maintenance();
     let (other, source) = reopened.with_state(|state| {
         let other = state.workspaces.iter().find(|w| w.name == "other").unwrap().id;
@@ -328,13 +355,14 @@ fn a_create_in_another_workspace_after_a_restart_leaves_the_journal_equal_to_the
         (other, named.name_source)
     });
     assert_eq!(source, NameSource::Auto, "the open did not hand the name to the automatic namer");
-    // The start, with no request yet.
-    assert!(full_projections(&reopened) >= 1, "the start ran no full projection");
-    assert!(fold_is_complete(&reopened), "the fold does not hold every resource after the start");
+    // The parts of the start, with no request yet.
+    let full = full_projections(&reopened);
+    reopened.restate_session_in_parts().unwrap();
+    assert_eq!(full_projections(&reopened), full, "a part ran a full projection");
     assert_eq!(
         journal_workspaces(&reopened)[&named]["extra"]["name_source"],
         "auto",
-        "after the start the journal still states the name source from before the open's rewrite"
+        "after the parts the journal still states the name source from before the open's rewrite"
     );
     assert_journal_states_the_rows(&reopened);
 
@@ -359,30 +387,42 @@ fn a_create_in_another_workspace_after_a_restart_leaves_the_journal_equal_to_the
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The start's restatement is ONE journal record that states each workspace, and the create
-/// after it states no workspace but its own.
+/// The parts after a start state each workspace one time, with no full projection, and the
+/// create after them states no workspace but its own.
 #[test]
-fn a_start_states_each_workspace_in_one_record() {
+fn the_parts_after_a_start_state_each_workspace_one_time() {
     let session = "start-restates";
     let root = new_root("start-restates");
     let mux = open_persistent_test_mux(session, &root);
     for name in ["one", "two", "three"] {
         mux.new_workspace(Some(name.into()), Some((80, 24))).unwrap();
     }
-    let revision = mux.with_state(|state| state.resource_revision);
     mux.shutdown();
     drop(mux);
 
-    let reopened = open_persistent_test_mux(session, &root);
+    let reopened = holding_the_parts(|| open_persistent_test_mux(session, &root));
     reopened.stop_journal_maintenance();
     let workspaces = workspace_ids(&reopened);
     assert_eq!(workspaces.len(), 3);
-    let restatements = records_after(&reopened, revision)
-        .iter()
-        .filter(|record| workspaces_stated(record, &workspaces) == 3)
-        .count();
-    assert_eq!(restatements, 1, "records of the start that state each workspace");
-    assert!(fold_is_complete(&reopened));
+    let whole = |mux: &Mux| mux.workspace_registry.lock().unwrap().whole_workspaces_for_test();
+    // A commit of the start itself can have stated a workspace whole; the parts leave it out.
+    let (whole_before, revision, full) = (
+        whole(&reopened),
+        reopened.with_state(|state| state.resource_revision),
+        full_projections(&reopened),
+    );
+    let tally = reopened.restate_session_in_parts().unwrap();
+    assert_eq!(full_projections(&reopened), full, "a part ran a full projection");
+    assert_eq!(whole_before + tally.workspaces(), 3, "workspaces that the parts stated");
+    assert_eq!(whole(&reopened), 3, "workspaces that the fold holds whole after the parts");
+    let records = records_after(&reopened, revision);
+    for workspace in &workspaces {
+        let stated = records
+            .iter()
+            .filter(|record| workspaces_stated(record, std::slice::from_ref(workspace)) == 1)
+            .count();
+        assert!(stated <= 1, "{stated} part records state workspace {workspace}");
+    }
 
     let (first, _, first_public) = workspace_at(&reopened, 0);
     let (revision, full) =
@@ -407,13 +447,18 @@ fn a_start_states_each_workspace_in_one_record() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A session with no workspace has nothing to state: its start runs no full projection.
+/// A session with no workspace has nothing to state: its start commits no part and runs no
+/// full projection.
 #[test]
-fn a_start_with_no_workspace_runs_no_full_projection() {
+fn a_start_with_no_workspace_commits_no_part() {
     let memory = test_mux();
     assert_eq!(memory.with_state(|state| state.workspaces.len()), 0);
     assert_eq!(full_projections(&memory), 0);
-    assert!(!memory.restate_session().unwrap(), "a session with no workspace was stated");
+    let revision = memory.with_state(|state| state.resource_revision);
+    let stated = memory.restate_session_in_parts().unwrap();
+    assert!(stated.parts.is_empty(), "a session with no workspace was stated: {stated:?}");
+    assert_eq!(memory.with_state(|state| state.resource_revision), revision);
+    assert_eq!(full_projections(&memory), 0);
     memory.shutdown();
 
     let root = new_root("start-empty");
@@ -424,13 +469,12 @@ fn a_start_with_no_workspace_runs_no_full_projection() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// THE FAIL PATH. The start's commit fails (SQLite refuses its mutation row, as a full disk
-/// does): the start goes on and the daemon serves, the fold is not complete, the error names
-/// the cause, and the next create is scoped and right: the debug cross-check (on here) refuses
-/// a scoped projection that writes other rows than the full one, and the journal states the
-/// rows.
+/// THE FAIL PATH. The commit of a part fails (SQLite refuses its mutation row, as a full disk
+/// does): the start goes on and the daemon serves, no workspace is whole, the error names the
+/// cause, and the next create is scoped and right: the debug cross-check (on here) refuses a
+/// scoped projection that writes other rows than the full one, and the journal states the rows.
 #[test]
-fn a_start_whose_restatement_fails_serves_and_the_next_create_is_right() {
+fn a_part_that_fails_ends_the_restatement_and_the_next_create_is_right() {
     let session = "start-restate-fails";
     let root = new_root("start-restate-fails");
     let mux = open_persistent_test_mux(session, &root);
@@ -445,7 +489,7 @@ fn a_start_whose_restatement_fails_serves_and_the_next_create_is_right() {
         .get()
         .execute_batch(&format!(
             "CREATE TEMP TRIGGER cmux_test_fail_start_restate
-             BEFORE INSERT ON resource_mutations WHEN NEW.operation = '{RESTATE_AT_START}'
+             BEFORE INSERT ON resource_mutations WHEN NEW.operation = '{RESTATE_PART}'
              BEGIN SELECT RAISE(ABORT, 'injected start restatement failure'); END;"
         ))
         .unwrap();
@@ -459,9 +503,10 @@ fn a_start_whose_restatement_fails_serves_and_the_next_create_is_right() {
     .expect("a start whose restatement fails must go on");
     reopened.stop_journal_maintenance();
     assert_eq!(reopened.with_state(|state| state.workspaces.len()), 2);
-    assert!(!fold_is_complete(&reopened), "the fold is complete with no restatement");
-    // What the start logged: the same commit again gives its error.
-    let error = reopened.restate_session().unwrap_err();
+    // What the start logged: the same part again gives its error, and runs no full projection.
+    let full = full_projections(&reopened);
+    let error = reopened.restate_session_in_parts().unwrap_err();
+    assert_eq!(full_projections(&reopened), full, "the failed part ran a full projection");
     assert!(
         format!("{error:#}").contains("injected start restatement failure"),
         "the error does not name the cause: {error:#}"

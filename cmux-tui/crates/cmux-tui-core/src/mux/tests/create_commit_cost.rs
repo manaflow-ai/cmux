@@ -57,6 +57,8 @@ use crate::mux::resource_content::without_crosscheck;
 use crate::walk_counters::walk_counts_for_test;
 
 mod lost_fold_journal;
+mod restate_parts;
+mod scoped_kinds;
 
 /// SELECT statements that a create may run more in one session than in the other for a reason
 /// that is not the session's size (the one-slot sidebar document cache of the process: see

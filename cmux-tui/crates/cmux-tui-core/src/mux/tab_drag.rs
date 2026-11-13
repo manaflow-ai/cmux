@@ -597,8 +597,9 @@ impl Mux {
                     .get(&surface)
                     .cloned()
                     .context("dragged tab has no public identity")?;
-                let mut projection = mux.resource_effect_projection_locked(
+                let mut projection = mux.changed_state_projection_locked(
                     registry,
+                    state,
                     &mut projected,
                     serde_json::json!({"tab": tab_id, "pane": ids.pane_public}),
                 )?;
@@ -617,7 +618,8 @@ impl Mux {
                     projection.changes,
                     projected,
                 )
-                .projected(projection.restates_all);
+                .projected(projection.restates_all)
+                .restating(projection.restated);
                 // The reducer models no pins, so it has no op for a pane's only tab
                 // becoming a lone pinned column (`pinned-dock-alone-v1`); the I1-I3
                 // checks of the live result still run.

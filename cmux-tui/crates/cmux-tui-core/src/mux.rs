@@ -861,6 +861,9 @@ pub struct Mux {
     /// The laps of this owner's open (registry, restore, adoption), until
     /// the owner's start takes them for `startup-timings.jsonl`.
     startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// The start line in `startup-timings.jsonl` and the laps that end after ready
+    /// (mux/startup_record.rs). A leaf lock, held over the write of the file.
+    startup_after_ready: Mutex<startup_record::AfterReady>,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.

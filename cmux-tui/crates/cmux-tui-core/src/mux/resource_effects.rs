@@ -276,6 +276,36 @@ impl Mux {
         )
     }
 
+    /// [`Self::commit_ordinary_full_resource_projection`] for a change that is confined to the
+    /// workspace that shows a surface (`surface` finds it in the state, under the locks): a
+    /// tab that a browser opened, a terminal that an adoption placed. Only that workspace is
+    /// projected, so the commit does not grow with the session. A surface that no workspace
+    /// shows takes the full projection.
+    #[track_caller]
+    pub(super) fn commit_ordinary_surface_projection(
+        &self,
+        actor: &Actor,
+        operation: &'static str,
+        surface: impl FnOnce(&State) -> Option<SurfaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
+        let fingerprint = serde_json::json!({"operation":operation,"result":result});
+        self.commit_resource_mutation_plan(
+            &mutation,
+            operation,
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                // RED: the behavior before this change. The full projection for each view.
+                let _ = surface;
+                let projection = self.resource_effect_projection_locked(registry, state, result)?;
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
     #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,

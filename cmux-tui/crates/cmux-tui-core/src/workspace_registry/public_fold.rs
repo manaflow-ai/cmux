@@ -416,6 +416,14 @@ impl WorkspaceRegistry {
         self.public_fold.as_ref().is_some_and(|fold| fold.whole.contains(workspace.as_str()))
     }
 
+    /// Whether the fold holds a value of this resource: the journal states one. No catch-up,
+    /// as [`Self::workspace_is_whole`].
+    pub(crate) fn fold_holds(&self, resource: &str, id: &str) -> bool {
+        self.public_fold
+            .as_ref()
+            .is_some_and(|fold| fold.values.contains_key(&(resource.to_string(), id.to_string())))
+    }
+
     /// The commit at `revision` stated `workspaces` again from the live tree: each live value
     /// of each one was in its changes, and the commit dropped only the ones that this fold held
     /// with that value. So the fold holds them whole once it has folded that record. A fold
