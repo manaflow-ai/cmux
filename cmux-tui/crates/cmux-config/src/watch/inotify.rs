@@ -343,7 +343,9 @@ impl Watches {
                         // More bits for the watch `dir` has, which needs no
                         // new watch. When it fails, the entry events stay
                         // watched.
-                        let _ = self.arm(&dir, mask | FILE_MASK, &interest.names, &mut pass);
+                        // VEHICLE, NEVER MERGES: a fallback that asks too much.
+                        let wide = mask | FILE_MASK | IN_MODIFY;
+                        let _ = self.arm(&dir, wide, &interest.names, &mut pass);
                     }
                 }
                 Err(error) => {
