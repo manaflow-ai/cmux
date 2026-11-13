@@ -12,22 +12,25 @@
 //!
 //! 1. [`WorkspaceRegistry::begin_journal_segment_prune`] writes the reducer
 //!    bases and moves the floor to the segment's end. It deletes nothing.
-//! 2. [`WorkspaceRegistry::delete_pruned_segment_rows`] deletes the rows of
-//!    [`RETENTION_RECORDS_PER_HOLD`] records, the lowest first, one hold a
-//!    call.
+//! 2. [`WorkspaceRegistry::delete_pruned_segment_rows`] deletes at most
+//!    [`RETENTION_ROWS_PER_HOLD`] rows, table by table and the lowest
+//!    first, one hold a call.
 //! 3. [`WorkspaceRegistry::finish_journal_segment_prune`] deletes the
 //!    segment's row with its content, when no row of its records is left.
 //!
 //! A hold of step 2 deletes each row through each index of its table, and
 //! each of those is a page of the file that the registry connection reads
-//! under the lock: about 10,500 pages a hold on a generated registry of a
-//! long-lived session, 85 % or more of the hold (2026-11-13). So before each
-//! hold the pass reads those rows on a connection of its own, with no lock
-//! ([`RetentionReadAhead`], the file `read_ahead.rs`): the hold then finds
-//! its pages in the file cache of the system.
+//! under the lock. So the bound of a hold is a count of ROWS, and before
+//! each hold the pass reads those same rows on a connection of its own,
+//! with no lock ([`RetentionReadAhead`], the file `read_ahead.rs`): the
+//! hold then finds its pages in the file cache of the system. The read
+//! alone is not the bound: a hold of the rows of 256 records was 0.2 s
+//! after its read on a generated registry of 2 GB and 19.7 s on one of
+//! 13 GB (2026-11-13).
 //!
-//! Between two of those the segment is at or below the floor with rows for
-//! a part of its records. No reader may take those rows for the segment:
+//! Between two of those the segment is at or below the floor with a part of
+//! its rows: all rows of some of the four tables, a part of one, none of
+//! the rest. No reader may take those rows for the segment:
 //! a subject page starts above the floor, and a kind-scoped read decodes
 //! such a segment from its content (which is whole until step 3). A kill
 //! between two transactions leaves that same state; the next pass selects
@@ -95,27 +98,27 @@ const MIN_RETAINED_AGE_MS: u64 = 60 * 60 * 1_000;
 /// content's pages to read it.
 const MAX_AGE_RETAINED_RECORDS: u64 = 65_536;
 
-/// Records whose rows one hold of the registry lock deletes
-/// ([`WorkspaceRegistry::delete_pruned_segment_rows`]): a quarter of a full
-/// segment. A full segment in one hold was up to 2.2 s of the registry lock
-/// on a busy Mac (the delete's own page writes: about 12 subject rows a
-/// record, each in two B-trees).
-pub(crate) const RETENTION_RECORDS_PER_HOLD: u64 = 256;
-
-/// The most rows one hold of the registry lock may delete (the four row
-/// tables together). The bound of 256 records does not bound the rows: a
-/// record of a long-lived session has about 15 subject rows, so a hold
-/// deleted about 4,000 rows, each through each index of its table. The
-/// tests of the bound name it; the hold does not keep it yet.
-#[cfg(test)]
+/// The most rows one hold of the registry lock deletes, the four row tables
+/// together ([`WorkspaceRegistry::delete_pruned_segment_rows`]).
+///
+/// The bound is of rows and not of records, because the rows are the work:
+/// a record of a long-lived session has about 15 subject rows, so a hold of
+/// 256 records deleted about 4,000 rows, each through each index of its
+/// table. On a generated registry of 13 GB such a hold was 24.6 s at its
+/// longest, and a rename waited 25 s behind it (2026-11-13): 0.65 ms a row
+/// in the mean of the holds, about 6 ms a row in the longest one. At 6 ms a
+/// row a hold of 166 rows is 1 s; 128 is below that. A full segment (1,024
+/// records, about 17,000 rows) is then about 130 holds.
 pub(crate) const RETENTION_ROWS_PER_HOLD: u64 = 128;
 
-/// The tables with a row for each record, and their sequence column.
-const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
-    ("journal_segment_reducer_records", "sequence"),
-    ("journal_subject_index", "sequence"),
-    ("journal_event_index", "sequence"),
-    ("journal_ingress_receipts", "journal_sequence"),
+/// The tables with a row for each record: the table, its sequence column,
+/// and its key (the columns that name one row, in the order of the index
+/// that gives the rows from the lowest sequence up).
+const PRUNED_ROW_TABLES: [(&str, &str, &str); 4] = [
+    ("journal_segment_reducer_records", "sequence", "sequence"),
+    ("journal_subject_index", "sequence", "sequence, kind, id"),
+    ("journal_event_index", "sequence", "sequence"),
+    ("journal_ingress_receipts", "journal_sequence", "journal_sequence"),
 ];
 
 /// A step of the retention pass that a test looks at
@@ -123,13 +126,11 @@ const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RetentionStep {
-    /// The rows of the hold that deletes through this record were read on a
-    /// connection that the registry lock does not guard. The read is over.
-    ReadBeforeHold { through: i64 },
-    /// One hold deletes the rows of the records through this one
-    /// ([`WorkspaceRegistry::delete_pruned_segment_rows`]). Inside the hold.
-    RowHold { through: i64 },
-    /// One hold deleted this many rows of the four row tables. Inside the
+    /// This many rows, the rows of the next hold, were read on a connection
+    /// that the registry lock does not guard. The read is over.
+    ReadBeforeHold { rows: u64 },
+    /// One hold deleted this many rows of the four row tables
+    /// ([`WorkspaceRegistry::delete_pruned_segment_rows`]). Inside the
     /// hold, before its commit.
     RowsDeleted { rows: u64 },
     /// The records of the sealed segments at or below a floor are read
@@ -171,42 +172,6 @@ impl PrunedSegment {
     pub(crate) fn records(&self) -> u64 {
         self.records
     }
-}
-
-/// The last record of the next row hold of a segment that ends at `end`:
-/// the [`RETENTION_RECORDS_PER_HOLD`]th lowest record that still has a row
-/// at or below `end`, or `end` when fewer records have one. Each table
-/// gives its lowest sequences from its own index, so the read is of one
-/// hold's rows and not of the segment's.
-///
-/// The hold and the read before it ([`RetentionReadAhead::read_hold_rows`])
-/// both ask here, so they name the same rows. A second bound of a hold (its
-/// subject rows, say) is one more term of this statement.
-fn hold_through(connection: &Connection, end: i64) -> anyhow::Result<i64> {
-    let last: Option<i64> = connection
-        .prepare_cached(
-            "SELECT sequence FROM (
-               SELECT sequence FROM (
-                 SELECT sequence FROM journal_segment_reducer_records
-                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-               UNION
-               SELECT sequence FROM (
-                 SELECT DISTINCT sequence FROM journal_subject_index
-                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-               UNION
-               SELECT sequence FROM (
-                 SELECT sequence FROM journal_event_index
-                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-               UNION
-               SELECT journal_sequence FROM (
-                 SELECT journal_sequence FROM journal_ingress_receipts
-                 WHERE journal_sequence <= ?1 ORDER BY journal_sequence LIMIT ?2)
-             ) ORDER BY sequence LIMIT 1 OFFSET ?2 - 1",
-        )?
-        .query_row(params![end, i64::try_from(RETENTION_RECORDS_PER_HOLD)?], |row| row.get(0))
-        .optional()?;
-    // Fewer records than a hold takes: all of them, through the end.
-    Ok(last.unwrap_or(end))
 }
 
 /// The oldest sealed segment that ends at or below `floor`, never the
@@ -483,11 +448,13 @@ impl WorkspaceRegistry {
         Ok(Some(segment))
     }
 
-    /// One hold of the rows of `segment`: each kept reducer record, subject
-    /// row, event index row and ingress receipt of the
-    /// [`RETENTION_RECORDS_PER_HOLD`] lowest records that still have a row
-    /// at or below the segment's end, in one transaction. True when rows of
-    /// more records can be left. The delete triggers let these rows go: the
+    /// One hold of the rows of `segment`: at most
+    /// [`RETENTION_ROWS_PER_HOLD`] rows at or below the segment's end, in
+    /// one transaction. The tables go in the order of `PRUNED_ROW_TABLES`
+    /// and a table goes from its lowest key up, so a hold takes the rows
+    /// that the read before it took ([`RetentionReadAhead::read_hold_rows`]
+    /// asks in the same order with the same bound). True when the hold was
+    /// full: rows can be left. The delete triggers let these rows go: the
     /// floor is at or above them since [`Self::begin_journal_segment_prune`].
     pub(crate) fn delete_pruned_segment_rows(
         &mut self,
@@ -496,23 +463,30 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let end = i64::try_from(segment.end)?;
-        // The last record of this hold, asked again under the lock: the
-        // hold is right with no read before it.
-        let through = hold_through(&tx, end)?;
-        #[cfg(test)]
-        retention_step_for_test(RetentionStep::RowHold { through });
-        let mut rows = 0;
-        for (table, column) in PRUNED_ROW_TABLES {
-            rows += tx
-                .prepare_cached(&format!("DELETE FROM {table} WHERE {column} <= ?1"))?
-                .execute([through])?;
+        // The rows are asked for again here, under the lock: the hold is
+        // right with no read before it.
+        let mut left = RETENTION_ROWS_PER_HOLD;
+        for (table, column, key) in PRUNED_ROW_TABLES {
+            if left == 0 {
+                break;
+            }
+            let deleted = tx
+                .prepare_cached(&format!(
+                    "DELETE FROM {table} WHERE ({key}) IN (
+                       SELECT {key} FROM {table} WHERE {column} <= ?1
+                       ORDER BY {key} LIMIT ?2)"
+                ))?
+                .execute(params![end, i64::try_from(left)?])?;
+            left = left.saturating_sub(u64::try_from(deleted)?);
         }
         #[cfg(test)]
-        retention_step_for_test(RetentionStep::RowsDeleted { rows: u64::try_from(rows)? });
-        #[cfg(not(test))]
-        let _ = rows;
+        retention_step_for_test(RetentionStep::RowsDeleted {
+            rows: RETENTION_ROWS_PER_HOLD - left,
+        });
         tx.commit()?;
-        Ok(through < end)
+        // A full hold: rows can be left (when none is, the next hold
+        // deletes nothing and says so).
+        Ok(left == 0)
     }
 
     /// The last hold of the delete of `segment`: its kind map and its row
@@ -528,7 +502,7 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let end = i64::try_from(segment.end)?;
-        for (table, column) in PRUNED_ROW_TABLES {
+        for (table, column, _) in PRUNED_ROW_TABLES {
             let left = tx
                 .prepare_cached(&format!("SELECT 1 FROM {table} WHERE {column} <= ?1 LIMIT 1"))?
                 .query_row([end], |_| Ok(()))

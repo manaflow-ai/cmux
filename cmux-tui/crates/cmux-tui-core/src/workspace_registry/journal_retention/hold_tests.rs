@@ -1,8 +1,8 @@
 //! The delete of one segment in more than one transaction, at the registry.
 //!
 //! Each test has a real registry file with an old segment of
-//! [`OLD_RECORDS`] agent records (more than two holds of
-//! [`RETENTION_RECORDS_PER_HOLD`]) and a newer segment, each reducer at the
+//! [`OLD_RECORDS`] agent records (more rows than two holds of
+//! [`RETENTION_ROWS_PER_HOLD`]) and a newer segment, each reducer at the
 //! head, and calls the three parts of the delete as the maintenance worker's
 //! pass does. No test times anything.
 
@@ -12,7 +12,7 @@ use super::part_deleted_tests::{NEW_RECORDS, Sealed, sealed_with};
 use super::*;
 use crate::workspace_registry::session_journal::reducer_records::ReducerRecordBackfillStep;
 
-/// Agent records of the old segment: two full holds and a part of a third.
+/// Agent records of the old segment: the rows of more than two full holds.
 const OLD_RECORDS: usize = 600;
 
 /// The delete triggers a build before the delete in parts made.
@@ -142,72 +142,6 @@ fn segment_end_of(sealed: &Sealed, sequence: u64) -> u64 {
         .find(|segment| segment.start_sequence <= sequence && sequence <= segment.end_sequence)
         .expect("the setup: a segment holds the record")
         .end_sequence
-}
-
-/// A hold of the registry lock deletes the rows of at most
-/// [`RETENTION_RECORDS_PER_HOLD`] records, the lowest first; the floor moves
-/// first and deletes nothing; the segment's row with its content goes last.
-#[test]
-fn one_hold_deletes_the_rows_of_at_most_256_records_and_the_content_goes_last() {
-    let mut sealed = registry("holds");
-    let (old_end, head) = (sealed.old_end, sealed.registry.session_journal_head().unwrap());
-    let count = |sealed: &Sealed| records_with_rows(&sealed.registry.connection.get(), 0, old_end);
-    let later =
-        |sealed: &Sealed| records_with_rows(&sealed.registry.connection.get(), old_end, head);
-    let (whole, later_before) = (count(&sealed), later(&sealed));
-    assert!(
-        whole > 2 * RETENTION_RECORDS_PER_HOLD,
-        "the setup: the old segment has rows of more records than two holds take: {whole}"
-    );
-
-    let segment = sealed
-        .registry
-        .begin_journal_segment_prune(old_end)
-        .unwrap()
-        .expect("the first hold selects the old segment");
-    assert_eq!(sealed.registry.journal_pruned_through().unwrap(), old_end, "the floor moved");
-    assert_eq!(count(&sealed), whole, "the first hold deletes no row");
-
-    let mut holds = 0;
-    loop {
-        let before = count(&sealed);
-        let more = sealed.registry.delete_pruned_segment_rows(&segment).unwrap();
-        let after = count(&sealed);
-        holds += 1;
-        assert!(
-            before - after <= RETENTION_RECORDS_PER_HOLD,
-            "hold {holds} deleted the rows of {} records",
-            before - after
-        );
-        assert_eq!(
-            segment_rows(&sealed.registry.connection.get(), old_end),
-            1,
-            "the segment row with its content is there after hold {holds}"
-        );
-        if !more {
-            break;
-        }
-        assert_eq!(
-            before - after,
-            RETENTION_RECORDS_PER_HOLD,
-            "a hold that is not the last is full"
-        );
-        // The lowest records go first: the last agent record has its rows.
-        let last = sealed.old[OLD_RECORDS - 1];
-        assert_eq!(
-            records_with_rows(&sealed.registry.connection.get(), last - 1, last),
-            1,
-            "the rows of the last agent record are there after hold {holds}"
-        );
-    }
-    assert!(holds >= 3, "the rows went in {holds} holds");
-    assert_eq!(count(&sealed), 0, "no row of the old segment's records is left");
-
-    assert!(sealed.registry.finish_journal_segment_prune(&segment).unwrap());
-    assert_eq!(segment_rows(&sealed.registry.connection.get(), old_end), 0, "the segment is gone");
-    assert_eq!(later(&sealed), later_before, "each row above the old segment stays");
-    assert_eq!(sealed.new.len(), NEW_RECORDS);
-    sealed.close();
 }
 
 /// A hold of the registry lock deletes at most [`RETENTION_ROWS_PER_HOLD`]

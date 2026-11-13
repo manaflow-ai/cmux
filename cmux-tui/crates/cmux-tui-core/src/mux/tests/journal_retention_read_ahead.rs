@@ -104,24 +104,24 @@ fn each_row_hold_of_the_retention_pass_follows_a_read_of_its_rows_with_the_regis
     });
     let mut problems = Vec::new();
     let mut holds = 0;
-    // The read that no hold has used yet, and whether a second thread got
-    // the registry lock at it.
-    let mut read: Option<(i64, Option<bool>)> = None;
+    // The rows of the read that no hold has used yet, and whether a second
+    // thread got the registry lock at it.
+    let mut read: Option<(u64, Option<bool>)> = None;
     for (step, free) in &steps {
         match *step {
-            RetentionStep::FloorCut | RetentionStep::RowsDeleted { .. } => {}
-            RetentionStep::ReadBeforeHold { through } => read = Some((through, *free)),
-            RetentionStep::RowHold { through } => {
+            RetentionStep::FloorCut => {}
+            RetentionStep::ReadBeforeHold { rows } => read = Some((rows, *free)),
+            RetentionStep::RowsDeleted { rows } => {
                 holds += 1;
                 match read.take() {
-                    Some((read_through, Some(true))) if read_through == through => {}
-                    Some((read_through, free)) => problems.push(format!(
-                        "the row hold through record {through}: the read before it was through \
-                         record {read_through}; a second thread got the registry lock at that \
-                         read: {free:?}"
+                    Some((read_rows, Some(true))) if read_rows == rows => {}
+                    Some((read_rows, free)) => problems.push(format!(
+                        "row hold {holds} deleted {rows} rows: the read before it was of \
+                         {read_rows} rows; a second thread got the registry lock at that read: \
+                         {free:?}"
                     )),
                     None => problems.push(format!(
-                        "the row hold through record {through}: the pass read no row of it \
+                        "row hold {holds} deleted {rows} rows: the pass read no row of it \
                          before it took the registry lock"
                     )),
                 }

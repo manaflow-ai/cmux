@@ -18,8 +18,9 @@ const OLD_RECORDS: usize = 600;
 /// The steps of the query plan of `sql` (its `detail` column).
 fn plan(db: &Connection, sql: &str) -> Vec<String> {
     let mut statement = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+    let parameters = vec![1_i64; statement.parameter_count()];
     statement
-        .query_map([1_i64], |row| row.get::<_, String>(3))
+        .query_map(rusqlite::params_from_iter(parameters), |row| row.get::<_, String>(3))
         .unwrap()
         .map(Result::unwrap)
         .collect()
@@ -44,7 +45,7 @@ fn indexes(db: &Connection, table: &str) -> Vec<(String, String)> {
 fn the_read_before_a_hold_goes_through_each_index_of_each_table_that_the_hold_deletes_from() {
     let sealed = sealed_with("read-ahead-indexes", OLD_RECORDS);
     let db = sealed.registry.connection.get();
-    let tables: Vec<&str> = PRUNED_ROW_TABLES.iter().map(|(table, _)| *table).collect();
+    let tables: Vec<&str> = PRUNED_ROW_TABLES.iter().map(|(table, _, _)| *table).collect();
     let read_tables: Vec<&str> = HOLD_ROW_READS.iter().map(|(table, _)| *table).collect();
     assert_eq!(read_tables, tables, "one read for each table that a hold deletes from");
 
@@ -121,7 +122,7 @@ fn the_reads_before_a_hold_end_so_the_wal_resets_while_the_reader_is_open() {
     reader.read_hold_rows(&segment).unwrap();
     assert!(
         sealed.registry.delete_pruned_segment_rows(&segment).unwrap(),
-        "the setup: the old segment has rows of more records than one hold takes"
+        "the setup: the old segment has more rows than one hold takes"
     );
     assert!(
         the_wal_resets(&checkpointer, &database),
