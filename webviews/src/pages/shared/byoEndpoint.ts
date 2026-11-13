@@ -12,6 +12,8 @@
 // `replace` names it: the form sends that only for the id it added itself (a retry, or the save
 // after Fetch Models). Such a retry with an empty key field keeps the key it stored (`AddTarget`).
 
+import { userMessage } from "./userMessage";
+
 /** `anthropic-endpoint` runs Claude Code on it; `openai-endpoint` an OpenAI-compatible client. */
 export type EndpointKind = "anthropic-endpoint" | "openai-endpoint";
 
@@ -278,11 +280,9 @@ export type EndpointStatus =
 export const endpointBusy = (status: EndpointStatus) =>
   status.state === "fetching" || status.state === "adding" || status.state === "checking";
 
-/** A host refusal's text: an Error's or a page error's `message`, else the value as text. */
-export const failureText = (failure: unknown) =>
-  failure && typeof failure === "object" && typeof (failure as { message?: unknown }).message === "string"
-    ? (failure as { message: string }).message
-    : String(failure);
+/** A host refusal as the person reads it: one plain sentence by code (`userMessage`), never the
+ *  refusal's own text. */
+export const failureText = (failure: unknown) => userMessage(failure);
 
 /** The host's real hello turn for `harness`: `passed`, or `failed` with the first failing step. */
 export async function checkEndpoint(

@@ -28,7 +28,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -40,7 +40,7 @@ import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
 import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
-import { errorMessage, isStartCancelled } from "../transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -397,7 +397,7 @@ export function NewTabScreen(props: Props) {
   // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
   // the person typed; until then it is the prompt's (projectNameFrom).
   const [newProject, setNewProject] = useState<{ name?: string }>();
-  const [newProjectError, setNewProjectError] = useState<string>();
+  const [newProjectError, setNewProjectError] = useState<{ reason?: string }>();
   const newProjectPending = useRef(false);
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
@@ -1805,7 +1805,9 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
-  const [worktreeError, setWorktreeError] = useState<string>();
+  /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
+  /// environment's send goes again from the field, where its prompt stays).
+  const [worktreeError, setWorktreeError] = useState<{ retry?: () => void }>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
@@ -1840,7 +1842,8 @@ export function NewTabScreen(props: Props) {
       },
       (error: unknown) => {
         unstarted();
-        setWorktreeError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Worktree failed", error);
+        setWorktreeError({});
       },
     );
   }
@@ -1873,13 +1876,15 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         newProjectPending.current = false;
         created.current = false;
-        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
+        console.warn("agent pane: New Project failed", error);
+        const reason = error instanceof NewProjectUnsupported ? error.message : knownRefusalText(error);
+        if (current()) setNewProjectError(reason ? { reason } : {});
       },
     );
   }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
-      ? (cwd: string) => {
+      ? function newWorktreeHere(cwd: string) {
           setWorktreeError(undefined);
           const choice = ++projectChoice.current;
           void props.onNewWorktree!(cwd).then(
@@ -1887,8 +1892,8 @@ export function NewTabScreen(props: Props) {
               if (folder && choice === projectChoice.current) pickProject(folder);
             },
             (error: unknown) => {
-              if (choice === projectChoice.current)
-                setWorktreeError((error instanceof Error && error.message) || String(error));
+              console.warn("agent pane: New Worktree failed", error);
+              if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
             },
           );
         }
@@ -2229,9 +2234,17 @@ export function NewTabScreen(props: Props) {
             onDismiss={() => setStartError(undefined)}
           />
         )}
-        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {worktreeError && (
+          <WorktreeFailure
+            {...(worktreeError.retry ? { onRetry: worktreeError.retry } : {})}
+            onDismiss={() => setWorktreeError(undefined)}
+          />
+        )}
         {newProjectError && (
-          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+          <NewProjectFailure
+            {...(newProjectError.reason ? { reason: newProjectError.reason } : {})}
+            onDismiss={() => setNewProjectError(undefined)}
+          />
         )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />

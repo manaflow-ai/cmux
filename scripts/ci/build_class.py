@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -77,7 +78,11 @@ def tracked(root: Path, pattern: str) -> list[str]:
 
 def workspace_root(root: Path, crate: str) -> str:
     """The nearest directory at or above crate whose Cargo.toml has a [workspace] that takes it in
-    (cmux-tui excludes some crates: they are their own workspace)."""
+    (cmux-tui excludes some crates: they are their own workspace), or the one its own manifest names
+    (`package.workspace`: cmux-rd-ffi is in ../cmux-app-ffi's workspace)."""
+    named = re.search(r'^\s*workspace\s*=\s*"([^"]+)"', (root / crate / "Cargo.toml").read_text(encoding="utf-8"), re.M)
+    if named:
+        return os.path.normpath((Path(crate) / named.group(1)).as_posix())
     parent = Path(crate)
     while parent.as_posix() not in ("", "."):
         manifest = root / parent / "Cargo.toml"

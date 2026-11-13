@@ -18,6 +18,9 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,7 +82,7 @@ FORK_BRANCHES = (
     FORK_LINUX_ARM64_BRANCH,
 )
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
+EXPRESSION = gh_expressions.EXPRESSION
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 # (workflow, stripped line) -> why a Blacksmith label there may stay ungated.
@@ -116,6 +119,7 @@ RELEASE_JOBS_FORK_GATED = {
     "generate-nightly-deltas": "builds Sparkle deltas on the nightly mini; starts with the owner fork branch",
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
+    "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -687,7 +691,11 @@ def fork_pull_request_gate_error(
     if not selector.search(line):
         return None
     line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
-    if selector.search(EXPRESSION.sub("", line)):
+    try:
+        outside = EXPRESSION.sub("", line)
+    except gh_expressions.Unterminated:
+        return "has a ${{ that does not end on its line, which the guard cannot read"
+    if selector.search(outside):
         return "reads a runner selector outside a ${{ }} expression"
     for expression in EXPRESSION.findall(line):
         try:
@@ -882,7 +890,11 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         for raw in lines:
             if not re.match(r"^\s*runs-on:", raw):
                 continue
-            for expression in EXPRESSION.findall(raw):
+            try:
+                found = EXPRESSION.findall(raw)
+            except gh_expressions.Unterminated:
+                return False  # a runs-on whose `${{` ends on a later line: not shown translated
+            for expression in found:
                 if read.search(expression) and not _gated_expression(expression):
                     return False
         return True
@@ -920,11 +932,16 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             or (name, current_input) in UNTRANSLATED_DISPATCH_INPUTS
         ):
             continue
-        expressions = [e for e in EXPRESSION.findall(raw) if BLACKSMITH_LABEL.search(e)]
+        try:
+            # A `${{` that does not end on this line is read as not gated: the error below names it.
+            expressions = [e for e in EXPRESSION.findall(raw) if BLACKSMITH_LABEL.search(e)]
+            outside = EXPRESSION.sub("", raw)
+        except gh_expressions.Unterminated:
+            expressions, outside = [], raw
         if expressions and all(_gated_expression(e, explicit_input_first=True) for e in expressions):
             # A label outside every expression (e.g. `group: blacksmith-...-${{ }}`)
             # is still selectable.
-            if not BLACKSMITH_LABEL.search(EXPRESSION.sub("", raw)):
+            if not BLACKSMITH_LABEL.search(outside):
                 continue
         errors.append(
             f"{name}:{number}: {label} is selectable outside manaflow-ai, where no "

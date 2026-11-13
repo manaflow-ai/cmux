@@ -242,8 +242,8 @@ export type BakeOptions = {
   updateLock: boolean;
   keepBuilder: boolean;
   promotion: boolean;
-  /** Bake the agent tools (agent-tools.ts); off by default. */
-  agentTools?: boolean;
+  /** Bake the required Cloud desktop closure (agent-tools.ts); on for Cloud Native bakes. */
+  agentTools: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -1201,14 +1201,17 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const promotion = hasFlag("--promotion", argv);
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
     updateLock: hasFlag("--update-lock", argv),
     keepBuilder: hasFlag("--keep-builder", argv),
-    promotion: hasFlag("--promotion", argv),
-    agentTools: hasFlag("--agent-tools", argv),
+    promotion,
+    // Cloud Native images always carry the desktop closure. The legacy promotion
+    // path is the only image bake that intentionally keeps it off.
+    agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

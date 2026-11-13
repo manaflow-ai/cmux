@@ -65,8 +65,12 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
         "tools": [{"id": "tool", "description": "x".repeat(4096)}]})
         })
         .collect();
-    hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
-    // Warm the shared snapshot equally for both paths. No agents or peers are started.
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
+    // Warm the closed rows' cached bytes equally for both paths. No agents or peers are started.
     let _ = read(&hub, "_acpmux/sessions", json!({"limit": 1})).await;
     let (full, before_bytes, before_ms) = read_whole(&hub, "_acpmux/sessions", json!({})).await;
     assert_eq!(full["sessions"].as_array().unwrap().len(), 3000);
@@ -168,9 +172,10 @@ async fn a_page_of_five_builds_its_five_rows_not_every_chat() {
     println!("PERF page-of-5 {times:?} (chats, ms)");
 }
 
-/// A page built from its own rows is the page the whole list's snapshot cuts (`Snapshot::page`),
-/// byte for byte: every filter, a cursor into this daemon's rows and one into a peer's, a census,
-/// tools, and a chat here and its peer copy updated in the same millisecond.
+/// A page built from its own rows is the page of every row built and sorted
+/// (`session_list_reply`), byte for byte: every filter, a cursor into this daemon's rows and one
+/// into a peer's, a census, tools, and a chat here and its peer copy updated in the same
+/// millisecond.
 #[tokio::test]
 async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
     let hub = seeded(40, 12);
@@ -190,15 +195,27 @@ async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
                 "updatedAt": at, "tools": [{"id": "tool", "description": "x".repeat(64)}]})
         })
         .collect();
-    hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
-    let list = hub.list_guard.snapshot(&hub).await;
-    let full = list.full_rows(&hub);
-    // The wire's budget (`server::list_reply::LIST_PAGE_BYTES`): these pages are far smaller.
-    let most = 4 << 20;
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
+    // The reference: every row built, sorted, and picked as `session_list_reply` picks them.
+    let built = |with_tools: bool| {
+        let mut rows = Vec::new();
+        hub.visit_session_summaries(with_tools, |row| rows.push(row));
+        super::sort_session_summaries(&mut rows);
+        rows
+    };
+    let (full, rows) = (built(true), built(false));
     let expect = |params: &Value| -> Value {
         let tools = params.get("withTools") == Some(&Value::Bool(true));
-        let text = list.page(tools.then_some(&*full), params, most).unwrap();
-        serde_json::from_str(&text).unwrap()
+        let mut params = params.clone();
+        if let Some(p) = params.as_object_mut() {
+            p.remove("withTools");
+        }
+        let all = if tools { full.clone() } else { rows.clone() };
+        super::session_list_reply(all, &params).unwrap()
     };
     let mut cases = vec![
         json!({"limit": 5}),
