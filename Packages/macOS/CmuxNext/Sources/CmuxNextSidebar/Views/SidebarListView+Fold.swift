@@ -12,7 +12,7 @@ extension SidebarListViewComponents {
     /// back to a full reload when a drag, a filter or another layout mode owns the rows.
     func foldGroup(_ id: GroupID) {
         guard let group = model.group(id), let section = model.groupSection(id),
-              drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, !isShiftingViewport,
+              drag == nil, settling == nil, landing == nil, external == nil, !isShiftingViewport,
               !displayed.rows.isEmpty else {
             return reload(animated: true)
         }
