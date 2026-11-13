@@ -37,6 +37,7 @@ extension CEFTab {
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
                 documentDidPaint()
+                readDocumentFaviconIfUnreported() // a document restored or prerendered gets no favicon report (#42435)
             }
         case .loadStart(_, let url, let fromPost):
             // A new document: the link the pointer was over is gone (Chrome clears its bubble too).
@@ -47,6 +48,7 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            documentFaviconCommitted()
             restored.navigationCommitted(url: URL(string: url))
             restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
@@ -110,6 +112,7 @@ extension CEFTab {
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
+            documentFaviconReported()
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
         case .progress(_, let value):
@@ -170,7 +173,7 @@ extension CEFTab {
         -338, // ERR_INVALID_AUTH_CREDENTIALS
     ]
 
-    private func loadFavicon(_ url: URL?) {
+    func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
         // A machine store's loopback icon is the machine's: never fetched from this Mac.
         guard let url, url.isAppFetchableFavicon(remoteStore: machineStore != nil) else {

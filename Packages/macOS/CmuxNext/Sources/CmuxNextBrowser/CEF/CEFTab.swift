@@ -253,6 +253,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
+    /// Chromium reported the committed document's favicon (`CEFTab+DocumentFavicon`).
+    @ObservationIgnored var faviconReported = false
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
@@ -738,6 +740,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         settleTimer.cancel()
         devToolsController.openTimer.cancel()
         faviconTask?.cancel()
+        documentFaviconRead?.cancel()
         dismissPrompts()
         if let browserID {
             runtime.shim?.close(browserID)
