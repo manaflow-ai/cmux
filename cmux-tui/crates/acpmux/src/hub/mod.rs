@@ -347,6 +347,7 @@ pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
+mod subsession_resume;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
