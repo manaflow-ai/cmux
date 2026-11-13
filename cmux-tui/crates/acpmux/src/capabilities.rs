@@ -233,6 +233,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
     // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
     Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry {sessionId}` on a sub-session whose last turn was stopped continues it in
+    // the same chat (`hub/subsession_resume.rs`): its row offers Resume only under it.
+    Capability { id: "subsession-resume-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
