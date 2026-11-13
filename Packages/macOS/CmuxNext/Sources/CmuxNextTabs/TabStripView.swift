@@ -97,9 +97,19 @@ public final class TabStripView: NSView {
     /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
     /// reports again with the strip's fresh place.
     var reportedCornerFrame: CGRect?
+    /// The selected folder tab's bounds (in the strip) the flush chrome last read, so a selection or a
+    /// reflow that moves the folder reports again and the shade's hole under it follows.
+    var reportedFolderFrame: CGRect?
     /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
     /// tab may run into the card; true until the chrome first says otherwise.
     var runsIntoCard = true
+    /// The strip is inside the card while the top row's tabs are folders (``setTonedInCard(_:)``): it tones its own
+    /// row (``inCardTone``) and its selected tab is a folder into the content below it.
+    var tonedInCard = false
+    /// The toned strip's shade and tab-row divider, made on first use (`TabStripView+CornerFlush`).
+    var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
+    /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
+    var inCardToneDrawn: InCardToneKey?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -513,6 +523,7 @@ public final class TabStripView: NSView {
         }
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
+        updateInCardTone()
         hoverCard.themeChanged()
     }
 

@@ -140,7 +140,9 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         upstream_record_max_bytes: opts
             .num_or::<u64>("upstream-record-max-mb", 1024)?
             .saturating_mul(1 << 20),
-        frames_in_flight: 1,
+        // The hybrid link sizes this after its first RTT event; two keeps the
+        // stream moving while that measurement is still unknown.
+        frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
         max_width: opts
             .get("max-width")

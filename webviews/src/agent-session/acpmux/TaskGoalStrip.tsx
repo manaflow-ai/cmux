@@ -319,7 +319,7 @@ function GoalStrip({
   );
   return (
     <section
-      className="acpmux-goal"
+      className="ui-glass ui-glass-floats acpmux-stack-material acpmux-goal"
       data-look={place}
       data-state={goal.status}
       data-provider={provider}

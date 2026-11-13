@@ -9,9 +9,10 @@ would otherwise resolve by keeping the last job of that name.
 
 Secrets are matched in every form GitHub accepts: `secrets.X`, `secrets['X']`,
 `secrets["X"]`, any case, `toJSON(secrets)`, `secrets.*`, a computed index and `secrets: inherit`.
-Each `${{ }}` is read by a tokenizer (expressions(), expression_tokens()), not a regex: a string
+Each `${{ }}` is read by a tokenizer (expressions(), context_reads()), not a regex: a string
 literal may hold `}}` (a format() writing JSON braces), and the reference may sit in any function,
-index or operator (Codex review of #40784 at 96e5261c).
+index or operator (Codex review of #40784 at 96e5261c). Value resolution refuses unterminated
+expressions; substitutions replace whole expression spans, never text inside a string literal.
 
 PyYAML reads the `on:` key as the boolean True; a guard that needs the triggers reads
 `document.get("on", document.get(True))`.
@@ -24,26 +25,153 @@ import json
 import re
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
 ALL_SECRETS = "*"
 
-# `secrets.NAME` anywhere in a value, inside `${{ }}` or not (a guard counts more, never less). Every other form
-# is read inside `${{ }}` only, by expression_tokens(): in a run script `secrets[@]` is a shell array.
+# `secrets.NAME` in text outside `${{ }}`: an `if:` is an expression without the braces. Inside `${{ }}` every form
+# is read by tokens (context_reads), never by a regex over the expression: in a run script `secrets[@]` is a shell
+# array, and a name inside a string literal is text (review F1 on #41015: `'inputs.runner'` read as a self-reference
+# and made a false loop).
 # Context names and properties are case-insensitive in GitHub expressions.
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
-_TOKEN = re.compile(r"""\s*(?:(?P<string>'(?:[^']|'')*'?)|(?P<string2>"[^"]*"?)|(?P<number>-?\d[\w.+-]*)"""
-                    r"""|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>==|!=|<=|>=|&&|\|\||[.\[\](),!<>*])|(?P<other>\S))""")
-_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
-_MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
-# `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
-# env, needs and the outputs of either).
-_LITERAL_INDEX = re.compile(r"\b([A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'([A-Za-z_][A-Za-z0-9_-]*)'|\"([A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
-_INPUT_TERM = re.compile(r"\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
-_WHOLE_INPUT = re.compile(r"\$\{\{\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+# variable_reads(whole=True) only: a plain string a guard counts whole, its quotes text, not literals. `vars.NAME`
+# (after dotted(), `vars['NAME']` too), and one whose name is not a literal, `vars[<expression>]` or the whole
+# context (`toJSON(vars)`). Not `inputs.vars` or `x.vars`: a property of another.
+_VAR_DOT = re.compile(r"(?<![\w.-])vars\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+_VAR_OPEN = re.compile(r"(?<![\w.-])vars\s*(?=\[|\)|,)", re.IGNORECASE)
+
+
+# The expression tokenizer, the same rule as the build-fleet repository's scripts/lib/actions_expr.py (Codex on
+# hq#9175): an expression ends at the first `}}` outside every string literal, a literal is single-quoted with `''`
+# for a quote (or double-quoted, read as cmux reads `vars["X"]`), and text inside a literal reads no context:
+# `${{ 'vars.X' }}` is the text "vars.X". Numbers are Actions' literals: `-1`, `1.5`, `1e+2`, `1E-3`, `0x1F`.
+_TOKEN = re.compile(r"\s*(?:(?P<string>'(?:[^']|'')*'|\"[^\"]*\")"
+                    r"|(?P<number>-?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?))"
+                    r"|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>&&|\|\||==|!=|<=|>=|[.\[\](),!<>*])|(?P<bad>\S))")
+
+
+class Unreadable(ValueError):
+    """An expression the tokenizer cannot read: an unterminated `${{` or string, or a character Actions rejects."""
+
+
+def expression_spans(text: str, strict: bool = False) -> list[tuple[int, int]]:
+    """(start, end) of each `${{ ... }}` in `text`, `}}` inside a string literal kept in its expression. One never
+    closed raises Unreadable when `strict`; otherwise it and the text after it are no expression."""
+    spans: list[tuple[int, int]] = []
+    start = text.find("${{")
+    while start != -1:
+        index, quote = start + 3, ""
+        while index < len(text):
+            if quote and text[index] == quote:
+                quote = ""  # `''` inside a literal closes and reopens it
+            elif not quote and text[index] in "'\"":
+                quote = text[index]
+            elif not quote and text.startswith("}}", index):
+                break
+            index += 1
+        if index >= len(text):
+            if strict:
+                raise Unreadable(f"unterminated expression: {text[start:]!r}")
+            break
+        spans.append((start, index + 2))
+        start = text.find("${{", index + 2)
+    return spans
+
+
+def expressions(text: str, strict: bool = False) -> list[str]:
+    """The bodies of the `${{ }}` expressions in `text` (expression_spans)."""
+    return [text[start + 3:end - 2] for start, end in expression_spans(text, strict)]
+
+
+class _Token(NamedTuple):
+    kind: str
+    text: str
+    start: int
+    end: int
+
+
+def _token_spans(expression: str) -> list[_Token]:
+    """Each token of one expression body with where it sits in it (tokens)."""
+    out: list[_Token] = []
+    position = 0
+    while position < len(expression):
+        match = _TOKEN.match(expression, position)
+        if match is None:  # only trailing whitespace is left
+            break
+        kind = match.lastgroup
+        if kind == "bad":
+            raise Unreadable(f"unreadable character {match.group(kind)!r} in {expression!r}")
+        out.append(_Token(kind, match.group(kind), match.start(kind), match.end(kind)))
+        position = match.end()
+    return out
+
+
+def tokens(expression: str) -> list[tuple[str, str]]:
+    """`(kind, text)` for each token of one expression body: string, number, name or op."""
+    return [(token.kind, token.text) for token in _token_spans(expression)]
+
+
+def _literal(token: tuple[str, ...]) -> str | None:
+    kind, text = token[0], token[1]
+    if kind != "string":
+        return None
+    return text[1:-1].replace("''", "'") if text[0] == "'" else text[1:-1]
+
+
+def context_reads(expression: str, context: str) -> list[str | None]:
+    """Each read of `context` (`inputs`, `vars`, `secrets`, `matrix`; any case) in one expression body, read by
+    tokens: `ctx.NAME`, `ctx['NAME']` and `ctx["NAME"]` give NAME as written; a read whose name is not a literal
+    (`ctx[<expression>]`, `toJSON(ctx)`) gives None. A name inside a string literal is text, not a read
+    (`'inputs.runner'`, `format('inputs.x-{0}', ...)`), `github.event.inputs.x` is a property of another context,
+    and `inputs.runner_count` is not `inputs.runner`. Raises Unreadable for an expression the tokenizer cannot read."""
+    stream = _token_spans(expression)
+    found: list[str | None] = []
+    for index, token in enumerate(stream):
+        if token.kind != "name" or token.text.lower() != context:
+            continue
+        if index and stream[index - 1][:2] == ("op", "."):
+            continue
+        after = stream[index + 1:index + 4]
+        if len(after) >= 2 and after[0][:2] == ("op", ".") and after[1].kind == "name":
+            found.append(after[1].text)
+        elif len(after) >= 3 and after[0][:2] == ("op", "[") and after[2][:2] == ("op", "]"):
+            found.append(_literal(after[1]))
+        else:
+            found.append(None)
+    return found
+
+
+def _input_term(term: str) -> str | None:
+    """The input a whole term reads, `inputs.X` or `inputs['X']` and nothing else, by tokens; else None."""
+    try:
+        stream = tokens(term)
+    except Unreadable:
+        return None
+    if not stream or stream[0][0] != "name" or stream[0][1].lower() != "inputs":
+        return None
+    if len(stream) == 3 and stream[1] == ("op", ".") and stream[2][0] == "name":
+        return stream[2][1]
+    if len(stream) == 4 and stream[1] == ("op", "[") and stream[3] == ("op", "]"):
+        return _literal(stream[2])
+    return None
+
+
+def _input_reads(text: str) -> list[str]:
+    """Every input the `${{ }}` expressions in `text` read by a literal name, lower-cased, in order, once each. An
+    expression the tokenizer cannot read gives none: variable_reads already records it as a read no declaration
+    names, so the guard fails closed on it."""
+    names: dict[str, None] = {}
+    for body in expressions(text):
+        try:
+            names.update((name.lower(), None) for name in context_reads(body, "inputs") if name is not None)
+        except Unreadable:
+            continue
+    return list(names)
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -163,59 +291,34 @@ def strings(value: Any) -> Iterator[str]:
             yield from strings(item)
 
 
-def expressions(text: str) -> list[str]:
-    """The contents of each `${{ }}` in TEXT, read as GitHub reads them: a `}}` inside a string literal
-    (`'...'`, `''` an escaped quote) does not end the expression. One that never ends runs to the end of TEXT."""
-    found = []
-    start = text.find("${{")
-    while start != -1:
-        i, quoted = start + 3, False
-        while i < len(text):
-            if text[i] == "'":
-                quoted = not quoted  # `''` inside a string toggles twice: still inside
-            elif not quoted and text.startswith("}}", i):
-                break
-            i += 1
-        found.append(text[start + 3:i])
-        start = text.find("${{", i + 2)
-    return found
-
-
-def expression_tokens(expression: str) -> list[tuple[str, str]]:
-    """(kind, text) for each token of one expression's contents: string, number, name, op or other."""
-    tokens = []
-    for match in _TOKEN.finditer(expression):
-        kind = match.lastgroup
-        if kind is None:
-            continue
-        tokens.append(("string" if kind == "string2" else kind, match.group(kind)))
-    return tokens
-
-
-def _string_value(token: str) -> str:
-    body = token[1:-1] if len(token) >= 2 and token[-1] == token[0] else token[1:]
-    return body.replace("''", "'") if token.startswith("'") else body
+def _expression_parts(text: str) -> tuple[str, list[str]]:
+    """`text` outside every `${{ }}`, and the body of each (expression_spans), one that never closes read to the end
+    of `text` as a body: what a guard counts in it is counted, never dropped."""
+    spans = expression_spans(text)
+    outside, bodies, at = [], [], 0
+    for start, end in spans:
+        outside.append(text[at:start])
+        bodies.append(text[start + 3:end - 2])
+        at = end
+    tail = text.find("${{", at)
+    if tail != -1:
+        outside.append(text[at:tail])
+        bodies.append(text[tail + 3:])
+    else:
+        outside.append(text[at:])
+    return " ".join(outside), bodies
 
 
 def expression_secrets(expression: str) -> set[str]:
     """The secrets one expression's contents read, upper-cased: `secrets.X` and `secrets['X']` name X; the object
     filter `secrets.*`, a computed index and the whole context (`toJSON(secrets)`, `format('{0}', secrets)`, any
     other use) are ALL_SECRETS. `secrets` counts only as a context, never after a `.` (`needs.a.outputs.secrets`)
-    or inside a string literal."""
-    tokens = expression_tokens(expression)
-    names: set[str] = set()
-    for i, (kind, text) in enumerate(tokens):
-        if kind != "name" or text.lower() != "secrets" or (i and tokens[i - 1] == ("op", ".")):
-            continue
-        after = tokens[i + 1:i + 4]
-        if after[:1] == [("op", ".")] and len(after) > 1 and after[1][0] == "name":
-            names.add(after[1][1].upper())
-        elif (after[:1] == [("op", "[")] and len(after) > 2 and after[1][0] == "string"
-              and after[2] == ("op", "]")):
-            names.add(_string_value(after[1][1]).upper())
-        else:
-            names.add(ALL_SECRETS)
-    return names
+    or inside a string literal. An expression the tokenizer cannot read reads every secret."""
+    try:
+        found = context_reads(expression, "secrets")
+    except Unreadable:  # what it reads is unknown: every secret
+        return {ALL_SECRETS}
+    return {ALL_SECRETS if name is None else name.upper() for name in found}
 
 
 def secret_names(value: Any) -> set[str]:
@@ -228,9 +331,11 @@ def secret_names(value: Any) -> set[str]:
     if isinstance(value, Mapping) and str(value.get("secrets", "")).strip().lower() == "inherit":
         names.add(ALL_SECRETS)
     for text in strings(value):
-        names.update(match.upper() for match in _SECRET_DOT.findall(text))
-        for expression in expressions(text):
-            names |= expression_secrets(expression)
+        outside, bodies = _expression_parts(text)
+        # Outside `${{ }}` only the dot form (an `if:`): in a run script `secrets[@]` is a shell array.
+        names.update(match.upper() for match in _SECRET_DOT.findall(outside))
+        for body in bodies:
+            names |= expression_secrets(body)
     return names
 
 
@@ -252,7 +357,12 @@ def runs_on(job: Mapping[str, Any]) -> str:
     return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
 
 
-_FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
+def _raw_matrix(job: Mapping[str, Any]) -> Any:
+    """The job's `strategy.matrix` as written (an expression stays a string)."""
+    return (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), Mapping) else None
+
+
+_FROM_JSON = re.compile(r"fromJSON\s*\(\s*(.*?)\s*\)", re.IGNORECASE | re.DOTALL)
 _NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)", re.IGNORECASE)
 _STEP_OUTPUT = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\s*\}\}", re.IGNORECASE)
 
@@ -294,13 +404,17 @@ def _needs_output_literal(job: Mapping[str, Any], producer: str, key: str) -> st
 def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The job's matrix as a mapping: as written, or a `${{ fromJSON(...) }}` of a literal JSON object (in the
     expression, or a sibling's output that holds one). None for a matrix nothing here can read."""
-    strategy = job.get("strategy")
-    matrix = strategy.get("matrix") if isinstance(strategy, Mapping) else None
+    matrix = _raw_matrix(job)
     if isinstance(matrix, Mapping):
         return matrix
     if not isinstance(matrix, str):
         return None
-    called = _FROM_JSON.match(matrix.strip())
+    text = matrix.strip()
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return None
+    called = _FROM_JSON.fullmatch(text[3:-2].strip()) if spans == [(0, len(text))] else None
     if called is None:
         return None
     argument = dotted("${{ " + called.group(1) + " }}")[3:-2].strip()
@@ -319,70 +433,133 @@ def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return loaded if isinstance(loaded, Mapping) else None
 
 
-def matrix_values(job: Mapping[str, Any], key: str) -> list[Any] | None:
-    """Every value `matrix.<key>` takes in a job, from the axis and its include entries, or None
-    when the matrix is an expression nothing reads (_matrix) or the key is nowhere in it (the value is unknown)."""
+def _matrix_cells(job: Mapping[str, Any], key: str) -> list[tuple[str, Any]] | None:
+    """matrix_values with the key path of each value (`strategy.matrix.runner[1]`, `strategy.matrix.include[0].runner`)."""
     matrix = _matrix(job)
     if not isinstance(matrix, Mapping):
         return None
-    found: list[Any] = []
+    found: list[tuple[str, Any]] = []
     known = False
-    axis = next((v for k, v in matrix.items() if str(k).lower() == key.lower()), None)
-    if axis is not None:
+    axis_key = next((k for k in matrix if str(k).lower() == key.lower()), None)
+    if axis_key is not None:
+        axis = matrix[axis_key]
         if not isinstance(axis, list):
             return None
-        found.extend(axis)
+        found.extend((f"strategy.matrix.{axis_key}[{index}]", value) for index, value in enumerate(axis))
         known = True
-    for entry in matrix.get("include") or []:
+    for index, entry in enumerate(matrix.get("include") or []):
         if not isinstance(entry, Mapping):
             return None
         for k, v in entry.items():
             if str(k).lower() == key.lower():
-                found.append(v)
+                found.append((f"strategy.matrix.include[{index}].{k}", v))
                 known = True
     if isinstance(matrix.get("include"), str):
         return None
     return found if known else None
 
 
+def matrix_values(job: Mapping[str, Any], key: str) -> list[Any] | None:
+    """Every value `matrix.<key>` takes in a job, from the axis and its include entries, or None
+    when the matrix is an expression nothing reads (_matrix) or the key is nowhere in it (the value is unknown)."""
+    cells = _matrix_cells(job, key)
+    return None if cells is None else [value for _, value in cells]
+
+
 def _scalar_text(value: Any) -> str:
     return value if isinstance(value, str) else ("true" if value is True else "false" if value is False else str(value))
 
 
+def _dotted_body(body: str) -> str:
+    """One expression body with each literal index after a name in dot form, by tokens: a `['x']` inside a string
+    literal is text and stays as written. One the tokenizer cannot read stays as written."""
+    try:
+        stream = _token_spans(body)
+    except Unreadable:
+        return body
+    out, at, rewritten = [], 0, set()
+    for index in range(1, len(stream) - 2):
+        opener, literal, closer = stream[index:index + 3]
+        name = _literal(literal)
+        # After a name, or after an index just rewritten to one: `matrix['a']['b']` is `matrix.a.b`.
+        if ((stream[index - 1].kind == "name" or index - 1 in rewritten) and opener[:2] == ("op", "[")
+                and closer[:2] == ("op", "]") and name is not None and _IDENTIFIER.fullmatch(name)):
+            out += [body[at:opener.start], ".", name]
+            at = closer.end
+            rewritten.add(index + 2)
+    return "".join(out) + body[at:]
+
+
 def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
-    `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`."""
-    def one(expression: re.Match) -> str:
-        inner = expression.group(0)
-        previous = None
-        while previous != inner:
-            previous = inner
-            inner = _LITERAL_INDEX.sub(lambda m: f"{m.group(1)}.{m.group(2) or m.group(3)}", inner)
-        return inner
-    return _EXPRESSION.sub(one, text)
+    `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`. Read by tokens, so text inside a
+    string literal is never rewritten. An unterminated expression leaves the text unchanged;
+    value resolution then refuses it."""
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return text
+    out, at = [], 0
+    for start, end in spans:
+        out += [text[at:start], "${{", _dotted_body(text[start + 3:end - 2]), "}}"]
+        at = end
+    return "".join(out) + text[at:]
 
 
-def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
+def _matrix_shape(text: str) -> tuple[list[tuple[int, int, str]], bool] | None:
+    """Each `${{ matrix.KEY }}` in `text` that is a whole expression ((start, end, KEY)), and whether any other
+    expression reads the matrix, by tokens (a `'matrix.x'` literal is no read); None when one cannot be read."""
+    wholes: list[tuple[int, int, str]] = []
+    other = False
+    try:
+        spans = expression_spans(text, strict=True)
+    except Unreadable:
+        return None
+    for start, end in spans:
+        body = text[start + 3:end - 2]
+        try:
+            stream = tokens(body)
+            reads = context_reads(body, "matrix")
+        except Unreadable:
+            return None
+        if (len(stream) == 3 and stream[0][0] == "name" and stream[0][1].lower() == "matrix"
+                and stream[1] == ("op", ".") and stream[2][0] == "name"):
+            wholes.append((start, end, stream[2][1]))
+        elif reads:
+            other = True
+    return wholes, other
+
+
+def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = None) -> list[str] | None:
     """`text` with each `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
-    when one of them cannot be resolved."""
+    when one of them cannot be resolved. `reads` records the variables each value it takes reads."""
     text = dotted(text)
-    whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
-    keys = list(dict.fromkeys(whole.findall(text)))
+    shape = _matrix_shape(text)
+    if shape is None or shape[1]:
+        return None
+    wholes = shape[0]
+    keys = list(dict.fromkeys(key for _, _, key in wholes))
     if not keys:
-        return None if _MATRIX_REF.search(text) else [text]
+        return [text]
     choices = []
     for key in keys:
-        values = matrix_values(job, key)
-        if values is None or any(isinstance(v, (Mapping, list)) for v in values):
+        cells = _matrix_cells(job, key)
+        if cells is None or any(isinstance(v, (Mapping, list)) for _, v in cells):
             return None
-        choices.append([_scalar_text(v) for v in values])
+        if reads is not None:
+            for path, value in cells:
+                reads.note(path, _scalar_text(value))
+        choices.append([_scalar_text(v) for _, v in cells])
     out = []
     for combination in itertools.product(*choices):
-        expanded = text
-        for key, value in zip(keys, combination):
-            expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
-        expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
-        if _MATRIX_REF.search(expanded):
+        chosen = dict(zip(keys, combination))
+        parts, at = [], 0
+        for start, end, key in wholes:
+            parts += [text[at:start], chosen[key]]
+            at = end
+        expanded = dotted("".join(parts) + text[at:])  # a matrix value may itself index: ${{ vars['X'] }}
+        again = _matrix_shape(expanded)
+        if again is None or again[0] or again[1]:
             return None
         out.append(expanded)
     return out
@@ -426,11 +603,67 @@ def _wrapped(term: str) -> bool:
     return True
 
 
+def _property_chain(stream: list[tuple[str, str]]) -> list[str | int] | None:
+    """The keys of a property chain (`.a`, `['a']`, `[0]`) that is the whole of STREAM, or None."""
+    keys: list[str | int] = []
+    index = 0
+    while index < len(stream):
+        if stream[index] == ("op", ".") and index + 1 < len(stream) and stream[index + 1][0] == "name":
+            keys.append(stream[index + 1][1])
+            index += 2
+        elif (stream[index] == ("op", "[") and index + 2 < len(stream) and stream[index + 2] == ("op", "]")
+              and stream[index + 1][0] in ("string", "number")):
+            key = stream[index + 1]
+            if key[0] == "string":
+                keys.append(_literal(key) or "")
+            elif key[1].isdigit():
+                keys.append(int(key[1]))
+            else:
+                return None
+            index += 3
+        else:
+            return None
+    return keys
+
+
+def constant_from_json(term: str) -> list[str] | None:
+    """The values a `fromJSON('<literal>')` term takes, with any property chain after it (`.mac`, `['mac']`,
+    `[0]`): a string is itself, a number or boolean its text, an array of those each of its items (a runs-on
+    array is its labels). None for anything else: not that shape, JSON that does not parse, a key it lacks
+    (GitHub reads null), or a value that is an object or null. Object keys match without case, as GitHub's do."""
+    try:
+        stream = tokens(term)
+    except Unreadable:
+        return None
+    if (len(stream) < 4 or stream[0][0] != "name" or stream[0][1].lower() != "fromjson" or stream[1] != ("op", "(")
+            or stream[2][0] != "string" or stream[3] != ("op", ")")):
+        return None
+    keys = _property_chain(stream[4:])
+    if keys is None:
+        return None
+    try:
+        value = json.loads(_literal(stream[2]) or "")
+    except ValueError:
+        return None
+    for key in keys:
+        if isinstance(value, Mapping) and isinstance(key, str):
+            value = next((v for k, v in value.items() if str(k).lower() == key.lower()), None)
+        elif isinstance(value, list) and isinstance(key, int) and key < len(value):
+            value = value[key]
+        else:
+            return None
+    items = value if isinstance(value, list) else [value]
+    if not items or any(item is None or isinstance(item, (Mapping, list)) for item in items):
+        return None
+    return [_scalar_text(item) for item in items]
+
+
 def expression_values(expression: str) -> tuple[set[str], set[str]]:
     """The literal values a `${{ }}` expression can take, and the operands it can take a value
     from that are not literals. `c && 'a' || d && 'b' || 'e'` yields ({a, b, e}, set()); a value
     read from a context (`needs.x.outputs.y`) comes back in the second set, and the guard decides.
-    `||` and `&&` split only outside quotes and parentheses, so `(a || b) && 'x' || 'y'` is {x, y}."""
+    `||` and `&&` split only outside quotes and parentheses, so `(a || b) && 'x' || 'y'` is {x, y}.
+    A constant `fromJSON('<literal>')` is its values (constant_from_json): `fromJSON('["a"]')` is {a}."""
     values: set[str] = set()
     unresolved: set[str] = set()
     for alternative in _split_top(expression, "||"):
@@ -441,8 +674,11 @@ def expression_values(expression: str) -> tuple[set[str], set[str]]:
             unresolved |= open_terms
             continue
         quoted = _QUOTED.match(term)
+        constant = None if quoted else constant_from_json(term)
         if quoted:
             values.add(quoted.group(1).replace("''", "'"))
+        elif constant is not None:
+            values.update(constant)
         else:
             unresolved.add(term)
     return values, unresolved
@@ -451,21 +687,148 @@ def expression_values(expression: str) -> tuple[set[str], set[str]]:
 Tracer = Callable[[str], "tuple[set[str], set[str]] | None"]
 
 
-def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None) -> tuple[set[str], set[str]]:
+def variable_reads(text: str, whole: bool = False) -> list[str | None]:
+    """Each repository variable `text` reads inside `${{ }}`, upper-cased because GitHub matches variable names
+    without case; None for a read whose name is not a literal (`vars[format(...)]`, `toJSON(vars)`), which no
+    declaration can name, and for an expression the tokenizer cannot read (one never closed, a character Actions
+    rejects). Read by tokens: a name inside a string literal is no read (`${{ 'vars.X' }}` is text), a `}}` inside
+    one does not end the expression, and `github.vars` is a property, not the context. With `whole`, `text` is a
+    plain string (no `${{`) that a guard counts whole, read as it stands: its quotes are text, not literals."""
+    if whole:
+        expression = dotted("${{" + text + "}}")
+        return ([name.upper() for name in _VAR_DOT.findall(expression)]
+                + [None] * len(_VAR_OPEN.findall(expression)))
+    found: list[str | None] = []
+    try:
+        for body in expressions(text, strict=True):
+            found += [name.upper() if name is not None else None for name in context_reads(body, "vars")]
+    except Unreadable:
+        return [None]
+    return found
+
+
+class VarRead(NamedTuple):
+    """One `vars` operand the resolve step consumed: the variable (upper-cased; None when its name is an
+    expression), where it sits (the workflow file, the job id, the key path in that job: `runs-on`,
+    `strategy.matrix.include[0].runner`, `with.runner`; job "" and `on.workflow_call...` or `env.X` for a
+    workflow-level value), the text it sits in as written, and the field whose resolving consumed it (`runs-on`,
+    `environment`, `name`, `env`)."""
+    name: str | None
+    file: str | None
+    job: str
+    path: str
+    text: str
+    field: str
+
+
+class Unverifiable(NamedTuple):
+    """A trace the resolve step refused to finish: `inputs.<name>` of `workflow` loops back to itself (for one
+    caller, a default that names itself or two inputs whose defaults name each other; a call cycle) or nests past
+    MAX_TRACE_DEPTH. What it would read is unknown, so a guard treats it as a finding, never as "reads nothing".
+    Defaults are read per caller, so two callers whose chains are each finite never make a loop together."""
+    workflow: str
+    name: str
+    reason: str
+    field: str
+
+
+# How many reusable-workflow inputs one trace may pass through (callers' `with:` values and defaults alike).
+MAX_TRACE_DEPTH = 32
+
+
+class _Trace:
+    """One field's trace through Workflows: each input's values once per trace, memoised on (workflow, input) for
+    the values every caller gives it and on (workflow, caller, caller job, input) for one caller's, so a chain of
+    inputs costs O(callers x inputs), never 2^inputs. `open` holds what is being traced now: meeting one again is a
+    loop. `depth` counts the inputs on the way down."""
+
+    def __init__(self) -> None:
+        self.done: dict[tuple, tuple[set[str], set[str]]] = {}
+        self.open: set[tuple] = set()
+        self.depth = 0
+
+
+class VarReads:
+    """What one field's resolve consumed: every `vars` operand of every text it read (the field as written, each
+    matrix value it took, each caller's `with:` value and declared default an input it read came from, at any
+    call depth, conditions included), each with where it sits. A matrix nothing could expand counts whole."""
+
+    def __init__(self, field: str, file: str | None = None, job: str = "") -> None:
+        self.field, self.file, self.job = field, file, job
+        self.found: set[VarRead] = set()
+        self.unverifiable: set[Unverifiable] = set()
+
+    def at(self, file: str | None, job: str) -> "VarReads":
+        """The same record, for texts in another job (a caller's)."""
+        other = VarReads(self.field, file, job)
+        other.found, other.unverifiable = self.found, self.unverifiable
+        return other
+
+    def refuse(self, workflow: str, name: str, reason: str) -> None:
+        self.unverifiable.add(Unverifiable(workflow, name, reason, self.field))
+
+    def note(self, path: str, text: str, whole: bool = False) -> None:
+        for name in variable_reads(text, whole):
+            self.found.add(VarRead(name, self.file, self.job, path, text, self.field))
+
+
+def _strings_at(value: Any, path: str) -> Iterator[tuple[str, str]]:
+    """Every string in a loaded value with its key path (keys at their mapping's path)."""
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str):
+                yield path, key
+            yield from _strings_at(item, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            yield from _strings_at(item, f"{path}[{index}]")
+
+
+def _note_unexpanded_matrix(job: Mapping[str, Any], reads: "VarReads") -> None:
+    """A matrix nothing could expand (an expression such as fromJSON(vars.X), a key it lacks, a condition on a
+    matrix value): the value may come from any part of it, so every variable anywhere in it counts (fail closed).
+    A string with no `${{` counts as one operand, as the scan before the resolve step read it."""
+    for path, text in _strings_at(_raw_matrix(job), "strategy.matrix"):
+        reads.note(path, text, whole="${{" not in text)
+
+
+def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, reads: VarReads | None = None,
+             path: str = "") -> tuple[set[str], set[str]]:
     """The literal values `text` (a value as written in the job) can take, literal indexes read in dot form,
     matrix cells expanded and an expression's literal branches read, and the parts nothing here resolves. A
-    `tracer` (Workflows.tracer) resolves a branch that is a reusable workflow's `inputs.X` to its callers' values."""
-    expanded = expand_matrix(job, text.strip())
+    `tracer` (Workflows.tracer) resolves a branch that is a reusable workflow's `inputs.X` to its callers' values.
+    `reads` records every `vars` operand consumed on the way: in `text` (at `path`), conditions included, in each
+    matrix value it took (the whole matrix when it could not expand one), and, through the tracer, in each caller's
+    value of every input it reads, as a branch or in a condition."""
+    text = text.strip()
+    expanded = expand_matrix(job, text, reads)
+    if reads is not None:
+        reads.note(path, text)
+        if expanded is None:
+            _note_unexpanded_matrix(job, reads)
+        if tracer is not None:
+            # An input read anywhere, a condition's included: its callers' values reach this field too.
+            sources = expanded if expanded is not None else [text, *(s for _, s in _strings_at(_raw_matrix(job), ""))]
+            for name in dict.fromkeys(name for source in sources for name in _input_reads(source)):
+                tracer(f"inputs.{name}")
     if expanded is None:
-        return set(), {text.strip()}
+        return set(), {text}
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
-        expressions = _EXPRESSION.findall(cell)
-        if not expressions:
+        # Keep the base tokenizer's strict unterminated-expression behavior while retaining
+        # this branch's caller tracing for every unresolved term.
+        try:
+            bodies = expressions(cell, strict=True)
+        except Unreadable:
+            unresolved.add(cell)
+            continue
+        if not bodies:
             values.add(cell)
-        elif len(expressions) == 1 and cell.startswith("${{") and cell.endswith("}}"):
-            found, open_terms = expression_values(expressions[0])
+        elif len(bodies) == 1 and cell.startswith("${{") and cell.endswith("}}"):
+            found, open_terms = expression_values(bodies[0])
             values |= found
             for term in open_terms:
                 traced = tracer(term) if tracer else None
@@ -504,48 +867,95 @@ class Workflows:
         spec = next((v for k, v in declared.items() if str(k).lower() == name.lower()), None)
         return spec.get("default") if isinstance(spec, Mapping) else None
 
-    def input_values(self, workflow: str, name: str,
-                     _seen: frozenset = frozenset()) -> tuple[set[str], set[str]]:
+    def input_values(self, workflow: str, name: str, reads: VarReads | None = None,
+                     _trace: _Trace | None = None) -> tuple[set[str], set[str]]:
         """Every value `inputs.<name>` takes in `workflow`, and what nothing resolves (`inputs.<name>` itself when
-        no workflow here calls it)."""
+        no workflow here calls it). `reads` records the variables each caller's value (or the declared default)
+        reads, with the caller's file, job and `with.<name>` path. Each caller is read on its own (_call_value).
+
+        A call cycle (an input whose callers' values come back to it through other workflows) stays unresolved and,
+        with `reads`, is recorded as Unverifiable. Within one trace each input is read once (memoised), so a
+        workflow called twice by each of a chain of workflows costs O(workflows), never 2^workflows."""
+        trace = _trace or _Trace()
         key = (workflow, name.lower())
+        if key in trace.done:
+            return trace.done[key]
+        if key in trace.open:
+            if reads is not None:
+                reads.refuse(workflow, name, "a loop")
+            return set(), {f"inputs.{name}"}
         callers = list(self.callers(workflow))
-        if key in _seen or not callers:
+        if not callers:
             return set(), {f"inputs.{name}"}
         values: set[str] = set()
         unresolved: set[str] = set()
-        for caller, _, job in callers:
-            passed = next((v for k, v in (job.get("with") or {}).items() if str(k).lower() == name.lower()), None)
-            if passed is None:
-                default = self._declared_default(workflow, name)
-                values.add("" if default is None else _scalar_text(default))
-                continue
-            found, open_terms = _resolve(job, _scalar_text(passed), self.tracer(caller, _seen | {key}))
-            values |= found
-            unresolved |= open_terms
+        trace.open.add(key)
+        try:
+            for call in callers:
+                found, open_terms = self._call_value(workflow, call, name, reads, trace)
+                values |= found
+                unresolved |= open_terms
+        finally:
+            trace.open.discard(key)
+        trace.done[key] = (values, unresolved)
         return values, unresolved
 
-    def tracer(self, workflow: str, _seen: frozenset = frozenset()) -> Tracer:
-        """The tracer for jobs of `workflow`: an `inputs.X` term is input_values(workflow, X); others are None."""
-        def trace(term: str) -> tuple[set[str], set[str]] | None:
-            match = _INPUT_TERM.fullmatch(term)  # terms come from dotted text: inputs['x'] is inputs.x here
-            return self.input_values(workflow, match.group(1), _seen) if match else None
-        return trace
+    def _call_value(self, workflow: str, call: tuple[str, str, Mapping[str, Any]], name: str,
+                    reads: VarReads | None, trace: _Trace) -> tuple[set[str], set[str]]:
+        """The values `inputs.<name>` of `workflow` takes for one caller (`call`: its file, job id and job): its
+        `with:` value, read in the caller job, or else the input's declared default, read in `workflow` with every
+        `inputs.Y` in it this same caller's Y (Codex on #40979: a default of `${{ inputs.fallback_runner }}` was
+        scanned as text, so a caller's `fallback_runner: ${{ vars.X }}` was never read; Codex on #41015: a default
+        traced through every caller merged their scopes, so caller A's `fallback_runner` reached caller B's runner
+        and two finite chains made a loop). A chain that comes back to an input of the same caller, or passes
+        MAX_TRACE_DEPTH inputs, stays unresolved and, with `reads`, is recorded as Unverifiable."""
+        caller, caller_job, job = call
+        key = (workflow, caller, caller_job, name.lower())
+        if key in trace.done:
+            return trace.done[key]
+        if key in trace.open or trace.depth >= MAX_TRACE_DEPTH:
+            if reads is not None:
+                reads.refuse(workflow, name, f"a loop for the call in {caller} job {caller_job}"
+                             if key in trace.open else f"more than {MAX_TRACE_DEPTH} inputs")
+            return set(), {f"inputs.{name}"}
+        passed_key = next((k for k in (job.get("with") or {}) if str(k).lower() == name.lower()), None)
+        trace.open.add(key)
+        trace.depth += 1
+        try:
+            if passed_key is not None:
+                here = reads.at(caller, caller_job) if reads is not None else None
+                result = _resolve(job, _scalar_text(job["with"][passed_key]), self.tracer(caller, reads, trace),
+                                  here, f"with.{passed_key}")
+            else:
+                default = self._declared_default(workflow, name)
+                if not isinstance(default, str):
+                    result = ({"" if default is None else _scalar_text(default)}, set())
+                else:
+                    def same_call(term: str) -> tuple[set[str], set[str]] | None:
+                        name = _input_term(term)
+                        return self._call_value(workflow, call, name, reads, trace) if name is not None else None
+                    here = reads.at(workflow, "") if reads is not None else None
+                    result = _resolve({}, default, same_call, here, f"on.workflow_call.inputs.{name}.default")
+        finally:
+            trace.open.discard(key)
+            trace.depth -= 1
+        trace.done[key] = result
+        return result
+
+    def tracer(self, workflow: str, reads: VarReads | None = None, _trace: _Trace | None = None) -> Tracer:
+        """The tracer for jobs of `workflow`: an `inputs.X` term is input_values(workflow, X); others are None.
+        With `reads`, it records the variables the callers' values read. One tracer is one trace: every input it
+        reaches is read once."""
+        trace = _trace or _Trace()
+
+        def trace_term(term: str) -> tuple[set[str], set[str]] | None:
+            name = _input_term(term)
+            return self.input_values(workflow, name, reads, trace) if name is not None else None
+        return trace_term
 
 
 def runs_on_items(job: Mapping[str, Any]) -> list[Any]:
-    """The job's runs-on as the list of items it asks for, as written: a string is one item, a list its items, a
-    `group`/`labels` mapping its labels then its group; [] when it has none. For a reader of the written text (an
-    exact-match check, a pattern scan) that keeps lists as lists; a reader of labels reads runs_on_label_cells,
-    runs_on_cells or runs_on_values, which expand the matrix."""
-    raw = job.get("runs-on")
-    if raw is None or raw == "":
-        return []
-    if isinstance(raw, Mapping):
-        labels = raw.get("labels")
-        return [*(labels if isinstance(labels, list) else [labels] if labels else []),
-                *([raw["group"]] if raw.get("group") else [])]
-    return raw if isinstance(raw, list) else [raw]
+    return [item for _, item in _runs_on_paths(job)]
 
 
 def runs_on_label_cells(job: Mapping[str, Any], workflow: str | None = None,
@@ -565,11 +975,13 @@ def runs_on_label_cells(job: Mapping[str, Any], workflow: str | None = None,
             # expression of what it reads (`${{ vars.X }}`), never a label.
             traced = []
             for cell in expanded:
-                whole = _WHOLE_INPUT.fullmatch(cell.strip())
-                if whole is None:
+                cell_text = cell.strip()
+                spans = expression_spans(cell_text)
+                name = (_input_term(cell_text[3:-2]) if spans == [(0, len(cell_text))] else None)
+                if name is None:
                     traced.append(cell)
                     continue
-                values, open_terms = workflows.input_values(workflow, whole.group(1))
+                values, open_terms = workflows.input_values(workflow, name)
                 traced.extend([*sorted(values), *(f"${{{{ {term} }}}}" for term in sorted(open_terms))])
             expanded = traced
         cells.append(expanded)
@@ -607,12 +1019,25 @@ def single_runs_on(job: Mapping[str, Any], workflow: str | None = None,
     return cells[0]
 
 
-def _tracer(workflow: str | None, workflows: Workflows | None) -> Tracer | None:
-    return workflows.tracer(workflow) if workflows is not None and workflow is not None else None
+def _tracer(workflow: str | None, workflows: Workflows | None, reads: VarReads | None = None) -> Tracer | None:
+    return workflows.tracer(workflow, reads=reads) if workflows is not None and workflow is not None else None
 
 
-def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
-                   workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+def _runs_on_paths(job: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    """runs_on_items with the key path of each."""
+    raw = job.get("runs-on")
+    if isinstance(raw, Mapping):
+        labels = raw.get("labels")
+        return [*(((f"runs-on.labels[{i}]", v) for i, v in enumerate(labels)) if isinstance(labels, list)
+                  else [("runs-on.labels", labels)] if labels else []),
+                *([("runs-on.group", raw["group"])] if raw.get("group") else [])]
+    if isinstance(raw, list):
+        return [(f"runs-on[{i}]", v) for i, v in enumerate(raw)]
+    return [] if raw is None or raw == "" else [("runs-on", raw)]
+
+
+def runs_on_values(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                   reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """Every label a job's runs-on can resolve to (literal indexes read, matrix values expanded, literal branches
     of an expression read, and, given the job's `workflow` file name and every document as `workflows`, a reusable
     workflow's `inputs.X` traced to its callers' `with:` values at any depth), and every part it could not resolve
@@ -620,11 +1045,14 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
     unresolved part as unclassified, like environment_values. The single-host fallback test reads this."""
     values: set[str] = set()
     unresolved: set[str] = set()
-    for item in runs_on_items(job):
+    for path, item in _runs_on_paths(job):
         if not isinstance(item, str):
             unresolved.add(repr(item))
+            if reads is not None:  # nothing resolves it, so every variable in it counts
+                for at, text in _strings_at(item, path):
+                    reads.note(at, text, whole="${{" not in text)
             continue
-        found, open_terms = _resolve(job, item, _tracer(workflow, workflows))
+        found, open_terms = _resolve(job, item, _tracer(workflow, workflows, reads), reads, path)
         values |= found
         unresolved |= open_terms
     return values, unresolved
@@ -639,24 +1067,25 @@ def environment_spec(job: Mapping[str, Any]) -> dict[str, Any] | None:
     return dict(raw) if isinstance(raw, Mapping) else {"name": raw}
 
 
-def environment_values(job: Mapping[str, Any], workflow: str | None = None,
-                       workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+def environment_values(job: Mapping[str, Any], workflow: str | None = None, workflows: Workflows | None = None,
+                       reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """Every environment name a job's `environment:` can resolve to (matrix values expanded,
     literal branches of an expression read), casefolded because GitHub matches environment names
     without case (`Release` is `release`), and every part it could not resolve. A guard counts a
     job with an unresolved part as unclassified, never as outside the environment."""
     spec = environment_spec(job)
     env = spec.get("name") if spec is not None else None
+    path = "environment.name" if isinstance(job.get("environment"), Mapping) else "environment"
     if env is None or env == "":
         return (set(), set()) if spec is None else (set(), {repr(spec)})
     if not isinstance(env, str):
         return set(), {repr(env)}
-    values, unresolved = _resolve(job, env, _tracer(workflow, workflows))
+    values, unresolved = _resolve(job, env, _tracer(workflow, workflows, reads), reads, path)
     return {value.casefold() for value in values}, unresolved
 
 
 def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None,
-                workflows: Workflows | None = None) -> tuple[set[str], set[str]]:
+                workflows: Workflows | None = None, reads: VarReads | None = None) -> tuple[set[str], set[str]]:
     """The check name a job reports: its `name:` (the job id when it has none) with matrix values
     expanded and literal expressions read (`${{ 'CLA policy guard' }}` is `CLA policy guard`), and
     every part nothing resolves. Check names keep their case. A guard that matches names counts a job
@@ -664,7 +1093,7 @@ def name_values(job: Mapping[str, Any], job_id: str, workflow: str | None = None
     name = job.get("name", job_id)
     if not isinstance(name, str):
         return set(), {repr(name)}
-    return _resolve(job, name, _tracer(workflow, workflows))
+    return _resolve(job, name, _tracer(workflow, workflows, reads), reads, "name")
 
 
 def effective_env(document: Mapping[str, Any] | None, job: Mapping[str, Any],
@@ -762,15 +1191,32 @@ class Resolved:
     job's effective secrets (the workflow env it inherits, then its env, steps, `with:` and `secrets:`,
     and what a `secrets: inherit` call's workflow reads: effective_secrets). Each `*_unresolved` set,
     and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it, unless
-    `matrix_audit` names why that job's matrix is read elsewhere (UNRESOLVED_MATRICES)."""
+    `matrix_audit` names why that job's matrix is read elsewhere (UNRESOLVED_MATRICES).
+
+    `vars_read` is every repository variable those fields consumed (VarRead: the variable, the file, job and key
+    path it sits at, and the field), wherever it sat: the field as written, a matrix value it took (a matrix
+    nothing could expand counts whole), a caller's `with:` value or an input's default at any call depth, inside a
+    condition or a fromJSON, in dot or bracket form. A guard about the variables a field reads reads them here,
+    never the field's text. `unverifiable` is every trace those fields refused to finish (Unverifiable: a loop or
+    a nesting past MAX_TRACE_DEPTH); a guard counts each as a finding. Field `env` holds the variables the job's
+    env layers read (the workflow's, then the job's): runs-on, environment and name cannot read the env context, so
+    no other field consumes them."""
 
     def __init__(self, job: Mapping[str, Any], job_id: str = "", workflow: str | None = None,
                  workflows: Workflows | None = None) -> None:
         self.job = job
         self.runs_on_cells = runs_on_cells(job, workflow, workflows)
-        self.runs_on, self.runs_on_unresolved = runs_on_values(job, workflow, workflows)
-        self.environments, self.environments_unresolved = environment_values(job, workflow, workflows)
-        self.names, self.names_unresolved = name_values(job, job_id, workflow, workflows)
+        reads = {field: VarReads(field, workflow, job_id) for field in ("runs-on", "environment", "name", "env")}
+        self.runs_on, self.runs_on_unresolved = runs_on_values(job, workflow, workflows, reads["runs-on"])
+        self.environments, self.environments_unresolved = environment_values(job, workflow, workflows,
+                                                                             reads["environment"])
+        self.names, self.names_unresolved = name_values(job, job_id, workflow, workflows, reads["name"])
+        inherited = job.inherited_env if isinstance(job, Job) else {}
+        for scope, layer in (("", inherited), (job_id, job.get("env"))):
+            for path, text in _strings_at(layer or {}, "env"):
+                reads["env"].at(workflow, scope).note(path, text)
+        self.vars_read: frozenset[VarRead] = frozenset().union(*(r.found for r in reads.values()))
+        self.unverifiable: frozenset[Unverifiable] = frozenset().union(*(r.unverifiable for r in reads.values()))
         self.environment = environment_spec(job)
         self.env = effective_env(None, job)
         self.secrets, self.secrets_unresolved = effective_secrets(job, workflows)

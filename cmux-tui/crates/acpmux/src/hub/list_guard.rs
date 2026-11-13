@@ -1,139 +1,190 @@
-//! Part of `Hub`; see `hub/mod.rs`. The guard on full session lists (`_acpmux/sessions`,
-//! `_acpmux/watch`, ACP's `session/list`), for every client. A full list of 2,800 chats
-//! costs about 0.16 s of CPU; cmux-tui servers from before #26255 asked for it about once
-//! a second, and three of them kept a dogfood Mac's idle daemon at 30-60% of a core.
+//! Part of `Hub`; see `hub/mod.rs`. What every session list reply (`_acpmux/sessions`,
+//! `_acpmux/watch`, ACP's `session/list`) is made of: the hub's event channel, whose sends stamp
+//! the list positions (`row_log.rs`), and the text of a page.
 //!
-//! - **One build, shared.** A [`Snapshot`] is the list serialized once; a whole list is
-//!   sent as those bytes, a page or filter is cut from them (rows picked by their keys).
-//! - **Never staler than a client is owed.** It is reused only while nothing a watcher
-//!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
-//!   rows, and change of a peer's link state counts), within its window, and never while
-//!   the chat logs load. The window runs from when the snapshot is made, and a part of it made
-//!   later (its rows with tools, its masked text) moves it on by that part's own window, so a
-//!   paged read is cut from one build however long its parts take. Fields
-//!   that change with the clock alone (a stall, an expiring tag) are at most a window older
-//!   than the part that shows them.
-//!   A request shares any build begun after it arrived. A watcher's reply never follows
-//!   a `session_changed` notice its list may lack (`list_reply.rs`).
-//! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
-//!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
-//!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page by `limit` costs its rows' share of the list
-//!   (`ListGuard::share_rows`), a byte page its bytes' share, at least [`BYTE_PAGE_MIN`].
-//!   The first list is built before it is paced, so the pace is known. A request that
-//!   would wait more than [`MAX_WAIT`] is refused, to try again later.
+//! Leo, 2026-11-12: "Replace the list with a row log carrying a seq number; app and peers fetch
+//! the first page (visible rows first) then follow changes from a cursor; a reconnect resumes from
+//! its cursor and never refetches the list. Delete the pacer, the snapshot variants,
+//! watch_delta.rs and Known."
 //!
-//! Cleanup: each build starts one task that drops its snapshot when its window ends
-//! (unless a newer build replaced it); it holds a weak reference and sleeps again only when a
-//! part made since moved the window on. A connection's pace goes with the connection.
+//! No list is built whole and shared, and none is paced: a page picks its rows from their keys and
+//! builds only those (`page_first.rs`), a read with no `limit` builds its rows as they go and stops
+//! at its page's bytes ([`bounded`]), and a follow builds the rows that changed. A request never
+//! waits for its turn and is never refused for its cost; it costs its own page.
 
+use super::session_pages::PageRow;
 use super::*;
-use std::ops::Range;
-use std::time::Duration;
-// Tokio's clock, so a paused test clock moves the pace and the windows too.
 use cmux_json::JsonSet as _;
-use tokio::time::Instant;
-
-/// A build runs at most once per `PACE` times its own cost: about 3% of a core.
-const PACE: u32 = 32;
-/// The longest window, whatever a build cost.
-const MAX_WINDOW: Duration = Duration::from_secs(15);
-/// Builds that may run back to back before the pace holds.
-const BURST: u32 = 4;
-/// Lists one connection may read back to back.
-const CONN_BURST: u32 = 2;
-/// Lists all connections together read per window, after as many back to back.
-const REPLIES: u32 = 8;
-/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
-/// its megabyte of the shared text. Every list reply is a page of at most
-/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
-/// 1/16 each, one whole read would cost two lists and be paced as such.
-const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
-/// The longest a list request waits for its turn; a longer wait is refused.
-pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
+use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
-    changes: AtomicU64,
     /// Changes that may reach any closed row: a send with no session of its own
     /// ([`Events::send`], [`Events::changed`]), a parent's tags, a session coming or going.
     /// Closed summary bytes carry this generation and their own session's
     /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
     /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
+    /// The list's row log (`row_log.rs`): a row change is stamped and sent under its lock, so
+    /// list positions go out in their order.
+    rows: std::sync::Mutex<super::row_log::RowLog>,
+    /// This daemon's rows that changed with no notice (a streamed chunk's preview, an attach).
+    /// Each is stamped and told (`session_changed` of kind `row`) before a list position is read
+    /// next, so no cursor a client took from a notice is past a change it was never sent
+    /// (#42091 F1).
+    untold: std::sync::Mutex<HashSet<String>>,
+    /// Records since the last list read that reach other rows: each one's session and its parent
+    /// (`Hub::note_rows_reading`).
+    reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
+    /// This run's id for list positions: a cursor of another run is no cursor here.
+    epoch: String,
 }
 
 impl Events {
     pub(super) fn new(capacity: usize) -> Self {
         Self {
             tx: broadcast::channel(capacity).0,
-            changes: AtomicU64::new(0),
             summary_generation: Arc::new(AtomicU64::new(0)),
+            rows: Default::default(),
+            untold: Default::default(),
+            reaching: Default::default(),
+            epoch: super::row_log::new_epoch(),
         }
     }
 
-    /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
-    /// sent here, it made every local closed row stale (a peer's reattach notice did).
+    /// Sends `event`, stamped with the list position of the row it changes, if any.
+    fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        let Some((key, gone)) = super::row_log::row_change(&event) else {
+            return self.tx.send(event);
+        };
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        event.list_seq = rows.stamp(key, gone);
+        self.tx.send(event)
+    }
+
+    /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
+    /// an attach): it is stamped and told before the next list position is read
+    /// ([`Self::tell_untold`]).
+    fn stamp_own(&self, session: &str) {
+        self.untold.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned());
+    }
+
+    /// Stamps and tells every row changed with no notice since the last read: a follow after
+    /// it sends each as it is now, and a watcher hears each as `session_changed`.
+    fn tell_untold(&self) {
+        let untold = std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        for session in untold {
+            self.tell_row(&session);
+        }
+    }
+
+    /// A record of `session` (whose parent is `parent`) reached other rows: told before the next
+    /// list read (`Hub::tell_reached`).
+    pub(super) fn reaches(&self, session: &str, parent: Option<String>) {
+        let mut reaching = self.reaching.lock().unwrap_or_else(|e| e.into_inner());
+        reaching.push((session.to_owned(), parent));
+    }
+
+    pub(super) fn take_reaching(&self) -> Vec<(String, Option<String>)> {
+        std::mem::take(&mut *self.reaching.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    /// Stamps this daemon's row `session` and tells the watchers: a change a record of another
+    /// row made to it (`Hub::tell_reached`), or one no record carries.
+    pub(super) fn tell_row(&self, session: &str) {
+        let _ = self.stamped(super::row_log::row_event(session));
+    }
+
+    pub(super) fn list_head(&self) -> u64 {
+        self.tell_untold();
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).head()
+    }
+
+    pub(super) fn list_epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    pub(super) fn list_since(&self, after: u64) -> Option<super::row_log::Since> {
+        self.tell_untold();
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).since(after)
+    }
+
+    /// Marks every closed row stale, then sends `event`. A peer's event goes through
+    /// [`Events::send_remote`]: sent here, it made every local closed row stale (a peer's
+    /// reattach notice did).
     pub(super) fn send(
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
-        self.changed();
-        self.tx.send(event)
+        self.all_rows_stale();
+        self.stamped(event)
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.tx.subscribe()
     }
 
-    /// Sends a live chat's streamed chunk ([`streamed_chunk`]): the next list is built anew, but
-    /// the closed rows' cached bytes stay fresh. A chunk changes only its own chat's row (its
-    /// preview, `updatedAt`, sequence numbers and subagent previews), and no row of another chat
-    /// reads those; a live chat's row is never cached (`Hub::cached_closed_summary`). Hundreds
-    /// of chunks a second while agents stream otherwise rebuilt every closed row on every list.
+    /// Sends a live chat's streamed chunk ([`streamed_chunk`]): the closed rows' cached bytes stay
+    /// fresh. A chunk changes only its own chat's row (its preview, `updatedAt`, sequence numbers
+    /// and subagent previews), and no row of another chat reads those; a live chat's row is never
+    /// cached (`Hub::cached_closed_summary`). Hundreds of chunks a second while agents stream
+    /// otherwise rebuilt every closed row on every list.
     pub(super) fn send_live_stream(
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&event.session_id);
         self.tx.send(event)
     }
 
-    /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): the next list is built anew, and
-    /// every local closed row keeps its bytes, since none reads a peer's rows.
+    /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
+    /// bytes, since none reads a peer's rows.
     pub(super) fn send_remote(
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
-        self.changes.fetch_add(1, Ordering::SeqCst);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
-    /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
-    /// next list is built anew, and of the closed rows' cached bytes only `session`'s go stale.
+    /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): of the
+    /// closed rows' cached bytes only `session`'s go stale. A record no watcher hears as
+    /// `session_changed` (a tool call, `respawn_pending`) still changes the row (its preview,
+    /// `updatedAt`, `respawnPending`): it is told before the next list read, as a change no record
+    /// carries is (#42091 F1).
     pub(super) fn send_row(
         &self,
         session: &Session,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.row_changed(session);
-        self.tx.send(event)
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        if super::row_log::row_change(&event).is_none() {
+            self.stamp_own(&session.id);
+        }
+        self.stamped(event)
     }
 
-    /// A change of `session`'s own row no event carries (an attach, a start under way): the next
-    /// list is built anew, with only `session`'s cached closed row stale.
+    /// A change of `session`'s own row no event carries (an attach, a start under way): only
+    /// `session`'s cached closed row goes stale, and the row is told before the next list read.
     pub(super) fn row_changed(&self, session: &Session) {
-        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// A change no event carries that may reach any row: the next list is built anew.
-    pub(super) fn changed(&self) {
-        self.changes.fetch_add(1, Ordering::SeqCst);
+    /// Every closed row's cached bytes go stale (a session came that may be another's parent).
+    pub(super) fn all_rows_stale(&self) {
         self.summary_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A change no event carries that may reach any row (new usage warning thresholds): every
+    /// closed row goes stale, and no cursor from before it can be followed (`RowLog::barrier`), so
+    /// each reconnecting client reads the first page again. Before, a follow after it was empty
+    /// and the client kept the rows as they were (review of #41865 at 316f5ca).
+    pub(super) fn changed(&self) {
+        self.all_rows_stale();
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).barrier();
     }
 }
 
@@ -152,322 +203,70 @@ pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
     dir == "mux" && matches!(kind, "tags" | "created" | "purged" | "reopened")
 }
 
-/// One build of the list, kept serialized: a JSON tree of every summary is several
-/// times its text.
-pub(crate) struct Snapshot {
-    /// What it was built at (`key`).
-    key: Key,
-    serial: u64,
-    /// Whether this snapshot intentionally omits closed records for the Mac census path.
-    live_only: bool,
-    /// Until when it is reused: a window after the last of it was made. A part made lazily (its
-    /// rows with tools, its masked text) moves this on by its own cost's window, so a list whose
-    /// with-tools rows take longer to make than the base build's window is not stale before its
-    /// first page goes out ([`Snapshot::made_now`]).
-    fresh_until: StdMutex<Instant>,
-    /// How long it is reused after its build, and how far the next build waits behind it.
-    window: Duration,
-    /// `{"sessions": [...]}` of every summary, local and remote, newest first.
-    pub(crate) whole: Arc<String>,
-    /// Where each summary is in `whole`.
-    spans: Vec<Range<usize>>,
-    /// What paging reads of each: `sessionId`, `updatedAt`, `peer`, `status`, and `at`.
-    keys: Vec<Value>,
-    /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
-    made: StdMutex<HashMap<&'static str, Arc<String>>>,
-    /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
-    /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
-    full: StdMutex<Option<Arc<FullRows>>>,
-    /// Lazy parts keep the live snapshot attached while they are being made. Expiry also checks
-    /// the Arc count: a request that still holds this snapshot may start a part after expiry woke.
-    lazy_builds: std::sync::atomic::AtomicUsize,
-    #[cfg(test)]
-    lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
-}
-
-/// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
-/// and its paging keys: a page of it parses only its own rows.
-pub(crate) struct FullRows {
-    whole: Arc<String>,
-    spans: Vec<Range<usize>>,
-    keys: Vec<Value>,
-}
-
-impl FullRows {
-    /// Each row's `sessionId` and `peer`, in the order of [`Self::row`].
-    pub(crate) fn keys(&self) -> &[Value] {
-        &self.keys
-    }
-
-    /// The bytes of every row together.
-    pub(crate) fn bytes(&self) -> usize {
-        self.whole.len()
-    }
-
-    /// Row `at`, parsed.
-    pub(crate) fn row(&self, at: usize) -> Value {
-        let text = self.spans.get(at).and_then(|span| self.whole.get(span.clone()));
-        text.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default()
-    }
-}
-
+/// Where each row of a list's text is, and the paging keys of each (`at` its place).
 pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
-impl Snapshot {
-    fn new(
-        key: Key,
-        serial: u64,
-        window: Duration,
-        live_only: bool,
-        (text, spans, keys): Built,
-    ) -> Self {
-        let (whole, made) = (Arc::new(text), Default::default());
-        Self {
-            key,
-            serial,
-            live_only,
-            fresh_until: StdMutex::new(Instant::now() + window),
-            window,
-            whole,
-            spans,
-            keys,
-            made,
-            full: Default::default(),
-            lazy_builds: std::sync::atomic::AtomicUsize::new(0),
-            #[cfg(test)]
-            lazy_build_hold: Default::default(),
+/// The reply to `params` that has no `limit` (the whole list, or a filter of it), of `sorted`
+/// (every row a list may show, in list order, none built), each row's text made by `text` only
+/// when it goes: every row it lists, newest first, as before; or, when they come to more than
+/// `budget` bytes or `params` has a page's cursor, a page of them that fits, with the
+/// `nextCursor` of the rest (`session_pages::byte_page`, in an order updates do not change). It
+/// builds rows until they pass `budget`, not the list: one daemon's whole list was 17 MB with
+/// tools on 2026-10-30, past the message limit, and was refused whole; on 2026-11-12 one of
+/// 11,000 chats took 6.77 s at p95 when it was built whole first.
+pub(crate) fn bounded<R: PageRow, T: AsRef<str>>(
+    sorted: &[R],
+    text: impl Fn(&R) -> T,
+    params: &Value,
+    budget: usize,
+) -> Result<String, RpcError> {
+    // A page's cursor (`h...`) is byte_page's; a session list cursor (`k...`) stays a filter, as
+    // before: the rows after the session it names. A page of a list a `k` cursor started carries
+    // it on (`h...~k...`), so every page keeps its cutoff.
+    let mut filters = params.clone();
+    let (cursor, after) = match params.get("cursor") {
+        None | Some(Value::Null) => (None, None),
+        Some(Value::String(text)) if text.starts_with('h') => match text.split_once('~') {
+            Some((page, after)) => (Some(page), Some(after)),
+            None => (Some(text.as_str()), None),
+        },
+        Some(Value::String(text)) => (None, Some(text.as_str())),
+        Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
+    };
+    if let Some(p) = filters.as_object_mut() {
+        match after {
+            Some(after) => p.insert("cursor".to_owned(), Value::String(after.to_owned())),
+            None => p.remove("cursor"),
+        };
+    }
+    let picked = super::session_pages::pick_page(sorted, &filters)?;
+    let rows: Vec<&R> = picked.rows.iter().filter_map(|&at| sorted.get(at)).collect();
+    // Each row is made once: the rows the whole try made are reused by its byte page.
+    let made: std::cell::RefCell<HashMap<usize, String>> = Default::default();
+    let row = |n: usize| -> String {
+        if let Some(done) = made.borrow_mut().remove(&n) {
+            return done;
         }
-    }
-
-    fn lazy_build(&self) -> LazyBuild<'_> {
-        self.lazy_builds.fetch_add(1, Ordering::Acquire);
-        LazyBuild { snapshot: self }
-    }
-
-    /// Keep only serialized bytes and paging keys as summaries are produced. A full
-    /// JSON tree of every row amplifies the list's peak heap, even when it is freed
-    /// immediately after serialization.
-    pub(super) fn build(hub: &Hub) -> Built {
-        Self::build_rows(hub, false, true)
-    }
-
-    /// This daemon's rows (the live ones built now, the closed ones' cached bytes already in
-    /// list order, `closed_rows.rs`) and, with `remote`, the peers' rows, in `with_tools`'s
-    /// form. Only the live and the peers' rows are sorted; no closed row is parsed or sorted.
-    fn build_rows(hub: &Hub, with_tools: bool, remote: bool) -> Built {
-        let mut rows = Rows::default();
-        let closed = hub.own_rows_in_order(with_tools, |row| rows.push(&row));
-        if remote {
-            hub.visit_remote_rows(
-                |_| true,
-                |row| {
-                    let row =
-                        if with_tools { row } else { super::views::without_summary_tools(row) };
-                    rows.push(&row);
-                },
-            );
+        let Some(&row) = rows.get(n) else { return "null".into() };
+        let text = text(row);
+        fit_row(text.as_ref(), row, budget).into_owned()
+    };
+    if cursor.is_none() {
+        let (mut page, mut used) = (Vec::new(), 0_usize);
+        let fits = (0..rows.len()).all(|n| {
+            let text = row(n);
+            used = used.saturating_add(text.len()).saturating_add(1);
+            page.push(text);
+            used <= budget
+        });
+        if fits {
+            return Ok(page_text(None, &page));
         }
-        rows.finish_with(closed)
+        made.borrow_mut().extend(page.into_iter().enumerate());
     }
-
-    fn build_live(hub: &Hub) -> Built {
-        let mut rows = Rows::default();
-        hub.visit_live_session_summaries(false, |row| rows.push(&row));
-        rows.finish()
-    }
-
-    /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
-    /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
-    /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
-    pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
-        Self::build_rows(hub, with_tools, false).0
-    }
-
-    pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
-        self.full_rows(hub).whole.clone()
-    }
-
-    /// [`Self::full_whole`] with where each row is, for ACP's pages.
-    pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
-        let _lazy_build = self.lazy_build();
-        let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
-        full.get_or_insert_with(|| {
-            #[cfg(test)]
-            if let Some(hold) =
-                self.lazy_build_hold.lock().unwrap_or_else(|e| e.into_inner()).take()
-            {
-                hold.0.wait();
-                hold.1.wait();
-            }
-            let began = Instant::now();
-            let (whole, spans, keys) = if self.live_only {
-                let mut rows = Rows::default();
-                hub.visit_live_session_summaries(true, |row| rows.push(&row));
-                rows.finish()
-            } else {
-                Self::build_rows(hub, true, true)
-            };
-            self.made_now(began);
-            Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
-        })
-        .clone()
-    }
-
-    /// The reply to `params` that has no `limit` (the whole list, or a filter of it), with tools
-    /// when `tools`: every row it lists, newest first, as before; or, when they come to more
-    /// than `budget` bytes or `params` has a page's cursor, a page of them that fits, with the
-    /// `nextCursor` of the rest (`session_pages::byte_page`, in an order updates do not change).
-    /// One daemon's whole list was 17 MB with tools on 2026-10-30, past the message limit, and
-    /// was refused whole.
-    pub(crate) fn bounded(
-        &self,
-        hub: &Hub,
-        params: &Value,
-        tools: bool,
-        budget: usize,
-    ) -> Result<String, RpcError> {
-        let full = tools.then(|| self.full_rows(hub));
-        let (text, spans, keys) = match &full {
-            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
-            None => (self.whole.as_str(), &self.spans, &self.keys),
-        };
-        // A page's cursor (`h...`) is byte_page's; a session list cursor (`k...`) stays a
-        // filter, as before: the rows after the session it names. A page of a list a `k` cursor
-        // started carries it on (`h...~k...`), so every page keeps its cutoff.
-        let mut filters = params.clone();
-        let (cursor, after) = match params.get("cursor") {
-            None | Some(Value::Null) => (None, None),
-            Some(Value::String(text)) if text.starts_with('h') => match text.split_once('~') {
-                Some((page, after)) => (Some(page), Some(after)),
-                None => (Some(text.as_str()), None),
-            },
-            Some(Value::String(text)) => (None, Some(text.as_str())),
-            Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
-        };
-        if let Some(p) = filters.as_object_mut() {
-            match after {
-                Some(after) => p.insert("cursor".to_owned(), Value::String(after.to_owned())),
-                None => p.remove("cursor"),
-            };
-        }
-        let picked = super::session_pages::session_list_reply_borrowed(keys, &filters)?;
-        let rows =
-            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let row = |key: &Value| row_text(text, spans, key, budget);
-        let whole = cursor.is_none() && {
-            let bytes: usize = rows.iter().map(|key| row(key).len().saturating_add(1)).sum();
-            bytes <= budget
-        };
-        let (page, next) = if whole {
-            (rows.iter().map(row).collect(), None)
-        } else {
-            let (page, next) = super::session_pages::byte_page(
-                rows,
-                cursor,
-                budget,
-                |n| rows.get(n).map_or_else(|| "null".into(), row),
-                |r| r.len(),
-            )?;
-            (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
-        };
-        Ok(page_text(next.map(|next| Value::String(next).to_string()), &page))
-    }
-
-    #[cfg(test)]
-    fn serialize(summaries: &[Value]) -> Built {
-        let mut rows = Rows::default();
-        for row in summaries {
-            rows.push(row);
-        }
-        rows.finish()
-    }
-
-    /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
-    /// text, with tools when `full` is given: the rows `session_list_reply` picks, cut by
-    /// [`cut_page`]. A daemon builds a page from its own rows instead (`page_first.rs`); this is
-    /// the reference that page must equal, row for row and byte for byte.
-    #[cfg(test)]
-    pub(crate) fn page(
-        &self,
-        full: Option<&FullRows>,
-        params: &Value,
-        budget: usize,
-    ) -> Result<String, RpcError> {
-        let (text, spans, keys) = match full {
-            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
-            None => (self.whole.as_str(), &self.spans, &self.keys),
-        };
-        let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
-        let rows =
-            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let next = picked.get("nextCursor").cloned();
-        Ok(cut_page((text, spans.as_slice()), rows, next, params, budget))
-    }
-
-    /// Every summary, parsed back.
-    pub(crate) fn values(&self) -> Vec<Value> {
-        let parse =
-            |span: &Range<usize>| serde_json::from_str(self.whole.get(span.clone()).unwrap_or(""));
-        self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
-    }
-
-    /// Nothing it shows changed since it was built.
-    pub(crate) fn current(&self, hub: &Hub) -> bool {
-        self.key == key(hub)
-    }
-
-    /// The result `name`, made by `make` the first time it is asked for.
-    pub(crate) fn made(
-        &self,
-        name: &'static str,
-        make: impl FnOnce(&Self) -> String,
-    ) -> Arc<String> {
-        let _lazy_build = self.lazy_build();
-        let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name)
-            .or_insert_with(|| {
-                let began = Instant::now();
-                let text = Arc::new(make(self));
-                crate::gauges::global().list_variant(name, text.len());
-                self.made_now(began);
-                text
-            })
-            .clone()
-    }
-
-    /// Whether it may still be reused, nothing it shows having changed: within a window of the
-    /// last part of it made.
-    fn fresh(&self) -> bool {
-        Instant::now() < self.fresh_until()
-    }
-
-    fn fresh_until(&self) -> Instant {
-        *self.fresh_until.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// A part of it begun at `began` is made: it stays fresh a window past now, the window of
-    /// that part's cost ([`PACE`] times it, at most [`MAX_WINDOW`]) or its build's, the longer.
-    /// Its with-tools rows are several times its base rows (3,000 chats of 10 KB titles: 30 MB
-    /// against 6, 2026-11-12), so with the window priced on the base build alone they took
-    /// longer to make than the snapshot lived: every page of a with-tools list built the whole
-    /// list and its tools again and waited out the builder's pace, and one paged read of it
-    /// took minutes; the list test that reads 16 of them ran past CI's 40 minutes.
-    fn made_now(&self, began: Instant) {
-        let now = Instant::now();
-        let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
-        let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
-        *until = (*until).max(now + window.max(self.window));
-    }
-}
-
-struct LazyBuild<'a> {
-    snapshot: &'a Snapshot,
-}
-
-impl Drop for LazyBuild<'_> {
-    fn drop(&mut self) {
-        self.snapshot.lazy_builds.fetch_sub(1, Ordering::Release);
-    }
+    let (page, next) = super::session_pages::byte_page(&rows, cursor, budget, row, String::len)?;
+    let next = next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}")));
+    Ok(page_text(next.map(|next| Value::String(next).to_string()), &page))
 }
 
 /// A page's result text, `{"nextCursor":<next>,"sessions":[<rows>]}` (no `nextCursor` when
@@ -547,7 +346,7 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
         // A Value always serializes, and Vec's writer cannot fail.
         let _ = serde_json::to_writer(&mut whole, row);
         spans.push(start..whole.len());
-        keys.push(RowKey::of(row, at).value(at));
+        keys.push(paging_keys(row, at));
     }
     whole.extend_from_slice(b"]}");
     // serde_json writes UTF-8.
@@ -558,8 +357,7 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
 /// "result":` and `}\n`), so the line is made in place for any id up to about 200 bytes.
 pub(crate) const LINE_ROOM: usize = 256;
 
-/// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
-/// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
+/// Row `key` of `text` ([`fit_row`]).
 fn row_text<'a>(
     text: &'a str,
     spans: &[Range<usize>],
@@ -570,6 +368,17 @@ fn row_text<'a>(
     let Some(row) = at.and_then(|at| spans.get(at)).and_then(|span| text.get(span.clone())) else {
         return "null".into();
     };
+    fit_row(row, key, budget)
+}
+
+/// `row` (whose paging keys are `key`): whole when it fits in `budget`, else trimmed to fit, its
+/// largest fields first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps
+/// do not.
+fn fit_row<'a, K: PageRow + ?Sized>(
+    row: &'a str,
+    key: &K,
+    budget: usize,
+) -> std::borrow::Cow<'a, str> {
     if row.len() <= budget {
         return row.into();
     }
@@ -579,6 +388,12 @@ fn row_text<'a>(
     } else {
         too_large_stub(key, row.len()).into()
     }
+}
+
+/// `row` serialized ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
+/// with its keys, as a page sends a row too large for it.
+pub(crate) fn fit_value(row: &Value, budget: usize) -> String {
+    fit_row(&row.to_string(), row, budget).into_owned()
 }
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
@@ -594,156 +409,41 @@ fn page_cursor(params: &Value, last: &Value) -> String {
 
 /// A row larger than a page alone even trimmed (a kept field that large) goes as this stub, with
 /// its size, as a record too large for a reply goes (`hub/paging.rs`): a page holds at least one
-/// row, and one that large would be refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
-/// a client still sees the chat and can read it alone (`_acpmux/info`).
-fn too_large_stub(key: &Value, bytes: usize) -> String {
-    let id = key.get("sessionId").filter(|v| v.as_str().is_some_and(|t| t.len() <= 4 << 10));
+/// row, and one that large would be refused, page and all. It keeps the row's paging keys (an id
+/// longer than 4 KiB as null), so a client still sees the chat and can read it alone
+/// (`_acpmux/info`).
+fn too_large_stub<K: PageRow + ?Sized>(key: &K, bytes: usize) -> String {
+    let id = Some(key.session_id()).filter(|id| !id.is_empty() && id.len() <= 4 << 10);
+    let updated = Some(key.updated_ms()).filter(|at| *at != 0);
     let mut stub = json!({
-        "sessionId": id.cloned().unwrap_or(Value::Null),
-        "updatedAt": key.get("updatedAt").cloned().unwrap_or(Value::Null),
+        "sessionId": id,
+        "updatedAt": updated,
         "omitted": {"bytes": bytes, "reason": "too_large"},
     });
-    for k in ["peer", "status"] {
-        if let Some(v) = key.get(k).filter(|v| !v.is_null()) {
-            stub.set(k, v.clone());
+    for (k, v) in [("peer", key.peer()), ("status", key.status())] {
+        if let Some(v) = v {
+            stub.set(k, Value::String(v.to_owned()));
         }
     }
     stub.to_string()
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Rows this thread's list builds sorted: what a list's tests count of its sort.
-    static ROWS_SORTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// A byte arena and small keys, rather than all the summaries' nested allocations.
-/// Sort only captured keys: reading live timestamps in a comparator is not a total order.
-#[derive(Default)]
-struct Rows {
-    text: Vec<u8>,
-    spans: Vec<Range<usize>>,
-    keys: Vec<RowKey>,
-}
-
-/// The fields needed for ordering, filtering, and cursors. Keeping these typed avoids
-/// allocating a JSON object for every row while the snapshot is being built.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct RowKey {
-    at: usize,
-    pub(crate) session_id: Option<String>,
-    pub(crate) updated_at: u64,
-    pub(crate) peer: Option<String>,
-    pub(crate) status: Option<String>,
-}
-
-impl RowKey {
-    /// Row `row`'s keys, at `at` in its arena.
-    pub(crate) fn of(row: &Value, at: usize) -> Self {
-        Self {
-            at,
-            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
-            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
-            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
-            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
+/// The paging keys of `row`, at `at` in its list's text: `sessionId`, `updatedAt`, `peer` and
+/// `status`, each only when it has one.
+fn paging_keys(row: &Value, at: usize) -> Value {
+    let mut keys = json!({"at": at});
+    if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+        keys.set("sessionId", Value::String(id.to_owned()));
+    }
+    if let Some(at) = row.get("updatedAt").and_then(Value::as_u64).filter(|at| *at != 0) {
+        keys.set("updatedAt", Value::from(at));
+    }
+    for k in ["peer", "status"] {
+        if let Some(v) = row.get(k).and_then(Value::as_str) {
+            keys.set(k, Value::String(v.to_owned()));
         }
     }
-
-    /// The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
-    /// the order their cursors (`session_pages.rs`) read them in.
-    fn order(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .updated_at
-            .cmp(&self.updated_at)
-            .then_with(|| {
-                let (a, b) = (self.session_id.as_deref(), other.session_id.as_deref());
-                a.unwrap_or("").cmp(b.unwrap_or(""))
-            })
-            .then_with(|| self.peer.cmp(&other.peer))
-    }
-
-    /// The paging keys a snapshot keeps of a row at `at`.
-    fn value(&self, at: usize) -> Value {
-        let mut value = json!({"at": at});
-        if let Some(session_id) = &self.session_id {
-            value.set("sessionId", Value::String(session_id.clone()));
-        }
-        if self.updated_at != 0 {
-            value.set("updatedAt", Value::from(self.updated_at));
-        }
-        if let Some(peer) = &self.peer {
-            value.set("peer", Value::String(peer.clone()));
-        }
-        if let Some(status) = &self.status {
-            value.set("status", Value::String(status.clone()));
-        }
-        value
-    }
-}
-
-impl Rows {
-    fn push(&mut self, row: &Value) {
-        let start = self.text.len();
-        // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut self.text, row);
-        self.spans.push(start..self.text.len());
-        self.keys.push(RowKey::of(row, self.keys.len()));
-    }
-
-    fn finish(self) -> Built {
-        self.finish_with(Vec::new())
-    }
-
-    /// The rows pushed, sorted, merged with `closed`, already in list order
-    /// (`Hub::own_rows_in_order`): of a tie, the closed (local) row first, as a stable sort of
-    /// local rows before the peers' put it.
-    fn finish_with(mut self, closed: Vec<super::closed_rows::ClosedRow>) -> Built {
-        #[cfg(test)]
-        ROWS_SORTED.with(|n| n.set(n.get() + self.keys.len()));
-        self.keys.sort_by(RowKey::order);
-        let prefix = br#"{"sessions":["#;
-        let closed_bytes: usize = closed.iter().map(|row| row.bytes.len()).sum();
-        let count = self.keys.len() + closed.len();
-        let mut whole = Vec::with_capacity(
-            prefix.len() + self.text.len() + closed_bytes + count.saturating_sub(1) + 2,
-        );
-        whole.extend_from_slice(prefix);
-        let mut spans = Vec::with_capacity(count);
-        let mut keys = Vec::with_capacity(count);
-        let mut pushed = self.keys.into_iter().peekable();
-        let mut closed = closed.into_iter().peekable();
-        loop {
-            let take_closed = match (pushed.peek(), closed.peek()) {
-                (None, None) => break,
-                (Some(_), None) => false,
-                (None, Some(_)) => true,
-                (Some(key), Some(row)) => row.key.order(key) != std::cmp::Ordering::Greater,
-            };
-            let at = keys.len();
-            if at > 0 {
-                whole.push(b',');
-            }
-            let start = whole.len();
-            if take_closed {
-                let Some(row) = closed.next() else { break };
-                whole.extend_from_slice(row.bytes.as_bytes());
-                keys.push(row.key.value(at));
-            } else {
-                let Some(key) = pushed.next() else { break };
-                whole.extend_from_slice(
-                    self.spans
-                        .get(key.at)
-                        .and_then(|span| self.text.get(span.clone()))
-                        .unwrap_or_default(),
-                );
-                keys.push(key.value(at));
-            }
-            spans.push(start..whole.len());
-        }
-        whole.extend_from_slice(b"]}");
-        // serde_json writes UTF-8, and rows are copied only at their boundaries.
-        (String::from_utf8(whole).unwrap_or_default(), spans, keys)
-    }
+    keys
 }
 
 /// Where a client's request is, for a test's hold (`Hub::hold_requests_for_tests`): about to be
@@ -790,966 +490,11 @@ impl Hub {
 pub(crate) struct ListGuard {
     /// A test's hold on requests (`Hub::hold_requests_for_tests`); unset in a daemon.
     pub(crate) hold: std::sync::OnceLock<RequestHold>,
-    state: Arc<tokio::sync::Mutex<State>>,
-    /// The last build's window (ns), row count and whole list's bytes, read without waiting for
-    /// a build.
-    window_nanos: AtomicU64,
-    rows: std::sync::atomic::AtomicUsize,
-    bytes: std::sync::atomic::AtomicUsize,
-    /// Every connection's lists together (`reserve`).
-    replies: StdMutex<Pacer>,
-    /// Builds begun: a request shares any build begun after it arrived.
-    begun: AtomicU64,
-}
-
-#[derive(Default)]
-struct State {
-    last: Option<Arc<Snapshot>>,
-    pace: Pacer,
-}
-
-impl ListGuard {
-    pub(crate) fn window(&self) -> Duration {
-        Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
-    }
-
-    /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
-    /// rows of the last list's, with no floor, since it builds no other row.
-    pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
-        let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(0.0, 1.0))
-    }
-
-    /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
-    /// byte pages costs about one list in all, not one per page.
-    pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
-        let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
-    }
-
-    /// Reserves `share` of a list on a connection's `pace`, then on every connection's
-    /// together: how long the request waits first. Over [`MAX_WAIT`], nothing is
-    /// reserved and the wait is the error.
-    pub(crate) fn reserve(&self, pace: &StdMutex<Pacer>, share: f64) -> Result<Duration, Duration> {
-        let (window, now) = (self.window(), Instant::now());
-        let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
-        // Sending even a shared list copies it into the reply line.
-        let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
-        let wait = pace.wait(now, window * (CONN_BURST - 1), window);
-        // Reprice at the real clock before probing a hypothetical admission time.
-        // A rejected request must not advance shared debt to `now + wait`.
-        replies.reprice(now, window / REPLIES);
-        let more = replies.wait(now + wait, window, window / REPLIES);
-        if wait + more > MAX_WAIT {
-            return Err(wait + more);
-        }
-        pace.spend(now + wait, window.mul_f64(share), window);
-        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES, window / REPLIES);
-        tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
-            wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
-        Ok(wait + more)
-    }
-
-    /// The list for a request that arrived now: the shared snapshot while nothing it
-    /// shows changed, or one begun since; else a new build once the pace allows.
-    pub(crate) async fn snapshot(&self, hub: &Hub) -> Arc<Snapshot> {
-        self.snapshot_for(hub, false).await
-    }
-
-    /// Build the cheaper census projection when the caller explicitly excludes closed rows.
-    pub(crate) async fn snapshot_live(&self, hub: &Hub) -> Arc<Snapshot> {
-        self.snapshot_for(hub, true).await
-    }
-
-    async fn snapshot_for(&self, hub: &Hub, live_only: bool) -> Arc<Snapshot> {
-        let asked = self.begun.load(Ordering::SeqCst);
-        // One build at a time; requests that arrive meanwhile wait for it and share it.
-        let mut state = self.state.lock().await;
-        if let Some(last) = &state.last
-            && last.live_only == live_only
-            && last.key.0
-            && (last.serial > asked || last.current(hub) && last.fresh())
-        {
-            return last.clone();
-        }
-        let window = self.window();
-        // A fresh snapshot waits at most one current window, even if an earlier
-        // reservation used a much more expensive build. Lock/build time is separate.
-        let wait = state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window);
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
-        }
-        // Counted before its key is read: it is as new as any request that came before.
-        let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
-        let (started, key) = (Instant::now(), key(hub));
-        let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
-        let elapsed = started.elapsed();
-        crate::gauges::global().list_rebuilt(built.1.len(), built.0.len(), elapsed);
-        let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
-        tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
-            build_us = elapsed.as_micros(), window_us = window.as_micros(),
-            builder_wait_us = wait.as_micros(), "list_snapshot_build");
-        state.pace.spend(started, window, window);
-        let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
-        self.window_nanos.store(nanos, Ordering::Relaxed);
-        self.rows.store(built.1.len(), Ordering::Relaxed);
-        self.bytes.store(built.0.len(), Ordering::Relaxed);
-        // Fresh for a window from now, when it is made: a build slower than its window (a busy
-        // host, MAX_WINDOW) is reused, not stale on arrival.
-        let snapshot = Arc::new(Snapshot::new(key, serial, window, live_only, built));
-        state.last = Some(snapshot.clone());
-        drop(state);
-        self.expire(serial, window);
-        snapshot
-    }
-
-    /// Drops snapshot `serial` when it is no longer fresh (its window, moved on by any part of
-    /// it made since), unless a newer build replaced it.
-    fn expire(&self, serial: u64, window: Duration) {
-        let state = Arc::downgrade(&self.state);
-        tokio::spawn(async move {
-            let mut until = Instant::now() + window;
-            loop {
-                tokio::time::sleep_until(until).await;
-                let Some(state) = state.upgrade() else { return };
-                let mut state = state.lock().await;
-                let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
-                if last.lazy_builds.load(Ordering::Acquire) != 0 || Arc::strong_count(last) > 1 {
-                    // A request still owns this snapshot and may begin a lazy part after this
-                    // task woke. Leave it live; made_now will extend the same state entry.
-                    until = Instant::now() + last.window.max(Duration::from_millis(1));
-                    continue;
-                }
-                let fresh_until = last.fresh_until();
-                if fresh_until <= Instant::now() {
-                    state.last = None;
-                    return;
-                }
-                until = fresh_until;
-            }
-        });
-    }
-
-    /// Lists built so far, for a test that bounds how many builds a paged read costs.
-    #[cfg(test)]
-    pub(crate) fn builds_for_tests(&self) -> u64 {
-        self.begun.load(Ordering::SeqCst)
-    }
-}
-
-/// Whether every chat log is read, the change count, the peers' row writes, and their
-/// link states (each peer row's `peerState`).
-type Key = (bool, u64, u64, Vec<(String, &'static str)>);
-
-/// What a snapshot is reused under (only once every chat log is read).
-fn key(hub: &Hub) -> Key {
-    let ready = *hub.logs_ready.borrow();
-    let writes = hub.remote_sessions.read().writes;
-    let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
-    let mut states: Vec<_> = peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect();
-    drop(peers);
-    states.sort_unstable();
-    (ready, hub.events.changes.load(Ordering::SeqCst), writes, states)
-}
-
-/// A pace (the generic cell rate algorithm): work spends time ahead of the clock, and
-/// waits while it is more than its burst ahead.
-#[derive(Default)]
-pub(crate) struct Pacer {
-    ahead_to: Option<Instant>,
-    /// Debt is measured in lists, so a new build cost rescales its time value.
-    period: Duration,
-}
-
-impl Pacer {
-    fn wait(&mut self, now: Instant, burst: Duration, period: Duration) -> Duration {
-        self.reprice(now, period);
-        self.ahead_to.map_or(Duration::ZERO, |to| to.saturating_duration_since(now + burst))
-    }
-
-    fn reprice(&mut self, now: Instant, period: Duration) {
-        if self.period != period {
-            // A busy host can briefly take seconds to build a list. Keeping that build's
-            // absolute-time debt after the next cheap build made a 15 s window impose
-            // nearly a minute of sleep: the burst allowance had already shrunk. Preserve
-            // the number of lists owed in both directions. Discounting falls but not
-            // charging rises would forgive debt on every oscillation, removing pacing.
-            // Previously returned reservation sleeps are not rescheduled.
-            self.ahead_to = self.ahead_to.map(|to| {
-                let remaining = to.saturating_duration_since(now);
-                let scaled = if self.period.is_zero() {
-                    Duration::ZERO
-                } else {
-                    remaining.mul_f64(period.as_secs_f64() / self.period.as_secs_f64())
-                };
-                now + scaled
-            });
-            self.period = period;
-        }
-    }
-
-    fn spend(&mut self, at: Instant, cost: Duration, period: Duration) {
-        self.reprice(at, period);
-        self.ahead_to = Some(self.ahead_to.map_or(at, |to| to.max(at)) + cost);
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    impl Snapshot {
-        /// [`Snapshot::bounded`] without tools, which needs no hub.
-        fn bounded_text(&self, params: &Value, budget: usize) -> String {
-            let hub = crate::hub::Hub::new(crate::config::Config::default(), {
-                let mut config = crate::config::Config::default();
-                config.store.mode = crate::config::StoreMode::Memory;
-                crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap()
-            });
-            self.bounded(&hub, params, false, budget).unwrap()
-        }
-    }
-
-    #[test]
-    fn the_text_and_every_page_are_the_bytes_the_summaries_write() {
-        let mut rows: Vec<Value> = (0..5)
-            .map(|i| json!({"sessionId": format!("s{i}"), "updatedAt": 10 - i, "x": "q\"\n",
-                "status": if i % 2 == 0 { "idle" } else { "closed" }, "peer": (i == 3).then_some("cmux16")}))
-            .collect();
-        super::super::session_pages::sort_session_summaries(&mut rows);
-        let built = Snapshot::serialize(&rows);
-        assert_eq!(built.0, json!({"sessions": rows}).to_string());
-        assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
-        assert_eq!(list.values(), rows);
-        let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
-        let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
-        for params in [
-            json!({"limit": 2}),
-            json!({"limit": 2, "cursor": next}),
-            json!({"limit": 9}),
-            json!({"status": "idle"}),
-            json!({"peer": "cmux16", "limit": 1}),
-        ] {
-            assert_eq!(
-                list.page(None, &params, usize::MAX).unwrap(),
-                reply(&params).unwrap().to_string(),
-                "{params}"
-            );
-        }
-        assert!(list.page(None, &json!({"cursor": 3}), usize::MAX).is_err());
-    }
-
-    /// A many-session daemon keeps the full keyset in its snapshot, but a one-row
-    /// request copies and serializes only its selected row, with the same cursors
-    /// and exact filters as the old owned path.
-    #[test]
-    fn three_thousand_key_snapshot_pages_only_selected_rows() {
-        let rows: Vec<Value> = (0..3_000)
-            .map(|i| {
-                json!({
-                    "sessionId": format!("s{i:04}"),
-                    "updatedAt": 3_000 - i,
-                    "peer": (i % 5 == 0).then_some("machine"),
-                    "status": if i % 3 == 0 { "closed" } else { "idle" },
-                })
-            })
-            .collect();
-        let list = Snapshot::new(
-            (false, 0, 0, Vec::new()),
-            0,
-            Duration::ZERO,
-            false,
-            Snapshot::serialize(&rows),
-        );
-        let first: Value =
-            serde_json::from_str(&list.page(None, &json!({"limit": 1}), usize::MAX).unwrap())
-                .unwrap();
-        assert_eq!(first["sessions"].as_array().unwrap().len(), 1);
-        assert_eq!(first["sessions"][0]["sessionId"], "s0000");
-        let second: Value = serde_json::from_str(
-            &list
-                .page(None, &json!({"limit": 1, "cursor": first["nextCursor"]}), usize::MAX)
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(second["sessions"][0]["sessionId"], "s0001");
-        let filter = json!({"localOnly": true, "excludeStatus": ["closed"],
-            "orderBy": "sessionId", "limit": 1});
-        let picked: Value =
-            serde_json::from_str(&list.page(None, &filter, usize::MAX).unwrap()).unwrap();
-        assert_eq!(picked["sessions"][0]["sessionId"], "s0001");
-        assert_eq!(picked["nextCursor"], "s:s0001");
-        // The existing owned API and the borrowed one remain byte-for-byte identical.
-        for params in [
-            json!({}),
-            json!({"limit": 1}),
-            json!({"status": "closed", "peer": "machine", "limit": 2}),
-            filter,
-        ] {
-            let owned =
-                super::super::session_pages::session_list_reply(rows.clone(), &params).unwrap();
-            let borrowed =
-                super::super::session_pages::session_list_reply_borrowed(&rows, &params).unwrap();
-            assert_eq!(owned, borrowed, "{params}");
-        }
-    }
-    /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
-    /// keeps that cursor's cutoff on every page: the rows after the session it names, each once.
-    #[tokio::test]
-    async fn byte_pages_of_a_list_after_a_session_cursor_keep_its_cutoff() {
-        let mut rows: Vec<Value> = ["a", "b", "c", "d", "e", "f"]
-            .iter()
-            .enumerate()
-            .map(|(i, id)| json!({"sessionId": id, "updatedAt": 10 - i, "pad": "x".repeat(40)}))
-            .collect();
-        super::super::session_pages::sort_session_summaries(&mut rows);
-        let list = Snapshot::new(
-            (false, 0, 0, Vec::new()),
-            0,
-            Duration::ZERO,
-            false,
-            Snapshot::serialize(&rows),
-        );
-        let after_b =
-            super::super::session_pages::session_list_reply(rows.clone(), &json!({"limit": 2}))
-                .unwrap()["nextCursor"]
-                .clone();
-        let (mut read, mut params) = (Vec::new(), json!({"cursor": after_b}));
-        for _ in 0..10 {
-            let page: Value = serde_json::from_str(&list.bounded_text(&params, 150)).unwrap();
-            let listed = page["sessions"].as_array().unwrap();
-            read.extend(listed.iter().map(|r| r["sessionId"].as_str().unwrap().to_owned()));
-            match page.get("nextCursor") {
-                Some(next) => params["cursor"] = next.clone(),
-                None => break,
-            }
-        }
-        read.sort();
-        assert_eq!(read, ["c", "d", "e", "f"]);
-    }
-
-    #[tokio::test]
-    async fn a_row_larger_than_its_page_goes_as_a_stub_with_its_keys() {
-        let mut rows = vec![
-            json!({"sessionId": "big", "updatedAt": 9, "peer": "box", "status": "idle",
-                "preview": "x".repeat(5000)}),
-            json!({"sessionId": "small", "updatedAt": 5, "status": "idle"}),
-        ];
-        super::super::session_pages::sort_session_summaries(&mut rows);
-        let list = Snapshot::new(
-            (false, 0, 0, Vec::new()),
-            0,
-            Duration::ZERO,
-            false,
-            Snapshot::serialize(&rows),
-        );
-        let first: Value = serde_json::from_str(&list.bounded_text(&json!({}), 1000)).unwrap();
-        // Pages go in an order updates do not change (`byte_page`), not newest first.
-        let listed = first["sessions"].as_array().unwrap();
-        let by_id = |id: &str| listed.iter().find(|r| r["sessionId"] == id).unwrap();
-        let stub = by_id("big");
-        assert_eq!(stub["peer"], "box");
-        assert_eq!(stub["omitted"]["reason"], "too_large");
-        assert!(stub["omitted"]["bytes"].as_u64().unwrap() > 5000, "{stub}");
-        assert!(stub.get("preview").is_none(), "{stub}");
-        // The stub is small, so the next row goes on its page.
-        assert_eq!(listed.len(), 2, "{first}");
-        assert_eq!(by_id("small"), &rows[1], "{first}");
-        assert!(first.get("nextCursor").is_none(), "{first}");
-    }
-
-    fn cached_rows_equal_uncached(hub: &Hub) {
-        let mut uncached: Vec<Value> =
-            hub.sessions().iter().map(|session| hub.session_summary(session)).collect();
-        super::super::session_pages::sort_session_summaries(&mut uncached);
-        assert_eq!(hub.all_session_summaries(), uncached);
-
-        let mut uncached_list: Vec<Value> =
-            hub.sessions().iter().map(|session| hub.session_list_summary(session)).collect();
-        super::super::session_pages::sort_session_summaries(&mut uncached_list);
-        let mut cached_list = Vec::new();
-        hub.visit_session_summaries(false, |row| cached_list.push(row));
-        assert_eq!(cached_list, uncached_list);
-
-        // The list a client is sent, its full form and a peer's copy: the closed rows' bytes
-        // in their kept order are the rows a full sort gives.
-        let built = Snapshot::build(hub);
-        let snapshot = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
-        assert_eq!(snapshot.values(), uncached_list);
-        let full = snapshot.full_rows(hub);
-        let full: Vec<Value> = (0..full.keys().len()).map(|at| full.row(at)).collect();
-        assert_eq!(full, uncached);
-        let own: Value = serde_json::from_str(&Snapshot::own_whole(hub, false)).unwrap();
-        assert_eq!(own["sessions"], json!(uncached_list));
-    }
-
-    /// Closed rows are serialized once, but every metadata and list-visible runtime change must
-    /// still produce the exact same row as the uncached walk. This exercises the fields that have
-    /// historically changed after close: names, tags/archive, seen state, usage, child counts,
-    /// reopen, and a closed parent's folded child preview.
-    #[tokio::test]
-    async fn closed_summary_cache_matches_uncached_after_every_mutation() {
-        let cfg: crate::config::Config =
-            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
-        let hub = Hub::new(
-            cfg.clone(),
-            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
-        );
-        let parent_meta: crate::store::SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "parent", "name": "parent",
-            "harness": "claude", "family": "claude", "cwd": "/w", "status": "idle",
-            "createdAt": 1, "updatedAt": 1, "preview": "parent preview", "unread": true,
-        }))
-        .unwrap();
-        let child_meta: crate::store::SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "child", "name": "child",
-            "harness": "claude", "family": "claude", "cwd": "/w", "status": "ready",
-            "createdAt": 2, "updatedAt": 2, "subsession": {
-                "startedBy": "parent", "shortName": "child", "depth": 1
-            }
-        }))
-        .unwrap();
-        let parent = hub.make_session(parent_meta);
-        let child = hub.make_session(child_meta);
-        hub.sessions
-            .lock()
-            .unwrap()
-            .extend([(parent.id.clone(), parent.clone()), (child.id.clone(), child.clone())]);
-        hub.update_live_session_index(&parent);
-        hub.update_live_session_index(&child);
-        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
-
-        hub.set_status(&parent, SessionStatus::Closed);
-        cached_rows_equal_uncached(&hub); // close and the parent's folded child preview
-
-        // A list build followed by the full form keeps both serialized rows coherent.
-        hub.visit_session_summaries(false, |_| {});
-        cached_rows_equal_uncached(&hub);
-
-        // Appending after close changes the event-visible preview without a metadata write.
-        hub.append(&parent, "mux", "message", json!({"text": "after close"}));
-        hub.visit_session_summaries(false, |_| {});
-        cached_rows_equal_uncached(&hub);
-
-        // Opening a closed chat changes attached/shown fields in its full row.
-        hub.attach_count(&parent, 1, true);
-        cached_rows_equal_uncached(&hub);
-        hub.attach_count(&parent, -1, true);
-        cached_rows_equal_uncached(&hub);
-
-        parent.meta.lock().unwrap().name = "renamed".into();
-        hub.save_meta_answered(&parent).unwrap(); // rename
-        cached_rows_equal_uncached(&hub);
-
-        hub.set_tags_answered(
-            &parent,
-            Some(&serde_json::Map::from_iter([(String::from("team"), json!("red"))])),
-            &[],
-            None,
-        )
-        .unwrap(); // tag
-        cached_rows_equal_uncached(&hub);
-        hub.set_tags_answered(
-            &parent,
-            Some(&serde_json::Map::from_iter([(String::from("archived"), json!(true))])),
-            &[],
-            None,
-        )
-        .unwrap(); // archive tag
-        cached_rows_equal_uncached(&hub);
-
-        // The tag expires when this thread's test clock is moved past it, between the two
-        // checks: a 20 ms life on the wall clock could run out in the middle of the first one,
-        // between its uncached walk and the cached rows it compares with.
-        const LIFE_MS: u64 = 60 * 60 * 1_000;
-        parent.meta.lock().unwrap().tags.insert(
-            "expires".into(),
-            crate::store::Tag {
-                value: "soon".into(),
-                expires_at: Some(crate::store::now_ms() + LIFE_MS),
-            },
-        );
-        hub.save_meta_answered(&parent).unwrap();
-        cached_rows_equal_uncached(&hub);
-        crate::store::test_clock::advance(LIFE_MS);
-        cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
-
-        hub.set_visible(&parent, true); // mark-seen
-        cached_rows_equal_uncached(&hub);
-
-        parent.meta.lock().unwrap().usage = Some(json!({"inputTokens": 12, "size": 4096}));
-        hub.save_meta_answered(&parent).unwrap(); // usage metadata
-        cached_rows_equal_uncached(&hub);
-
-        std::thread::scope(|scope| {
-            for title in ["writer-a", "writer-b"] {
-                scope.spawn(|| {
-                    parent.meta.lock().unwrap().title = Some(title.into());
-                    hub.save_meta(&parent);
-                });
-            }
-        });
-        cached_rows_equal_uncached(&hub); // concurrent metadata writers
-
-        hub.set_status(&child, SessionStatus::Closed); // child count/fold changes
-        cached_rows_equal_uncached(&hub);
-
-        assert!(hub.reopen(&parent, parent.stops.load(Ordering::SeqCst))); // reopen
-        cached_rows_equal_uncached(&hub);
-        hub.set_status(&parent, SessionStatus::Closed);
-        cached_rows_equal_uncached(&hub);
-
-        // A purge removes the serialized row even when a late metadata writer runs afterward.
-        parent.purged.store(true, Ordering::SeqCst);
-        hub.remove_cached_closed_summary(&parent.id);
-        assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
-        crate::store::test_clock::reset();
-    }
-
-    /// While one live chat streams, a list build reuses every closed row's bytes: a streamed
-    /// chunk changes only its own (live, never cached) row. Before, each chunk marked all closed
-    /// rows stale, so with ~40 chats streaming every list rebuilt all ~3,000 closed rows. A chunk
-    /// that reaches a closed chat still rebuilds its row.
-    #[tokio::test]
-    async fn a_live_chats_stream_keeps_closed_rows_cached() {
-        const CLOSED: u64 = 200;
-        const CHUNKS: u64 = 20;
-        let cfg: crate::config::Config =
-            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
-        let hub = Hub::new(
-            cfg.clone(),
-            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
-        );
-        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
-            serde_json::from_value(json!({
-                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
-                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
-                "createdAt": 1, "updatedAt": 1, "preview": "earlier reply",
-            }))
-            .unwrap()
-        };
-        for n in 0..CLOSED {
-            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
-        }
-        let live = hub.insert_test_session(meta("live".into(), "running"));
-        let chunk = |text: &str| {
-            json!({"jsonrpc": "2.0", "method": "session/update", "params": {
-                "sessionId": "agent", "update": {"sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": text}}}})
-        };
-
-        hub.visit_session_summaries(false, |_| {}); // warm the closed rows
-        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
-        let warm = builds();
-        assert_eq!(warm, CLOSED);
-        let changes = hub.events.changes.load(Ordering::SeqCst);
-        for n in 0..CHUNKS {
-            hub.append(&live, "in", "agent_message_chunk", chunk(&format!("token {n} ")));
-            hub.visit_session_summaries(false, |_| {});
-        }
-        let rebuilt = builds() - warm;
-        assert_eq!(
-            rebuilt, 0,
-            "closed rows rebuilt while one live chat streamed: {rebuilt} for {CHUNKS} lists of \
-             {CLOSED} closed rows"
-        );
-        // The next list is still built anew: the live row changed.
-        assert!(hub.events.changes.load(Ordering::SeqCst) >= changes + CHUNKS);
-        cached_rows_equal_uncached(&hub);
-
-        // Another record of the live chat changes its own row only: no closed row is rebuilt.
-        let before = builds();
-        hub.append(&live, "mux", "status", json!({"status": "running"}));
-        hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, 0);
-
-        // A chunk that reaches a closed chat rebuilds that chat's row, and only it.
-        let closed = hub.sessions().into_iter().find(|s| s.id == "closed-0").unwrap();
-        let before = builds();
-        hub.append(&closed, "in", "agent_message_chunk", chunk("late"));
-        hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, 1);
-        cached_rows_equal_uncached(&hub);
-
-        // A record that may reach other rows (a parent's tags) still marks them all stale.
-        let before = builds();
-        hub.append(&closed, "mux", "tags", json!({}));
-        hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, CLOSED);
-    }
-
-    /// The list after one chat's record parses no closed row and sorts none (Leo 2026-11-04:
-    /// "never ... acceptable ... linear time growth degradation"): the closed rows stay in list
-    /// order between lists, so one chat's change costs its own row's removal and insert. Before,
-    /// each list parsed every closed row's cached bytes and sorted every row: 38 ms at 3,000.
-    /// The same at 10 and 400 closed rows.
-    #[tokio::test]
-    async fn a_list_after_one_chats_record_parses_and_sorts_no_closed_row() {
-        for closed in [10_u64, 400] {
-            let cfg: crate::config::Config =
-                serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
-            let hub = Hub::new(
-                cfg.clone(),
-                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
-            );
-            let meta = |id: String, status: &str, at: u64| -> crate::store::SessionMeta {
-                serde_json::from_value(json!({
-                    "schema": crate::store::META_SCHEMA, "id": id, "name": id,
-                    "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
-                    "createdAt": 1, "updatedAt": at, "preview": "a reply",
-                }))
-                .unwrap()
-            };
-            // Ids in the reverse of their order, so no walk of the map happens to be sorted.
-            for n in 0..closed {
-                hub.insert_test_session(meta(format!("closed-{n:04}"), "closed", n + 1));
-            }
-            let live = hub.insert_test_session(meta("live".into(), "idle", closed / 2));
-            let list = |hub: &Hub| {
-                let built = Snapshot::build(hub);
-                Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built).values()
-            };
-            let uncached = |hub: &Hub| {
-                let mut rows: Vec<Value> =
-                    hub.sessions().iter().map(|s| hub.session_list_summary(s)).collect();
-                super::super::session_pages::sort_session_summaries(&mut rows);
-                rows
-            };
-            assert_eq!(list(&hub), uncached(&hub));
-            let counts = || {
-                (
-                    hub.closed_summary_builds.load(Ordering::SeqCst),
-                    hub.closed_summary_parses.load(Ordering::SeqCst),
-                    ROWS_SORTED.with(std::cell::Cell::get),
-                )
-            };
-
-            // A live chat's record: no closed row is built, parsed or sorted.
-            let before = counts();
-            hub.append(&live, "mux", "status", json!({"status": "running"}));
-            let rows = list(&hub);
-            let after = counts();
-            assert_eq!(after.0 - before.0, 0, "closed rows built at {closed}");
-            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
-            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
-            assert_eq!(rows, uncached(&hub));
-
-            // A closed chat's record: its own row only is built again, and moves into place.
-            let one = hub.sessions().into_iter().find(|s| s.id == "closed-0001").unwrap();
-            let before = counts();
-            hub.append(&one, "in", "agent_message_chunk", json!({}));
-            let rows = list(&hub);
-            let after = counts();
-            assert_eq!(after.0 - before.0, 1, "closed rows built at {closed}");
-            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
-            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
-            assert_eq!(rows, uncached(&hub));
-        }
-    }
-
-    /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,
-    /// turn or metadata commit of one chat rebuilt all ~3,000 closed rows on the next list. What
-    /// other rows read of a chat still reaches them: a closed parent's open-children count when
-    /// its child closes, a child's fold when its parent is archived.
-    #[tokio::test]
-    async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
-        const CLOSED: u64 = 100;
-        let cfg: crate::config::Config =
-            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
-        let hub = Hub::new(
-            cfg.clone(),
-            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
-        );
-        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
-            serde_json::from_value(json!({
-                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
-                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
-                "createdAt": 1, "updatedAt": 1,
-            }))
-            .unwrap()
-        };
-        for n in 0..CLOSED {
-            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
-        }
-        let one = hub.sessions().into_iter().find(|s| s.id == "closed-7").unwrap();
-        hub.visit_session_summaries(false, |_| {});
-        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
-
-        let before = builds();
-        one.meta.lock().unwrap().title = Some("renamed".into());
-        hub.save_meta_answered(&one).unwrap();
-        hub.append(&one, "mux", "turn_end", json!({}));
-        hub.attach_count(&one, 1, true);
-        hub.attach_count(&one, -1, true);
-        hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, 1, "one chat's changes rebuilt other closed rows");
-        cached_rows_equal_uncached(&hub);
-
-        // A closed parent's `children` follows its child's status.
-        let parent = hub.sessions().into_iter().find(|s| s.id == "closed-3").unwrap();
-        let mut child = meta("child".into(), "ready");
-        child.subsession = Some(
-            serde_json::from_value(
-                json!({"startedBy": "closed-3", "shortName": "child", "depth": 1}),
-            )
-            .unwrap(),
-        );
-        let child = hub.insert_test_session(child);
-        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
-        cached_rows_equal_uncached(&hub);
-        hub.set_status(&child, SessionStatus::Closed);
-        cached_rows_equal_uncached(&hub);
-
-        // Archiving a parent folds its children no more: their rows change with its tags.
-        let mut folded = meta("folded".into(), "closed");
-        folded.tags.insert(
-            "spawnedBy".into(),
-            crate::store::Tag { value: "closed-5".into(), expires_at: None },
-        );
-        hub.insert_test_session(folded);
-        cached_rows_equal_uncached(&hub);
-        let five = hub.sessions().into_iter().find(|s| s.id == "closed-5").unwrap();
-        five.meta.lock().unwrap().tags.insert(
-            "archived".into(),
-            crate::store::Tag { value: "true".into(), expires_at: None },
-        );
-        hub.save_meta_answered(&five).unwrap();
-        cached_rows_equal_uncached(&hub);
-    }
-
-    #[test]
-    fn streamed_rows_preserve_all_fields_and_stable_ties() {
-        let mut rows = vec![
-            json!({"sessionId": "z", "updatedAt": 1, "status": "closed", "tools": [{"id": "tool", "description": "雪\n\""}]}),
-            json!({"sessionId": "same", "updatedAt": 9, "origin": "local"}),
-            json!({"sessionId": "same", "updatedAt": 9, "peer": "remote", "origin": "remote"}),
-            json!({"sessionId": "same", "updatedAt": 9, "peer": "other", "origin": "other"}),
-            json!({"sessionId": "a", "updatedAt": 9, "unknown": {"array": [null, false, 42]}}),
-            json!({"sessionId": null, "updatedAt": "invalid", "status": "closed"}),
-            json!({"updatedAt": -1, "opaque": "preserved"}),
-        ];
-        let built = Snapshot::serialize(&rows);
-        super::super::session_pages::sort_session_summaries(&mut rows);
-        assert_eq!(built.0, json!({"sessions": rows}).to_string());
-        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
-        assert_eq!(list.values(), rows);
-        for params in
-            [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
-        {
-            assert_eq!(
-                list.page(None, &params, usize::MAX).unwrap(),
-                super::super::session_pages::session_list_reply(rows.clone(), &params)
-                    .unwrap()
-                    .to_string()
-            );
-        }
-        assert_eq!(rows[1]["origin"], "local");
-        assert_eq!(rows[2]["origin"], "other");
-        assert_eq!(rows[3]["origin"], "remote");
-    }
-
-    #[test]
-    fn a_connection_reads_two_lists_then_one_per_window_and_pages_by_their_share() {
-        let guard = || {
-            let guard = ListGuard::default();
-            guard.window_nanos.store(4_000_000_000, Ordering::Relaxed);
-            guard.rows.store(400, Ordering::Relaxed);
-            guard
-        };
-        let (lists, pace) = (guard(), StdMutex::default());
-        assert_eq!(lists.reserve(&pace, 1.0), Ok(Duration::ZERO));
-        assert_eq!(lists.reserve(&pace, 1.0), Ok(Duration::ZERO));
-        let third = lists.reserve(&pace, 1.0).unwrap();
-        assert!(third > Duration::from_millis(3900), "{third:?}");
-        // Pages of a quarter: a list ahead and one page more, then the pace holds.
-        let (pages, pace) = (guard(), StdMutex::default());
-        assert_eq!(pages.share_rows(Some(100)), 0.25);
-        let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
-        assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
-        // A page built from its own rows costs only them: no floor.
-        assert_eq!((pages.share_rows(Some(1)), pages.share_rows(Some(0))), (1.0 / 400.0, 0.0));
-        // A new connection for each list: a window's `REPLIES` and one more, then they wait.
-        let many = guard();
-        let waits: Vec<Duration> =
-            (0..REPLIES + 4).map(|_| many.reserve(&StdMutex::default(), 1.0).unwrap()).collect();
-        assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 3, "{waits:?}");
-        // A flood waits at most `MAX_WAIT`; past it a request is refused and costs nothing.
-        let waits: Vec<_> = (0..200).map(|_| many.reserve(&StdMutex::default(), 1.0)).collect();
-        let refused = waits.iter().filter(|w| w.is_err()).count();
-        assert!(refused > 100 && waits.iter().all(|w| w.unwrap_or_default() <= MAX_WAIT));
-        let after = many.reserve(&StdMutex::default(), 1.0);
-        assert!(after.is_err_and(|wait| wait <= MAX_WAIT + Duration::from_millis(500)));
-    }
-
-    /// Holds a snapshot of the hub as it is now for `window`, as a big daemon's would be.
-    async fn hold(hub: &Hub, window: Duration) -> Arc<Snapshot> {
-        hold_at(hub, window, hub.list_guard.begun.load(Ordering::SeqCst)).await
-    }
-
-    async fn hold_at(hub: &Hub, window: Duration, serial: u64) -> Arc<Snapshot> {
-        let held = Arc::new(Snapshot::new(key(hub), serial, window, false, Default::default()));
-        hub.list_guard.state.lock().await.last = Some(held.clone());
-        held
-    }
-
-    /// A respawn's mark and its end each change a row (`respawnPending`): no list shows the
-    /// row as it was (review 2 of the profile respawn).
-    #[tokio::test]
-    async fn a_profile_respawn_mark_and_its_end_rebuild_the_list() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
-            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        hub.store.save(&meta).unwrap();
-        let session = hub.make_session(meta);
-        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
-        let seq = session.state_seq.load(Ordering::SeqCst);
-        let held = hold(&hub, minute).await;
-        hub.mark_profile_respawn(&session);
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "the mark rebuilds");
-        assert!(session.state_seq.load(Ordering::SeqCst) > seq, "watchers see the mark");
-        let held = hold(&hub, minute).await;
-        hub.mark_profile_respawn(&session);
-        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "marked again: no change");
-        hub.settle_profile_respawn(&session);
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
-        let held = hold(&hub, minute).await;
-        hub.settle_profile_respawn(&session);
-        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
-    }
-
-    /// An agent start's spawn lease and its end each change the list: an update's `ls` never reads
-    /// a cached `starting: false` while a start runs (review of #36854).
-    #[tokio::test]
-    async fn an_agent_start_and_its_end_rebuild_the_list() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        let session = hub.insert_test_session(meta);
-        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
-        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
-        let held = hold(&hub, minute).await;
-        let lease = hub.spawn_lease(&session).await;
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a start rebuilds");
-        assert_eq!(hub.session_summary(&session)["starting"], json!(true));
-        let held = hold(&hub, minute).await;
-        drop(lease);
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
-        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
-    }
-
-    #[tokio::test]
-    async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
-        let held = hold(&hub, minute).await;
-        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing changed");
-        hub.events.changed();
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a change rebuilds");
-        // A build begun after a request arrived is shared with it, whatever changed since.
-        let begun = hold_at(&hub, minute, guard.begun.load(Ordering::SeqCst) + 1).await;
-        hub.events.changed();
-        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "begun since: shared");
-        let held = hold(&hub, minute).await;
-        hub.remote_sessions.write().writes += 1;
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
-        // A peer's link state is every one of its rows' `peerState`.
-        let held = hold(&hub, minute).await;
-        let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        let peer = crate::peer::Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx);
-        hub.peers.lock().unwrap().insert("huge-blue".into(), peer);
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's state rebuilds");
-        hub.logs_ready.send_replace(false);
-        let held = hold(&hub, minute).await;
-        assert!(!held.key.0 && held.current(&hub));
-        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "logs loading: rebuilt");
-        // Nor is a build begun since the request shared while the logs load.
-        let begun = hold_at(&hub, minute, guard.begun.load(Ordering::SeqCst) + 1).await;
-        assert!(!Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "logs loading: not shared");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_snapshot_is_dropped_when_its_window_ends() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        hub.list_guard.begun.store(99, Ordering::SeqCst);
-        hold(&hub, Duration::from_secs(5)).await;
-        hub.list_guard.expire(98, Duration::from_secs(1));
-        hub.list_guard.expire(99, Duration::from_secs(5));
-        tokio::time::sleep(Duration::from_secs(4)).await;
-        assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
-    }
-
-    /// A part of a snapshot made lazily after its build (its rows with tools, 30 MB beside 6 of
-    /// base rows on the list test's 3,000 chats) keeps it fresh for that part's window: on
-    /// 2026-11-12 it was stale before its first with-tools page went out, so every page built
-    /// the list again and a paged read of it ran for minutes (cmux run 43164890485).
-    #[tokio::test(start_paused = true)]
-    async fn a_part_made_after_the_build_keeps_the_snapshot_for_its_own_window() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let guard = &hub.list_guard;
-        let serial = guard.begun.load(Ordering::SeqCst);
-        let held = hold(&hub, Duration::from_secs(1)).await;
-        guard.expire(serial, Duration::from_secs(1));
-        // Its tools took 3 s to make: past the base build's 1 s window.
-        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        assert!(guard.state.lock().await.last.is_some(), "dropped at the build's window");
-        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "rebuilt within its window");
-        drop(held);
-        // 3 s of work: a window of MAX_WINDOW (PACE times 3 s, at most 15 s) from when it was made.
-        tokio::time::sleep(MAX_WINDOW - Duration::from_secs(4)).await;
-        assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
-    }
-
-    /// Expiry must not detach a snapshot while its lazy rows are being made: the next page still
-    /// uses that snapshot instead of rebuilding the whole list for every page.
-    #[tokio::test(start_paused = true)]
-    async fn expiry_during_lazy_build_keeps_the_snapshot_for_follow_up_pages() {
-        const PAGES: usize = 6;
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let guard = &hub.list_guard;
-        let held = hold(&hub, Duration::from_secs(1)).await;
-        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
-        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
-        guard.expire(held.serial, Duration::from_secs(1));
-
-        let building = {
-            let held = held.clone();
-            let hub = hub.clone();
-            tokio::task::spawn_blocking(move || held.full_rows(&hub))
-        };
-        tokio::task::spawn_blocking({
-            let entered = entered.clone();
-            move || entered.0.wait()
-        })
-        .await
-        .unwrap();
-        tokio::time::advance(Duration::from_secs(2)).await;
-        tokio::task::yield_now().await;
-        assert!(guard.state.lock().await.last.is_some(), "expiry detached a lazy build");
-        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
-        building.await.unwrap();
-
-        // The lazy build took longer than the base window, so its own window keeps the live entry.
-        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
-        let before = guard.builds_for_tests();
-        for _ in 0..PAGES {
-            let snapshot = guard.snapshot(&hub).await;
-            let full = snapshot.full_rows(&hub);
-            snapshot.page(Some(&full), &json!({}), 1024).unwrap();
-        }
-        let builds = guard.builds_for_tests() - before;
-        assert!(builds <= (PAGES / 3 + 3) as u64, "{builds} builds for {PAGES} follow-up pages");
-    }
-}
+#[path = "list_guard_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "list_scale_tests.rs"]

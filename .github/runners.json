@@ -485,6 +485,7 @@
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
+    "nightly.yml#nightly-next-one": {"class": "apple-signing-release", "picker_followup": "the literal signer label by design: keychain rule 7 and the owned-Mac guard refuse a signing job whose runner a variable or picker output can choose; any Mac carrying glaeda-trusted-next-signing takes it"},
     "nightly.yml#build-nightly-deltas": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
@@ -733,8 +734,7 @@
       "sdk-publish-java.yml#bindings-e2e-java": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "sdk-publish-npm.yml#bindings-e2e-typescript": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "sdk-publish-python.yml#bindings-e2e-python": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
-      "swift-linux-packages.yml#swift-linux-packages": {"size": 8, "failover": 16, "measured": {"16": [1108.0, 1.88, 2.65]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
-      "swift-packages-linux.yml#packages": {"size": 8, "failover": 16, "measured": {"32": [4232.5, 0.97, 1.23]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "swift-linux-packages.yml#swift-linux-packages": {"size": 8, "failover": 16, "measured": {"16": [1108.0, 1.88, 2.65], "32": [4232.5, 0.97, 1.23]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "web-validation.yml#build": {"routes": [4, 16, 32], "target": 4, "measured": {"32": [1.0, 0.91, 0.9], "4": [3.0, 1.69, 1.98]}, "pending": "#29844 moves these jobs to the Linux pool"},
       "web-validation.yml#tests": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [0.5, 7.33, 7.33], "4": [3.0, 8.96, 9.85]}, "pending": "#29844 moves these jobs to the Linux pool"}
     }

@@ -18,7 +18,15 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-import workflow_jobs
+import sys
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -2047,6 +2055,8 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
+    run = step["run"]
+    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
     # The published binaries still build with the release profile as written.
     build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
@@ -2288,7 +2298,7 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
         python = re.sub(r"format\('([^']*)',", r"_format('\1',", python)
         return str(eval(python, {"_format": lambda text, *args: text.format(*args)}))  # noqa: S307 - test-only, fixed input
 
-    return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
+    return gh_expressions.EXPRESSION.sub(evaluate, template)
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
@@ -2382,9 +2392,6 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     assert "vars.MACOS_RUNNER_26" not in shadow, shadow
     assert "fromJSON(vars.RUNNER_POOLS).macos_15" in shadow, shadow
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
@@ -2414,7 +2421,16 @@ def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> No
     assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
-    assert workflow_jobs.resolve(marker).environment == {"name": "artifacts"}
+    # The name gives the R2 credentials; the deployment line says which refs record a
+    # deployment (#40138). Its text is exact here: a change of who may deploy must show.
+    assert workflow_jobs.resolve(marker).environment == {
+        "name": "artifacts",
+        "deployment": (
+            "${{ contains(fromJSON('"
+            '["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'
+            "'), github.ref) }}"
+        ),
+    }
     assert marker_script in str(marker["steps"])
     assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()
@@ -2453,3 +2469,9 @@ def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
         result = subprocess.run(["bash", "-c", 'key=canonical; legacy_key=legacy; tree_complete() { [[ "$1" == "' + ready + '" ]]; }; ' + selection + 'echo "$tree_ready"'], capture_output=True, text=True, check=True)
         assert result.stdout.strip() == expected
     assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect
+
+
+# Keep this the last statement of the file: unittest.main() ends the process, so a
+# test defined after it never runs in `python3 tests/test_tui_publish_workflow_security.py`.
+if __name__ == "__main__":
+    unittest.main()
