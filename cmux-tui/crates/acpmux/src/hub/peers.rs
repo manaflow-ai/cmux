@@ -5,10 +5,19 @@ use crate::session_identity::SessionReceipt;
 use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
-fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
+const ORIGIN_STALE_GRACE_MS: u64 = 10_000;
+
+pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
     match peer.state() {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
+        }
+        _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
+            || peer.link().down_since.is_some_and(|at| {
+                crate::store::now_ms().saturating_sub(at) >= ORIGIN_STALE_GRACE_MS
+            }) =>
+        {
+            OriginState::Stale
         }
         _ => OriginState::Down,
     }
@@ -765,7 +774,6 @@ impl Hub {
         };
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
-            self.events.origin_tee(peer, OriginState::Stale, crate::store::now_ms());
         }
         for summary in changed {
             self.announce_remote(peer, summary, "status");
@@ -879,7 +887,6 @@ impl Hub {
                     // Called directly, with no grace: this drop is its outage's first
                     // when the link counts one failed attempt.
                     self.note_peer_drop(&peer, generation, &e);
-                    self.events.origin_tee(&peer, OriginState::Down, crate::store::now_ms());
                     let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
                     self.save_after_drop(&peer, generation, first);
                     self.mark_peer_unreachable(&peer, generation);
