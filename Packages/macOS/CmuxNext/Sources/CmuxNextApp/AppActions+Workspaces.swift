@@ -250,6 +250,7 @@ extension AppActions {
                 // A person's close animates its row out even when the row leaves after their answer to the question
                 // (or after the terminals' answer), past the press's window for motion (calm-sidebar-movement).
                 if invocation.origin == .user { controller?.sidebar.model.noteUserIntent() }
+                services.keyRouter.creationInputCoordinator.drop(closing: workspace.screens.flatMap(\.panes)) // before the window shows the next workspace: its terminal's focus takes what is held
                 let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
                 selected.afterPress = controller?.state.workspaceID
                 return hidden

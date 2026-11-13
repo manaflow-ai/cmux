@@ -152,7 +152,10 @@ final class SidebarListView: NSView {
     /// The project header stuck at the top of the visible rows (`SidebarListView+StickyHeader`), nil when none is.
     var stuckHeader: SidebarStuckHeader?
     /// Whether an open group's header sticks at the top while its rows scroll under it (a bench compares off and on).
-    var sticksHeaders = true {
+    /// Off: a header scrolls away with its rows, as before #40401 (Leo, 2026-11-12, on the stuck header: "it's showing me
+    /// the topmost project im in... well that's nice but it doesn't look congruent with the regular look. so we can prob
+    /// just have it back?").
+    var sticksHeaders = false {
         didSet { if sticksHeaders != oldValue { followStuckHeader() } }
     }
     /// Points at the clip's top the rows never show in while scrolled (the traffic lights' clip,

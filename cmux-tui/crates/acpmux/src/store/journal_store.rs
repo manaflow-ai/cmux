@@ -75,14 +75,15 @@ mod seal_tests;
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
-pub(super) use meta::SETTLE_HOLD;
+pub(super) use meta::on_settle_hold;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
 /// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
-/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used.)
+/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used; kind 7 is a `meta` change,
+/// `meta::KIND_META_PATCH`.)
 const KIND_LOG: u16 = 1;
 const KIND_FORGET: u16 = 2;
 /// A freeze (a failed sync of the store's files; its reason as text): the open that replays it
@@ -137,6 +138,32 @@ pub(crate) struct CheckpointerSeams {
 /// Tests: a stop on one thread: it says so on the first channel, then waits on the second.
 #[cfg(test)]
 pub(crate) type Hold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// Tests: the test's end of a [`Hold`]: it lets the held thread go when it drops, so every path
+/// out of the test releases, a panic included. Bind it after the store: locals drop in reverse
+/// order, so an unwind releases before the store's drop waits on the held thread (a held
+/// checkpointer keeps the timer lock `JournalStore::drop` takes; #41627 F1).
+#[cfg(test)]
+pub(crate) struct Release(Option<std::sync::mpsc::Sender<()>>);
+
+#[cfg(test)]
+impl Release {
+    pub(crate) fn new(release: std::sync::mpsc::Sender<()>) -> Self {
+        Self(Some(release))
+    }
+
+    /// Lets the held thread go now.
+    pub(crate) fn now(self) {}
+}
+
+#[cfg(test)]
+impl Drop for Release {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.take() {
+            let _ = release.send(());
+        }
+    }
+}
 
 #[cfg(test)]
 static CHECKPOINTER_SEAMS: Mutex<BTreeMap<PathBuf, CheckpointerSeams>> =
@@ -330,6 +357,9 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+    /// What this process last journaled of each chat's metadata: the base of its next change's
+    /// record, which holds only the fields that changed (`journal_store/meta.rs`).
+    images: HashMap<String, meta::LastImage>,
     /// The log segments whose verified bytes the open's repair wrote back over themselves: the
     /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
     /// be in the page cache only, and a previous run's failed sync may have dropped pages that
@@ -554,7 +584,7 @@ fn open_journal(
 /// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
 /// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
-    if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
+    if crate::home_fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
     }
     let store = JournalStore::open(
@@ -940,6 +970,7 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
             order.metas.remove(id);
+            order.images.remove(id);
             order.repairs.get(id).cloned()
         };
         inner.touched();

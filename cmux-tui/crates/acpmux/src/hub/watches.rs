@@ -50,6 +50,7 @@ const REMOTE_WORKERS: usize = 8;
 type ReadHook = Arc<
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<bool, RpcError>> + Send>> + Send + Sync,
 >;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 #[derive(Default)]
@@ -141,7 +142,7 @@ impl Watches {
                     path.display(),
                     bad.display()
                 );
-                if let Err(e) = std::fs::rename(path, bad) {
+                if let Err(e) = crate::home_fs::rename(path, bad) {
                     tracing::warn!("cannot preserve watch state: {e}");
                 }
                 Saved::default()

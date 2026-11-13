@@ -200,7 +200,9 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
         && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
     {
         let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
-        let message = format!("cmux: {large}{hint}");
+        // A parent of repositories (~/Projects): each one inside is a folder the chat can start in.
+        let repos = crate::link::sync_cli::size_cap::repos_hint(std::path::Path::new(dir));
+        let message = format!("cmux: {large}{repos}{hint}");
         return super::app::failure(
             crate::link::sync_cli::size_cap::CODE,
             &message,

@@ -6,6 +6,7 @@
 // subagent. The first click never navigates.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,12 +51,8 @@ const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subage
 type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").TrayItem;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 

@@ -283,6 +283,7 @@ pub(super) fn create_terminal(
     env: Option<BTreeMap<String, String>>,
     keep: bool,
     detached: bool,
+    new_workspace: Option<Option<String>>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let mut env =
@@ -312,7 +313,14 @@ pub(super) fn create_terminal(
             "bad request: a detached terminal takes no workspace or key"
         );
         let request = super::detached_terminals::DetachedCreate { argv, cwd, name, size, env };
+        anyhow::ensure!(
+            new_workspace.is_none(),
+            "bad request: a detached terminal takes no create_workspace"
+        );
         return super::detached_terminals::create(mux, client, request, terminal_id, mutation);
+    }
+    if let Some(workspace_name) = new_workspace {
+        ensure_workspace(mux, client, workspace, key.as_deref(), workspace_name, &mutation)?;
     }
     let resolved = resolve_workspace(mux, workspace, key.as_deref());
     let (registry_id, generation) = mux.registry_identity();
@@ -581,3 +589,47 @@ pub(super) fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> any
         None => Ok(()),
     }
 }
+
+/// `create-terminal {create_workspace}`: one request makes a workspace and
+/// its first terminal. It takes `key` (the new workspace's) and a mutation
+/// id; the workspace is made under that mutation id with `:workspace`
+/// appended, so a retry makes it once. A workspace that already has the key
+/// is left as it is. A terminal that then fails to start leaves the
+/// workspace: the same request sent again makes (or replays) the terminal.
+pub(crate) const CREATE_TERMINAL_WORKSPACE_CAPABILITY: &str = "create-terminal-workspace-v1";
+
+fn ensure_workspace(
+    mux: &Arc<Mux>,
+    client: u64,
+    workspace: Option<WorkspaceId>,
+    key: Option<&str>,
+    name: Option<String>,
+    mutation: &MutationRequest,
+) -> anyhow::Result<()> {
+    let (Some(key), Some(mutation_id), None) = (key, mutation.mutation_id.as_deref(), workspace)
+    else {
+        anyhow::bail!("bad request: create_workspace takes key and mutation_id, and no workspace");
+    };
+    if mux.with_state(|state| state.workspace_by_key(key).is_some()) {
+        return Ok(());
+    }
+    let request = MutationRequest {
+        origin: mutation.origin.clone(),
+        mutation_id: Some(format!("{mutation_id}:workspace")),
+        expected_generation: None,
+        expected_revision: None,
+    };
+    let workspace_mutation = workspace_mutation(mux, client, &request)?;
+    mux.create_empty_workspace_with_mutation(
+        name,
+        Some(key.to_string()),
+        None,
+        None,
+        &workspace_mutation,
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "create_terminal_workspace_tests.rs"]
+mod create_terminal_workspace_tests;

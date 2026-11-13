@@ -26,13 +26,18 @@ public final class BenchFrames {
     private var intervals: [Double] = []
     private var refresh: Double = 0
     private var waiter: Waiter?
+    /// The id of the last waiter (``Waiter/id``).
+    private var waiters: UInt64 = 0
     private var startedAt = ContinuousClock.now
     /// Ms from ``start()`` to the first display frame after it.
     private var firstTick: Double?
     /// Ms from the last waiter's start to the end of the first commit after which its condition held, or nil.
     public private(set) var lastCommitted: Double?
+    /// Tests only: runs as a waiter registers, just before its deadline is scheduled (a cancel that lands there).
+    package var beforeSchedulingDeadline: (() -> Void)?
 
     private struct Waiter {
+        var id: UInt64
         var done: () -> Bool
         var start: ContinuousClock.Instant
         var window: Double
@@ -40,22 +45,53 @@ public final class BenchFrames {
         var visible: Double?
         var committed: Double?
         var continuation: CheckedContinuation<Double?, Never>
+        /// Ends the wait at its deadline when no display tick does.
+        var timer: DemandTimer
     }
 
-    public init() {}
+    /// The clock the waiters' deadline timers run on.
+    private let clock: any Clock<Duration>
+
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     /// Resumes with the ms at which `done` first held (checked each frame), once `window` ms of
     /// frames followed it, or nil at `deadline` ms. With `watchCommits` (a `done` that only reads), ``lastCommitted``
-    /// then holds its commit time.
+    /// then holds its commit time. The deadline holds without a display tick too (a window that
+    /// stopped drawing), and a cancelled wait answers at once with what it saw: a capture scene
+    /// never waits past its deadline.
     public func settled(until done: @escaping () -> Bool, start: ContinuousClock.Instant, window: Double, deadline: Double,
                         watchCommits: Bool = false) async -> Double? {
         lastCommitted = nil
         commitWatch = watchCommits ? MainRunLoopObserver(activities: .beforeWaiting, order: .max, drawsNothingAfterCommit: true) { [weak self] _ in
             self?.afterCommit()
         } : nil
-        return await withCheckedContinuation { continuation in
-            waiter = Waiter(done: done, start: start, window: window, deadline: deadline, continuation: continuation)
+        waiters &+= 1
+        let id = waiters
+        let timer = DemandTimer(owner: "debug.new_tab.frames.deadline", clock: clock)
+        let left = max(deadline - Self.ms(.now - start), 0)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiter = Waiter(id: id, done: done, start: start, window: window, deadline: deadline, continuation: continuation, timer: timer)
+                let cancelled = Task.isCancelled
+                beforeSchedulingDeadline?()
+                timer.schedule(after: .milliseconds(cancelled ? 0 : left)) { @MainActor [weak self] in self?.expire(id) }
+            }
+        } onCancel: {
+            // A cancel ends the wait on the main actor, never by rescheduling the deadline timer: the
+            // registration's own schedule could replace that (#41480 F1). The registration is one main-actor
+            // job, so this hop runs after it and finds the waiter; a cancel before the registration read
+            // `Task.isCancelled` also gave it a zero deadline.
+            // task-owner: one hop that ends waiter `id`; it does nothing once that waiter has ended.
+            Task { @MainActor [weak self] in self?.expire(id) }
         }
+    }
+
+    /// Waiter `id` reached its deadline with no tick to end it, or was cancelled.
+    private func expire(_ id: UInt64) {
+        guard let waiting = waiter, waiting.id == id else { return }
+        finish(waiting, returning: waiting.visible)
     }
 
     public func start() {
@@ -104,6 +140,7 @@ public final class BenchFrames {
 
     private func finish(_ waiting: Waiter, returning visible: Double?) {
         waiter = nil
+        waiting.timer.cancel()
         commitWatch = nil
         lastCommitted = waiting.committed
         waiting.continuation.resume(returning: visible)

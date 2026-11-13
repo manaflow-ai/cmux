@@ -611,7 +611,8 @@ test("a usage record's reported setup reaches the context summary while the tool
   }
 });
 
-const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
+// The line under the work (`below`); "Working for" over the work says only the turn's time.
+const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
@@ -639,6 +640,8 @@ test("the line reads the time, then the turn's output, after the working dots", 
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
   expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
+  // Over the work, as the Codex app's "Working for 32s": the time alone.
+  expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });
 
 test("tokens are compact in the pane's language", () => {

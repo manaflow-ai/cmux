@@ -96,8 +96,18 @@ type Roll = {
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed: read only when the key changes, so a tick costs no second render.
+  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
+  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
+  // costs none.
   const drawn = useRef(tail);
+  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
+  // that records this commit's tail, so it still reads the one before.
+  const rolledOut = roll.out !== undefined;
+  useLayoutEffect(() => {
+    if (!rolledOut) return;
+    const before = drawn.current;
+    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
+  }, [rolledOut, roll.turns]);
   useLayoutEffect(() => {
     drawn.current = tail;
   });
@@ -109,10 +119,33 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      out: rolls ? { ...roll, out: undefined, tail: drawn.current } : undefined,
+      // Its tail is the one last drawn, filled in by the first layout effect above.
+      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });
   return roll;
+}
+
+/// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
+/// (ellipsis and all), their time and counts from where they sat, never the full words running their
+/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
+/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
+  const drawn = useRef<{ turns: number; width?: number }>({ turns });
+  useLayoutEffect(() => {
+    const node = line.current;
+    if (!node) return;
+    const last = drawn.current;
+    if (turns !== last.turns && last.width !== undefined) {
+      const px = `${last.width}px`;
+      const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+      const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
+      if (words) words.style.width = px;
+      if (tail) tail.style.left = px;
+    }
+    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    drawn.current = { turns, width: width && width > 0 ? width : undefined };
+  });
 }
 
 /// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
@@ -327,9 +360,17 @@ export function Thinking({
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
+  // A reply that paused only a moment is still being written; one silent for longer is the agent
+  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
+  // Once the reply has stopped, nothing the agent does is timed until its next step: the line says
+  // "Thinking" with no clock or token count, which until the turn's end ticked on under the reply as if
+  // the agent still worked (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
+  // just replied!"). The next call, thought or reply brings the turn's clock back.
+  const replied = liveState === "writing" && !stillWriting;
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
-  const from = untimed ? undefined : since;
+  const from = untimed || replied ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
@@ -338,9 +379,6 @@ export function Thinking({
     () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
     [t, statusVerbConfig, thinkingVerbs],
   );
-  // A reply that paused only a moment is still being written; one silent for longer is the agent
-  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
@@ -462,6 +500,7 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
+  useRollOutWidth(lineRef, roll.turns);
   useCountGlide(lineRef, roll.turns);
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
@@ -536,7 +575,18 @@ export function Thinking({
               inert
               data-lead={roll.out.lead?.lead}
               data-text={roll.out.lead ? roll.out.lead.rest : roll.out.label}
+              // Marks a copy whose time and counts roll out beside it (`cv-roll-out__tail`).
               data-tail={roll.out.tail ? `\u2002${roll.out.tail}` : undefined}
+            />
+          )}
+          {roll.out?.tail && (
+            // The old line's time and counts, from where they sat after its words (their drawn width).
+            <span
+              key={`tail-${roll.turns}`}
+              className="cv-roll-out__tail"
+              aria-hidden="true"
+              inert
+              data-tail={`\u2002${roll.out.tail}`}
             />
           )}
           <output

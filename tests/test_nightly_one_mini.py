@@ -30,7 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
+from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
 MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
@@ -52,7 +53,7 @@ def want(name: str, ref: str = "refs/heads/nightly-next") -> str:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    return HOSTED if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS else MINI
+    return HOSTED if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:
@@ -70,9 +71,12 @@ class NightlyOneMini(unittest.TestCase):
         for name, job in JOBS.items():
             if job.get("uses") or name in VISUAL_GATE or name.startswith("visual-gate-") or name == "report-visual-gate-nightly":
                 continue
-            runs_on = str(job.get("runs-on", ""))
-            sources = job["strategy"]["matrix"]["pool"] if runs_on == "${{ matrix.pool }}" else [runs_on]
-            for source in sources:
+            # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
+            sources = workflow_jobs.runs_on_cells(job)
+            if sources is None:
+                failures[name] = "runs-on has a matrix value nothing resolves"
+                continue
+            for source in sources or [""]:
                 for _ in range(200):
                     value, context = resolve(source, rng)
                     if value != want(name, context.get("github.ref", "refs/heads/nightly-next")):
@@ -83,7 +87,7 @@ class NightlyOneMini(unittest.TestCase):
     def test_the_mode_is_off_without_the_variable(self) -> None:
         # Unset, every job keeps its route: build-nightly-app never asks for the mini's builder label.
         rng = random.Random(7)
-        source = str(JOBS["build-nightly-app"]["runs-on"])
+        source = workflow_jobs.single_runs_on(JOBS["build-nightly-app"])
         for _ in range(200):
             value, _ = resolve(source, rng, {"vars.CI_NIGHTLY_MINI": "", "vars.CI_NIGHTLY_MINI_BUILDER": ""})
             self.assertNotEqual(value, BUILDER)
