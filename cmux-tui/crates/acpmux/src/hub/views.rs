@@ -456,6 +456,7 @@ impl Hub {
     /// Start the one-time fold of a chat's journal off the request path, at most once at a time.
     /// Until it is done, Session Info and attach carry no breakdown; the next read after it does.
     fn start_time_breakdown_seed(&self, session: &Session) {
+        if std::env::var_os("ACPMUX_DIAG_NO_SEED").is_some() { return; }
         {
             let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
             if state.initialized || state.seeding {
