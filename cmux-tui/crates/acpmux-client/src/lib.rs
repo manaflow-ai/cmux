@@ -2021,7 +2021,7 @@ tail"#;
         let _ = client.take_send();
         let key1 = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
         let key2 = ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into() };
-        client.want("m", [key1.clone(), key2.clone()]).unwrap();
+        client.want("m", [key1, key2.clone()]).unwrap();
         let _ = client.take_send().expect("wanted read");
         let partial = Frame::json(
             FrameKind::Page,
