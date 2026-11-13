@@ -597,7 +597,22 @@ impl Inner {
     /// Nothing wants the host: end its supervisor connection; the host exits
     /// after its grace with no daemon (it ends a running session first).
     fn stop(this: &Arc<Self>) {
-        let state = std::mem::take(&mut *lock(&this.state));
+        // `host_gone` normally clears the worker identity when the reader sees
+        // EOF. A deliberate drain first takes the state to Idle, though, so
+        // the reader's connection fence intentionally returns early. Clear the
+        // cached identity at this transition instead of leaving a stale View
+        // screen action behind until a later host starts.
+        let state = {
+            let mut state = lock(&this.state);
+            let state = std::mem::take(&mut *state);
+            let changed = lock(&this.screen_device_id).take().is_some();
+            if changed {
+                if let Some(mux) = lock(&this.owner).upgrade() {
+                    mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
+                }
+            }
+            state
+        };
         if let State::Running(connection) = state {
             connection.notify("drain");
         }
@@ -845,6 +860,24 @@ mod tests {
             .err()
             .expect("closed connection must be rejected");
         assert_eq!(error, "cmux Remote closed before becoming current");
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+    }
+
+    #[test]
+    fn stopping_a_running_host_clears_screen_identity_before_reader_exit() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        Inner::install_running(
+            &inner,
+            connection(json!({
+                "screen": {"device_id": id}
+            })),
+        )
+        .unwrap();
+
+        Inner::stop(&inner);
+
         assert!(matches!(&*super::lock(&inner.state), State::Idle));
         assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
     }

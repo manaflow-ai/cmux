@@ -56,6 +56,18 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     /// This device's identity from the worker (its keys stay in the worker's Secure Enclave).
     func identity(renew: Bool = false) async throws -> DeviceIdentity {
         let answer = try await channel().call(renew ? "device.renew" : "device.identity")
+        return try makeIdentity(answer)
+    }
+
+    /// The renewal closure supplied to ``DeviceHub`` is synchronous and is
+    /// invoked off the main actor. Use the same bounded request channel as
+    /// signing to fetch a fresh worker identity when the hub rejected this
+    /// device as removed or key-mismatched.
+    func blockingIdentity(renew: Bool = false) throws -> DeviceIdentity {
+        try makeIdentity(try blockingCall(renew ? "device.renew" : "device.identity", [:]))
+    }
+
+    private func makeIdentity(_ answer: [String: Any]) throws -> DeviceIdentity {
         guard let id = (answer["id"] as? String).flatMap(UUID.init(uuidString:)),
               let signing = (answer["signing_key"] as? String).flatMap({ Data(base64Encoded: $0) }),
               let agreement = (answer["agreement_key"] as? String).flatMap({ Data(base64Encoded: $0) }) else {
