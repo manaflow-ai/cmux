@@ -22,6 +22,7 @@ import {
   useAttachmentIntake,
   type AttachmentIntakeOptions,
 } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -93,13 +94,7 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-});
+afterAll(() => teardownDom(saved, { window: dom.window }));
 
 const png = (name: string) => new File(["png"], name, { type: "image/png" });
 
