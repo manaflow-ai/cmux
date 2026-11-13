@@ -1785,19 +1785,32 @@ variants["github-connect-confirm"] = variant("accounts", {
 });
 
 const screenSharingDevices = mockDevicesState();
+const localFirstUseDevices = {
+  ...screenSharingDevices,
+  thisDevice: screenSharingDevices.thisDevice ? { ...screenSharingDevices.thisDevice, sharesText: null } : null,
+  sharing: screenSharingDevices.sharing
+    ? {
+        ...screenSharingDevices.sharing,
+        on: false,
+        permissions: screenSharingDevices.sharing.permissions.map((permission) => ({ ...permission, granted: false })),
+      }
+    : null,
+};
 variants["devices-screen-sharing-local"] = variant("devices", {
-  devices: screenSharingDevices,
-  note: "This Mac keeps one compact Share action beside its name; the device name and access controls retain their space.",
+  devices: localFirstUseDevices,
+  note: "First use: Share is visible while Mac Screen is off and Screen Recording plus Accessibility still need permission.",
 });
 variants["devices-screen-sharing-remote"] = variant("devices", {
   devices: {
-    ...screenSharingDevices,
-    others: screenSharingDevices.others.map((device) =>
+    ...localFirstUseDevices,
+    others: localFirstUseDevices.others.map((device) =>
       device.id === "dev-macbook"
         ? {
             ...device,
+            name: "Research MacBook Pro — Office Display",
             online: true,
             presence: "Online",
+            sharesText: "Shares Mac Screen",
             screenAction: { kind: "view", title: "View screen", disabled: false },
           }
         : device,
