@@ -100,10 +100,10 @@ def load_bundle(
                 {
                     "path": input_path,
                     "sourceBytes": 0,
-                    "reachableBytes": 0,
-                    "renderedBytes": 0,
+                    "attributionValue": 0,
+                    "renderedLength": 0,
                     "emittedBytes": 0,
-                    "unknownBytes": 0,
+                    "unknownValue": 0,
                     "outputs": 0,
                     "attributionMetric": None,
                 },
@@ -114,7 +114,7 @@ def load_bundle(
             row["sourceBytes"] = max(
                 row["sourceBytes"],
                 int(source_record.get("sourceBytes", source_record.get("bytes", 0)) or 0),
-                int(contribution.get("sourceBytes", contribution.get("bytes", 0)) or 0),
+                int(contribution.get("bytes", 0) or 0) if not is_rolldown else 0,
             )
             metric = contribution.get("metric")
             if metric is None and is_rolldown:
@@ -123,17 +123,19 @@ def load_bundle(
                 metric = "unknown"
             elif metric is None:
                 metric = "emitted"
+            if metric == "rolldown-rendered-length" and contribution.get("renderedLength") is None:
+                metric = "unknown"
             row["attributionMetric"] = metric if row["attributionMetric"] in (None, metric) else "mixed"
             contribution_bytes = int(contribution.get("bytesInOutput", 0) or 0)
-            if metric == "rolldown-rendered-pre-minification":
-                rendered = int(contribution.get("renderedBytes", contribution_bytes) or 0)
-                row["renderedBytes"] += rendered
-                row["reachableBytes"] += rendered
+            if metric == "rolldown-rendered-length":
+                rendered = int(contribution["renderedLength"])
+                row["renderedLength"] += rendered
+                row["attributionValue"] += rendered
             elif metric == "emitted":
                 row["emittedBytes"] += contribution_bytes
-                row["reachableBytes"] += contribution_bytes
+                row["attributionValue"] += contribution_bytes
             else:
-                row["unknownBytes"] += contribution_bytes
+                row["unknownValue"] += contribution_bytes
             row["outputs"] += 1
     rows = []
     commonjs = []
@@ -156,7 +158,8 @@ def load_bundle(
         if source is not None:
             source_paths[path] = source
             source_texts[path] = text
-        row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] and row["attributionMetric"] not in ("unknown", "mixed") else 0
+        row["ratio"] = round(row["attributionValue"] / row["sourceBytes"], 4) if row["sourceBytes"] and row["attributionMetric"] == "emitted" else 0
+        row["reachableBytes"] = row["emittedBytes"] if row["attributionMetric"] == "emitted" else None
         row["package"] = package_name(path)
         # esbuild reports paths relative to its working directory; Rolldown
         # reports absolute paths. Resolve both before counting installed roots,
@@ -203,38 +206,48 @@ def load_bundle(
                 child = resolve_export(current, specifier)
                 if child is not None and child in rows_by_source:
                     pending.append(child)
-        row["barrelReachableBytes"] = sum(item["reachableBytes"] for item in descendants.values())
+        if any(item["attributionMetric"] != "emitted" for item in descendants.values()):
+            continue
+        row["barrelReachableBytes"] = sum(item["emittedBytes"] for item in descendants.values())
         source_bytes = sum(item["sourceBytes"] for item in descendants.values())
         row["barrelRatio"] = round(row["barrelReachableBytes"] / source_bytes, 4) if source_bytes else 0
-    shipped = 0
+    shipped = None
     if bundle_dir and bundle_dir.is_dir():
         shipped = sum(p.stat().st_size for p in bundle_dir.rglob("*") if p.is_file())
-    rows.sort(key=lambda item: item["reachableBytes"], reverse=True)
+    rows.sort(key=lambda item: item["attributionValue"], reverse=True)
     metrics = {row["attributionMetric"] for row in rows if row["attributionMetric"] is not None}
     attribution_metric = next(iter(metrics)) if len(metrics) == 1 else ("mixed" if metrics else "unknown")
-    reachable = sum(row["reachableBytes"] for row in rows) if attribution_metric not in ("unknown", "mixed") else None
+    reachable = sum(row["attributionValue"] for row in rows) if attribution_metric not in ("unknown", "mixed") else None
     return {
         "name": name,
         "metafile": str(metafile),
         "bundleDir": str(bundle_dir) if bundle_dir else None,
         "shippedBytes": shipped,
         "attributionMetric": attribution_metric,
-        "reachableBytes": reachable,
+        "attributionValue": reachable,
+        "reachableBytes": reachable if attribution_metric == "emitted" else None,
         "outputs": sorted(output_rows, key=lambda item: item["bytes"], reverse=True),
         "modules": rows,
-        "barrels": sorted(barrels, key=lambda item: item["reachableBytes"], reverse=True),
-        "commonjs": sorted(commonjs, key=lambda item: item["reachableBytes"], reverse=True),
+        "barrels": sorted(barrels, key=lambda item: item["attributionValue"], reverse=True),
+        "commonjs": sorted(commonjs, key=lambda item: item["attributionValue"], reverse=True),
         "devInputs": dev_inputs,
     }
 
 
 def render_markdown(report: dict[str, Any]) -> str:
-    lines = ["# NEXT web bundle attribution", "", "| Bundle | shipped bytes | module attribution bytes | metric | outputs |", "| --- | ---: | ---: | --- | ---: |"]
+    lines = ["# NEXT web bundle attribution", "", "| Bundle | shipped bytes | module attribution | metric | outputs |", "| --- | ---: | ---: | --- | ---: |"]
     for bundle in report["bundles"]:
-        reachable = bundle["reachableBytes"]
+        reachable = bundle["attributionValue"]
         value = f"{reachable:,}" if reachable is not None else "unknown"
-        lines.append(f"| {bundle['name']} | {bundle['shippedBytes']:,} | {value} | {bundle['attributionMetric']} | {len(bundle['outputs'])} |")
-    lines += ["", "## Top modules", "", "| Bundle | Module | source bytes | attribution bytes | metric | ratio | flags |", "| --- | --- | ---: | ---: | --- | ---: | --- |"]
+        shipped = f"{bundle['shippedBytes']:,}" if bundle["shippedBytes"] is not None else "unknown"
+        lines.append(f"| {bundle['name']} | {shipped} | {value} | {bundle['attributionMetric']} | {len(bundle['outputs'])} |")
+    lines += [
+        "", "Shipped bytes come from the output directory. Module attribution describes the bundler graph;",
+        "Rolldown pre-minification lengths are not emitted bytes. Postprocessed files (including Pages CSS)",
+        "can differ from that graph. Do not sum unlike metrics or treat attribution as a savings estimate.",
+        "", "## Top modules", "", "| Bundle | Module | source bytes | attribution | metric | ratio | flags |",
+        "| --- | --- | ---: | ---: | --- | ---: | --- |",
+    ]
     for bundle in report["bundles"]:
         for row in bundle["modules"][:20]:
             flags = []
@@ -244,7 +257,10 @@ def render_markdown(report: dict[str, Any]) -> str:
                 flags.append("commonjs")
             if "/gallery/" in row["path"].lower() or ".test." in row["path"].lower() or "/fixtures/" in row["path"].lower():
                 flags.append("dev-only")
-            lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {row['reachableBytes']:,} | {row['attributionMetric']} | {row['ratio']:.2f} | {', '.join(flags)} |")
+            known = row["attributionMetric"] not in ("unknown", "mixed")
+            value = f"{row['attributionValue']:,}" if known else "unknown"
+            ratio = f"{row['ratio']:.2f}" if row["attributionMetric"] == "emitted" else "unknown"
+            lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {value} | {row['attributionMetric']} | {ratio} | {', '.join(flags)} |")
     lines += ["", "## Duplicate packages", "", "| Package | bundles | installed copies | module paths |", "| --- | ---: | ---: | ---: |"]
     for package, entries in sorted(report["duplicates"].items()):
         lines.append(f"| `{package}` | {len(entries['bundles'])} | {len(entries['instances'])} | {len(entries['paths'])} |")
@@ -301,7 +317,7 @@ def main() -> int:
                     bundle_instances[(bundle["name"], row["package"])].add(row["packageInstance"])
         for row in bundle["barrels"]:
             if row["barrel"] and row["barrelReachableBytes"] > 50 * 1024 and row["barrelRatio"] >= 0.95:
-                findings.append(f"non-shaken barrel graph in {bundle['name']}: {row['path']} contributes {row['barrelReachableBytes']:,} bytes ({row['barrel']} export-star re-exports)")
+                findings.append(f"suspicious barrel retention in {bundle['name']}: {row['path']} contributes {row['barrelReachableBytes']:,} attribution bytes ({row['barrel']} export-star re-exports; heuristic, not proof of failed shaking)")
         if bundle["commonjs"]:
             findings.append(f"CommonJS inputs in {bundle['name']}: {len(bundle['commonjs'])}")
         if bundle["devInputs"]:
@@ -321,7 +337,7 @@ def main() -> int:
             findings.append(f"duplicate {package} package within {bundle_name}: {len(instances)} installed copies")
     for package, entries in duplicates.items():
         entries["instances"] = sorted(package_instances[package])
-    report = {"schema": 1, "bundles": bundles, "duplicates": duplicates, "findings": findings}
+    report = {"schema": 2, "bundles": bundles, "duplicates": duplicates, "findings": findings}
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.markdown:

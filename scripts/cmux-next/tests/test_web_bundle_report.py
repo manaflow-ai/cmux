@@ -60,7 +60,7 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertEqual(bundle["modules"][0]["attributionMetric"], "emitted")
             self.assertEqual(bundle["modules"][0]["emittedBytes"], 1_000)
 
-    def test_rolldown_rendered_bytes_are_separate_from_emitted_output(self):
+    def test_rolldown_rendered_lengths_are_separate_from_emitted_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             metafile = root / "rolldown.json"
@@ -69,21 +69,46 @@ class WebBundleReportTests(unittest.TestCase):
                 "tool": "rolldown",
                 "outputs": {"entry.js": {"bytes": 600, "inputs": {
                     "src/module.ts": {
-                        "sourceBytes": 2_000,
-                        "renderedBytes": 1_000,
-                        "bytesInOutput": 1_000,
-                        "metric": "rolldown-rendered-pre-minification",
+                        "originalLength": 2_000,
+                        "renderedLength": 1_000,
+                        "metric": "rolldown-rendered-length",
                     }
                 }}},
             }), encoding="utf-8")
             bundle = MODULE.load_bundle("rolldown", metafile, None)
             row = bundle["modules"][0]
-            self.assertEqual(bundle["shippedBytes"], 0)
-            self.assertEqual(bundle["reachableBytes"], 1_000)
-            self.assertEqual(bundle["attributionMetric"], "rolldown-rendered-pre-minification")
-            self.assertEqual(row["renderedBytes"], 1_000)
+            self.assertIsNone(bundle["shippedBytes"])
+            self.assertEqual(bundle["attributionValue"], 1_000)
+            self.assertIsNone(bundle["reachableBytes"])
+            self.assertEqual(bundle["attributionMetric"], "rolldown-rendered-length")
+            self.assertEqual(row["renderedLength"], 1_000)
             self.assertEqual(row["emittedBytes"], 0)
             self.assertEqual(bundle["outputs"][0]["bytes"], 600)
+
+    def test_rolldown_producer_keeps_lengths_out_of_byte_fields(self):
+        plugin = SCRIPT.parents[2] / "webviews/scripts/bundle-metafile.mjs"
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "metafile.json"
+            subprocess.run([
+                "node", "--input-type=module", "-e",
+                """const { bundleMetafile } = await import(process.argv[1]);
+                await bundleMetafile(process.argv[2]).generateBundle({}, {
+                  'entry.js': {type: 'chunk', code: '/*🌍*/', facadeModuleId: 'entry.js',
+                    imports: [], dynamicImports: [],
+                    modules: {'entry.js': {originalLength: 100, renderedLength: 60}}}
+                });""",
+                plugin.as_uri(), str(output),
+            ], check=True, capture_output=True, text=True)
+            meta = json.loads(output.read_text())
+            chunk = meta["outputs"]["entry.js"]
+            contribution = chunk["inputs"]["entry.js"]
+            self.assertEqual(chunk["bytes"], len("/*🌍*/".encode()))
+            self.assertEqual(contribution["renderedLength"], 60)
+            self.assertNotIn("bytesInOutput", contribution)
+            self.assertNotIn("sourceBytes", contribution)
+            bundle = MODULE.load_bundle("rolldown", output, None)
+            self.assertEqual(bundle["attributionValue"], 60)
+            self.assertIsNone(bundle["reachableBytes"])
 
     def test_legacy_rolldown_bytes_are_unknown_not_emitted(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,8 +125,24 @@ class WebBundleReportTests(unittest.TestCase):
             row = bundle["modules"][0]
             self.assertIsNone(bundle["reachableBytes"])
             self.assertEqual(bundle["attributionMetric"], "unknown")
-            self.assertEqual(row["unknownBytes"], 1_000)
+            self.assertEqual(row["unknownValue"], 1_000)
             self.assertEqual(row["emittedBytes"], 0)
+            markdown = MODULE.render_markdown({"bundles": [bundle], "duplicates": {}, "findings": []})
+            self.assertIn("| `src/module.ts` | 0 | unknown | unknown | unknown |", markdown)
+
+    def test_missing_rolldown_length_stays_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "missing-length.json"
+            metafile.write_text(json.dumps({
+                "schema": 2, "tool": "rolldown",
+                "outputs": {"entry.js": {"bytes": 600, "inputs": {
+                    "src/module.ts": {"renderedLength": None, "metric": "rolldown-rendered-length"}
+                }}},
+            }), encoding="utf-8")
+            bundle = MODULE.load_bundle("missing", metafile, None)
+            self.assertIsNone(bundle["reachableBytes"])
+            self.assertEqual(bundle["attributionMetric"], "unknown")
 
     def test_relative_inputs_use_metafile_source_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,16 +170,6 @@ class WebBundleReportTests(unittest.TestCase):
             )
             bundle = MODULE.load_bundle("pages", metafile, root, source_root)
             self.assertEqual(bundle["barrels"][0]["barrel"], 1)
-
-    def test_duplicate_react_groups_by_bundle(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            first = self.write_bundle(root, "pages", [("node_modules/react/index.js", 100, 80)])
-            second = self.write_bundle(root, "pane", [("node_modules/react/index.js", 100, 80)])
-            one = MODULE.load_bundle("pages", first, root)
-            two = MODULE.load_bundle("pane", second, root)
-            bundles = {"react": {"bundles": [one["name"], two["name"]], "paths": ["node_modules/react/index.js"]}}
-            self.assertEqual(len(bundles["react"]["bundles"]), 2)
 
     def test_duplicate_react_detector_reports_real_multiple_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
