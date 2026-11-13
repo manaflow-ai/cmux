@@ -23,9 +23,9 @@ run (the last successful one that dispatcher started).
 A Mac that must not build (a laptop cleared for benches only) runs the harness from a copy of
 `scripts/measure` with `prebuilt=DIR`, where DIR holds tools built elsewhere for that Mac: `cmux-rd`
 (`cargo build --release` in `cmux-tui/crates/cmux-rd-host`), `screen-eval-preflight`,
-`screen-eval-scene`, `screen-eval-ocr` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
-(`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`), plus an optional `rev`
-file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
+`screen-eval-scene`, `screen-eval-ocr` and `screen-eval-window-id` (`swiftc -O` of the `.swift` files
+here), and `cmux-rd-marker` (`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`),
+plus an optional `rev` file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
 with no console or grant needed:
 
 ```
@@ -33,12 +33,16 @@ cmux-ci run --class exclusive --measurement --label measure --script scripts/mea
   --ref SHA --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
 ```
 
-The archive holds one folder, `tools/`. Nothing is compiled: only the `rd` target
-has this mode, and a Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3
-instead of compiling the launcher.
+The archive holds one folder, `tools/`. Nothing is compiled on the bench Mac: the `rd`,
+`apple-high` and `apple-standard` targets have this mode; WebRTC still requires its own build folder.
+A Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3 instead of compiling
+the launcher. Apple targets require `screen-eval-window-id` in the archive and fail closed if it is absent
+or not executable.
 
 ```
 bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=rd [repeats=3] [samples=200]
+# On a second Mac with the prebuilt helper and a granted launcher:
+bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=apple-high,apple-standard viewer-of=HOST_IP peer-token=HEX
 ```
 
 ## Scenarios (fixed)

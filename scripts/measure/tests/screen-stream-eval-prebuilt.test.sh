@@ -18,6 +18,11 @@ if [[ "$tools_block" != *'screen-eval-window-id'* || "$tools_block" != *'window-
   echo "FAIL: tools-only does not compile screen-eval-window-id"
   fail=1
 fi
+if ! grep -q 'screen-eval-window-id' "$root/screen-stream-eval/README.md" ||
+   ! grep -q 'apple-high.*apple-standard' "$root/screen-stream-eval/README.md"; then
+  echo "FAIL: prebuilt README omits the Apple helper or targets"
+  fail=1
+fi
 
 build_block=$(sed -n '/^  build)$/,/^    ;;$/p' "$apple")
 prebuilt_branch=$(sed -n '/^    if \[\[ -n "${EVAL_PREBUILT:-}" \]\]; then$/,/^    else$/p' <<<"$build_block")
