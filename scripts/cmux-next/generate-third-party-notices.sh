@@ -56,6 +56,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NOTICES="$ROOT/cmux-tui/build-support/notices"
 CACHE="${CMUX_NOTICES_CACHE:-$HOME/.cache/cmux-notices}"
 CHECK=0 TUI_SOURCE=pin TREES="" WRITE_TREES=0
+# remote_refs and net_retry: a remote that does not answer is never read as a missing ref.
+# shellcheck source=scripts/cmux-next/lib/origin-net.sh
+source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -97,7 +100,8 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   pin="$(sed -n 's/^commit=//p' "$ROOT/scripts/cmux-next/cmux-tui.pin")"
   [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no commit= line in scripts/cmux-next/cmux-tui.pin" >&2; exit 1; }
   ref="cmux-tui-src-${pin:0:11}"
-  if ! git -C "$ROOT" ls-remote --exit-code --tags origin "refs/tags/$ref" >/dev/null; then
+  tui_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$ref")" || exit 1
+  if [[ -z "$tui_tag_lines" ]]; then
     echo "error: source tag $ref (the cmux-tui pin) does not exist on origin; first-party crates must point at a permanent tag" >&2
     exit 1
   fi
@@ -107,7 +111,7 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   # only when the pin has them. A cache made before they were archived (no
   # .archived-v2 stamp) is made again.
   if [[ ! -f "$tui_src/.archived-v2" ]]; then
-    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ROOT" fetch --quiet origin "$pin"
+    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || net_retry "fetch the cmux-tui pin $pin" git -C "$ROOT" fetch --quiet origin "$pin"
     tui_paths=(cmux-tui first-party-apps/cloud/server)
     if git -C "$ROOT" cat-file -e "$pin:workers/cmux-vm/cli" 2>/dev/null; then tui_paths+=(workers/cmux-vm/cli); fi
     rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"
@@ -126,7 +130,7 @@ iroh_src="$CACHE/iroh-ffi-$iroh_rev"
 if [[ ! -d "$iroh_src" ]]; then
   rm -rf "$iroh_src.partial" && mkdir -p "$iroh_src.partial"
   git -C "$iroh_src.partial" init --quiet
-  git -C "$iroh_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/iroh-ffi.git "$iroh_rev"
+  net_retry "fetch iroh-ffi $iroh_rev" git -C "$iroh_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/iroh-ffi.git "$iroh_rev"
   git -C "$iroh_src.partial" checkout --quiet FETCH_HEAD
   [[ "$(git -C "$iroh_src.partial" rev-parse HEAD)" == "$iroh_rev" ]] || { echo "error: iroh-ffi checkout is not $iroh_rev" >&2; exit 1; }
   mv "$iroh_src.partial" "$iroh_src"
@@ -136,7 +140,7 @@ cua_src="$CACHE/cmux-cua-$cua_rev"
 if [[ ! -d "$cua_src" ]]; then
   rm -rf "$cua_src.partial" && mkdir -p "$cua_src.partial"
   git -C "$cua_src.partial" init --quiet
-  git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
+  net_retry "fetch cmux-cua $cua_rev" git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
   git -C "$cua_src.partial" checkout --quiet FETCH_HEAD
   [[ "$(git -C "$cua_src.partial" rev-parse HEAD)" == "$cua_rev" ]] || { echo "error: cmux-cua checkout is not $cua_rev" >&2; exit 1; }
   mv "$cua_src.partial" "$cua_src"
@@ -158,7 +162,7 @@ rbh_crate=cmux-tui/crates/cmux-remote-browser-host
 # source_commit need not be on a branch, so a permanent tag holds it (publish-remote-browser-host.sh
 # pushes it), as cmux-tui-src-<pin> does for the cmux-tui pin; the first-party links name the tag.
 rbh_ref="cmux-rbh-src-${rbh_rev:0:11}"
-rbh_tag_lines="$(git -C "$ROOT" ls-remote --tags origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref" || true)"
+rbh_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref")" || exit 1
 if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
   echo "error: source tag $rbh_ref (the remote browser host pin's source_commit) is not on origin at $rbh_rev; push it: git push origin $rbh_rev:refs/tags/$rbh_ref" >&2
   exit 1
@@ -168,7 +172,7 @@ if [[ ! -d "$rbh_src" ]]; then
   # Its own shallow fetch (as for iroh-ffi), not this checkout's history.
   rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
   git init --quiet "$rbh_src.git"
-  git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  net_retry "fetch the remote browser host source $rbh_rev" git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
   [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
   [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
     { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }

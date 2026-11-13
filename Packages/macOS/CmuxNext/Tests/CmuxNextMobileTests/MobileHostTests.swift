@@ -344,6 +344,35 @@ import Testing
         #expect(String(decoding: MobileHostLaunch.needsYouLine([]), as: UTF8.self) == #"{"items":[],"type":"needs_you"}"# + "\n")
     }
 
+    /// ask-87d30da8e5: the Mac's theme and wallpaper reach hostd as one `appearance` line, which
+    /// `cmux-mobile-host` `appearance.rs` parses (its `the_control_line_parses_with_defaults`).
+    @Test func appearanceLineCarriesTheThemeAndThePhoneCopyOfTheWallpaper() throws {
+        let palette = (0..<16).map { String(format: "#%02x%02x%02x", $0, $0, $0) }
+        let shown = MobileHostAppearance(
+            background: "#1e1e2e", foreground: "#cdd6f4", palette: palette, selectionBackground: "#585b70",
+            accent: "magenta", backgroundOpacity: 0.9, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
+            wallpaperTintOpacity: 0.62)
+        let line = MobileHostLaunch.appearanceLine(shown)
+        #expect(line.last == 0x0A)
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        #expect(object["type"] as? String == "appearance")
+        let theme = try #require(object["theme"] as? [String: Any])
+        #expect(theme["background"] as? String == "#1e1e2e")
+        #expect((theme["palette"] as? [String])?.count == 16)
+        #expect(theme["selection_background"] as? String == "#585b70")
+        #expect(theme["cursor"] == nil)
+        #expect(theme["accent"] as? String == "magenta")
+        #expect(theme["background_opacity"] as? Double == 0.9)
+        let wallpaper = try #require(object["wallpaper"] as? [String: Any])
+        #expect(wallpaper["path"] as? String == "/tmp/phone-wallpaper/a.jpg")
+        #expect(wallpaper["tint_opacity"] as? Double == 0.62)
+        // No picture: no wallpaper key, and the phone shows the theme's plain background.
+        var plain = shown
+        plain.wallpaper = nil
+        let bare = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(plain)) as? [String: Any])
+        #expect(bare["wallpaper"] == nil)
+    }
+
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()
