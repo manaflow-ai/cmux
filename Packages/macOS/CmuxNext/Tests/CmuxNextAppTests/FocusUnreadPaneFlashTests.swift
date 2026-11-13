@@ -116,4 +116,28 @@ struct FocusUnreadPaneFlashTests {
         try await PinnedPageTests.until({ fixture.unread.tabs.first?.hasUnread == false && fixture.content.layoutModel.attention[pane] == nil },
                                         report: { "the pane under a key page window kept its ring" })
     }
+
+    /// Agent chats: a click into a chat's Chromium page reads the pane at once, but the page's
+    /// focus reaches the layout later. The ring went before the pane was the focused one, and
+    /// the flash only played on the focused pane, so the chat's ring sometimes faded.
+    @Test func aClickReadBeforeTheFocusMovesStillBlinksTheRingOut() async throws {
+        let fixture = try await Self.open()
+        defer {
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        let pane = LayoutPaneID(fixture.unread.id)
+        let tab = try #require(fixture.unread.tabs.first)
+        fixture.services.notifications.interacted(.click, tab: tab)
+        try await PinnedPageTests.until({ fixture.content.layoutModel.attention[pane] == nil },
+                                        report: { "the click left the ring" })
+        #expect(fixture.controller.focus.state.pane == fixture.quiet.id, "the fixture's focus moved")
+        #expect(Self.dismissFlashPlays(in: try #require(fixture.window.contentView?.layer)),
+                "a ring read before its pane took the focus faded without the dismiss flash")
+    }
+
+    /// Some layer under `layer` runs the attention ring's dismiss flash (PaneOverlayView's "attention-dismiss").
+    private static func dismissFlashPlays(in layer: CALayer) -> Bool {
+        layer.animationKeys()?.contains("attention-dismiss") == true || (layer.sublayers ?? []).contains { dismissFlashPlays(in: $0) }
+    }
 }
