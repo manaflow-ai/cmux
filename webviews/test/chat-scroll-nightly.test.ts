@@ -192,6 +192,14 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
               const effect = animation.effect as KeyframeEffect | null;
               // Shimmers and spinners loop by design; a load-in plays once.
               if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
+              // The running line now sweeps in finite cadences. These two shimmer layers are
+              // ongoing status, just like an infinite spinner, not a row's entrance animation.
+              const name = (animation as CSSAnimation).animationName;
+              if (
+                (name === "cmux-cadenced-shimmer-band" && effect.target?.matches(".cv-shimmer__band")) ||
+                (name === "cmux-cadenced-shimmer-lit" && effect.target?.matches(".cv-shimmer__band > .cv-shimmer__lit"))
+              )
+                return false;
               return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
             });
           // A live row's entrance (the running turn's rows, after its prompt, arriving as the reply

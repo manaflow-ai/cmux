@@ -153,6 +153,10 @@ UNWIRED: set[str] = {
     # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
     # it by hand after changing cargo-locks.py or that step.
     "tests/test_cargo_locks.py",
+    # lane = "manual" (tests/test-execution.d/other.toml; no new CI tests, CLAUDE.md). It reads four workflows
+    # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
+    # after changing cargo-locks.py or a step that runs cargo with --locked.
+    "tests/test_cargo_locks_explain.py",
 }
 
 

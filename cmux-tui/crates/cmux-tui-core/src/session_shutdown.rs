@@ -6,7 +6,15 @@
 //! `shutdown-daemon`, `server stop`) is a host loss, not a real end: the
 //! session ended around the shell, and invariant 3 keeps its tab. Exits by
 //! signal while the owner runs normally (a user's `kill`, Ctrl-C ending the
-//! shell) and every exit with a status stay real ends.
+//! shell) and every exit with a status outside a shutdown stay real ends.
+//!
+//! A process end with an exit status at or after the owner's recorded
+//! shutdown start, within the window, is a host loss too (2026-11-12): on a
+//! macOS restart the hosts survive loginwindow's `SIGTERM`, and every shell
+//! then ends with status 1 once it loses its terminal, seconds later. Before
+//! this, those 103 status exits of one restart each closed their tab. A
+//! status exit has no lead: a shell that a person ends with `exit` while the
+//! owner runs normally closes its tab at once, never after a wait.
 //!
 //! A shutdown window runs from [`SESSION_SHUTDOWN_LEAD_MS`] before the
 //! shutdown start to [`SESSION_SHUTDOWN_WINDOW_MS`] after it, or to the next
@@ -210,6 +218,17 @@ impl SessionShutdownClock {
         previous || own_start.is_some_and(|start| self.within(start, u64::MAX, exited_at_ms))
     }
 
+    /// Whether a status exit at `exited_at_ms` falls in a recorded shutdown
+    /// window, from its start on: unlike a signal exit, no lead before it.
+    fn status_exit_during_shutdown(&self, own_start: Option<u64>, exited_at_ms: u64) -> bool {
+        let within = |start_ms: u64, end_ms: u64| {
+            let end_ms = end_ms.min(start_ms.saturating_add(SESSION_SHUTDOWN_WINDOW_MS));
+            (start_ms..end_ms).contains(&exited_at_ms)
+        };
+        self.previous.is_some_and(|(start, end)| within(start, end))
+            || own_start.is_some_and(|start| within(start, u64::MAX))
+    }
+
     fn classify_with(&self, own_start: Option<u64>, end: TerminalEnd) -> TerminalEnd {
         match end {
             TerminalEnd::ProcessEnded(TerminalExit {
@@ -219,6 +238,17 @@ impl SessionShutdownClock {
                 TerminalEnd::HostLost(TerminalExit {
                     outcome: TerminalExitOutcome::Unknown {
                         reason: format!("session-shutdown: signal {signal}"),
+                    },
+                    exited_at_ms,
+                })
+            }
+            TerminalEnd::ProcessEnded(TerminalExit {
+                outcome: TerminalExitOutcome::Exit { code },
+                exited_at_ms,
+            }) if self.status_exit_during_shutdown(own_start, exited_at_ms) => {
+                TerminalEnd::HostLost(TerminalExit {
+                    outcome: TerminalExitOutcome::Unknown {
+                        reason: format!("session-shutdown: exit {code}"),
                     },
                     exited_at_ms,
                 })

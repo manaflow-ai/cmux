@@ -89,6 +89,9 @@ impl Hub {
         if self.shutting_down() {
             return;
         }
+        // The list's kept order is sorted here, once, off any request: the first page a client
+        // reads after a start then reads a window of it, not a sort of every chat (`list_order.rs`).
+        let _ = self.own_rows_from(None, 0);
         // Deferred startup must restore ownership epochs before the move watchdog can issue an
         // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
         self.watch_transfers();

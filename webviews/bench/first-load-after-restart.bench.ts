@@ -37,7 +37,8 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, Page } from "playwright";
 import {
   PAGE_STYLE_ID,
   SNAPSHOT_BOOT_GLOBAL,
@@ -506,9 +507,6 @@ try {
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
   const browser: Browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
   });
   releases.push(["browser", () => browser.close()]);
