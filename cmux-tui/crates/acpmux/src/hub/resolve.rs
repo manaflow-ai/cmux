@@ -115,7 +115,8 @@ impl Hub {
         model: Option<String>,
         cwd: Option<PathBuf>,
     ) -> Result<Result<Vec<String>, String>, RpcError> {
-        self.wait_startup().await;
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
@@ -396,6 +397,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,

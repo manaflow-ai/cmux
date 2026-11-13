@@ -86,6 +86,9 @@ impl Hub {
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        if self.shutting_down() {
+            return;
+        }
         // The list's kept order is sorted here, once, off any request: the first page a client
         // reads after a start then reads a window of it, not a sort of every chat (`list_order.rs`).
         let _ = self.own_rows_from(None, 0);
@@ -191,7 +194,9 @@ impl Hub {
     /// one with a host is resumed there, after adoption.
     pub(super) fn load_session_log(self: &Arc<Self>, session: &Arc<Session>) {
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
-        if *loaded {
+        // Persistence takes this same lock before draining metadata and sealing. A blocking
+        // restore already under way finishes first; none begins after the shutdown fence.
+        if *loaded || self.shutting_down() {
             return;
         }
         // Read once, even when it fails: a second read would restore its queue twice. A chat

@@ -106,6 +106,28 @@ fn removed_mux_ids(rows: &[Value]) -> impl Iterator<Item = String> + '_ {
 }
 
 impl Hub {
+    /// Starts configured peer dials after the local socket has served its first client. The
+    /// daemon's deferred startup uses this gate; in-process hubs may start peers immediately.
+    pub(crate) async fn start_saved_peers(&self) {
+        let peers = self.config.read().await.peers.clone();
+        for (name, pc) in peers {
+            // A gate released during shutdown cannot start a new tunnel after the existing
+            // peers were stopped. Registration and the shutdown fence share this lock.
+            if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
+                break;
+            }
+        }
+    }
+
+    pub(crate) async fn wait_local_ready(&self) {
+        let mut ready = self.local_ready.subscribe();
+        let _ = ready.wait_for(|ready| *ready).await;
+    }
+
+    pub(crate) fn mark_local_ready(&self) {
+        self.local_ready.send_replace(true);
+    }
+
     #[cfg(test)]
     fn pause_after_peer_session_projection_for_test(&self) {
         let hook =

@@ -263,3 +263,12 @@ test("the transcript's edges deepen as the view leaves each end", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("the rail bottom shadow follows the latest-message distance and returns to clear at latest", async () => {
+  const { railBottomShadowReach, TRANSCRIPT_FADE_RAMP } =
+    await import("../src/agent-session/acpmux/threadMinimap/model");
+  expect(railBottomShadowReach(0)).toBe(0);
+  expect(railBottomShadowReach(TRANSCRIPT_FADE_RAMP / 2)).toBe(0.5);
+  expect(railBottomShadowReach(TRANSCRIPT_FADE_RAMP * 2)).toBe(1);
+  expect(railBottomShadowReach(-24)).toBe(0);
+});
