@@ -452,7 +452,7 @@ pub(crate) fn numstat_without_config(
             )
         };
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
-        std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
+        crate::home_fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
         let scratch_index = scratch.join("index");
         let isolated = || {
@@ -465,7 +465,7 @@ pub(crate) fn numstat_without_config(
         };
         // The worktree's index spares hashing every file again (its stat data); one this git
         // cannot use alone (a split index) is replaced by `from`'s tree.
-        let copied = std::fs::copy(&index, &scratch_index).is_ok();
+        let copied = crate::home_fs::copy(&index, &scratch_index).is_ok();
         let staged = copied && run_by(isolated(), &["add", "-A"], Some(by)).is_ok();
         if !staged {
             let _ = std::fs::remove_file(&scratch_index);
@@ -597,7 +597,7 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         #[cfg(test)]
         before_root_rmdir(&worktree.root);
         // Last, and only an empty folder: one that took its place keeps its files.
-        let _ = std::fs::remove_dir(&worktree.root);
+        let _ = crate::home_fs::remove_dir(&worktree.root);
         return;
     }
     let root = worktree.root.to_string_lossy();
@@ -882,7 +882,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
     let free = |candidate: &str| {
         !parent.join(candidate).exists() && !has_branch_ref(folder, &format!("cmux/{candidate}"))
     };
-    std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    crate::home_fs::create_dirs(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     // Another start may take a free name before this one adds it: git then
     // says it already exists, and the next name is tried.
     for chosen in std::iter::once(name.clone()).chain((2..=99).map(|n| format!("{name}-{n}"))) {
@@ -896,7 +896,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         // The worktree's folder is made here, empty, and its identity read before git fills it
         // (git adds into an empty folder): the folder at its path afterwards must be this one,
         // whatever took the path while git ran.
-        match std::fs::create_dir(&root) {
+        match crate::home_fs::create_dir(&root, 0o777) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(format!("{}: {e}", root.display())),
@@ -918,7 +918,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
         if let Err(e) = git_repo_write(folder, &add) {
             // Only an empty folder goes: never one something else filled.
-            let _ = std::fs::remove_dir(&root);
+            let _ = crate::home_fs::remove_dir(&root);
             if taken(&e) {
                 continue;
             }
@@ -1207,7 +1207,7 @@ fn ensure_worktree_under(
                 Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
-        std::fs::create_dir_all(&layout.parent)
+        crate::home_fs::create_dirs(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
         let path = root.to_string_lossy().into_owned();
         let (added, commit, base, reused) = if has_branch_ref(folder.into(), &branch) {

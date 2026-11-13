@@ -77,6 +77,8 @@ mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
+mod cloud_run_account;
+#[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
@@ -91,6 +93,8 @@ mod codex_app_server;
 mod command;
 mod completion;
 pub(crate) use completion::refuse_in_help_reader;
+#[cfg(unix)]
+mod customize;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -158,7 +162,8 @@ mod machine_link;
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
     device_credential as joined_machine_credential, platform_origin,
-    read_credential as read_platform_credential, rows_for_devices as joined_machine_rows,
+    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
+    rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -493,6 +498,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "remote-host",
     "chat",
     "vm",
+    "customize",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -811,6 +817,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
@@ -827,6 +834,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
