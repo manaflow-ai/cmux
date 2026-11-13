@@ -141,6 +141,8 @@ final class ShellModel {
         self.lastOpen = lastOpen
         self.store = store
         self.auth = auth
+        // New Message names this account and its team by the Cloud's own ids, derived from the project.
+        ChiefSources.shared.stackProjectID = auth.stackProjectID
         self.settings = settings
         self.sidebar = sidebar
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }

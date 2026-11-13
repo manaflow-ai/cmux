@@ -46,9 +46,8 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
-     default column stays --cv-column's width. */
-  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
+  /* Keep fractional CSS pixels: rounding here makes the on-screen edges wobble as page zoom changes. */
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -228,12 +227,18 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
-  --cv-bubble-pad-block: calc(2.5 * var(--grid-base));
-  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
+  /* Codex's 10 px block padding, 16 at the sides and the 12 corner, at the chat's density text scale, so the
+     bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
+     mirrors it. */
+  /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
+     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
+  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base));
+  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -313,7 +318,7 @@
   min-width: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--ds-radius-control);
   background: none;
   cursor: zoom-in;
 }
@@ -2109,7 +2114,17 @@ pre.cv-math-source {
    they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
    the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
    the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
-   the latest row. The rows are placed again once the width holds. */
+   the latest row. The rows are placed again once the width holds.
+   The gap is a length the transcript writes on each mounted row as the rows start to flow
+   (--acpmux-flow-gap, VirtualTranscript `anchorFlow`; 0 on the last one). It does not inherit: a
+   write styles the row alone, not what it holds. No rule here reads a row's place among its
+   siblings (:last-child and the like): such a rule makes the page style the row before a new one
+   again each time a row arrives, drag or no drag. */
+@property --acpmux-flow-gap {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .acpmux-thread.acpmux-thread--flow {
   display: flex;
   flex-direction: column;
@@ -2124,7 +2139,7 @@ pre.cv-math-source {
    read of a row: the one above takes that room first, up to the first row's place in a chat the
    view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
    rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
-   order and the last row its :last-child margin; only a strut's size changes with the rows'. */
+   order; only a strut's size changes with the rows'. */
 .acpmux-thread.acpmux-thread--flow-end {
   justify-content: flex-end;
   height: var(--acpmux-flow-end);
@@ -2146,10 +2161,7 @@ pre.cv-math-source {
   right: auto;
   left: auto;
   margin-top: 0 !important;
-  margin-bottom: var(--acpmux-row-gap, 0px);
-}
-.acpmux-thread--flow > .acpmux-row:last-child {
-  margin-bottom: 0;
+  margin-bottom: var(--acpmux-flow-gap);
 }
 .acpmux-row__gap {
   position: absolute;
@@ -3372,7 +3384,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 /* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
    still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
@@ -3718,7 +3730,7 @@ button.cv-video-frames__name:hover .cv-video-frames__label {
 button.cv-video-frames__name:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 .cv-video-frames__play {
   flex: none;
@@ -5736,14 +5748,15 @@ a.cv-sha:focus-visible {
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
  * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
  * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
+/* A row that comes in only fades, at its place (Leo, 2026-11-09: "these animations all slosh around
+ * and it's not cohesive ... some of our recent animations are too much we need to slim down"): the
+ * 4 px rise it had moved every new row against the rows around it. */
 @keyframes cv-enter {
   from {
     opacity: 0;
-    translate: 0 4px;
   }
   to {
     opacity: 1;
-    translate: 0 0;
   }
 }
 /* New user and assistant messages fade in at their final size, without popping or growing.
@@ -5758,13 +5771,13 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter {
-    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
      (opacity 1, no translate), and a translate held past it would win over the one a fold ride
      moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
   .acpmux-row--enter {
-    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in
@@ -5942,13 +5955,13 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
- * compositor. The text holds its final layout while transparent, so no line ever reflows. The fade
- * runs three of the host's fade-in steps (FRESH_FADE_STEPS), so the last few words of a streaming
- * reply read as a soft trailing edge, as Claude's and ChatGPT's do; one step (120 ms) was too quick
- * to see (Leo, 2026-11-03: "hey even u have that text fading in! i want that..."). A zero token
- * (motion off) still makes it zero. */
+ * compositor. The text holds its final layout while transparent, so no line ever reflows (Leo,
+ * 2026-11-03: "hey even u have that text fading in! i want that..."). One of the host's fade-in steps
+ * (120 ms): three (360 ms) left the newest words faint a third of a second behind the stream, which
+ * read as lag (Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
+ * A zero token (motion off, the minimal motion under load) makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade calc(var(--agent-motion-in, 180ms) * 3) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -7510,7 +7523,7 @@ button.cv-user__file-open:hover > .acpmux-file-chip {
 button.cv-user__file-open:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: var(--acpmux-file-chip-radius, 6px);
+  border-radius: var(--ds-radius-control);
 }
 /* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
 .cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),

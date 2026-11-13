@@ -478,6 +478,17 @@ its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
 tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
 job that runs Python tests doing so.
 
+A mini also has no node and no Homebrew coreutils, so the old `gtimeout` link never
+fired there. On 2026-11-13 every mini-placed checks job seen failed on both (`node:
+command not found`, exit 127; `timeout: command not found`): cmux10s, cmux11s,
+cmux13s, cmux14 and cmuxs-mac-mini-6. The step now puts GNU `timeout` on PATH as
+`timeout`, else `gtimeout`, else a shim to scripts/ci/timeout.sh (its perl
+watchdog); installs node 24.22.1 with scripts/ci/ensure-setup-node.sh when there is
+no node (tool cache, else nodejs.org, checksummed); and ends with a preflight on the
+PATH the next steps get that fails at once naming each tool still missing.
+tests/test_cmux_next_checks_workflow.py's ChecksBringNodeAndTimeoutToAMini runs the
+step under a PATH without them.
+
 ## note-28
 
 Above `checks: UI font (the system font)` in `.github/workflows/cmux-next.yml`.
@@ -3025,3 +3036,18 @@ on a pull request they need no GUI session. The Release and app scheme compiles 
 only, one job per idle light runner beyond its queue, never while a nightly or release job waits on the
 light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
 CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
+
+## note-349
+
+Above `checks: timeout-minutes` in `.github/workflows/cmux-next.yml`.
+
+15 minutes fits Blacksmith 16 vCPU (about 7 min), not a mini: on a mini the job's 15 minutes also
+pay the runner hook's admission wait, and its slow checks run about three times as long beside
+the mini's other jobs. #42624, a data-only devbox image promotion, was placed on a mini on all
+three of its heads and every run was cancelled by the timeout, never passing or failing, so
+merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 132002973791 (run
+43459662812) were admitted at once and were still in their script tests at 15 minutes
+(test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
+43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
+as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
+other route keeps 15.
