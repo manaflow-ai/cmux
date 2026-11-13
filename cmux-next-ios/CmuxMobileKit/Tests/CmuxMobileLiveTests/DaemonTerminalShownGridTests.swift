@@ -121,6 +121,25 @@ import Testing
         #expect(commands(daemon, "release-surface-size").first?["surface"] as? Int == 7)
     }
 
+    @Test func shownAndHiddenAgainInOneTurnSendsNoClaim() async throws {
+        let daemon = FakeTerminalDaemon()
+        let session = session(daemon)
+        defer { session.stop() }
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { session.isAttached && commands(daemon, "resize-surface").count == 1 }
+        session.setClaimsSize(false)
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+
+        // Shown and hidden again before the queued claim goes out (a quick
+        // tab hop that lands on another page): no claim is left behind with
+        // no release after it.
+        session.setClaimsSize(true)
+        session.setClaimsSize(false)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(commands(daemon, "resize-surface").count == 1, "a claim went out for a page that was hidden again")
+    }
+
     @Test func theChannelListsTheShortLeaseAndRefreshesOnItsInterval() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.shortSizeLease = true
