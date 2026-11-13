@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 /// A main-actor read of the app's sign-in.
+// timeout: a hung or busy app; the daemon's cleanup reads the account again on its next pass.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `Some(exit code)` when `args` is `cloud run-account`.
