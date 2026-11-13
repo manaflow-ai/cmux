@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43513614471",
+  "recorded_at": "2026-11-13T21:59:43Z",
+  "reason": "cmux-tui 188c1aec7938 changes the image's cmux-tui (pinned 96db467d6b11)",
+  "dry_run": false,
+  "cmux_tui": "188c1aec7938a73d804c5c9d1695e43b5cde0100",
+  "fixes": [
+    {
+      "sha": "188c1aec7938a73d804c5c9d1695e43b5cde0100",
+      "mergedAt": "2026-11-13T13:18:46-08:00",
+      "subject": "acpmux: release test builds compile again (debug-only restore seams) (#42684)"
+    },
+    {
+      "sha": "a68e5011caa91f7059f62517b9acd33ba482fb57",
+      "mergedAt": "2026-11-13T13:16:03-08:00",
+      "subject": "cmux-host updater: the restart after its own flip polls during the connect hold (#42666)"
+    },
+    {
+      "sha": "b19adbf370e9da2b40c5be2dcf6c5887acc83482",
+      "mergedAt": "2026-11-13T21:09:10Z",
+      "subject": "fix(acpmux): a detach is bounded when the agent's host never takes the terminate (#40508)"
+    },
+    {
+      "sha": "6edd52a1446da3ac1c11bcbe57586b32a1a28611",
+      "mergedAt": "2026-11-13T21:08:53Z",
+      "subject": "acpmux: daemon status adds its queues without indexing a Value (base panic ratchet red) (#42058)"
+    },
+    {
+      "sha": "04954e011e6397ea4ab5edbb3a91ee2bb70656c7",
+      "mergedAt": "2026-11-13T21:08:36Z",
+      "subject": "acpmux tests: base red, own socket folder per idle-roots daemon; request_stack row for _acpmux/rows (#42330)"
+    },
+    {
+      "sha": "33a5ff981b6ea239b09e783f6b48fea03ed5fd56",
+      "mergedAt": "2026-11-13T13:08:02-08:00",
+      "subject": "cmux-host updater: each check saves its outcome as codes for the Cloud report (#42672)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T21:59:43Z",
+    "snapshot_id": "sh-4392fd63f7924c599cba67cd617c06a9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43513614471): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "96b5674ab8867fb21b9938a231f3cc57c45541c7",
+    "image": "cloud-native-auto-188c1aec-43513614471-1",
+    "revision": "ci-43513614471-1",
+    "at": "2026-11-13T21:59:43Z"
+  },
+  "rolled_back": false
+}
