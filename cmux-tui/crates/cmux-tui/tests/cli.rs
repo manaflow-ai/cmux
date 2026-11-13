@@ -70,6 +70,7 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -257,8 +258,36 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            print_daemon_log(&self.dir);
+        }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
@@ -1124,6 +1153,9 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
             })
         )
         .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
     });
 
     let output = lifecycle_cli(&[
@@ -1139,6 +1171,62 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
     assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["code"], "server.invalid_identity");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn starting_server_status_is_retryable() {
+    let dir = unique_temp_dir("server-status-starting");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "still-starting",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": false
+                }
+            })
+        )
+        .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "still-starting",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
+    // The message says to retry, so the error says so too.
+    assert_eq!(error["retryable"], true, "{error}");
+    assert_eq!(error["details"]["reason"], "starting", "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1365,6 +1453,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -2480,7 +2569,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    fs::write(
+    cmux_test_exec::write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2490,7 +2579,6 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          printf '(<uint32 1>,)\\n'\n",
     )
     .unwrap();
-    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
 
     let output = cmux_command()
         .arg("__ghostty-config-defaults")
@@ -3630,7 +3718,19 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         &server,
         &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
     );
-    assert_success(&send);
+    // A loaded runner can miss the 2 s InputAck window: the daemon then
+    // reports the documented indeterminate outcome (exit 1) instead of
+    // success, as for `keys` below. The marker on the screen proves the
+    // write reached the shell either way.
+    if !send.status.success() {
+        assert_eq!(send.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected terminal write failure: {}",
+            String::from_utf8_lossy(&send.stderr)
+        );
+    }
     assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
     let screen = wait_for_screen(&server, &terminal, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
@@ -4672,3 +4772,11 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     assert!(help.status.success());
     assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }
+
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;

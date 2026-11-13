@@ -113,12 +113,30 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
 
+      - name: Validate verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_verify_cmux_tui_hosted.py
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
       - name: Validate fleet rule lints
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
+
+      # Resource lifetimes as a shrink-only ratchet: connects with no timeout,
+      # processes nothing stops, tasks and timers nobody owns, waits with no
+      # deadline. Today's cases warn; a new one fails
+      # (scripts/ci/resource-lifetime-allowlist.json).
+      - name: Validate resource lifetime lint
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_ci_resource_lifetimes.py
+          python3 scripts/ci/lint_resource_lifetimes.py
 
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
@@ -221,6 +239,10 @@ jobs:
       - name: Validate the classic API auto-deploy guard
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
+
+      - name: Validate the classic deploy guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_classic_deploy_guard.py
 
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
@@ -784,6 +806,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_stuck_run.py
 
+      - name: Validate the hosted test deadline watchdog
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_deadline.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -1310,6 +1336,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_batching.py
 
+      - name: Validate failed gh api reads never become workflow values
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_gh_api_error_capture.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
@@ -1414,6 +1444,10 @@ jobs:
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
           python3 tests/test_nightly_next_canary_feed_origin.py
+
+      - name: Validate the cmux NEXT DEV publisher cancels only superseded runs
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_publish_supersede.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}

@@ -326,11 +326,19 @@ occupy the terminal lane or block the PTY reader. Byte order is strict within
 the terminal lane, durable producer order is strict within the producer lane,
 and the writer assigns commit order when independent lanes race.
 
-Lossless terminal capture can still backpressure the PTY after its own bounded
-lane fills during a prolonged storage stall. Removing that final bound requires
-an acknowledged durable output spool or an explicit loss policy at the
-terminal-host boundary. Moving the same queue into another process does not
-remove the storage bound.
+Terminal capture never backpressures the hosted reader. A reader that waited
+for lane space would stop reading its host stream, and the host drops a daemon
+tap that falls 8 MiB behind, so input fails while the shell lives. When the
+terminal lane is full, the reader does not journal that output (or geometry
+change) and marks the terminal for the coalesced checkpoint of
+`terminal-host.md` ("Durability boundary"). The terminal keeps dropping its
+output until the lane has drained to half its capacity, so one
+`terminal.output.gap` record with reason `journal_queue_full` covers the whole
+dropped range. That record goes ahead of the terminal's next record, or the
+retention worker records it ahead of its checkpoint when the terminal printed
+nothing more, or shutdown records it. Until that checkpoint exists, a restore
+preview reports the gap as unsupported. Lossless capture through a storage stall requires an acknowledged
+durable output spool.
 
 The checkpoint writer captures each terminal under its terminal lock as a
 bounded VT replay blob, compresses it with deterministic gzip, and stores it by
@@ -598,7 +606,12 @@ shutdown deadline, or an active parser update exceeds its shutdown grace, the
 old daemon appends a required `terminal.output.gap` record after its reader
 stops and before the terminal ingress barrier. The record names the terminal
 runtime generation and uses `cmux.terminal-output-gap.v1` with reason
-`detach_fence_failed` or `active_update_timeout`. A restore preview treats this
+`detach_fence_failed` or `active_update_timeout`. A live daemon appends the
+same record with reason `host_reconnect` when it reconnects to a terminal host
+after its tap was lost (see `terminal-host.md`, "Durability boundary"), and
+with reason `journal_queue_full` when the terminal lane had no room for output
+(see above). A
+restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins
