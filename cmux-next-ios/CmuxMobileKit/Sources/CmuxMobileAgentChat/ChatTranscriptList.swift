@@ -983,9 +983,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
             snapshot.appendItems(ids)
-            let shown = Set(shownIDs)
-            snapshot.reconfigureItems(reconfigure.filter { shown.contains($0) })
-            snapshot.reloadItems(reloadIDs.filter { shown.contains($0) })
+            // Only rows in both the old and the new snapshot: a reconfigure or reload of one the new
+            // snapshot leaves out traps. `session-start` is the first turn's row, so when an older
+            // page lands it moves into that page's first turn, which may be held until its rows are
+            // laid out (`holdable`): it was shown and changed, and is not in `ids` this time.
+            let both = Set(shownIDs).intersection(ids)
+            snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
+            snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty {

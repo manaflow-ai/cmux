@@ -26,7 +26,6 @@ extension InstantPerfTests {
     /// enters the viewport). The source's one page held ahead is on in both.
     static func listFling(_ log: AgentChatLog, readsAhead: Bool) async throws
         -> (fills: [Double], blank: Int, pages: Int, screens: Double, uncovered: Int) {
-        print("SCROLLFILLUI open \(log.count) records, readsAhead \(readsAhead)")
         let fake = InstantPerfAcpmux(log)
         let hub = AcpmuxHub()
         await hub.bind(fake.channel(rtt: FlingReader.rtt, bytesPerSecond: FlingReader.bytesPerSecond))
@@ -87,7 +86,6 @@ extension InstantPerfTests {
             let laid = list.layout.layoutAttributesForElements(in: view.bounds) ?? []
             return laid.filter { !visible.contains($0.indexPath) }.count
         }
-        print("SCROLLFILLUI fling from \(view.contentOffset.y) of \(view.contentSize.height)")
         oldTrigger()
         try await Task.sleep(for: .milliseconds(750)) // test: a person's pause before scrolling
         _ = absorb()
@@ -140,7 +138,6 @@ extension InstantPerfTests {
             frame = waiting
         }
         await hub.bind(nil)
-        print("SCROLLFILLUI done: \(fills.count) frames, \(blank) blank, \(pages) pages")
         return (fills, blank, pages, travelled / viewport, uncovered)
     }
 
