@@ -39,9 +39,9 @@ fn spread_evenly(samples: &[u128]) -> Vec<u128> {
 /// during turn; all outside turns observed before that boundary belong to the
 /// same round. Keeping this as a pure helper makes the equal-stretch rule
 /// testable without running the million-change gate.
-fn matched_rounds(
-    observations: &[(bool, u128)],
-) -> Option<([Vec<u128>; ROUNDS], [Vec<u128>; ROUNDS])> {
+type RoundSamples = [Vec<u128>; ROUNDS];
+
+fn matched_rounds(observations: &[(bool, u128)]) -> Option<(RoundSamples, RoundSamples)> {
     let mut outside: [Vec<u128>; ROUNDS] = std::array::from_fn(|_| Vec::new());
     let mut during: [Vec<u128>; ROUNDS] = std::array::from_fn(|_| Vec::new());
     let mut round = 0;
@@ -295,8 +295,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(matched_outside.len(), ROUNDS * SAMPLES);
     assert_eq!(matched_during.len(), ROUNDS * SAMPLES);
     report_matched_rounds(&matched_outside, &matched_during);
-    let outside_rounds: Vec<_> =
-        matched_outside.chunks_exact(SAMPLES).map(|round| p95(round)).collect();
+    let outside_rounds: Vec<_> = matched_outside.chunks_exact(SAMPLES).map(p95).collect();
     assert_eq!(outside_rounds.len(), ROUNDS);
     let small = best(&matched_outside);
     let god = best(&matched_during);

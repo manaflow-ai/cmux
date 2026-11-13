@@ -687,12 +687,12 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
-        if let Ok(mut history) = self.history.lock() {
-            if history.append(&item).is_err() {
-                // The durable index is still valid; no cursor may cross a gap
-                // in the optional resume cache.
-                self.log_errors.fetch_add(1, Ordering::Relaxed);
-            }
+        if let Ok(mut history) = self.history.lock()
+            && history.append(&item).is_err()
+        {
+            // The durable index is still valid; no cursor may cross a gap
+            // in the optional resume cache.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
     }
 
