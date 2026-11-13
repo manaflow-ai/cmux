@@ -1628,6 +1628,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             ]
             if read.firstAttach {
                 params["maxBytes"] = .number(Double(openBytes))
+                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
             } else {
                 params["afterSeq"] = .number(Double(read.after))
                 if read.allowGap, !read.fromKept {
@@ -1637,6 +1638,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // open reads, not every record it missed.
                     params["beforeSeq"] = .number(tailBeforeSeq)
                     params["maxBytes"] = .number(Double(openBytes))
+                    params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
                 }
                 // From kept records the read stays forward: a gap past one page drops the kept
                 // copy (`keptTooOld`) instead of filling in behind it.
@@ -1800,7 +1802,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     page = try await hub.request("_acpmux/events", .object([
                         "sessionId": .string(sessionID), "afterSeq": .number(Double(fill.cursor)),
                         "limit": .number(Double(Self.pageSize)), "maxBytes": .number(Double(Self.gapBytes)),
-                        "kinds": Self.kinds(hub),
+                        "toolOutputMaxBytes": .number(Double(Self.toolOutputMaxBytes)), "kinds": Self.kinds(hub),
                     ]), timeout: Self.pageTimeout)
                 } catch {
                     if self?.generation == generation {
@@ -2115,7 +2117,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             while true {
                 let reply = try await hub.request("_acpmux/events", .object([
                     "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
-                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": kinds(hub),
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)),
+                    "toolOutputMaxBytes": .number(Double(toolOutputMaxBytes)), "kinds": kinds(hub),
                 ]), timeout: pageTimeout)
                 var events = reply["events"]?.arrayValue ?? []
                 let hasMore = reply["hasMore"] == .bool(true)
