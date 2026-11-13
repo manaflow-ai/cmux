@@ -14,7 +14,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.15.0",
+    "API_VERSION": "0.16.0",
     // Bundle ids phones may register push tokens for (test/apns-topics.test.ts pins dev and prod below).
     "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
@@ -31,7 +31,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.15.0",
+        "API_VERSION": "0.16.0",
         // Bundle ids phones may register push tokens for: Debug/Demo, Production, the TestFlight app
         // (cmux INTERNAL) and the App Store app (com.cmux.app). Notification extensions never register:
         // APNs topics are the app's own bundle id.
@@ -74,7 +74,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.15.0",
+        "API_VERSION": "0.16.0",
         // The TestFlight app (cmux INTERNAL) and the App Store app (com.cmux.app), both on this Worker.
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
         // Connectivity alerts: every post goes to #cmux-ios-connectivity (channel ids are not secret).

@@ -1659,3 +1659,52 @@ as `app_relaunched`, at the time it was last seen.
   teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
   service is flagged as a likely service outage.
 - 10 reports a minute per user (`INCIDENT_LIMIT`).
+
+## Connectivity canary (API 0.16.0)
+
+A synthetic prober catches outages nobody is using the app through. `cmux-mobile-canary` (the
+`cmux-mobile-host` crate) runs on an always-on fleet Mac as the canary account
+(`CONNECTIVITY_CANARY_EMAILS`, default `cmux-agent-development@manaflow.ai`) and dials a test Mac running
+`cmux-mobile-host` as the same account, every 60 s, once per probe: `wireguard`, `wireguard-turn-tls`
+(UDP blocked: TURN over TLS on 443), `webrtc` and `webrtc-relay` (TURN only). A run signs in (Stack
+refresh), fetches `/v1/ice`, registers its one stable device, opens signaling, checks the Mac is listed
+online, dials, and sends one application ping over the link; each step has its own deadline. Each run is
+reported as it ends (so the service reads the Mac's liveness for that run). It signs in again by password only
+when Stack refuses its refresh token, at most once per 10 minutes:
+
+```json
+POST /v1/diagnostics/connectivity-canary
+{"results":[{"probe":"wireguard","at":"<iso>","outcome":"fail","step":"dial","error":"…",
+  "transport":"wireguard","path":"direct","durationMs":25012,"mac":{"id":"<device id>","name":"Canary Mac"}}]}
+```
+
+`202 {"accepted":N}`; `403 not_canary` for any other account; 1-8 results. Canary reports and heartbeats
+each have their own `INCIDENT_LIMIT` key, apart from incident reports. What the desk does
+(`src/connectivity-canary.ts`):
+
+- Streaks are kept per (Mac, probe), so a second canary never mixes with the first. Three failures in a row
+  of one probe at the same step post one team incident; the first pass edits it to resolved and replies in its
+  thread. Another probe's incident of the same kind within 30 minutes goes in the first one's thread
+  ("Again:"). A resend (a result no newer than the last, by the canary's own clock) counts once.
+- A failure before the Mac is needed (`auth`, `ice`, `register`, `signaling`) is the service's. A failure at
+  `presence`, `dial` or `ping` is the service's only if the canary Mac sent an application ping from 45 s
+  before the run to 30 s after it (`TeamHub.macLiveness`; the run's time clamped to the service's now), or if
+  the hub could not answer; otherwise it is "the canary's own Mac is down", never a service outage.
+- Limits: a service outage is never held. A new outage of the canary's own Mac takes one of the desk's hourly
+  slots as one reporter (its other probes are free); over the limit it is held with its probes, its end stays
+  quiet, and the held count is told as for phone incidents.
+
+## Connectivity heartbeat (API 0.16.0)
+
+So silence never passes for health, the alerting watches itself:
+
+- A team phone in front sends `POST /v1/diagnostics/connectivity-heartbeat`
+  `{"app":{"version","build","config","simulator"},"device":{"model","os"}}` at most every 15 minutes
+  (team audience only, foreground only). Same audience rules as incidents; `202 {"accepted":true,"route"}`.
+  Only team-route heartbeats count.
+- The desk's alarm posts "alerting is blind" once when the canary has not reported for 10 minutes, or when no
+  team phone has sent a heartbeat for 4 hours of working time (weekdays 9:00-19:00 America/Los_Angeles; a
+  night or weekend never counts). The next canary report or team heartbeat resolves it. Nothing is posted
+  before the canary or a team phone has ever reported.
+- The hub logs each phone signaling socket that closes, once (`phone signaling closed`: short device id, close
+  code, reason, duration, replaced) as a record that does not depend on the phone. Nothing is posted from it.
