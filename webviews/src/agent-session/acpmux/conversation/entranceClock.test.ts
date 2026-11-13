@@ -43,10 +43,13 @@ function frames() {
 const row = (animations: Fake[]) => ({ getAnimations: () => animations }) as unknown as Element;
 
 describe("holdEntranceForFirstFrame", () => {
-  test("holds the entrance at its start until the next frame, then plays it", () => {
+  test("holds the entrance through its first painted frame, then plays it", () => {
     const fade = fake("cv-enter-fade");
     const clock = frames();
     holdEntranceForFirstFrame(row([fade]), clock);
+    expect(fade.playState).toBe("paused");
+    expect(fade.currentTime).toBe(0);
+    clock.flush();
     expect(fade.playState).toBe("paused");
     expect(fade.currentTime).toBe(0);
     clock.flush();
@@ -70,5 +73,16 @@ describe("holdEntranceForFirstFrame", () => {
     const cancel = holdEntranceForFirstFrame(row([fade]), clock);
     cancel();
     expect(clock.queued.size).toBe(0);
+  });
+
+  test("an unmount after the first frame cancels the release", () => {
+    const fade = fake("cv-enter");
+    const clock = frames();
+    const cancel = holdEntranceForFirstFrame(row([fade]), clock);
+    clock.flush();
+    cancel();
+    expect(clock.queued.size).toBe(0);
+    clock.flush();
+    expect(fade.playState).toBe("paused");
   });
 });
