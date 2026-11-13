@@ -47,6 +47,8 @@ from test_seed_derived_data import evaluate  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -112,7 +114,7 @@ def executable(path: Path, text: str) -> None:
 
 
 def render(text: str, context: dict) -> str:
-    return re.sub(r"\$\{\{(.*?)\}\}", lambda match: str(evaluate(match.group(1), context) or ""), str(text))
+    return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(match.group(1), context) or ""), str(text))
 
 
 def condition(expression: str | None, context: dict, failed: bool, cancelled: bool = False) -> bool:
@@ -219,7 +221,7 @@ class PublishJob(unittest.TestCase):
         # Review of #37645 at ec4829a3, F1: it read "...; then pin it with ...", prose no shell accepts, so the
         # command named on a failed publish could not be pasted as given.
         command = workflow_jobs.resolve(workflow_jobs.jobs(WORKFLOW)["publish"]).env["HAND_PUBLISH"]
-        command = re.sub(r"\$\{\{[^}]*\}\}", "X", command)
+        command = gh_expressions.EXPRESSION.sub("X", command)
         checked = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
         self.assertEqual(checked.returncode, 0, checked.stderr)
         self.assertRegex(command, r"&& scripts/cmux-next/repin-app-ffi\.sh X X "
@@ -1261,9 +1263,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
         build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
-        cells = workflow_jobs.runs_on_cells(build)
-        self.assertEqual(len(cells or []), 1, f"build: runs-on is {cells!r}, not one route")
-        return evaluate(cells[0], {
+        return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})

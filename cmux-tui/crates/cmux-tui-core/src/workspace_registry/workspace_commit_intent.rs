@@ -11,6 +11,7 @@
 
 use super::public_fold::workspace_value_stated;
 use super::*;
+use cmux_json::JsonGet as _;
 
 /// One prepared workspace registry commit.
 #[derive(Debug)]
@@ -492,7 +493,7 @@ fn prune_stated_workspace_upserts(
     let mut kept = Vec::with_capacity(candidates.len());
     for (change, decorated_change) in candidates.iter().zip(changes) {
         if is_workspace_upsert(change) {
-            let id = text_field(change, "id").unwrap_or_default();
+            let id = change.get_str("id").unwrap_or_default();
             let value = decorated_change.get("value").unwrap_or(&Value::Null);
             let own = keep.is_some_and(|key| {
                 value.pointer("/extra/key").and_then(Value::as_str) == Some(key)
@@ -513,8 +514,7 @@ fn prune_stated_workspace_upserts(
 }
 
 fn is_workspace_upsert(change: &Value) -> bool {
-    text_field(change, "kind") == Some("upsert")
-        && text_field(change, "resource") == Some("workspace")
+    change.get_str("kind") == Some("upsert") && change.get_str("resource") == Some("workspace")
 }
 
 /// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
@@ -522,7 +522,7 @@ fn is_workspace_upsert(change: &Value) -> bool {
 /// The upsert of the workspace keyed `keep` is never dropped here.
 fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Option<&str>) -> bool {
     let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
-    let Some(stated) = text_field(change, "id").and_then(|id| stated.get(id)) else {
+    let Some(stated) = change.get_str("id").and_then(|id| stated.get(id)) else {
         return false;
     };
     if keep.is_some_and(|key| stated.pointer("/extra/key").and_then(Value::as_str) == Some(key)) {
@@ -534,9 +534,4 @@ fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Opti
         }),
         _ => stated.get(field) == Some(raw),
     })
-}
-
-/// A string field of a change, or `None` when it is absent or not a string.
-fn text_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
-    value.get(field).and_then(Value::as_str)
 }

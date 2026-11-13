@@ -18,6 +18,8 @@ mod agent_plugin_config;
 mod agent_session_context;
 #[cfg(unix)]
 mod agent_start_host;
+#[cfg(unix)]
+mod agent_terminal_identity;
 mod app;
 #[cfg(unix)]
 mod app_identity;

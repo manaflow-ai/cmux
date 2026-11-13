@@ -22,9 +22,7 @@ use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{
-    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
-};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -247,7 +245,7 @@ pub async fn serve_admin_with_mux_binding(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -263,7 +261,7 @@ pub async fn serve_admin_with_mux_binding(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

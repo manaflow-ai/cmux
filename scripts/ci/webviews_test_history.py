@@ -17,6 +17,12 @@
         a red name whose file ran on a push with the same inputs KEY takes the newest such push's
         verdict. Print, one a line, the files the history cannot answer for,
         which the base must still run
+    webviews_test_history.py known-reds HISTORY --before EPOCH --out BASE_REDS.json
+        write {"sha", "inputs", "red": [...]} for the newest push no newer than EPOCH (a merge parent's commit
+        time): the names whose newest verdict on a push with its inputs is red. No such push writes no file
+    webviews_test_history.py base-red-files BASE_REDS.json --names NAMES.json
+        print, one a line, NAMES' red files (a shard's first run) whose every red name BASE_REDS holds; an
+        unreadable BASE_REDS prints none, so every red file is retried
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
@@ -226,6 +232,36 @@ def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, 
     return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
 
 
+def base_run(runs: list[dict], before: float) -> dict | None:
+    """The newest push run whose commit is no newer than BEFORE (the merge parent's commit time): the base's nearest
+    recorded tree. The merge parent's own push is usually still running when a pull request's shards start (most
+    feat-cmux-next pushes change a webview input, so its key is new), so its exact key is rarely recorded yet."""
+    found = [run for run in runs if run["time"] <= before]
+    return max(found, key=lambda r: (r["time"], r.get("attempt", 1)), default=None)
+
+
+def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[str]:
+    """The names whose newest verdict on a push with inputs KEY (no newer than BEFORE) is red.
+
+    A head shard reads these before its alone retries (run-webviews-tests.sh, CMUX_WEB_TEST_BASE_REDS): a file whose every
+    first-run red is among them is red on the base too, so its retry only cost the shard its minutes (a 600 s timeout run
+    twice, run 43374261361's shard 2) and react-apps-base-check judges it from the first run. A guess that turns out
+    wrong there changes no verdict: the base check replays a red it has no answer for, and re-runs alone on the head
+    every red it would charge to the change (the retry skipped here), counting a pass as a flake."""
+    at = [run for run in runs if run["inputs"] == key and (before is None or run["time"] <= before)]
+    names = sorted({name for run in at for name in run["red"]})
+    return [name for name in names if (found := verdicts(at, name)) and not found[-1][1]]
+
+
+def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    by_file: dict[str, list[str]] = {}
+    for name, ok in head.items():
+        if not ok:
+            by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
+    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+
+
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     if names is None:
         names = sorted({name for run in runs for name in run["red"]})
@@ -324,6 +360,13 @@ def main(argv: list[str]) -> int:
     kn.add_argument("--inputs", required=True)
     kn.add_argument("--names", required=True)
     kn.add_argument("--out", required=True)
+    kr = sub.add_parser("known-reds")
+    kr.add_argument("history")
+    kr.add_argument("--before", type=float, required=True)
+    kr.add_argument("--out", required=True)
+    br = sub.add_parser("base-red-files")
+    br.add_argument("base_reds")
+    br.add_argument("--names", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
@@ -339,6 +382,29 @@ def main(argv: list[str]) -> int:
         return 1 if args.need_read and not read else 0
     if args.command == "inputs":
         print(inputs(args.root))
+        return 0
+    if args.command == "known-reds":
+        runs = load(args.history)
+        run = base_run(runs, args.before)
+        if run is None:
+            print("webview test history: no push at or before the base; every red file is retried")
+            return 0
+        reds = known_reds(runs, run["inputs"], args.before)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps({"sha": run["sha"], "inputs": run["inputs"], "red": reds}, indent=1) + "\n",
+                                  encoding="utf-8")
+        print(f"webview test history: {len(reds)} names red on the base's push {run['sha'][:12]} (inputs {run['inputs']})")
+        return 0
+    if args.command == "base-red-files":
+        try:
+            data = json.loads(Path(args.base_reds).read_text(encoding="utf-8"))
+            reds = data["red"] if isinstance(data, dict) and isinstance(data.get("inputs"), str) and data["inputs"] else None
+        except (OSError, ValueError, KeyError):
+            reds = None
+        if not isinstance(reds, list):
+            return 0
+        for file in base_red_files({str(name) for name in reds}, results([args.names])):
+            print(file)
         return 0
     if args.command == "known":
         base, replay = known(load(args.history), args.inputs, results([args.names]))
