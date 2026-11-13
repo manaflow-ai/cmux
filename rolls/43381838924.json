@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43381838924",
+  "recorded_at": "2026-11-13T07:06:27Z",
+  "reason": "cmux-tui fec133ada624 changes the image's cmux-tui (pinned d4eb2fdd3978)",
+  "dry_run": false,
+  "cmux_tui": "fec133ada6242c272b9e0c600781adb77ab9d4ef",
+  "fixes": [
+    {
+      "sha": "fec133ada6242c272b9e0c600781adb77ab9d4ef",
+      "mergedAt": "2026-11-12T22:30:25-08:00",
+      "subject": "acpmux: a durable seen cursor per chat per person (step A of #41955) (#42187)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T07:06:27Z",
+    "snapshot_id": "sh-5b000a808d384fa9b3c62dd2e7181c68",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43381838924): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cd163c9364831a2e6caf84889ad817193c0a48c2",
+    "image": "cloud-native-auto-fec133ad-43381838924-1",
+    "revision": "ci-43381838924-1",
+    "at": "2026-11-13T07:06:27Z"
+  },
+  "rolled_back": false
+}
