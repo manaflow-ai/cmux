@@ -93,8 +93,7 @@ final class LinkOpener {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
-        // A terminal or browser joins the nearest pane on the right already holding its kind, whichever
-        // pane the person or a link focused last (Leo 2026-11-11, a third column past the browser beside the chat).
+        // A terminal or browser joins the nearest pane on the right already holding its kind, whichever pane the person or a link focused last.
         let holder = kind.flatMap { kind in content.flatMap { Self.nearestHolder(of: kind, beside: source.layoutPaneID, in: $0) } }
         if let services, let side = besideChat ? ChatColumnPlacement.resolve(from: source, services: services)
             : (mainPane ? MainPaneLayout.side(from: source, services: services) : nil) {
@@ -127,8 +126,7 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) },
-            holder: holder)
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
@@ -521,6 +519,11 @@ final class LinkOpener {
 /// that start at its right edge and overlap its height, top to bottom. Only panes that take new
 /// tabs count. Every open on the right of a pane takes its turn in ``LinkOpener/turns``.
 extension LinkOpener {
+    static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool { holds(tabs: pane.pane.tabs, kind) }
+    static func holds(tabs: [TabModel], _ kind: RightColumnPlacement.Kind) -> Bool { tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) || (kind == .browser && $0.page == InternalPageID.github.rawValue) } }
+    static func nearestHolder(of kind: RightColumnPlacement.Kind, beside source: LayoutPaneID, in content: WorkspaceContentController) -> LayoutPaneID? { guard let screen = content.layoutModel.screen(containing: source) else { return nil }; return LinkOpenPlacement<LayoutPaneID>.nearestHolder(of: kind, source: source, columns: screen.layout.visualColumns.map(\.root.panes), frames: content.layoutView.navigationFrames(ofScreenContaining: source), holds: { id, kind in content.panes[id].map { $0.stripModel.showsNewTabButton && holds($0, kind) } ?? false }) }
+    static func rightPanes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] { RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source)).filter { content.panes[$0]?.stripModel.showsNewTabButton == true } }
+
     /// The right column beside `source`, measured: its panes (layout pane ids) and their widths.
     static func rightColumn(beside source: PaneController) -> RightColumnPlacement.Column {
         guard let content = source.workspace else { return .init(sourceWidth: width(of: source)) }
