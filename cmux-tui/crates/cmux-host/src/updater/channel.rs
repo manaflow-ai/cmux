@@ -24,8 +24,11 @@ use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
 
 /// Public, no credentials. Served with max-age 60, but the CDN does not
-/// cache it (its cache status reads DYNAMIC, 2026-11-13) and curl keeps no
-/// cache, so every check reads the newest file.
+/// cache it (its cache status reads DYNAMIC, 2026-11-13), so every check
+/// reaches the origin. The origin names an ETag and a Last-Modified and
+/// answers a matching conditional GET with 304 and no body, so a check sends
+/// the validators of the last file that verified ([`Cache`]) and an unchanged
+/// channel costs a few hundred bytes of headers, not the whole file.
 pub const CHANNEL_URL: &str = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
 /// The payload's `channel`.
 pub const CHANNEL: &str = "cloud-machine";
@@ -186,6 +189,137 @@ pub fn verify(body: &[u8], keys: &[(String, [u8; 32])], now: u64) -> Result<Payl
         return Err(format!("the channel file expired at {} (now {now})", payload.expires_at));
     }
     Ok(payload)
+}
+
+/// What one read of [`CHANNEL_URL`] answered.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// 200: the file, and the validators its response named.
+    Full { body: Vec<u8>, etag: Option<String>, last_modified: Option<String> },
+    /// 304: the file is the one the validators sent name.
+    NotModified,
+}
+
+/// A response header longer than this is not a validator to send back.
+const VALIDATOR_MAX: usize = 256;
+
+/// `value` when it can go back out as a request header as it is: visible
+/// ASCII and spaces, no CR or LF, short.
+fn validator(value: &str) -> Option<String> {
+    let value = value.trim();
+    let ok = !value.is_empty()
+        && value.len() <= VALIDATOR_MAX
+        && value.bytes().all(|b| (0x20..0x7f).contains(&b));
+    ok.then(|| value.to_owned())
+}
+
+/// The [`Answer`] in curl's `--include` output: the status line and headers,
+/// a blank line, the body. A block another block follows (a 1xx, a proxy's
+/// CONNECT, a response `--retry` read again) is skipped: a channel file
+/// starts with `{`, never `HTTP/`. Any status but 200 and 304 is an error (curl's
+/// `--fail` already refuses 4xx and 5xx; redirects are not followed).
+pub fn parse_response(raw: &[u8]) -> Result<Answer, String> {
+    let mut rest = raw;
+    loop {
+        let end = rest
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .ok_or("the response has no header block")?;
+        let (head, body) = rest.split_at_checked(end).ok_or("the response has no header block")?;
+        let body = body.strip_prefix(b"\r\n\r\n").ok_or("the response has no header block")?;
+        let head = std::str::from_utf8(head).map_err(|_| "the headers are not text")?;
+        let status: u16 = head
+            .split("\r\n")
+            .next()
+            .filter(|line| line.starts_with("HTTP/"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse().ok())
+            .ok_or("the response has no status line")?;
+        if (100..200).contains(&status) || body.starts_with(b"HTTP/") {
+            rest = body;
+            continue;
+        }
+        let header = |name: &str| {
+            head.split("\r\n").skip(1).find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                key.trim().eq_ignore_ascii_case(name).then(|| validator(value)).flatten()
+            })
+        };
+        return match status {
+            200 => Ok(Answer::Full {
+                body: body.to_vec(),
+                etag: header("etag"),
+                last_modified: header("last-modified"),
+            }),
+            304 => Ok(Answer::NotModified),
+            other => Err(format!("the origin answered HTTP {other}")),
+        };
+    }
+}
+
+/// The last channel file that verified, kept in memory with the validators
+/// of the response that carried it. A 304 is only ever an answer to those
+/// validators, and it is never trusted by itself: [`Cache::take`] verifies
+/// the kept bytes again (signature, channel and expiry against `now`), as if
+/// they had just arrived.
+#[derive(Debug, Default)]
+pub struct Cache {
+    kept: Option<Kept>,
+}
+
+#[derive(Debug)]
+struct Kept {
+    body: Vec<u8>,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+impl Cache {
+    pub const fn new() -> Self {
+        Self { kept: None }
+    }
+
+    /// `(If-None-Match, If-Modified-Since)` for the next read: the kept
+    /// file's validators, none when no file is kept.
+    pub fn validators(&self) -> (Option<String>, Option<String>) {
+        match &self.kept {
+            Some(kept) => (kept.etag.clone(), kept.last_modified.clone()),
+            None => (None, None),
+        }
+    }
+
+    /// The payload `answer` stands for. A 200 is verified and, when it
+    /// verifies and names a validator, kept; a 304 verifies the kept file
+    /// again, and with no kept file it is refused. A file that fails (a new
+    /// one that does not verify, a kept one that expired) is not kept, so
+    /// the next read is unconditional.
+    pub fn take(
+        &mut self,
+        answer: Answer,
+        keys: &[(String, [u8; 32])],
+        now: u64,
+    ) -> Result<Payload, String> {
+        match answer {
+            Answer::NotModified => {
+                let Some(kept) = &self.kept else {
+                    return Err("304 Not Modified, but no verified file is kept".to_owned());
+                };
+                let verified = verify(&kept.body, keys, now);
+                if verified.is_err() {
+                    self.kept = None;
+                }
+                verified
+            }
+            Answer::Full { body, etag, last_modified } => {
+                let verified = verify(&body, keys, now);
+                self.kept = match (&verified, etag.is_some() || last_modified.is_some()) {
+                    (Ok(_), true) => Some(Kept { body, etag, last_modified }),
+                    _ => None,
+                };
+                verified
+            }
+        }
+    }
 }
 
 /// This machine's Rust target, as the published binaries name it.

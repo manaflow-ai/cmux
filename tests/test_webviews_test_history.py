@@ -278,6 +278,42 @@ class EarlyBase(unittest.TestCase):
             self.assertEqual((replay.read_text(), json.loads(known.read_text())), ("test/other.test.ts\n", {TEST: False}))
 
 
+class FlakyOnly(unittest.TestCase):
+    """A file whose head reds are all flaky on the base only warns, whatever its base replay says, so
+    react-apps-base-check does not replay it: run 43442029204 replayed 4 such files for 5.1 min after its head shards."""
+
+    def test_a_file_replays_unless_every_red_it_names_is_flaky(self):
+        other, hang = "test/other.test.ts", "test/hang.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > x": False, f"{other} > y": False, hang: False,
+                "test/green.test.ts > z": True}
+        flaky = {TEST, f"{other} > x", hang}
+        # other's y is not flaky and hang's whole-file red is; green has no red the head names, so it replays.
+        self.assertEqual(history.flaky_only([FILE, other, hang, "test/green.test.ts"], flaky, head),
+                         ([other, "test/green.test.ts"], [FILE, hang]))
+        self.assertEqual(history.flaky_only([FILE], set(), head), ([FILE], []))
+        self.assertEqual(history.flaky_only([FILE], {TEST}, {}), ([FILE], []))  # unread head results: it replays
+
+    def test_the_command_drops_only_flaky_files_and_leaves_the_list_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            head, flaky, replay = tmp / "head.json", tmp / "flaky", tmp / "replay"
+            head.write_text(json.dumps({TEST: False, "test/other.test.ts > x": False}))
+            replay.write_text(f"{FILE}\ntest/other.test.ts\n")
+
+            def run(path=flaky):
+                return subprocess.run([sys.executable, str(SCRIPT), "flaky-only", str(path), "--replay", str(replay),
+                                       "--names", str(head)], capture_output=True, text=True)
+
+            done = run(tmp / "missing")
+            self.assertNotEqual(done.returncode, 0)
+            self.assertEqual(replay.read_text(), f"{FILE}\ntest/other.test.ts\n")
+            flaky.write_text(f"{TEST}\n\n")
+            done = run()
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("1 of 2 files to replay", done.stdout)
+            self.assertEqual(replay.read_text(), "test/other.test.ts\n")
+
+
 class OneBaseCheck(unittest.TestCase):
     """react-apps-base-check is one job for all head shards (it was one a head shard: in run 43409592440 11 of those 12
     took 0.3-0.9 min with the early base results). It joins the shards' artifacts and keeps each shard's re-run cap."""
