@@ -3,7 +3,7 @@
 //! Snapshot records have a trailing frame length, so a backward page needs no
 //! dense row-offset table. Sparse entries have a fixed width and are searched
 //! on disk; neither opening nor writing a snapshot materializes its directory.
-use super::{RowKey, SortKey, Summary, codec};
+use super::{OriginRecord, RowKey, SortKey, Summary, codec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
@@ -38,6 +38,10 @@ pub(super) struct Head {
     count: u64,
     // A constant-size first-window accelerator, never a dense directory.
     first_lengths: Vec<u16>,
+    #[serde(default)]
+    pub origins_offset: u64,
+    #[serde(default)]
+    pub origins_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -125,6 +129,7 @@ fn read_u32(bytes: &[u8]) -> io::Result<u32> {
 pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
+    origins: Vec<OriginRecord>,
 }
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
@@ -187,6 +192,9 @@ impl Iterator for SnapshotRows {
 }
 
 impl DiskSnapshot {
+    pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
+        self.origins.iter()
+    }
     pub fn rows(self: &Arc<Self>) -> SnapshotRows {
         SnapshotRows {
             snapshot: self.clone(),
@@ -224,7 +232,11 @@ impl DiskSnapshot {
         )
         .map_err(|_| codec::invalid("snapshot head json"))?;
         if head.data_end < HEADER_BYTES as u64
-            || head.data_end.checked_add(head.directory_bytes as u64)
+            || (head.origins_bytes != 0 && head.origins_offset != head.data_end)
+            || head
+                .data_end
+                .checked_add(head.origins_bytes)
+                .and_then(|end| end.checked_add(head.directory_bytes as u64))
                 != Some(file.metadata()?.len())
             || !head.directory_bytes.is_multiple_of(CHECKPOINT_BYTES)
             || (head.count == 0) != (head.directory_bytes == 0)
@@ -239,7 +251,43 @@ impl DiskSnapshot {
         {
             return Err(codec::invalid("snapshot extent"));
         }
-        Ok(Some(Arc::new(Self { file, head })))
+        if head.origins_bytes > 256 * 1024 {
+            return Err(codec::invalid("snapshot origins too large"));
+        }
+        let origins = if head.origins_bytes == 0 {
+            Vec::new()
+        } else {
+            let size = usize::try_from(head.origins_bytes)
+                .map_err(|_| codec::invalid("snapshot origins too large"))?;
+            let mut bytes = vec![0; size];
+            read_at(&file, &mut bytes, head.origins_offset)?;
+            let mut input = io::Cursor::new(bytes.as_slice());
+            let mut origins = Vec::new();
+            let mut ids = std::collections::HashSet::new();
+            while (input.position() as usize) < bytes.len() {
+                let Some((record, _)) = codec::read_any(&mut input)? else {
+                    return Err(codec::invalid("snapshot origins"));
+                };
+                let codec::LogRecord::Origin(origin) = record else {
+                    return Err(codec::invalid("snapshot origins record"));
+                };
+                if !ids.insert(origin.id.clone()) {
+                    return Err(codec::invalid("duplicate snapshot origin"));
+                }
+                if origin.id == "local" || origin.seq > head.seq {
+                    return Err(codec::invalid("snapshot origin sequence"));
+                }
+                origins.push(origin);
+                if origins.len() > 256 {
+                    return Err(codec::invalid("snapshot origin limit"));
+                }
+            }
+            origins
+        };
+        if origins.len() > 256 {
+            return Err(codec::invalid("snapshot origin limit"));
+        }
+        Ok(Some(Arc::new(Self { file, head, origins })))
     }
 
     pub fn log_offset(&self) -> u64 {
@@ -258,7 +306,11 @@ impl DiskSnapshot {
         self.head.count == 0
     }
     pub fn bytes(&self) -> u64 {
-        self.head.data_end + self.head.directory_bytes as u64
+        self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
+    }
+
+    pub(super) fn directory_offset(&self) -> u64 {
+        self.head.data_end + self.head.origins_bytes
     }
 }
 

@@ -206,6 +206,22 @@ git_q -C "$src" add scripts/ci/macos-stubs/Security.tbd
 git_q -C "$src" commit -m stubs
 [[ "$(key --version v2)" != "$before" ]] || fail "a framework stub change kept the tree key"
 
+# The build profile is a key input: cmux-tui-build-package.yml sets lto,
+# codegen-units and CARGO_PROFILE_RELEASE_LTO for the Cloud machine channel's
+# legs. A profile-only change (cmux#42622 turned thin LTO off) builds a tree;
+# before this input it reused the tree built with the old profile.
+workflow=.github/workflows/cmux-tui-build-package.yml
+mkdir -p "$src/.github/workflows"
+cp "$ROOT/$workflow" "$src/$workflow"
+git_q -C "$src" add "$workflow"
+git_q -C "$src" commit -m "build workflow"
+before=$(key --version v2)
+grep -q 'export CARGO_PROFILE_RELEASE_LTO=off' "$src/$workflow" || fail "$workflow no longer sets CARGO_PROFILE_RELEASE_LTO=off; update this test"
+sed -i.bak 's/export CARGO_PROFILE_RELEASE_LTO=off/export CARGO_PROFILE_RELEASE_LTO=thin/' "$src/$workflow" && rm -f "$src/$workflow.bak"
+git_q -C "$src" add "$workflow"
+git_q -C "$src" commit -m "profile"
+[[ "$(key --version v2)" != "$before" ]] || fail "a build profile change ($workflow, CARGO_PROFILE_RELEASE_LTO) kept the tree key"
+
 # A revision the checkout does not have fails at once, in a partial clone too:
 # one lazy promisor fetch per input pegged a Mac for 19 minutes on a
 # placeholder sha (2026-10-20). The promisor's upload-pack records any fetch.

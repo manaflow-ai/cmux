@@ -2115,6 +2115,17 @@ function TranscriptView({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  /// A new chat taking the session its first prompt started is the same chat: that prompt's row and
+  /// its Thinking line, drawn from the send (startingSends.ts), finish their entrance across it.
+  const tookSession = sessionChanged && selectionSessionKey === "";
+  /// The session a row frame's key names: the chat's own, except that a new chat keeps the
+  /// sessionless key it drew its first prompt under once it takes its session, so those frames stay
+  /// mounted (a remount would draw them again with no entrance). A later switch keys afresh.
+  /// Derived from the last render's (React's "storing information from previous renders"), not a ref
+  /// read in render.
+  const [frameSession, setFrameSession] = useState({ session: sessionKey, key: sessionKey });
+  const frameKey = frameSession.session === sessionKey || frameSession.session === "" ? frameSession.key : sessionKey;
+  if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
   const enteringRows = useRef(new Set<string>());
@@ -2129,7 +2140,7 @@ function TranscriptView({
       gutterRelease.current?.();
       setHeldRows(undefined);
       pendingFocus.current = undefined;
-      enteringRows.current.clear();
+      if (!tookSession) enteringRows.current.clear();
       return;
     }
     const currentRange = transcriptRangeRef.current;
@@ -2145,7 +2156,7 @@ function TranscriptView({
       if (!current) return current;
       return presence.anchor && presence.focus ? current : undefined;
     });
-  }, [rows, sessionChanged, sessionKey]);
+  }, [rows, sessionChanged, sessionKey, tookSession]);
   useEffect(() => {
     const clearHiddenEntrances = () => {
       if (document.visibilityState === "hidden") enteringRows.current.clear();
@@ -2203,11 +2214,13 @@ function TranscriptView({
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
+    // A prompt drawn while its chat still starts (startingSends.ts, harnessSwitch.ts: pending, `queued`) is
+    // this pane's send too, drawn before the send that counts it (`sends`) goes, once the chat started.
     if (
       mounting &&
       // A transcript mounted again over rows this page drew for the chat is not a first send.
       !opened.drewBefore &&
-      sends > 0 &&
+      (sends > 0 || rows.some((row) => row.kind === "user" && row.pending === true && row.queued !== undefined)) &&
       coldOpen === undefined &&
       rows.length <= LIVE_ROWS_PER_UPDATE &&
       rows.some((row) => row.kind === "user" && Date.now() - row.at < FIRST_SEND_FRESH_MS) &&
@@ -5988,8 +6001,9 @@ function TranscriptView({
                     return (
                       <RowFrame
                         // Session-list metadata can arrive after cached rows paint. It must not
-                        // change their keys; reply bodies fence their own identity and timestamp.
-                        key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
+                        // change their keys (nor a new chat taking its session: `frameSession`);
+                        // reply bodies fence their own identity and timestamp.
+                        key={`${frameKey}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={
@@ -6018,7 +6032,7 @@ function TranscriptView({
                         queueDrawn={queueDrawn}
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
+                        enter={(!sessionChanged || tookSession) && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
                         loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
                         onLoadFaded={onLoadFaded}
