@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43375417893",
+  "recorded_at": "2026-11-13T06:00:03Z",
+  "reason": "cmux-tui 9f15fe6a6a79 changes the image's cmux-tui (pinned 63dd6b4723bb)",
+  "dry_run": false,
+  "cmux_tui": "9f15fe6a6a796cc3080f3d2a554904627e734d86",
+  "fixes": [
+    {
+      "sha": "9f15fe6a6a796cc3080f3d2a554904627e734d86",
+      "mergedAt": "2026-11-12T21:33:33-08:00",
+      "subject": "Cloud: a spare gets the harness login the moment it is ready, before any claim (#41676)"
+    },
+    {
+      "sha": "3859c6103e75d49fa2c8a19019595d34af7faefc",
+      "mergedAt": "2026-11-13T05:15:17Z",
+      "subject": "acpmux tests: the bounded-wait detector reads Rust as tokens and exempts by meaning (#41842 review) (#41961)"
+    },
+    {
+      "sha": "70f77858095a9bead50dd76b5ee80267a4e593ba",
+      "mergedAt": "2026-11-12T21:14:34-08:00",
+      "subject": "cmux-source-scan: no false clean on aliased serializers, bad regex filters, wrapped spread bindings (#41693)"
+    },
+    {
+      "sha": "da6ece1c496c634e902923f8a9101934a124aa2b",
+      "mergedAt": "2026-11-12T21:14:06-08:00",
+      "subject": "source-scan: rows compare the exact multiset of findings they name (#42341 F1) (#42359)"
+    },
+    {
+      "sha": "ccd4ae18ff19349fa7b48d447559ef32ca47c372",
+      "mergedAt": "2026-11-12T20:59:38-08:00",
+      "subject": "fix(sidebar): every new workspace goes to the top by default, from every client and creator"
+    },
+    {
+      "sha": "b4513af1ead43205d302d5a6651f07a1d1e612d1",
+      "mergedAt": "2026-11-12T20:59:38-08:00",
+      "subject": "test(sidebar): every new workspace goes to the top by default (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T06:00:03Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
