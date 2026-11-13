@@ -32,14 +32,14 @@ test("a waiting steer names the running command it waits behind", () => {
     call("wait", 10_000, {
       id: "t1",
       kind: "execute",
-      title: "glaeda-gh wait pr 42 --timeout 3600",
-      command: "glaeda-gh wait pr 42 --timeout 3600",
+      title: "gh pr checks 42 --watch",
+      command: "gh pr checks 42 --watch",
       status: "in_progress",
     }),
     // Sent while the command runs: drawn after it, where it went into the turn.
     steer({ at: 30_000 }),
   ]);
-  expect(steerIn(rows)?.steerBehind).toEqual({ command: "glaeda-gh wait pr 42 --timeout 3600" });
+  expect(steerIn(rows)?.steerBehind).toEqual({ command: "gh pr checks 42 --watch" });
 });
 
 test("a waiting steer names the call it waits behind by the live line's words", () => {

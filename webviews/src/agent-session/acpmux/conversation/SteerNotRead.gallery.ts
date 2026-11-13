@@ -33,9 +33,9 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer"],
   variants: {
     "behind-a-command": {
-      note: "The agent waits on a long command: the steer reads Not read yet · Running glaeda-gh wait pr 42 …, Send now beside it.",
+      note: "The agent waits on a long command: the steer reads Not read yet · Running gh pr checks 42 --watch, Send now beside it.",
       snapshot: claude(
-        chat([prompt(), assistant("Waiting on CI.", 21), command("glaeda-gh wait pr 42 --timeout 3600"), steer()], {
+        chat([prompt(), assistant("Waiting on CI.", 21), command("gh pr checks 42 --watch"), steer()], {
           isWorking: true,
         }),
       ),
