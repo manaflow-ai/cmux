@@ -230,7 +230,13 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
           if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
           if (visual.some(isHover)) hover.push(id);
           if (liveRow && visual.some((animation) => LIVE.has((animation as CSSAnimation).animationName))) live.push(id);
-          else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
+          else if (Number(getComputedStyle(row).opacity) < 0.999)
+            faded.push(
+              `${id}|${getComputedStyle(row).opacity}|${row.className}|${row
+                .getAnimations()
+                .map((a) => `${(a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty ?? "script"}@${a.playState}:${Math.round((a.effect?.getComputedTiming().progress ?? 0) * 100)}`)
+                .join(",")}`,
+            );
         }
         frames.push({
           jump: jump
@@ -390,6 +396,27 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       const pagesBefore = pane!.methods.filter((method) => method === "_acpmux/events").length;
       const view = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+      // The reader leaves the latest row before the reply streams, so every paragraph lands below
+      // them. Started at the tail, the first paragraph could land in the frame before the wheel's
+      // first step while the view still followed the tail: the follow moved every row up by that
+      // paragraph (78.75 px), and the trace read it as the wheel's anchor drifting (WebKit, round 0
+      // frame 0, under load).
+      await page.mouse.wheel(0, -240);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            let last = scroller.scrollTop;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              still = scroller.scrollTop === last ? still + 1 : 0;
+              last = scroller.scrollTop;
+              if (still < 6) return true;
+              resolve();
+              return false;
+            });
+          }),
+      );
       // The reply streams below the reader: a paragraph every 80 ms for the whole run.
       let streamed = 0;
       const stream = setInterval(() => {
