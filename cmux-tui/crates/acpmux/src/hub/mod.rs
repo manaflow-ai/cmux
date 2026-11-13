@@ -43,6 +43,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -133,6 +134,7 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
+pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
@@ -484,6 +486,9 @@ pub struct HubEvent {
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection.
     pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
+    /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
+    /// event that changes no row.
+    pub list_seq: u64,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -1124,6 +1129,8 @@ pub struct Hub {
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
+    /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
+    pub(super) subagent_resumes: subagent_resume::Resumes,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -1232,6 +1239,10 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
+        peer_paths
+            .tokens
+            .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
@@ -1443,6 +1454,7 @@ impl Hub {
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
+            subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             mcp_connects: Default::default(),
@@ -1669,7 +1681,9 @@ impl Hub {
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
-        let restored = self.store.scan_back(
+        // Under the append lock: `turn_result` is indexed, so a chat whose results are all
+        // failures reads only the index copies back, not its whole log.
+        let restored = self.store.scan_back_indexed(
             &session.id,
             after,
             u64::MAX,
@@ -2504,6 +2518,7 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update

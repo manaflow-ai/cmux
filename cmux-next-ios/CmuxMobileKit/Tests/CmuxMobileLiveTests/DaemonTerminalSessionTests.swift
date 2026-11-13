@@ -738,6 +738,96 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(sends.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
     }
 
+    /// Leo on LTE, 2026-11-12 ("thjs chatters too often with connectivity"): keys typed
+    /// over a blip shorter than the hold go once the terminal is back, in order, each once,
+    /// and nothing tells the screen they were not sent.
+    @Test func keysTypedDuringABlipGoInOrderWithNoNotice() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "LTE blip")
+        try await waitUntil { !session.isAttached }
+
+        // Typed over 8 s of the blip (more than the old 2 s hold), then the link is back.
+        for key in ["g", "i", "t", "\r"] {
+            session.send(Data(key.utf8))
+            clock += 2
+        }
+        #expect(DaemonTerminalSession.inputHoldLimit >= 10)
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let typed = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } }
+            .reduce(into: Data()) { $0.append($1) } }
+        try await waitUntil { typed() == Data("git\r".utf8) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(typed() == Data("git\r".utf8), "each key once, in order")
+        #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
+    }
+
+    /// Past the hold the keys are dropped and the screen says so: a real outage, not a blip.
+    @Test func keysTypedDuringAnOutagePastTheHoldAreDroppedWithANotice() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "outage")
+        try await waitUntil { !session.isAttached }
+
+        session.send(Data("ls\r".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit + 0.5
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { events.contains(.inputNotSent(bytes: 3)) }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "send" })
+    }
+
+    /// The hold is bounded by bytes too: a long paste into a dead link is dropped at once
+    /// (with the notice), never replayed whole when the link comes back.
+    @Test func theHoldIsBoundedByBytes() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.now = { 1000 }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "blip")
+        try await waitUntil { !session.isAttached }
+
+        session.send(Data("a".utf8))
+        session.send(Data(repeating: UInt8(ascii: "x"), count: DaemonTerminalSession.inputHoldBytes))
+        #expect(events.contains(.inputNotSent(bytes: DaemonTerminalSession.inputHoldBytes + 1)))
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "send" })
+    }
+
     /// r13 review: keys typed over more than the hold limit while detached
     /// are dropped all together, and input is refused until the next attach:
     /// never only the last 2 s of a command (`mp\r` of `ls -la /tmp\r`).
