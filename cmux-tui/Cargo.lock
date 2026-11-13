@@ -26,6 +26,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-config",
+ "cmux-file-lock",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -113,6 +114,7 @@ dependencies = [
 name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crc32fast",
  "imbl",
  "libc",

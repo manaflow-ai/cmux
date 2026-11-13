@@ -13,8 +13,8 @@
 //! - [`log`]: the files of one book ([`log::Log`]): segments of settled rows, the row index, the
 //!   sparse seq index, the checkpoint, and the repair of a torn tail at open.
 //!
-//! This crate knows nothing about sockets, harnesses, tokio or async, and it never holds a parsed
-//! tree of a row (`serde_json` is not a dependency). The chat actor (`acpmux-core`) owns one
+//! This crate knows nothing about sockets, tokio or async. Harness translation uses borrowed
+//! typed JSON; it never holds a parsed tree of a row. The chat actor (`acpmux-core`) owns one
 //! [`log::Log`] per hydrated chat and is its only writer.
 
 mod fsio;
@@ -22,6 +22,7 @@ pub mod index;
 mod json;
 pub mod log;
 pub mod row;
+pub mod translate;
 
 #[cfg(test)]
 mod log_bench;

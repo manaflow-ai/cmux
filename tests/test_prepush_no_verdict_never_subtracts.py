@@ -92,6 +92,11 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         self.assertTrue(found, f"{what}: a check that crashed alike on both sides passed the push")
         self.assertTrue(any(isinstance(f, self.gate.NoVerdict) for f in found), found)
 
+    def assertToolIntegerNoVerdict(self, call, what: str) -> None:
+        with self.assertRaises(self.gate.ToolOutputNoVerdict) as raised:
+            call()
+        self.assertIn("5000 digits", str(raised.exception), what)
+
     def reserved_repo(self) -> tuple[str, str]:
         self.install(self.gate.RESERVED_SCRIPT, CRASH)
         self.write(self.gate.RESERVED_LIST, "[]\n")
@@ -499,6 +504,71 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         head = self.commit("head")
         found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "ui font exit 0 with a nonzero summary")
+
+    def test_a_ui_font_5000_digit_summary_count_is_no_verdict(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: " + "9" * 5000 + " finding(s).')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        with self.assertRaises(self.gate.ToolOutputNoVerdict) as raised:
+            self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertIn("5000 digits", str(raised.exception))
+
+    def test_tool_output_location_line_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate.normalize(f"Sources/A.swift:{huge}: finding", self.repo), "location line")
+
+    def test_tool_output_ratchet_count_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate._ratchet_rows(f"A.swift\t{huge}\n", (0,), 1), "ratchet count")
+
+    def test_tool_output_diff_hunk_line_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        with mock.patch.object(self.gate, "git", return_value=f"+++ b/A.swift\n@@ -1 +{huge} @@\n".encode()):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.conflict_markers(self.repo, "base", "head"), "diff hunk line")
+
+    def test_tool_output_cat_file_size_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        scripts = self.tmp.name + "/trusted"
+        Path(scripts).mkdir()
+        for name in self.gate.TRUSTED_COPIES:
+            (Path(scripts) / name).write_bytes(b"")
+        with mock.patch.object(self.gate, "DEFAULT_BASE_REFS", ("ref",)), \
+                mock.patch.object(self.gate, "rev_ok", return_value=True), \
+                mock.patch.object(self.gate.git_batch, "run", return_value=type("Result", (), {
+                    "stdout": f"oid blob {huge}\n".encode()
+                })()):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.stale_hook_warning(self.repo, Path(scripts)), "cat-file size")
+
+    def test_tool_output_arch_line_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        module = type("Arch", (), {"push_refusals": lambda *_: (
+            [("row", f"arch-ratchet: bad\n  A.swift:{huge}: text")], [])})()
+        with mock.patch.object(self.gate, "_load_script", return_value=module):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.advisory_arch(self.repo, []), "arch line")
+
+    def test_tool_output_advisory_line_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate._record_findings("layer", self.repo, [("name", [f"A.swift:{huge}: text"])])
+            , "advisory line")
+
+    def test_tool_output_process_pid_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        process = type("Result", (), {"stdout": f"{huge} 1\n"})()
+        with mock.patch.object(self.gate.subprocess, "run", return_value=process):
+            self.assertToolIntegerNoVerdict(lambda: self.gate._descendants(1), "process PID")
 
     # #41888 review (F2): the reserved-key and UI-font layers took any nonempty output as findings, so a checker that
     # printed "could not read checker input" on both revisions subtracted to [] and the push passed.

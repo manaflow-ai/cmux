@@ -76,6 +76,7 @@ cmux-link.workspace = true
 cmux-transport = { path = "../cmux-transport" }
 # Where the running cmux link registers its socket (`peer_carriers.rs`).
 cmux-tui-platform.workspace = true
+cmux-file-lock.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
