@@ -84,6 +84,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // One seen cursor per chat per person (`hub/seen.rs` `read_through`): `_acpmux/seen` moves it,
+    // `_acpmux/attach` answers it as `readThrough`. The pane's Jump up goes only to rows after it.
+    Capability { id: "read-through-v1", wire: &[method::MUX_SEEN] },
     // The MCP connect card (plans/cmux-next/mcp-connect-DESIGN.md): an agent asks, only the
     // person answers. Older daemons answer neither method.
     Capability {
@@ -93,6 +96,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
+    // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
+    // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
+    Capability {
+        id: crate::hub::row_log::CAPABILITY,
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.

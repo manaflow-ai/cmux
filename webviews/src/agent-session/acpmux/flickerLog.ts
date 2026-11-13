@@ -15,6 +15,8 @@
 //   followed a DOM change, their intervals' `p50`, `p95` and `max` in ms, `miss120` and `miss60`
 //   (intervals that missed a 120 Hz or a 60 Hz frame), `over50`, and `ms` the span covered (Leo,
 //   2026-11-07: "find, like, where we're dropping frames"). `cmux perf record` reads them.
+// - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
+//   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -202,6 +204,12 @@ export function noteTranscriptMount(): void {
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+}
+
+/// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
+/// `why` names what hides it, `h` the row's height; nothing before startFlickerLog.
+export function noteReplyUnpainted(why: string, h: number): void {
+  log?.record("reply-unpainted", { why, h });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
