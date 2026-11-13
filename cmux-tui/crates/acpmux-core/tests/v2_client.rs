@@ -37,7 +37,10 @@ fn pair(hub: Arc<Hub>) -> (DuplexStream, tokio::task::JoinHandle<Result<(), conn
     (client, task)
 }
 
-async fn hello(client: &mut Client<Value>, stream: &mut DuplexStream) {
+async fn hello<T>(client: &mut Client<T>, stream: &mut DuplexStream)
+where
+    T: serde::Serialize + for<'de> serde::Deserialize<'de> + Clone,
+{
     send_bytes(stream, client.take_send().unwrap()).await;
     let frame = read_frame(stream).await;
     assert_eq!(frame.kind, FrameKind::Hello);
