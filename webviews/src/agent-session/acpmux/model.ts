@@ -1577,7 +1577,12 @@ const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
-  row.kind === "activity" || isWorkedLine(row) || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+  row.kind === "activity" ||
+  row.kind === SUBAGENT_ROW ||
+  (row.kind === SUBAGENTS && !isRunGroup(row)) ||
+  isWorkedLine(row) ||
+  (row.kind === ACTIVITY_LINE && !row.below) ||
+  isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
@@ -2365,22 +2370,14 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
-  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  // A recap's heading and bullet points; the unread divider already supplies its heading.
   if (row.kind === "recap")
-    return finish(
-      24 +
-        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
-          metrics().lineHeight,
-    );
-  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
-  // card as a recap row is estimated.
+    return finish(recapHeight(row.recap?.text ?? "", width, metrics().lineHeight, currentLanguage()));
   if (row.kind === SINCE_DIVIDER)
     return finish(
       28 +
         (row.since?.recap
-          ? 24 +
-            Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
-              metrics().lineHeight
+          ? recapHeight(row.since.recap.text, width, metrics().lineHeight, currentLanguage(), false)
           : 0),
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
@@ -3175,6 +3172,12 @@ export function layoutConversation(
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
+  /// A live resize (a divider dragged): the last layout, at another width, and the rows around the
+  /// view `[from, to)`. Only those rows are measured at `width`; every other row that is the same
+  /// object keeps its height from that layout until the resize settles and a full layout runs. A drag
+  /// frame then costs the rows in view, not the whole chat (Leo, 2026-11-11: "the dragging
+  /// responsiveness is slow for agent chat but fast for browser hmmm").
+  resizing?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3227,6 +3230,15 @@ export function layoutConversation(
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    else if (
+      resizing &&
+      (resizing.layout.scale ?? 1) === scale &&
+      (index < resizing.from || index >= resizing.to) &&
+      index < resizing.layout.heights.length &&
+      resizing.rows[index] === row
+    )
+      // Out of view during a live resize: its height at the last width, never recorded as this width's.
+      height = resizing.layout.heights[index]!;
     else {
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
@@ -3601,7 +3613,8 @@ import {
 import type { Walkthrough } from "./conversation/walkthroughModel";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
-import { type Translate, translate } from "./i18n";
+import { type Translate, translate, currentLanguage } from "./i18n";
+import { recapHeight } from "./conversation/recapPoints";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";

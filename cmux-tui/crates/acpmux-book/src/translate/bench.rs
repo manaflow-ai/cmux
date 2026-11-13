@@ -8,6 +8,9 @@
     reason = "test-only benchmark arithmetic and assertions"
 )]
 use super::*;
+fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+    translate(state, harness, 0, 1, bytes)
+}
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -41,12 +44,6 @@ fn v1_corpus() -> Vec<String> {
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n == 0 {
-        return format!(
-            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"blob\",\"content\":\"{}\"}}]}}}}\n",
-            "b".repeat(5 * 1024 * 1024)
-        );
-    }
     let line = &lines[n % lines.len()];
     if harness == Harness::V1 {
         line.replacen("\"seq\":0", &format!("\"seq\":{}", n + 1), 1)
@@ -54,15 +51,44 @@ fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
         line.clone()
     }
 }
+fn sample_line_at(harness: Harness, lines: &[String], n: usize) -> String {
+    line_at(harness, lines, n)
+}
+fn full_state() -> State {
+    let mut state = State::default();
+    let prompt = r#"{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"text":"q"}}"#;
+    let _ = t(&mut state, Harness::V1, prompt.as_bytes());
+    for n in 0..1024u64 {
+        let line = format!(
+            r#"{{"seq":{},"at":1000,"dir":"mux","kind":"queued","msg":{{"text":"q-{}","promptId":"q-{}"}}}}"#,
+            n + 2,
+            n,
+            n
+        );
+        let _ = t(&mut state, Harness::V1, line.as_bytes());
+    }
+    state
+}
+fn full_state_p95(harness: Harness, lines: &[String], start: usize, queue: bool) -> u128 {
+    let mut state = if queue { full_state() } else { State::default() };
+    let mut samples = Vec::with_capacity(200);
+    for n in start..start + 200 {
+        let line = sample_line_at(harness, lines, n);
+        let began = Instant::now();
+        black_box(t(&mut state, harness, line.as_bytes()).unwrap());
+        samples.push(began.elapsed().as_nanos());
+    }
+    p95(&mut samples)
+}
 fn p95(samples: &mut [u128]) -> u128 {
     samples.sort_unstable();
     samples[samples.len() * 95 / 100]
 }
-fn rss() -> u64 {
+fn resident_kib(field: &str) -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
     status
         .lines()
-        .find(|l| l.starts_with("VmHWM:"))
+        .find(|l| l.starts_with(field))
         .unwrap()
         .split_whitespace()
         .nth(1)
@@ -84,41 +110,81 @@ fn measure_child() {
         Harness::Claude
     };
     let lines = corpus(harness);
+    // Both resident-size runs own and translate the same largest input. Only
+    // history length differs; constructing it per use would time the fixture's
+    // allocations and make the small side miss its peak entirely.
+    let large_result = (harness == Harness::Claude).then(|| {
+        let prefix = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":""#;
+        let suffix = "\"}]}}\n";
+        let length = 5 * 1024 * 1024;
+        let mut line = String::with_capacity(prefix.len() + length + suffix.len());
+        line.push_str(prefix);
+        line.extend(std::iter::repeat_n('b', length));
+        line.push_str(suffix);
+        line
+    });
+    let resident = |point| {
+        println!(
+            "RSS {count} {point}: VmHWM={} KiB VmRSS={} KiB",
+            resident_kib("VmHWM:"),
+            resident_kib("VmRSS:")
+        );
+    };
+    resident("before_translate");
+    let before_translate_peak = resident_kib("VmHWM:");
     let mut state = State::default();
     let mut bytes = 0usize;
     for n in 0..count {
+        // Index 2 follows tool_use (index 1) in the four-line Claude mix.
+        // The 40-line child pays once, the god child once per 1,000 lines.
+        if n % 1000 == 2
+            && let Some(line) = &large_result
+        {
+            bytes += line.len();
+            black_box(t(&mut state, harness, line.as_bytes()).unwrap());
+        }
         let line = line_at(harness, &lines, n);
         bytes += line.len();
-        black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+        black_box(t(&mut state, harness, line.as_bytes()).unwrap());
     }
+    resident("after_history");
     assert_eq!(state.open_rows().count(), 0);
+    for row in state.stored_rows() {
+        assert_ne!(row.fields.get("state").map(String::as_str), Some("queued"));
+        if matches!(row.kind, RowKind::Text | RowKind::Thinking) {
+            assert!(row.fields.contains_key("messageId"));
+        }
+        if row.kind == RowKind::Tool {
+            assert!(row.fields.contains_key("callId"));
+        }
+    }
     let checkpoint = state.checkpoint().unwrap();
     let mut all = Vec::new();
     let mut best = u128::MAX;
     let mut cold_all = Vec::new();
     let mut cold_best = u128::MAX;
     let mut cursor = count;
-    let cold_line = line_at(harness, &lines, count);
+    let cold_line = sample_line_at(harness, &lines, count);
     for _ in 0..5 {
         // Same stride, same line mix, and both past their first allocation.
         for _ in &lines {
-            let line = line_at(harness, &lines, cursor);
+            let line = sample_line_at(harness, &lines, cursor);
             cursor += 1;
-            black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+            black_box(t(&mut state, harness, line.as_bytes()).unwrap());
         }
         let mut samples = Vec::new();
         let mut cold = Vec::new();
         for _ in 0..200 {
             for _ in &lines {
-                let line = line_at(harness, &lines, cursor);
+                let line = sample_line_at(harness, &lines, cursor);
                 cursor += 1;
                 let start = Instant::now();
-                black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+                black_box(t(&mut state, harness, line.as_bytes()).unwrap());
                 samples.push(start.elapsed().as_nanos());
             }
             let start = Instant::now();
             let mut restored = State::restore(black_box(&checkpoint)).unwrap();
-            black_box(translate(&mut restored, harness, cold_line.as_bytes()).unwrap());
+            black_box(t(&mut restored, harness, cold_line.as_bytes()).unwrap());
             cold.push(start.elapsed().as_nanos());
         }
         best = best.min(p95(&mut samples));
@@ -126,25 +192,20 @@ fn measure_child() {
         cold_best = cold_best.min(p95(&mut cold));
         cold_all.extend(cold);
     }
-    let peak = rss();
+    resident("after_rounds");
+    let peak = resident_kib("VmHWM:");
+    assert!(
+        peak > before_translate_peak,
+        "translation must set the resident peak, not the fixture builder"
+    );
+    let full = full_state_p95(harness, &lines, cursor, true);
+    let queue_empty = full_state_p95(harness, &lines, cursor, false);
     println!(
-        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {}",
+        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {} {full} {queue_empty}",
         p95(&mut all),
         p95(&mut cold_all),
         checkpoint.len()
     );
-    if let Ok(path) = std::env::var("V2_GATE_OUT") {
-        let line = format!(
-            "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
-            best,
-            p95(&mut all)
-        );
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
-    }
     assert!(peak * 1024 < 64_000_000, "resident peak {peak} KiB must be under 64 MB");
 }
 fn child(harness: &str, count: usize) -> Vec<u64> {
@@ -152,6 +213,7 @@ fn child(harness: &str, count: usize) -> Vec<u64> {
         .args(["--exact", "translate::bench::measure_child", "--ignored", "--nocapture"])
         .env("BOOK_TRANSLATE_LINES", count.to_string())
         .env("BOOK_TRANSLATE_HARNESS", harness)
+        .env_remove("V2_GATE_OUT")
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -189,7 +251,41 @@ fn god_vs_small() {
             assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
         }
         assert!(god[6] * 1024 < 64_000_000);
-        assert!(god[6] as f64 <= small[6] as f64 * 1.2, "god RSS must stay within 1.2x small");
+        let rss_ratio = god[6] as f64 / small[6] as f64;
+        println!(
+            "peak RSS: small={} KiB god={} KiB ratio={rss_ratio:.3} gate=1.2",
+            small[6], god[6]
+        );
+        assert!(rss_ratio <= 1.2, "peak RSS: {rss_ratio} exceeds 1.2");
         assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
+        if harness == "claude"
+            && let Ok(path) = std::env::var("V2_GATE_OUT")
+        {
+            let lines = [
+                    format!(
+                        "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[2], god[3]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02.translate_line_full_state\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[8], god[8]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02.jsonl_peak_rss\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"KiB\"}}\n",
+                        small[6], god[6]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02b.translate_line_queue_full\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[9], god[8]
+                    ),
+                ]
+                .join("");
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut file| std::io::Write::write_all(&mut file, lines.as_bytes()))
+                .unwrap();
+        }
     }
 }
