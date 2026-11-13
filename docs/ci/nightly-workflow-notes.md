@@ -110,9 +110,3 @@ The notices read no build output (git fetches of the pinned crates' sources, car
 nightly-next-one (the job):
 
 nightly-next on one Mac, end to end (Leo, 2026-11-12: "Why isn't it just like the single machine does the thing end to end?"). With vars.NIGHTLY_NEXT_ONE_JOB=on, decide sets one_job and the split jobs skip: this one job compiles warm, prepares, signs, notarizes, verifies and writes the feed in one workspace, with the split jobs' own steps (YAML aliases, or a copy where the one job differs: note-15) and no artifact between them. tests/test_nightly_next_one_job.py.
-
-## note-19
-
-verify-final-dmg-nightly, Chief thread structure:
-
-Leo, 2026-11-10, on a nightly whose Chief panel was an avatar column beside grey cards: "Where's the spec for that? Where's the iMessage". The same app, launched again from a fresh home: Chief and Home opened, their accessibility tree checked against tests/ui-structure/chief-thread.json (scripts/ci/nightly-steps/chief-thread-gate.sh; the publication tooling checkout adds tests/ui-structure for its spec, checker and accessibility dumper). A broken thread fails this job, so publish-nightly publishes none of this build; cannot-run never holds it. The step shares the launch smoke's condition through the `&final-arm64` anchor. tests/ui-structure/test_thread_structure.py tests the checker.

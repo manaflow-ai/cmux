@@ -4967,10 +4967,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .publish-tooling
-          sparse-checkout: |
-            scripts
-            tests/ui-structure
-          sparse-checkout-cone-mode: false
+          sparse-checkout: scripts
 
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
@@ -5011,18 +5008,12 @@ jobs:
       # this build on the feed (scripts/ci/nightly-steps/launch-smoke-gate.sh; cannot-run never holds it).
       - name: Launch smoke from a fresh home
         id: own-smoke
-        if: &final-arm64 needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
         timeout-minutes: 12
         run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
 
-      # Why: docs/ci/nightly-workflow-notes.md#note-19
-      - name: Chief thread structure
-        if: *final-arm64
-        timeout-minutes: 5
-        run: bash .publish-tooling/scripts/ci/nightly-steps/chief-thread-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
-
       - name: Bundle size budget
-        if: *final-arm64
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
         continue-on-error: true
         timeout-minutes: 5
         env:

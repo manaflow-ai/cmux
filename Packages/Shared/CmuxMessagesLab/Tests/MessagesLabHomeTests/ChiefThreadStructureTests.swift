@@ -11,7 +11,7 @@ import Testing
 /// grey cards: "Where's the spec for that? Where's the iMessage".
 ///
 /// Each case is one gallery variant of the Chief thread (a Chief panel width, or a conversation tab):
-/// its snapshot and still go to CHIEF_THREAD_GALLERY_DIR when set (the workflow keeps them), and the
+/// its snapshot and still go to CHIEF_THREAD_GALLERY_DIR when set (for the gallery review), and the
 /// checker must pass it.
 @Suite(.serialized) @MainActor struct ChiefThreadStructureTests {
     struct Variant: CustomTestStringConvertible, Sendable {
