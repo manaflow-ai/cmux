@@ -411,6 +411,8 @@ export type TurnView = {
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
   rows: AcpmuxRow[];
+  /// Visible assistant source ids, used to detect a partial refresh without rescanning unchanged rows.
+  visibleReplyIds: ReadonlySet<string>;
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
@@ -428,12 +430,25 @@ const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
+  previousVisibleIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
-  if (!previous || !rows.some((row) => row.kind === "activity")) return rows;
+  if (!previous || !previousVisibleIds || !rows.some((row) => row.kind === "activity")) return rows;
   const currentIds = new Set(rows.map((row) => row.id));
-  const previousById = new Map(previous.map((row) => [row.id, row]));
-  const previousVisible = previous.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).length;
-  const currentVisible = rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).length;
+  const currentReplyIds = new Set(
+    rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id),
+  );
+  const missingReplyIds = new Set([...previousVisibleIds].filter((id) => !currentReplyIds.has(id)));
+  const firstAt = rows[0]?.at ?? Number.POSITIVE_INFINITY;
+  let start = 0;
+  let high = previous.length;
+  while (start < high) {
+    const middle = (start + high) >> 1;
+    if (previous[middle]!.at < firstAt) start = middle + 1;
+    else high = middle;
+  }
+  while (start > 0 && previous[start - 1]!.kind !== "user") start -= 1;
+  const relevant = previous.slice(start);
+  const previousById = new Map(relevant.map((row) => [row.id, row]));
   const hasEmptyReplacement = rows.some(
     (row) =>
       row.kind === "assistant" &&
@@ -441,7 +456,7 @@ const retainVisibleReplies = (
       previousById.get(row.id)?.kind === "assistant" &&
       !isVisiblyEmptyMessage(previousById.get(row.id)!),
   );
-  if (currentVisible >= previousVisible && !hasEmptyReplacement) return rows;
+  if (missingReplyIds.size === 0 && !hasEmptyReplacement) return rows;
   const retainIds = new Set<string>();
   let segmentStart = 0;
   let anchored = false;
@@ -449,12 +464,12 @@ const retainVisibleReplies = (
     if (anchored)
       for (let index = segmentStart; index < end; index += 1) {
         const row = previous[index]!;
-        if (row.kind === "assistant" && !isVisiblyEmptyMessage(row) && !currentIds.has(row.id)) retainIds.add(row.id);
+        if (row.kind === "assistant" && missingReplyIds.has(row.id)) retainIds.add(row.id);
       }
   };
-  for (let index = 0; index <= previous.length; index += 1) {
-    const row = previous[index];
-    if (index === previous.length || (row?.kind === "user" && index !== segmentStart)) {
+  for (let index = 0; index <= relevant.length; index += 1) {
+    const row = relevant[index];
+    if (index === relevant.length || (row?.kind === "user" && index !== segmentStart)) {
       finishSegment(index);
       segmentStart = index;
       anchored = false;
@@ -476,7 +491,7 @@ const retainVisibleReplies = (
     }
     return row;
   });
-  for (const row of previous) {
+  for (const row of relevant) {
     if (row.kind === "assistant" && retainIds.has(row.id)) {
       next.push(row);
       changed = true;
@@ -536,7 +551,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, previous?.visibleReplyIds);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -749,6 +764,9 @@ export function turnViewFrom(
     ends,
     nextSteps,
     rows: out,
+    visibleReplyIds: new Set(
+      rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id),
+    ),
   };
 }
 
