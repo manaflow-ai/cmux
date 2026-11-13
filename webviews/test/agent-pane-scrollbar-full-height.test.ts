@@ -326,6 +326,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
     const grown = await measure(page);
+    console.log(`DIAG card ${before.cardHeight} -> ${grown.cardHeight} ${JSON.stringify(await page.evaluate(() => { const f = document.querySelector<HTMLElement>(".acpmux-md-field")!; const cs = getComputedStyle(f); return { sh: f.scrollHeight, ch: f.clientHeight, max: cs.maxHeight, lh: cs.lineHeight, w: f.clientWidth, text: f.innerText.length, look: document.querySelector("[data-composer-look]")?.getAttribute("data-composer-look"), cls: document.querySelector(".acpmux-composer")?.className }; }))}`);
     expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(80);
     // No painted frame moved the offset, or changed the scroller's height or its content's, which
     // move and resize the scrollbar's thumb.
