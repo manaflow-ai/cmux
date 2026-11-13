@@ -34,7 +34,7 @@ cmux-app-manifest = { path = "../../../cmux-tui/crates/cmux-app-manifest" }
 
 # The cmux-next app ships this binary as Contents/Resources/bin/cmux-cloud, so it is
 # built for size like cmux-tui's release profile: fat LTO, one codegen unit. No
-# `strip` here: scripts/strip-release-bundle.sh keeps a helper's global symbols so
+# `strip` here: the release bundle strip step keeps a helper's global symbols so
 # its crash reports name functions. panic stays "unwind": the server recovers
 # poisoned locks and reports a reader thread's panic.
 [profile.release]
