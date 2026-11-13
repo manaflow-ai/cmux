@@ -941,8 +941,8 @@ impl ListGuard {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
             let mut until = Instant::now() + window;
-            let retry_cap = window.min(Duration::from_secs(1)).max(Duration::from_millis(1));
-            let mut retry = Duration::from_millis(1).min(retry_cap);
+            let retry_cap = Duration::from_secs(1);
+            let mut retry = window.max(Duration::from_millis(1)).min(retry_cap);
             loop {
                 tokio::time::sleep_until(until).await;
                 let Some(state) = state.upgrade() else { return };
@@ -1787,18 +1787,20 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn expiry_retries_back_off_while_a_snapshot_is_held() {
         const HELD_MS: usize = 2_000;
+        const WINDOW: Duration = Duration::from_millis(1);
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
         let guard = &hub.list_guard;
-        let held = hold(&hub, Duration::from_secs(1)).await;
-        guard.expire(held.serial, Duration::from_secs(1));
+        let held = hold(&hub, WINDOW).await;
+        guard.expire(held.serial, WINDOW);
 
-        // Before backoff, a 1 ms retry woke 2,000 times over this 2 s hold. Exponential backoff
-        // reaches its 1 s cap, so after it there are at most 12 wakes over the same interval.
+        // Before backoff, the 1 ms retry cap woke 2,000 times over this 2 s hold. Exponential
+        // backoff reaches an independent 1 s cap, so after it there are at most 12 wakes.
         for _ in 0..HELD_MS {
             tokio::time::advance(Duration::from_millis(1)).await;
             tokio::task::yield_now().await;
         }
         let wakes = guard.state.lock().await.expiry_wakes;
+        println!("F1 expiry retry wake count: before={HELD_MS} after={wakes}");
         assert!(wakes <= 12, "before backoff: {HELD_MS} wakes; after backoff: {wakes} wakes");
     }
 
