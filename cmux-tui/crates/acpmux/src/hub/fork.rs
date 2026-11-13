@@ -635,6 +635,7 @@ impl Hub {
             // A referencing fork's own records follow the history it shows.
             last_seq: if referenced { fork_seq } else { 0 },
             transcript_seq: if referenced { fork_seq } else { 0 },
+            recovered_after: None,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
@@ -701,6 +702,8 @@ impl Hub {
             seen_seq: None,
             unread_turns: 0,
             last_return: None,
+            away_recap: None,
+            read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -749,6 +752,7 @@ impl Hub {
             totals: None,
             pull_requests: vec![],
             pull_request_times: Default::default(),
+            closed_pull_requests: vec![],
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
@@ -837,7 +841,7 @@ impl Hub {
         }
         self.update_live_session_index(&new);
         // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        self.session_came(&new);
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
@@ -858,6 +862,9 @@ impl Hub {
         let mut running_turn_seq: Option<u64> = None;
         // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
         let mut cancelled = false;
+        // A copy the journal refused is neither stored nor heard (`append_record_locked`): the
+        // fork would read as whole with history missing, so it fails instead and is purged.
+        let mut refused = false;
         if referenced {
             // Only the running turn is read, from its start: which of its tool calls still run.
             if let Some(turn) = &running {
@@ -904,7 +911,7 @@ impl Hub {
                             .and_then(Value::as_str)
                             .map(|text| short_text(text, 200));
                     }
-                    let (copy, _) = self.append_at_locked(
+                    let (copy, stored) = self.append_at_locked(
                         &new,
                         &e.dir,
                         &e.kind,
@@ -914,6 +921,10 @@ impl Hub {
                         false,
                         false,
                     );
+                    if !stored {
+                        refused = true;
+                        return false;
+                    }
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
                     }
@@ -931,6 +942,13 @@ impl Hub {
             if cancelled {
                 self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
+            }
+            if refused {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused(
+                    "fork.incomplete",
+                    "the journal refused a copied record",
+                ));
             }
             if before.is_some()
                 && let Err(e) = copied

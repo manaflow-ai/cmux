@@ -10,7 +10,8 @@ public import CmuxNextDesignTokens
 /// load restores the file's value. `reduce` with `value` true or false overrides Reduce
 /// Motion in memory (null follows the system setting again), so a bench records reduced
 /// motion without the system setting. `work` is each timed animation's main-thread work per
-/// frame (`MotionTrace.measure`). `kind` with `name` ("paneAnimations", "newTab",
+/// frame (`MotionTrace.measure`): a summary, and `each_ms`, every frame's time in the order
+/// recorded. `kind` with `name` ("paneAnimations", "newTab",
 /// "newWorkspace") and `value` true or false sets `ui.paneAnimations` and `ui.animations.*`
 /// in memory the same way.
 /// The report lists the display links running (`display_links`: 0 once every spring rests, so
@@ -99,7 +100,11 @@ public struct MotionDebug {
             "work": MotionTrace.work.mapValues { frames -> [String: Any] in
                 let sorted = frames.sorted()
                 func at(_ p: Double) -> Double { ((sorted.isEmpty ? 0 : sorted[Int((Double(sorted.count - 1) * p).rounded())]) * 100).rounded() / 100 }
-                return ["frames": sorted.count, "p50_ms": at(0.5), "p95_ms": at(0.95), "max_ms": at(1), "over_4_ms": sorted.filter { $0 > 4 }.count]
+                // `each_ms`: every frame's time in the order recorded, so a reader can leave out a frame that the host
+                // disturbed. Made here, when the record is read, never in a frame; no longer than `MotionTrace.record`'s
+                // bound for a name.
+                return ["frames": sorted.count, "p50_ms": at(0.5), "p95_ms": at(0.95), "max_ms": at(1), "over_4_ms": sorted.filter { $0 > 4 }.count,
+                        "each_ms": frames.map { ($0 * 100).rounded() / 100 }]
             },
         ]
     }

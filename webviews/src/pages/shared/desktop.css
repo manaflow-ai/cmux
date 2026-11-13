@@ -101,7 +101,7 @@ body {
   --ds-radius-lg: 8px; /* popups and small cards */
   --ds-radius-xl: 12px; /* cards and the composer (grid.md's decided 12) */
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
-  --ds-radius-control: 6px;
+  --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */

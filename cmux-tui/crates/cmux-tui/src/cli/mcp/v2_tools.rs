@@ -79,6 +79,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("settings.edit", SETTINGS_REASON),
     ("keybindings.get", KEYBINDINGS_REASON),
     ("keybindings.set", KEYBINDINGS_REASON),
     ("keybindings.remove", KEYBINDINGS_REASON),

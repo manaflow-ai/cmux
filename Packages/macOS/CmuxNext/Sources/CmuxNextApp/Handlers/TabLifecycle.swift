@@ -112,7 +112,7 @@ enum TabLifecycle {
                 do {
                     _ = try await repair.fillFirstTab(key) {
                         if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
-                        return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+                        return try await connection.createTerminal(in: key, cwd: NewTerminalStart.defaultFolder(on: daemon)).surface
                     }
                     return nil
                 } catch {
@@ -155,18 +155,15 @@ enum TabLifecycle {
             // The docked agent chat gets no tools: a chat or page from it opens in the strip (ChatColumnPlacement),
             // except a person's New Tab page, which opens in the dock, the main pane (Leo 2026-10-30: "IF I'M
             // FOCUSED ON THE MAIN PANE OPEN IT THERE"). What is picked on it opens beside the chat (NewTabPage.replace).
-            if user, let controller, !(kind == .page && ChatColumnPlacement.keepsNewTabPage(in: controller)) {
+            let asTab = kind == .agent && user && controller?.plusChatIsTab == true // Option-click on the +: a tab here (user 2026-11-12)
+            if user, !asTab, let controller, !(kind == .page && ChatColumnPlacement.keepsNewTabPage(in: controller)) {
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
                 if strip !== controller { return strip.newTabPage() }
             }
-            let docks = kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
+            let docks = !asTab && kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
             let placed = NewTabSlot.placing(docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
-            if kind == .page {
-                controller?.newTabPage(then: placed)
-            } else {
-                controller?.newAgentTab(then: placed)
-            }
+            _ = kind == .page ? controller?.newTabPage(then: placed) : controller?.newAgentTab(placed: !asTab, then: placed)
         }
     }
 

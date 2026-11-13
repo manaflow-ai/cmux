@@ -123,7 +123,11 @@ _SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set
 
 
 class _LexicalAliases:
-    """Stdlib imports as seen at each read, using the compiler-backed lexical resolver."""
+    """Stdlib imports as seen at each read, using the compiler-backed lexical resolver.
+
+    A guard requires one certain module. A direct read retains every possible module, so an unknown binding
+    cannot erase an incompatible read; parameters and unrelated local imports do not leak across scopes.
+    """
 
     def __init__(self, tree):
         self.resolver = scope_resolver.Resolver(tree)
@@ -674,6 +678,97 @@ class UnderPython39(unittest.TestCase):
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_a_local_shadow_does_not_hide_a_module_level_alias(self):
+        """dep-fleet-6 F2: a parameter shadows an import only in its function's lexical scope."""
+        self.scan("import ast\n"
+                  "def f(ast):\n"
+                  "    return ast\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_aliases_follow_nested_lexical_scopes(self):
+        self.scan("import ast\n"
+                  "def shadow(ast):\n    return ast.match_case\n"
+                  "def outer():\n"
+                  "    import ast as parser\n"
+                  "    def shadow(parser):\n        return parser.match_case\n"
+                  "    def read():\n        return parser.match_case  # bare: ast.match_case\n"
+                  "    return read\n"
+                  "def sibling():\n    return ast.match_case  # bare: ast.match_case\n"
+                  "f = lambda ast: ast.match_case\n"
+                  "g = lambda ast=ast.match_case: ast  # bare: ast.match_case\n"
+                  "xs = [ast.match_case for ast in []]\n"
+                  "ys = [ast for ast in [ast.match_case]]  # bare: ast.match_case\n"
+                  "class C:\n"
+                  "    ast = None\n"
+                  "    def read(self):\n        return ast.match_case  # bare: ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_local_guards_do_not_change_guards_in_other_scopes(self):
+        self.scan("import ast, sys\n"
+                  "def f(sys):\n"
+                  "    if hasattr(sys, 'version_info'):\n        pass\n"
+                  "    else:\n        value = ast.match_case  # bare: ast.match_case\n"
+                  "if hasattr(sys, 'version_info'):\n    pass\n"
+                  "else:\n    value = ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_class_fallthrough_and_exception_names_keep_guard_uncertainty(self):
+        self.scan("import ast, sys\n"
+                  "class C:\n"
+                  "    if unknown:\n        import ast as sys\n"
+                  "    if hasattr(sys, 'version_info'):\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n"
+                  "class D:\n"
+                  "    try:\n        pass\n"
+                  "    except Exception as sys:\n"
+                  "        if hasattr(sys, 'version_info'):\n            pass\n"
+                  "        else:\n            value = ast.match_case  # bare: ast.match_case\n"
+                  "    if hasattr(sys, 'version_info'):\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_parameter_defaults_keep_possible_module_bindings(self):
+        """Every callable default can supply a stdlib module, even when a caller may override it."""
+        rows = {
+            "lambda positional": "f = lambda ast=ast: ast.match_case  # bare: ast.match_case\n",
+            "lambda renamed": "f = lambda parser=ast: parser.match_case  # bare: ast.match_case\n",
+            "lambda positional-only": "f = lambda ast=ast, /: ast.match_case  # bare: ast.match_case\n",
+            "lambda keyword-only": "f = lambda *, ast=ast: ast.match_case  # bare: ast.match_case\n",
+            "lambda mixed required": "f = lambda required, *, missing, parser=ast: parser.match_case  # bare: ast.match_case\n",
+            "function positional": "def f(ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "function positional-only": "def f(ast=ast, /):\n    return ast.match_case  # bare: ast.match_case\n",
+            "function keyword-only": "def f(*, ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "async positional": "async def f(ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+            "async keyword-only": "async def f(*, ast=ast):\n    return ast.match_case  # bare: ast.match_case\n",
+        }
+        for site, source in rows.items():
+            with self.subTest(site=site):
+                self.scan("import ast\n" + source)
+
+    def test_default_bindings_do_not_make_guards_certain(self):
+        for source in (
+            "f = lambda sys=sys: None if hasattr(sys, 'version_info') else ast.match_case  # bare: ast.match_case\n",
+            "f = lambda *, sys=sys: None if hasattr(sys, 'version_info') else ast.match_case  # bare: ast.match_case\n",
+            "def f(sys=sys):\n    if not hasattr(sys, 'version_info'):\n        return ast.match_case  # bare: ast.match_case\n",
+            "async def f(*, sys=sys):\n    if not hasattr(sys, 'version_info'):\n        return ast.match_case  # bare: ast.match_case\n",
+        ):
+            with self.subTest(source=source):
+                self.scan("import ast, sys\n" + source)
+
+    def test_definition_expressions_use_the_enclosing_binding(self):
+        rows = {
+            "function default expression": "def f(ast=ast.match_case):  # bare: ast.match_case\n    pass\n",
+            "async default expression": "async def f(*, ast=ast.match_case):  # bare: ast.match_case\n    pass\n",
+            "lambda default expression": "f = lambda ast=ast.match_case: ast  # bare: ast.match_case\n",
+            "lambda keyword default expression": "f = lambda *, ast=ast.match_case: ast  # bare: ast.match_case\n",
+            "function decorator": "@ast.match_case  # bare: ast.match_case\ndef f(ast):\n    pass\n",
+            "async decorator": "@ast.match_case  # bare: ast.match_case\nasync def f(ast):\n    pass\n",
+            "class decorator": "@ast.match_case  # bare: ast.match_case\nclass C:\n    ast = None\n",
+            "class base": "class C(ast.match_case):  # bare: ast.match_case\n    ast = None\n",
+            "class keyword": "class C(metaclass=ast.match_case):  # bare: ast.match_case\n    ast = None\n",
+        }
+        for site, source in rows.items():
+            with self.subTest(site=site):
+                self.scan("import ast\n" + source)
     def test_assignment_preserves_uncertain_default_binding(self):
         """cmux#42240 F1: an assignment from a default-bound parameter remains uncertain to the guard resolver."""
         self.scan("import ast, sys\n"

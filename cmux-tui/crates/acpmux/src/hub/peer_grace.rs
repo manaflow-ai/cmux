@@ -23,7 +23,7 @@ impl Hub {
             return;
         }
         // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
-        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+        let _ = tokio::time::timeout(super::shutdown::OWNED_TASKS_CLOSE, notified).await;
     }
 
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
@@ -172,6 +172,12 @@ impl Hub {
                     if !matches!(notice, PeerNotice::Notification { .. }) {
                         drops.remove(&key);
                         current.outage_ended.store(false, Ordering::SeqCst);
+                    }
+                    // The link takes requests: copies ahead of the peer's journals go back
+                    // first, and prompts to it wait for that (`peer_snapshot/restore.rs`). Before
+                    // the notice, so no message the notice wakes goes ahead of them.
+                    if matches!(notice, PeerNotice::Connected) {
+                        self.restore_peer_journals(&peer, generation);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
                     if warms {

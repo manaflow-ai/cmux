@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -44,6 +44,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// Shows the chat, but its person is not attending (`_acpmux/view` `attending: false`):
+    /// counted in `Session::idle` while not `hidden` (`view.rs`).
+    pub idle: bool,
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
@@ -174,7 +177,8 @@ pub struct Conn {
     /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
     /// it only observes marks it, so it keeps nothing once the owner app exited.
     presence: crate::daemon::unused_exit::Presence,
-    out: mpsc::Sender<String>,
+    /// Its outbound queue, bounded in bytes (`outbound.rs`): every line goes there, in order.
+    out: Arc<outbound::Outbound>,
     /// Holds its lines until what they may show is durable (`durable_gate.rs`); None without the
     /// event journal.
     gate: Option<Arc<durable_gate::Gate>>,
@@ -182,16 +186,6 @@ pub struct Conn {
     ended: tokio::sync::watch::Sender<bool>,
     /// Per-session preparation cancellation; no capability or owner token is retained.
     preparation_cancels: StdMutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
-    /// Serializes the capacity check and enqueue across request and watch tasks.
-    outbound_lock: Arc<StdMutex<()>>,
-    /// Number of notifications rejected because the reader fell behind.
-    outbound_dropped: Arc<AtomicU64>,
-    /// A gap marker is already queued (or waiting for one queue slot).
-    outbound_gap_pending: Arc<AtomicBool>,
-    /// Responses waiting for a queue slot; notifications cannot consume these slots.
-    outbound_pending_controls: Arc<AtomicUsize>,
-    /// The bytes its queue holds, for `daemon status` (`queue_gauge.rs`).
-    queued: queue_gauge::Queued,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
@@ -199,11 +193,6 @@ pub struct Conn {
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
-    /// Its pace of full session lists (`hub/list_guard.rs`).
-    list_pace: StdMutex<crate::hub::list_guard::Pacer>,
-    /// `session_changed` notices queued for it, counted before each is queued
-    /// (`list_reply.rs`: a list sent after one must show its change).
-    notices: Arc<AtomicU64>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -255,8 +244,6 @@ pub struct Conn {
     in_flight: in_flight::InFlight,
     /// Its windows over the chat index (`chat_windows.rs`).
     chat_windows: chat_windows::ConnWindows,
-    /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
-    cancel_refusals: Arc<requests::cancel_refused::Waiting>,
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
     /// on a transport whose writer does not compress.
     wire: Option<Arc<crate::frame_compress::Wire>>,
@@ -574,27 +561,13 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
-        enqueue_outbound(
-            &self.out,
-            line.to_owned(),
-            false,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-            &self.queued,
-        );
+        self.out.push(line.to_owned());
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
         self.raise_gate();
-        // A request to the client waits on its answer, so it is never dropped as lossy.
-        let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
-        if msg.method() == Some(method::MUX_SESSION_CHANGED) {
-            self.notices.fetch_add(1, Ordering::SeqCst);
-        }
         let redacted = if self.origin == Origin::Peer {
             let mut copy = msg.clone();
             let changed = match &mut copy {
@@ -617,16 +590,7 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
-                enqueue_outbound(
-                    &self.out,
-                    line,
-                    control,
-                    &self.outbound_dropped,
-                    &self.outbound_gap_pending,
-                    &self.outbound_lock,
-                    &self.outbound_pending_controls,
-                    &self.queued,
-                );
+                self.out.push(line);
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
@@ -637,29 +601,20 @@ impl Conn {
     /// reads again from its last record.
     fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
         tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
-        enqueue_outbound(
-            &self.out,
+        self.out.push(
             Message::notification(
                 "_acpmux/lagged",
                 json!({"dropped": 1, "reason": "message_too_large"}),
             )
             .to_line(),
-            false,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-            &self.queued,
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
-    /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
-    /// if a notice was queued since, it is not sent (false) unless `anyway`. A reply that
-    /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
-    /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
-    /// One larger than a frame goes as its error, as in [`Self::send`].
-    /// None if it was not sent; else whether it went whole into an open queue (not as its
-    /// too-large error, nor into a queue whose reader is gone).
+    /// already for a peer. A `session_changed` notice may go before it: the client keeps each
+    /// row with the higher `listSeq` (`hub/row_log.rs`), so no reply is read again or followed by
+    /// a lag for it. One larger than a frame goes as its error, as in [`Self::send`].
+    /// Whether it went whole into an open queue (not as its too-large error, nor into a queue
+    /// whose reader is gone).
     /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
     /// the reply once it goes, never a list left for a newer one.
     /// `claim` takes the request's in-flight entry as the reply is queued, under the outbound
@@ -672,9 +627,7 @@ impl Conn {
         method: Option<&str>,
         claim: Option<&in_flight::Claim>,
         result: Arc<String>,
-        seen: u64,
-        anyway: bool,
-    ) -> Option<bool> {
+    ) -> bool {
         // A result past the cap alone is refused before its line is made: no copy of it.
         let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
             let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
@@ -688,18 +641,10 @@ impl Conn {
                 (Message::err(id.clone(), RpcError::too_large(bytes)).to_line(), bytes, false)
             }
         };
-        let lag = || {
-            let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
-            Message::notification("_acpmux/lagged", lag).to_line()
-        };
         self.raise_gate();
-        let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let stale = self.notices.load(Ordering::SeqCst) != seen;
-        if stale && !anyway {
-            return None;
-        }
+        let mut queue = self.out.lock();
         if claim.is_some_and(|claim| !self.in_flight.claim(claim)) {
-            return Some(false);
+            return false;
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
@@ -710,82 +655,30 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        let line_bytes = line.len();
-        match self.out.try_send(line) {
-            Ok(()) => {
-                self.queued.queued(line_bytes, &self.out);
-                if stale {
-                    self.enqueue_control_locked(lag());
-                }
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
-            // No room: it waits for some, and a notice may go first; then the lag follows it.
-            Err(mpsc::error::TrySendError::Full(line)) => {
-                let (out, notices) = (self.out.clone(), self.notices.clone());
-                let pending = self.outbound_pending_controls.clone();
-                pending.fetch_add(1, Ordering::AcqRel);
-                // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
-                let waiting = self.queued.waiting(line_bytes);
-                let queued = self.queued.clone();
-                self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() {
-                        queued.queued(line_bytes, &out);
-                        drop(waiting);
-                        if notices.load(Ordering::SeqCst) != seen {
-                            let lag = lag();
-                            let lag_bytes = lag.len();
-                            if out.send(lag).await.is_ok() {
-                                queued.queued(lag_bytes, &out);
-                            }
-                        }
-                    }
-                    pending.fetch_sub(1, Ordering::AcqRel);
-                });
-            }
+        // One queue, in order: a notice queued after this reply goes after it. The client keeps
+        // each row with the higher `listSeq` (`hub/row_log.rs`), so their order does not matter.
+        if !queue.push(line) {
+            return false;
         }
-        Some(whole)
+        whole
     }
 
     /// [`Self::send`] for a request to the client that must go out after every response and
-    /// request queued before it ([`enqueue_after_controls`]): a GitHub action after the watch
-    /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
-    /// while one of those still waits for room, or when it is larger than a frame.
+    /// request queued before it: a GitHub action after the watch answer that opened the Mac's
+    /// side (`hub/github_owner.rs`). The queue keeps its lines in order (`outbound.rs`), so it
+    /// goes after them; refused, with nothing sent, when the connection ended or the request is
+    /// larger than a frame.
     fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
         self.raise_gate();
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         let line = msg.bounded_line().map_err(RpcError::too_large)?;
-        if self.out.is_closed() {
+        if self.out.is_closed() || !self.out.push(line) {
             return Err(RpcError::internal("the connection that would answer ended"));
-        }
-        let queued = enqueue_after_controls(
-            &self.out,
-            line,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-            &self.queued,
-        );
-        if !queued {
-            return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
-                .with_data(json!({"reason": "client.busy", "retryable": true})));
         }
         Ok(())
     }
 
-    fn enqueue_control_locked(&self, line: String) {
-        enqueue_outbound_locked(
-            &self.out,
-            line,
-            true,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-            &self.queued,
-        );
-    }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -898,6 +791,15 @@ pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
+    serve_unix_with_v2(hub, listener, None).await
+}
+
+#[cfg(unix)]
+pub async fn serve_unix_with_v2(
+    hub: Arc<Hub>,
+    listener: UnixListener,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -908,6 +810,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             }
         };
         let hub = hub.clone();
+        let v2 = v2.clone();
         tokio::spawn(async move {
             // Named by its audit token, read once here, never by pid.
             let peer = {
@@ -922,7 +825,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 .and_then(|c| c.pid())
                 .and_then(|p| u32::try_from(p).ok())
                 .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer).await;
+            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
         });
     }
 }
@@ -1361,7 +1264,10 @@ pub async fn serve_ws_until(
             }
             // Binary frames are upload data (`upload_frames.rs`), written in order by their own
             // worker; it refuses them on any connection but the local app's.
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
+            // Answered through the connection's outbound queue once it is made, in order with
+            // every other line and counted against its byte bound (`outbound.rs`).
+            let (uploads, replies) = tokio::sync::watch::channel(None);
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
             let read_shutdown = shutdown.clone();
             let reader = tokio::spawn(async move {
                 tokio::select! {
@@ -1424,8 +1330,21 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire), None)
-                .await;
+            serve_connection_from(
+                hub,
+                in_rx,
+                out_tx,
+                origin,
+                proof,
+                None,
+                false,
+                SocketPeer::Unknown,
+                device,
+                Some(wire),
+                None,
+                Some(uploads),
+            )
+            .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -1610,6 +1529,7 @@ pub(super) async fn serve_outbox_connection(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1633,6 +1553,7 @@ pub async fn serve_connection_authed(
         None,
         false,
         SocketPeer::Unknown,
+        None,
         None,
         None,
         None,
@@ -1663,6 +1584,7 @@ async fn serve_connection_from(
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
     carrier: Option<carrier::Attested>,
+    uploads: Option<upload_frames::Replies>,
 ) {
     // A carrier proof comes with the person the carrier socket read, and only with it.
     let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
@@ -1674,7 +1596,12 @@ async fn serve_connection_from(
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
     let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
-    let (out, gate) = durable_gate::install(hub.store.durability(), out);
+    let (out, gate) = outbound::start(&hub.scope, hub.store.durability(), out);
+    // The upload worker's answers (`upload_frames.rs`) go into the same queue: it holds no sender
+    // of the transport, so the pump stays its only one.
+    if let Some(uploads) = &uploads {
+        uploads.send_replace(Some(Arc::downgrade(&out)));
+    }
     // The listener's own peer link: the only transport with a writer that compresses (`wire`)
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
@@ -1699,18 +1626,11 @@ async fn serve_connection_from(
         presence: client.presence(),
         out,
         gate,
-        outbound_lock: Arc::new(StdMutex::new(())),
-        outbound_dropped: Arc::new(AtomicU64::new(0)),
-        outbound_gap_pending: Arc::new(AtomicBool::new(false)),
-        outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
-        queued: Default::default(),
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
-        list_pace: Default::default(),
-        notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -1739,7 +1659,6 @@ async fn serve_connection_from(
         client_requests: Default::default(),
         in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
-        cancel_refusals: Default::default(),
         wire,
         dual_principal,
     });
@@ -1769,7 +1688,16 @@ async fn serve_connection_from(
     let cancel_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
     let mut cancel_waits: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let dropped_notifications = Arc::new(AtomicU64::new(0));
-    while let Some(line) = inbound.recv().await {
+    loop {
+        // A reader past its byte bound is disconnected (`outbound.rs`): it reads again from its
+        // cursor on a new connection, so nothing this one would still ask is answered. So is one
+        // whose output ended (its reader gone, the journal's writer ended).
+        let line = tokio::select! {
+            biased;
+            () = conn.out.closed() => None,
+            line = inbound.recv() => line,
+        };
+        let Some(line) = line else { break };
         if line.trim().is_empty() {
             continue;
         }
@@ -2163,6 +2091,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
             !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
         };
+        // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
+        // that did not by its seq alone (`MUX_UNSENT`).
+        let mut sent = repeat || sub.event_stream;
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
@@ -2203,13 +2134,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                         None => conn.send(&message()),
                     }
                 }
+                sent = true;
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
                     routed(event_value(&ev.session_id, rec)),
                 ));
+                sent = true;
             }
+        }
+        // The owner's copy of this chat takes a live record only next to what it covers
+        // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
+        // stopped it until the next page, so a move during a long turn found a copy without
+        // the running turn or the prompts queued behind it.
+        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+            conn.send(&Message::notification(
+                method::MUX_UNSENT,
+                json!({"sessionId": ev.session_id, "seq": rec.seq}),
+            ));
         }
         if message && heard && !repeat {
             // Routed as the event beside it: a peer's chat id alone may match one here.
@@ -2364,23 +2307,19 @@ mod bg_tasks;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
+mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) mod outbox;
+mod pairing;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
 pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
-use outbound::{
-    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
-    report_outbound_loss_locked,
-};
-mod machine_tunnel;
-pub(crate) mod outbox;
-mod pairing;
 pub use pairing::serve_connection_device;
 pub mod peer_auth;
 mod peer_forward;
@@ -2450,6 +2389,10 @@ mod list_web_page_tests;
 #[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "reader_bound_bench.rs"]
+mod reader_bound_bench;
 
 #[cfg(test)]
 #[path = "reply_size_tests.rs"]
