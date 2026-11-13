@@ -35,6 +35,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 CHECKER = ROOT / "scripts/ci/check-browser-data-import-absent.sh"
 APP = "build-universal/Build/Products/Release/cmux.app"
@@ -268,8 +273,8 @@ class BackgroundStepTests(unittest.TestCase):
             gh.write_text('#!/bin/bash\ncase "$*" in\n  *attempts/1*) echo 2026-11-08T00:00:00Z ;;\n'
                           f'{cases}  *) echo ;;\nesac\n')
             gh.chmod(0o755)
-            env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "BUILD": "4200101", "BUILD_SHA": sha,
-                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output)}
+            env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:/usr/bin:/bin", "BUILD": "4200101", "BUILD_SHA": sha,
+                                               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output)})
             if names is not None:
                 env["DSYMS_NAMES"] = names
             result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/nightly-steps/dsyms-find-attempt.sh")],
@@ -338,10 +343,11 @@ class OneJobNoticesInBackgroundTests(unittest.TestCase):
         self.app = self.ws / "build-universal/Build/Products/Release/cmux.app/Contents/Resources"
         self.app.mkdir(parents=True)
         (self.app / "THIRD_PARTY_LICENSES.md").write_text("committed\n")
+        git_fixture_env.init_repo(self.ws)
         git = ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-        subprocess.run(["git", "init", "-q", str(self.ws)], check=True)
-        subprocess.run([*git, "add", "THIRD_PARTY_LICENSES.md"], check=True)
-        subprocess.run([*git, "commit", "-q", "-m", "x"], check=True)
+        env = git_fixture_env.fixture_env()
+        subprocess.run([*git, "add", "THIRD_PARTY_LICENSES.md"], check=True, env=env)
+        subprocess.run([*git, "commit", "-q", "-m", "x"], check=True, env=env)
         self.runner_temp = self.tmp / "runner-temp"
         self.runner_temp.mkdir()
 
@@ -352,7 +358,8 @@ class OneJobNoticesInBackgroundTests(unittest.TestCase):
         gen.chmod(0o755)
 
     def run_step(self, name: str, job: str = ONE_JOB) -> subprocess.CompletedProcess:
-        env = {**os.environ, "RUNNER_TEMP": str(self.runner_temp), **(step(job, name).get("env") or {})}
+        env = git_fixture_env.fixture_env({**os.environ, "RUNNER_TEMP": str(self.runner_temp),
+                                           **(step(job, name).get("env") or {})})
         return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
                               text=True, capture_output=True, timeout=60)
 
