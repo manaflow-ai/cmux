@@ -24,7 +24,7 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]{0,199}$/;
 const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 const HARNESS_KEYS = [
   "id", "name", "brand", "families", "modelSource", "docsUrl", "sources", "defaultModel", "defaultEffort",
-  "dropEfforts", "shortNamePrefix", "familyNames", "familyOrder", "groupByProvider", "familyAliases", "position",
+  "dropEfforts", "shortNamePrefix", "familyNames", "groupByProvider", "familyAliases", "position",
 ];
 const SOURCE_KEYS = ["provider", "include", "exclude", "minReleaseDate"];
 const MODEL_KEYS = ["name", "shortName", "family", "provider", "efforts", "defaultEffort", "fast", "aliases", "status", "hidden"];
@@ -93,7 +93,6 @@ export function checkHarnessValue(harnessId: string, raw: unknown): void {
   if (value.dropEfforts !== undefined) strings(value.dropEfforts, "value.dropEfforts", effort);
   if (value.shortNamePrefix !== undefined) string(value.shortNamePrefix, "value.shortNamePrefix");
   if (value.familyNames !== undefined) stringMap(value.familyNames, "value.familyNames");
-  if (value.familyOrder !== undefined) strings(value.familyOrder, "value.familyOrder");
   if (value.familyAliases !== undefined) stringMap(value.familyAliases, "value.familyAliases");
   optionalBool(value.groupByProvider, "value.groupByProvider");
 }

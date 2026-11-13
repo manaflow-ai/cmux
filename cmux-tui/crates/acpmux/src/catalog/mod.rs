@@ -2,7 +2,7 @@
 //! which harnesses the pickers list and which models each offers, so a new
 //! model reaches users without an app or acpmux update.
 //!
-//! Sources, the first that holds a valid copy wins:
+//! Sources, with live entries winning and missing releases supplied by the bundle:
 //! 1. the last good copy fetched from [`fetch::CATALOG_URL`], kept in
 //!    `$ACPMUX_HOME/catalog/models-v1.json` (written atomically);
 //! 2. the copy bundled in this binary (`catalog/models-v1.json`, generated
@@ -17,6 +17,7 @@
 use cmux_json::JsonSet as _;
 
 pub mod fetch;
+mod merge;
 pub mod schema;
 
 use std::path::{Path, PathBuf};
@@ -73,6 +74,7 @@ struct State {
 }
 
 pub struct CatalogService {
+    bundled: Arc<Catalog>,
     state: Mutex<State>,
     dir: Mutex<Option<PathBuf>>,
     fetcher: Mutex<Option<Arc<dyn Fetcher>>>,
@@ -147,9 +149,11 @@ impl CatalogService {
 
     /// Starts from `catalog` as the bundled copy (tests).
     pub fn with_bundled(catalog: Catalog) -> Self {
+        let catalog = Arc::new(catalog);
         Self {
+            bundled: catalog.clone(),
             state: Mutex::new(State {
-                catalog: Arc::new(catalog),
+                catalog,
                 source: Source::Bundled,
                 etag: None,
                 fetched_at_ms: None,
@@ -187,7 +191,7 @@ impl CatalogService {
             let mut state = self.state();
             // ISO-8601 UTC strings of the same shape order as text.
             if catalog.generated_at >= state.catalog.generated_at {
-                state.catalog = Arc::new(catalog);
+                state.catalog = Arc::new(merge::with_bundled(catalog, &self.bundled));
                 state.source = Source::Stored;
                 state.etag = copy.etag;
                 state.fetched_at_ms = Some(copy.fetched_at_ms);
@@ -234,7 +238,7 @@ impl CatalogService {
 
     /// Takes a fetched body when it is valid; true when the catalog in use changed.
     fn accept(&self, body: &[u8], etag: Option<String>) -> Result<bool, CatalogError> {
-        let catalog = schema::parse(body)?;
+        let catalog = merge::with_bundled(schema::parse(body)?, &self.bundled);
         let fetched_at = now_ms();
         let changed = {
             let mut state = self.state();
@@ -322,3 +326,6 @@ impl CatalogService {
 #[cfg(test)]
 #[path = "log_lock_tests.rs"]
 mod log_lock_tests;
+
+#[cfg(test)]
+mod merge_tests;
