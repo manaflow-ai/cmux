@@ -127,7 +127,7 @@ pub(super) fn prompt_id(key: &str) -> String {
 /// Removes reservations whose mutation was committed before the process lost
 /// the chance to release the file. Unsettled and malformed reservations stay
 /// so they continue to bind their original idempotency key.
-fn sweep_reservations(mux: &Arc<Mux>, store: &Store) {
+pub(super) fn sweep_reservations(mux: &Arc<Mux>, store: &Store) {
     let directory = store.directory.join(RESERVATIONS);
     let Ok(entries) = std::fs::read_dir(directory) else { return };
     for entry in entries.flatten() {
@@ -143,14 +143,14 @@ fn sweep_reservations(mux: &Arc<Mux>, store: &Store) {
     }
 }
 
-fn reservation_path(store: &Store, key: &str) -> PathBuf {
+pub(super) fn reservation_path(store: &Store, key: &str) -> PathBuf {
     let name = format!("{}.json", hex(&Sha256::digest(key.as_bytes())));
     store.directory.join(RESERVATIONS).join(name)
 }
 
 /// Binds `key` to `fingerprint`, or `idempotency.conflict` when it is
 /// already bound to another request.
-fn reserve(path: &Path, key: &str, fingerprint: &Value) -> Result<(), ResourceError> {
+pub(super) fn reserve(path: &Path, key: &str, fingerprint: &Value) -> Result<(), ResourceError> {
     let existing: Option<Reservation> =
         read_json(path).map_err(|error| io_failed(OPERATION, &error))?;
     match existing {

@@ -143,11 +143,11 @@ fn prompt_ids_are_raw_and_stable_across_sessions() {
 fn reservation_sweep_removes_committed_and_keeps_unsettled_files() {
     let session = session("sweep");
     let handed = RefCell::new(Vec::new());
-    let request = request("Review A", KEY);
-    send(&session, &request, Handover::Delivered, &handed).unwrap();
+    let first_request = request("Review A", KEY);
+    send(&session, &first_request, Handover::Delivered, &handed).unwrap();
 
     let committed_path = reservation_path(&session.store, KEY);
-    reserve(&committed_path, KEY, &fingerprint(&request)).unwrap();
+    reserve(&committed_path, KEY, &fingerprint(&first_request)).unwrap();
     let unsettled_key = "unsettled-key";
     let unsettled_request = request("Review B", unsettled_key);
     let unsettled_path = reservation_path(&session.store, unsettled_key);
