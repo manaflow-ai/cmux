@@ -41,13 +41,6 @@ final class FileExplorerService {
         return view
     }
 
-    /// The Find section of `controller`: ripgrep over the folder the explorer would show.
-    func makeFindSection(for controller: WindowController) -> FindSectionView {
-        FindSectionView(model: FindSectionModel(), rootFolder: { [weak self, weak controller] in
-            controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
-        }, effects: effects)
-    }
-
     /// Focus moved in `controller`: its Files tree follows the newly focused terminal's folder.
     func focusChanged(in controller: WindowController) {
         sections.object(forKey: controller)?.follow()

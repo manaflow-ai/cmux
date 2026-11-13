@@ -41,14 +41,21 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly-next-launch-smoke.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 GATE = ROOT / "scripts" / "ci" / "nightly-steps" / "launch-smoke-gate.sh"
 
 
 def load(name: str, path: Path):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -75,6 +82,11 @@ PASSED = {"verdict": "pass", "pid": 4242}
 NO_LAUNCH = {"verdict": "cannot-run", "failures": ["this process is in a Background session, not Aqua (no GUI)"]}
 NO_HOME = {"verdict": "fail", "pid": 4242, "exit": None,
            "failures": ["Home did not render within 90s"]}
+# The app stayed up with Home shown and said two times that its daemon is not connected (the harness's word).
+DAEMON_DOWN = {"verdict": "fail", "pid": 4242, "exit": None, "crash_reports": [], "run_exceptions": [],
+               "daemon_down": "the app's daemon (cmux-tui) was not connected when the watch ended (disconnected) "
+                              "and at the next read (disconnected)"}
+DAEMON_DOWN["failures"] = [DAEMON_DOWN["daemon_down"]]
 
 
 class VerdictTests(unittest.TestCase):
@@ -106,6 +118,81 @@ class VerdictTests(unittest.TestCase):
         report = {"verdict": "fail", "pid": 4242, "exit": None, "run_exceptions": ["run.exception"]}
         self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
 
+    def test_a_daemon_that_was_down_at_the_end_of_the_watch_holds_as_a_crash_holds(self) -> None:
+        # A build that shows Home with a dead daemon cannot be used. For the publish gate (daemon=True, its
+        # --daemon) it is evidence of the app as its end is, with the same rule: one attempt holds nothing, both
+        # attempts hold the build.
+        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN, True), smoke.CRASH)
+        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN, True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN)], daemon=True), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)], daemon=True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (124, DAEMON_DOWN)], daemon=True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, PASSED)], daemon=True), smoke.PASS)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, NO_HOME)], daemon=True), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (3, NO_LAUNCH)], daemon=True), smoke.CANNOT_RUN)
+        # Only with the harness's verdict and its launch: the word alone is no evidence.
+        for report in ({**DAEMON_DOWN, "verdict": "pass"}, {**DAEMON_DOWN, "pid": None},
+                       {k: v for k, v in DAEMON_DOWN.items() if k != "verdict"}, {**DAEMON_DOWN, "daemon_down": None},
+                       {**DAEMON_DOWN, "daemon_down": ""}):
+            self.assertEqual(smoke.attempt_result(1, report, True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.attempt_result(124, report, True), smoke.CANNOT_RUN, report)
+        for status in (0, 2, 3, 143, 137, -1):
+            self.assertEqual(smoke.attempt_result(status, DAEMON_DOWN, True), smoke.CANNOT_RUN, status)
+
+    def test_a_pass_with_the_daemon_of_another_launch_is_no_pass_for_the_gate(self) -> None:
+        # The daemon's socket is the account's, by session, not the home's: a launch can get the daemon of an
+        # installed build of its channel. The harness then marks the read; for the gate that asked (--daemon) the
+        # daemon was not judged, which is cannot-run (a warning), never a pass and never a hold.
+        other = {"state": "connected", "failure": None, "of_launch": False}
+        mine = {"state": "connected", "failure": None}
+        empty = {**PASSED, "daemon": [other]}
+        seeded = {**PASSED, "daemon": [mine], "arms": {"empty": {"verdict": "pass"},
+                                                      "seeded": {"verdict": "pass", "daemon": [other]}}}
+        for report in (empty, seeded, {**PASSED, "daemon": [{"state": "disconnected", "failure": None}, other]}):
+            self.assertEqual(smoke.attempt_result(0, report, True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(0, report)], daemon=True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, report)], daemon=True), smoke.CANNOT_RUN, report)
+            # The post-publish smoke does not ask: its verdict is the one of before.
+            self.assertEqual(smoke.attempt_result(0, report), smoke.PASS, report)
+        for report in ({**PASSED, "daemon": [mine]}, {**PASSED, "daemon": None}, {**PASSED, "daemon": "connected"},
+                       {**PASSED, "daemon": [{"state": None, "failure": None}], "arms": {"seeded": "not-run"}}):
+            self.assertEqual(smoke.attempt_result(0, report, True), smoke.PASS, report)
+        # A crash stays a crash: the mark changes a pass only.
+        self.assertEqual(smoke.verdict([(1, {**RAN, "daemon": [other]})] * 2, daemon=True), smoke.CRASH)
+
+    def test_the_post_publish_smoke_never_rolls_a_build_back_for_its_daemon(self) -> None:
+        # The daemon check is the publish gate's alone (FABLE LEAD, 2026-11-12: a feed rollback and an issue
+        # "crashed at launch" are acts on a published nightly, and a daemon that is down after the gate passed the
+        # same build is more probably the host's). The post-publish smoke asks for its verdict with no --daemon:
+        # a report that says `daemon_down` is for it what it was before the check, never a crash.
+        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, RAN), (1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
+        with tempfile.TemporaryDirectory() as tmp:
+            for n in (1, 2):
+                (Path(tmp) / f"attempt-{n}").mkdir()
+                (Path(tmp) / f"attempt-{n}" / "report.json").write_text(json.dumps(DAEMON_DOWN))
+                (Path(tmp) / f"status-{n}").write_text("1\n")
+
+            def said(*extra: str) -> str:
+                return subprocess.run([sys.executable, smoke.__file__, *extra], capture_output=True, text=True,
+                                      check=True).stdout.strip()
+
+            self.assertEqual(said("verdict", "--dir", tmp), smoke.CANNOT_RUN)
+            self.assertEqual(said("attempt", "--dir", tmp, "--number", "2"), smoke.CANNOT_RUN)
+            self.assertEqual(said("verdict", "--dir", tmp, "--daemon"), smoke.CRASH)
+            self.assertEqual(said("attempt", "--dir", tmp, "--number", "2", "--daemon"), smoke.CRASH)
+        # Who asks: the gate script, in its harness call and its 2 reads; no other caller of the 2 scripts.
+        ci = ROOT / "scripts" / "ci"
+        gate = GATE.read_text()
+        self.assertIn('attempt --dir "$dir" --number "$attempt" --daemon 2>/dev/null', gate)
+        self.assertIn('verdict --dir "$dir" --daemon)"', gate)
+        for other in (ROOT / ".github" / "workflows" / "nightly-next-launch-smoke.yml",
+                      ROOT / ".github" / "workflows" / "stable-next.yml", ci / "stable-next-smoke.sh",
+                      ci / "stable_next_ui_journey.py"):
+            self.assertNotIn("--daemon", other.read_text(), other.name)
+
     def test_a_clean_exit_or_missing_app_evidence_is_not_a_launch_crash(self) -> None:
         report = {"verdict": "fail", "pid": 4242, "exit": 0, "failures": ["Home did not render"]}
         self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN)
@@ -117,6 +204,35 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(smoke.verdict([(1, {}), (1, {})]), smoke.CANNOT_RUN)
         self.assertEqual(smoke.verdict([(1, {"verdict": "fail"}), (1, {"verdict": "fail"})]), smoke.CANNOT_RUN)
         self.assertEqual(smoke.verdict([(0, {})]), smoke.CANNOT_RUN)
+
+    def test_an_attempt_that_the_gate_cut_is_read_by_its_report(self) -> None:
+        # launch-smoke-gate.sh writes status 124 for an attempt that its watchdog stopped. The harness writes its
+        # verdict before it keeps the evidence, so a report that says the app ended is a crash at the cut too:
+        # read as cannot-run, a build that crashed in both attempts was published (cannot-run never holds).
+        self.assertEqual(smoke.CUT, 124)
+        self.assertIn(f"status={smoke.CUT}\n", GATE.read_text())
+        self.assertEqual(smoke.attempt_result(124, RAN), smoke.CRASH)
+        seeded = {"verdict": "fail", "pid": 4243, "exit": -11, "arm": "seeded", "crash_reports": [],
+                  "failures": ["seeded home: the app exited (signal 11) 2.6s after launch"]}
+        self.assertEqual(smoke.attempt_result(124, seeded), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN), (124, seeded)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (124, RAN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN), (1, RAN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN)]), smoke.CANNOT_RUN)  # one crash is never a hold
+        self.assertEqual(smoke.verdict([(124, RAN), (0, PASSED)]), smoke.PASS)
+
+    def test_a_cut_attempt_with_no_evidence_of_the_apps_end_is_cannot_run(self) -> None:
+        # The cut alone says nothing of the app: no report, a report with no verdict yet (the cut came while the
+        # app was watched), a live app with no Home, and a pass that the cut did not let end.
+        for report in ({}, {"pid": 4242}, {"verdict": "fail", "pid": 4242}, NO_HOME, NO_LAUNCH, PASSED,
+                       {"verdict": "fail", "exit": -11}, {"verdict": "pass", "pid": 4242, "exit": -11},
+                       {"verdict": "fail", "pid": 4242, "exit": 0}):
+            self.assertEqual(smoke.attempt_result(124, report), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(124, report), (124, report)]), smoke.CANNOT_RUN, report)
+        self.assertEqual(smoke.verdict([(124, RAN), (124, NO_HOME)]), smoke.CANNOT_RUN)
+        # Only the gate's own cut: a harness that a signal ended with no watchdog (143, 137) is as before.
+        for status in (143, 137, 2, 3, -1):
+            self.assertEqual(smoke.attempt_result(status, RAN), smoke.CANNOT_RUN, status)
 
     def test_attempts_are_read_from_the_runs_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,7 +346,7 @@ class DmgDigestTests(unittest.TestCase):
     def test_the_download_step_verifies_the_bytes(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertEqual(jobs["pick"]["outputs"]["ed_signature"], "${{ steps.feed.outputs.ed_signature }}")
-        self.assertEqual(jobs["smoke"]["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        self.assertEqual(workflow_jobs.resolve(jobs["smoke"]).env["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
         sparse = jobs["smoke"]["steps"][0]["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
         self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
@@ -343,21 +459,22 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         # The one secret is the routing App's key, read on Linux by the pick's placement (a read-only
         # token for the runner and queue reads), never by a pull request's run and never on the Mac
         # that runs the published app.
-        mints = [step for step in self.jobs["pick"]["steps"] if "secrets." in json.dumps(step)]
+        mints = [step for step in self.jobs["pick"]["steps"] if workflow_jobs.secret_names(step)]
         self.assertEqual([step.get("id") for step in mints], ["route-token"])
         self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
         self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
                          {"permission-administration": "read", "permission-organization-self-hosted-runners": "read"})
         for name, job in self.jobs.items():
             if name != "pick":
-                self.assertNotIn("secrets.", json.dumps(job), name)
+                self.assertEqual(workflow_jobs.secret_names(job), set(), name)
         allowed = {"actions": "write", "contents": "read", "issues": "write"}
         self.assertEqual(self.workflow.get("permissions"), {})
         for name, job in self.jobs.items():
             if name == "pick":
-                self.assertEqual(job["environment"], "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}")
+                self.assertEqual(workflow_jobs.resolve(job).environment,
+                                 {"name": "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}"})
                 continue
-            self.assertNotIn("environment", job, name)
+            self.assertIsNone(workflow_jobs.resolve(job).environment, name)
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
@@ -374,7 +491,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertEqual(self.workflow["concurrency"]["group"],
                          "nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && "
                          "format('pr-{0}', github.event.pull_request.number) || github.run_id }}")
-        runs_on = self.jobs["smoke"]["runs-on"]
+        cells = workflow_jobs.runs_on_cells(self.jobs["smoke"])
+        self.assertIsNotNone(cells, "smoke: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
@@ -473,7 +593,7 @@ class PrePublishGateTests(unittest.TestCase):
         self.assertLess(index, upload, f"{job}: the smoke must run before the tested digests upload")
         # The app runs only in a job without secrets or an environment.
         self.assertNotIn("environment", self.jobs[job])
-        self.assertNotIn("secrets.", json.dumps(self.jobs[job]))
+        self.assertEqual(workflow_jobs.secret_names(self.jobs[job]), set())
 
     def test_this_runs_build_is_smoked_before_publish(self) -> None:
         self.assert_gates("verify-final-dmg-nightly", 'final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg')
@@ -502,7 +622,8 @@ class PrePublishGateTests(unittest.TestCase):
 class GateScriptTests(unittest.TestCase):
     """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
 
-    def run_gate(self, plan: list[str], attempt_seconds: str = "60") -> tuple[int, str, Path]:
+    def run_gate(self, plan: list[str], attempt_seconds: str = "60", stale: dict | None = None,
+                 stale_folder: bool = False, summary: str = "summary.md") -> tuple[int, str, Path]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ci = root / "scripts" / "ci"
@@ -531,33 +652,80 @@ class GateScriptTests(unittest.TestCase):
                 "        sys.exit(1)\n"
                 "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
                 "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
+                # What the real harness does when it is cut after its verdict (in the system log read or the wait
+                # for a late report): it stops, writes the report it has and exits 128 + SIGTERM.
+                "if kind in ('cut-crash', 'cut-no-home', 'cut-daemon-down'):\n"
+                "    def cut(*_):\n"
+                "        said = {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',\n"
+                "                'failures': ['seeded home: the app exited (signal 11) 2.6s after launch'],\n"
+                "                'arms': {'empty': {'verdict': 'pass', 'exit': None}, 'seeded': {'verdict': 'fail', 'exit': -11}}}\n"
+                "        if kind == 'cut-no-home':\n"
+                "            said = {'verdict': 'fail', 'pid': 1, 'exit': None, 'failures': ['Home did not render within 90s']}\n"
+                "        if kind == 'cut-daemon-down':\n"
+                "            said = {'verdict': 'fail', 'pid': 1, 'exit': None, 'arm': 'empty',\n"
+                "                    'daemon_down': 'not connected', 'failures': ['the daemon was not connected']}\n"
+                "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps(said))\n"
+                "        sys.exit(143)\n"
+                "    signal.signal(signal.SIGTERM, cut)\n    time.sleep(30)\n"
+                # As the real harness: the daemon is read only for a caller that asks (--daemon), else a pass.
+                "if 'daemon-' in kind and '--daemon' not in sys.argv:\n    kind = 'pass'\n"
+                # As the real harness with --daemon: a launch that passed has its reads (the report's `daemon` is the
+                # empty home's, the seeded arm has its own).
                 "empty = {'verdict': 'pass', 'exit': None}\n"
-                "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                "up = [{'state': 'connected', 'failure': None}]\n"
+                "silent = [{'state': None, 'failure': None}]\n"
+                "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
+                " 'daemon-silent': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': silent,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
+                " 'seeded-daemon-silent': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass',"
+                " 'daemon': [{'state': 'disconnected', 'failure': None}] + silent}}},"
+                " 'daemon-reconnected': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'daemon': [{'state': 'disconnected', 'failure': None}] + up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
+                " 'daemon-unasked': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
                 " 'crash': {'verdict': 'fail', 'pid': 1, 'exit': -11, 'arm': 'empty',"
                 " 'failures': ['the app exited (signal 11)']},"
                 " 'seeded-crash': {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',"
                 " 'failures': ['seeded home: the app exited (signal 11) 2.5s after launch'],"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': -11}}},"
-                " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'daemon-down': {'verdict': 'fail', 'pid': 1, 'exit': None, 'arm': 'empty', 'daemon_down': 'not connected',"
+                " 'failures': ['the daemon was not connected']},"
+                " 'seeded-daemon-down': {'verdict': 'fail', 'pid': 2, 'exit': None, 'arm': 'seeded',"
+                " 'daemon_down': 'not connected', 'failures': ['seeded home: the daemon was not connected'],"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': None}}},"
+                " 'daemon-other': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'daemon': [{'state': 'connected', 'failure': None, 'of_launch': False}],"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
+                " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'not-run', 'reason': 'its cookie sync did not read\\nthe seeded store'}}},"
-                " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'cannot-run', 'reason': 'RuntimeError: no seed today'}}},"
                 " 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'seeded-cannot-run': 0,"
+                " 'daemon-down': 1, 'seeded-daemon-down': 1, 'daemon-other': 0, 'daemon-silent': 0,"
+                " 'seeded-daemon-silent': 0, 'daemon-unasked': 0, 'daemon-reconnected': 0,"
                 " 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
             (root / "runner").mkdir()
+            if stale is not None:  # a report that an earlier run of the gate left in this RUNNER_TEMP
+                for n in (1, 2):
+                    (root / "runner" / "launch-smoke" / f"attempt-{n}").mkdir(parents=True)
+                    (root / "runner" / "launch-smoke" / f"attempt-{n}" / "report.json").write_text(json.dumps(stale))
+            if stale_folder:
+                (root / "runner" / "launch-smoke" / "attempt-1" / "report.json" / "kept").mkdir(parents=True)
             env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
                    "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
-                   "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
+                   "GITHUB_STEP_SUMMARY": str(root / summary)}
             result = subprocess.run(["bash", str(ci / "nightly-steps" / GATE.name), str(dmg)], env=env,
                                     capture_output=True, text=True, timeout=60)
             cleaned = (root / "runner" / "launch-smoke" / "attempt-1" / "cleaned").exists()
-            self.summary = (root / "summary.md").read_text() if (root / "summary.md").exists() else ""
+            self.summary = (root / summary).read_text() if (root / summary).exists() else ""
             return result.returncode, result.stdout + result.stderr, cleaned
 
     def test_a_pass_passes(self) -> None:
@@ -575,6 +743,109 @@ class GateScriptTests(unittest.TestCase):
         self.assertIn("from a seeded home (imported-cookie sync on) on both attempts", output)
         self.assertIn("not published", output)
         self.assertNotIn("from a seeded home", self.run_gate(["crash", "crash"])[1])
+
+    def test_a_daemon_that_is_down_on_both_attempts_holds_the_build_and_the_gate_says_so(self) -> None:
+        status, output, _ = self.run_gate(["daemon-down", "daemon-down"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("the app's daemon was not connected after launch from a fresh home on both attempts", output)
+        self.assertIn("not published", output)
+        self.assertNotIn("crashed at launch", output)
+        self.assertIn("### Launch smoke: crash", self.summary)
+        self.assertIn("the daemon was not connected", self.summary)
+        status, output, _ = self.run_gate(["seeded-daemon-down", "seeded-daemon-down"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("the app's daemon was not connected after launch from a seeded home (imported-cookie sync on) "
+                      "on both attempts", output)
+
+    def test_a_held_build_whose_2_attempts_failed_in_2_ways_is_told_each_attempts_own_cause(self) -> None:
+        # The error line took its cause from the last attempt and said "on both attempts": for a daemon that was
+        # down and then a crash it said "crashed at launch ... on both attempts", which was not true. A person who
+        # reads a held nightly gets each attempt's cause and home.
+        down, crash = "the app's daemon was not connected after launch", "the app crashed at launch"
+        fresh, seeded = "from a fresh home", "from a seeded home (imported-cookie sync on)"
+        for plan, first, second in ((["daemon-down", "crash"], f"{down} {fresh}", f"{crash} {fresh}"),
+                                    (["crash", "daemon-down"], f"{crash} {fresh}", f"{down} {fresh}"),
+                                    (["seeded-daemon-down", "daemon-down"], f"{down} {seeded}", f"{down} {fresh}"),
+                                    (["crash", "seeded-crash"], f"{crash} {fresh}", f"{crash} {seeded}")):
+            status, output, _ = self.run_gate(plan)
+            self.assertEqual(status, 1, (plan, output))
+            self.assertIn(f"::error title=nightly-next launch smoke::{first} on attempt 1, and {second} on attempt 2; "
+                          "this build is not published", output, plan)
+            self.assertNotIn("on both attempts", output, plan)
+        # The same cause in the same home stays one sentence.
+        self.assertIn(f"::error title=nightly-next launch smoke::{crash} from a fresh home on both attempts; "
+                      "this build is not published", self.run_gate(["crash", "crash"])[1])
+
+    def test_a_daemon_that_a_cut_attempt_saw_down_holds_as_a_cut_crash_holds(self) -> None:
+        # The gate reads a cut attempt with --daemon too (its `attempt` call): without it a cut attempt whose report
+        # says `daemon_down` ends the check, and a build with a dead daemon and slow evidence is published.
+        status, output, _ = self.run_gate(["cut-daemon-down", "cut-daemon-down"], attempt_seconds="2")
+        self.assertEqual(status, 1, output)
+        self.assertIn("launch smoke attempt 2: exit 124", output)
+        self.assertIn("the app's daemon was not connected after launch from a fresh home on both attempts", output)
+        status, output, _ = self.run_gate(["cut-daemon-down", "daemon-down"], attempt_seconds="2")
+        self.assertEqual(status, 1, output)
+        for plan in (["cut-daemon-down", "pass"], ["cut-daemon-down", "cut-no-home"], ["cut-daemon-down", "hang"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 2: exit", output, plan)
+
+    def test_a_pass_whose_daemon_was_not_judged_says_so_and_holds_nothing(self) -> None:
+        # A read with no state (no answer, no field) is not judged, and the harness passes the launch. The gate
+        # printed "launch smoke passed" and no more: if the app renames the field, the check is off and nobody
+        # sees it. Said as the seeded home's arm is said: a warning and a summary line, never a hold.
+        why = "(the app gave no connected state when it was asked)"
+        for kind, where in (("daemon-silent", "in the empty home"), ("seeded-daemon-silent", "in the seeded home"),
+                            ("daemon-unasked", "in the empty home and in the seeded home")):
+            status, output, _ = self.run_gate([kind])
+            self.assertEqual(status, 0, (kind, output))
+            self.assertIn("launch smoke passed", output, kind)
+            self.assertIn(f"::warning title=nightly-next launch smoke::the daemon was not judged {where} {why}; "
+                          "the app launched and the build is not held", output, kind)
+            self.assertIn("### Launch smoke: pass", self.summary, kind)
+            self.assertIn(f"Daemon: the daemon was not judged {where} {why}. The app launched; the build is not held.",
+                          self.summary, kind)
+        # A launch whose reads end "connected" says nothing of it (the LAST read counts: a daemon that was
+        # connected again at the second read was judged); nor does a seeded home that did not pass (it has its
+        # own line), a daemon of another launch (its own warning) or a held build.
+        for plan in (["pass"], ["daemon-reconnected"], ["daemon-down", "pass"], ["seeded-not-run"],
+                     ["seeded-cannot-run"], ["daemon-other"], ["daemon-down", "daemon-down"]):
+            _, output, _ = self.run_gate(plan)
+            self.assertNotIn("the daemon was not judged", output + self.summary, plan)
+
+    def test_a_pass_stays_a_pass_when_the_job_summary_cannot_be_written(self) -> None:
+        # The pass branch ended with a write to the job summary. When that write fails (a runner fault: the file's
+        # folder is gone), its status was the script's: exit 1 with "launch smoke passed" and no error line, which
+        # holds a build that passed. Before the daemon line it was the seeded home's line that did so.
+        for kind in ("seeded-not-run", "daemon-silent", "seeded-daemon-silent", "daemon-unasked", "pass"):
+            with self.subTest(kind=kind):
+                status, output, _ = self.run_gate([kind], summary="gone/summary.md")
+                self.assertEqual(status, 0, output)
+                self.assertIn("launch smoke passed", output)
+        # What is held stays held, and what could not run stays a warning.
+        status, output, _ = self.run_gate(["daemon-down", "crash"], summary="gone/summary.md")
+        self.assertEqual(status, 1, output)
+        self.assertIn("this build is not published", output)
+        status, output, _ = self.run_gate(["cannot-run"], summary="gone/summary.md")
+        self.assertEqual(status, 0, output)
+        self.assertIn("::warning", output)
+
+    def test_a_pass_with_the_daemon_of_another_launch_is_a_warning_and_never_a_pass(self) -> None:
+        status, output, _ = self.run_gate(["daemon-other", "pass"])
+        self.assertEqual(status, 0, output)
+        self.assertNotIn("launch smoke attempt 2", output)  # as each cannot-run: no second attempt
+        self.assertIn("::warning title=nightly-next launch smoke::the app launched, but the daemon that it used was "
+                      "not of this launch (another build of its session is live on this account), so its daemon was "
+                      "not judged; the build is not held", output)
+        self.assertNotIn("launch smoke passed", output)
+        self.assertIn("### Launch smoke: cannot-run", self.summary)
+
+    def test_a_daemon_that_is_down_on_one_attempt_never_holds_the_build(self) -> None:
+        for plan in (["daemon-down", "pass"], ["daemon-down", "cannot-run"], ["daemon-down"],
+                     ["seeded-daemon-down", "seeded-not-run"], ["crash", "pass"]):
+            status, output, _ = self.run_gate(plan)
+            self.assertEqual(status, 0, (plan, output))
+            self.assertNotIn("not published", output, plan)
 
     def test_one_seeded_crash_or_a_seeded_home_that_did_not_run_never_holds_the_build(self) -> None:
         self.assertEqual(self.run_gate(["seeded-crash", "pass"])[0], 0)
@@ -601,7 +872,7 @@ class GateScriptTests(unittest.TestCase):
     def test_the_gate_asks_the_harness_for_both_homes_in_its_one_call(self) -> None:
         text = GATE.read_text()
         self.assertEqual(text.count("fresh_home_launch_smoke.py\" \\\n"), 1)  # one call: no second launch step
-        self.assertIn('--dmg "$dmg" --out "$out" --arms empty,seeded &', text)
+        self.assertIn('--dmg "$dmg" --out "$out" --arms empty,seeded --daemon &', text)
 
     def test_what_could_not_run_never_holds_the_build(self) -> None:
         status, output, _ = self.run_gate(["cannot-run"])
@@ -615,6 +886,54 @@ class GateScriptTests(unittest.TestCase):
         self.assertTrue(cleaned, "the harness got SIGTERM and ran its cleanup")
         self.assertIn("still running after 2s", output)
         self.assertIn("::warning", output)
+
+    def test_a_crash_that_both_cut_attempts_saw_holds_the_build(self) -> None:
+        # The hole: an attempt that is cut after the harness saw the app end was cannot-run, so the gate made no
+        # second attempt and the build was published. Now it is a crash of that attempt, as its report says.
+        status, output, _ = self.run_gate(["cut-crash", "cut-crash"], attempt_seconds="2")
+        self.assertEqual(status, 1, output)
+        self.assertIn("launch smoke attempt 1: still running after 2s, stopped", output)
+        self.assertIn("launch smoke attempt 2: exit 124", output)
+        self.assertIn("from a seeded home (imported-cookie sync on) on both attempts", output)
+        self.assertIn("not published", output)
+        self.assertIn("### Launch smoke: crash", self.summary)
+        for plan in (["cut-crash", "seeded-crash"], ["crash", "cut-crash"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 1, (plan, output))
+
+    def test_one_cut_crash_or_a_cut_with_no_crash_never_holds_the_build(self) -> None:
+        for plan in (["cut-crash", "pass"], ["cut-crash", "cannot-run"], ["cut-crash", "hang"],
+                     ["cut-crash", "cut-no-home"], ["seeded-crash", "hang"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 2: exit", output, plan)
+        # A cut with no crash in its report ends the check, as before: no second attempt.
+        for plan in (["cut-no-home", "crash"], ["hang", "crash"], ["stubborn", "crash"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertNotIn("launch smoke attempt 2", output, plan)
+            self.assertIn("::warning", output, plan)
+
+    def test_a_report_that_an_earlier_run_left_is_never_this_attempts_report(self) -> None:
+        # A cut attempt is read by its report, so the report must be THIS attempt's. A harness that is killed
+        # writes none: an old report in the attempt's folder (a crash of another run) must not hold this build.
+        old = {"verdict": "fail", "pid": 9, "exit": -11, "failures": ["the app exited (signal 11) 2.6s after launch"]}
+        for plan in (["stubborn", "stubborn"], ["stubborn"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="1", stale=old)
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 1: exit 124", output)
+            self.assertNotIn("launch smoke attempt 2", output)
+            self.assertNotIn("not published", output)
+            self.assertIn("### Launch smoke: cannot-run", self.summary)
+        # An old report that cannot be removed (here: a folder with that name) ends the check with no launch.
+        status, output, root = self.run_gate(["crash", "crash"], stale_folder=True)
+        self.assertEqual(status, 0, output)
+        self.assertIn("cannot be removed", output)
+        self.assertNotIn("launch smoke attempt 1: exit", output)
+        self.assertIn("### Launch smoke: cannot-run", self.summary)
+        # A report that this attempt wrote is still read, in a folder that had an old one.
+        status, output, _ = self.run_gate(["cut-crash", "cut-crash"], attempt_seconds="2", stale={"verdict": "pass", "pid": 9})
+        self.assertEqual(status, 1, output)
 
     def test_a_harness_that_ignores_sigterm_is_killed_and_never_holds_the_build(self) -> None:
         status, output, _ = self.run_gate(["stubborn"], attempt_seconds="1")

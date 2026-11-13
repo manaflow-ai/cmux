@@ -142,7 +142,7 @@ impl Watches {
                     path.display(),
                     bad.display()
                 );
-                if let Err(e) = std::fs::rename(path, bad) {
+                if let Err(e) = crate::home_fs::rename(path, bad) {
                     tracing::warn!("cannot preserve watch state: {e}");
                 }
                 Saved::default()

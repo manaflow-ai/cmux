@@ -5,8 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// The kinds `--kind` takes. `widget` (the new tab page's
-/// `cmux.newtab.widget/1`) joins once the validator knows that interface.
+/// The kinds `--kind` takes.
 pub(super) const KINDS: &[&str] = &["section"];
 
 const SECTION: &[(&str, &str)] = &[

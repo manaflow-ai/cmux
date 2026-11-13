@@ -3,7 +3,10 @@ public import AppKit
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
 public final class TitlebarBandButton: ClickableButton {
-    public static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    /// The chrome's one button size, the top row's (``TopRowSpacing/buttonSide``): the top-left band, the pane's top-right
+    /// tools, the sidebar's + and the tab bar's `+ ⌄` all draw at it (Lawrence 2026-11-11: "we want the same buttons
+    /// everywhere and for all the buttons to be the same size based on the density").
+    public static var side: CGFloat { TopRowSpacing.buttonSide }
     /// The SF Symbol it draws, or a custom glyph name ``customImage`` draws.
     public var symbol: String {
         didSet { if symbol != oldValue { renderedIconSize = 0; renderSymbol() } }

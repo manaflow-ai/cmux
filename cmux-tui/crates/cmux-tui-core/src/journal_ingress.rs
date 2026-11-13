@@ -225,6 +225,14 @@ pub(crate) enum JournalIngressEvent {
     /// A registry commit (effect receipt, terminal record, workspace
     /// registry revision) applied in the batch under its own SAVEPOINT.
     Effect(Box<crate::workspace_registry::RegistryIntent>),
+    /// A projected agent hook's retry row, deleted in the batch: the request
+    /// that projected the hook waits for it instead of committing the delete
+    /// on its own (mux/journal.rs finish_journal_ingress).
+    AgentHookCleared {
+        producer_id: String,
+        origin: String,
+        idempotency_key: String,
+    },
 }
 
 /// Which bounded ingress lane an event travels on. Terminal bytes and their
@@ -244,7 +252,10 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. } | Self::Producer { .. } | Self::Effect(_) => JournalLane::Durable,
+            Self::Frontend { .. }
+            | Self::Producer { .. }
+            | Self::Effect(_)
+            | Self::AgentHookCleared { .. } => JournalLane::Durable,
         }
     }
 
@@ -256,6 +267,11 @@ impl JournalIngressEvent {
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
             Self::Effect(intent) => intent.estimated_bytes(),
+            Self::AgentHookCleared { producer_id, origin, idempotency_key } => producer_id
+                .len()
+                .saturating_add(origin.len())
+                .saturating_add(idempotency_key.len())
+                .saturating_add(64),
             Self::Frontend { event, .. } => match event {
                 FrontendJournalEvent::Focus { .. } => 512,
                 FrontendJournalEvent::Resize { .. } => 256,
