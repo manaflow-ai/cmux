@@ -48,14 +48,26 @@ test("with nothing connected, the card says so and offers Add a Connection", asy
 
 test("Move Down sends the whole new order, and the rows follow", async () => {
   const rendered = await render(mockModels.macLogins);
-  expect(connectionIds(rendered)).toEqual(["codex-login", "claude-login", "chatgpt-plan-1", "key-openrouter"]);
+  expect(connectionIds(rendered)).toEqual([
+    "codex-login",
+    "claude-login",
+    "chatgpt-plan-1",
+    "claude-token-1",
+    "key-openrouter",
+  ]);
   await click(card(rendered).querySelector('[data-menu="connection-codex-login"]')!);
   const down = document.querySelector<HTMLElement>('[role="menuitem"][data-value="moveDown"]')!;
   await click(down);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "order", ids: ["claude-login", "codex-login", "chatgpt-plan-1", "key-openrouter"] },
+    { action: "order", ids: ["claude-login", "codex-login", "chatgpt-plan-1", "claude-token-1", "key-openrouter"] },
   ]);
-  expect(connectionIds(rendered)).toEqual(["claude-login", "codex-login", "chatgpt-plan-1", "key-openrouter"]);
+  expect(connectionIds(rendered)).toEqual([
+    "claude-login",
+    "codex-login",
+    "chatgpt-plan-1",
+    "claude-token-1",
+    "key-openrouter",
+  ]);
 });
 
 test("a ChatGPT plan row says so and links to its usage page", async () => {
@@ -112,7 +124,8 @@ test("a member reads the policy and the organization's keys with nothing to chan
   const organization = card(rendered).querySelector<HTMLElement>('[data-models-section="organization"]')!;
   expect(action(organization, "orgAdd")).toBeNull();
   expect(action(organization, "orgRemove")).toBeNull();
-  expect(organization.textContent).toContain("studio-mac · Online");
+  expect(organization.querySelector('[data-models-row="gateway"]')).toBeNull();
+  expect(organization.querySelector('[data-org-key="claude"]')?.textContent).toContain("Shared Claude key");
 });
 
 test("an owner's members switch sends the policy change", async () => {
@@ -139,4 +152,39 @@ test("a failed ChatGPT sign-in says why in plain words", async () => {
   const status = card(rendered).querySelector<HTMLElement>('[data-chatgpt="error"]')!;
   expect(status.textContent).toContain("didn't allow use of its plan");
   expect(status.textContent).not.toContain("no_plan_scope");
+});
+
+test("Mac logins that Cloud threads cannot use say This Mac only", async () => {
+  const rendered = await render(mockModels.macLogins);
+  const local = [...card(rendered).querySelectorAll<HTMLElement>("[data-connection]")]
+    .filter((row) => row.querySelector("[data-connection-local]"))
+    .map((row) => row.dataset.connection);
+  expect(local).toEqual(["codex-login", "claude-login"]);
+  expect(card(rendered).querySelector('[data-connection="codex-login"] [data-connection-local]')?.textContent).toBe(
+    "This Mac only",
+  );
+});
+
+test("Claude Code opens a terminal for setup-token, then adds the pasted token once", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
+  await click(action(form, "claudeSetupToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "claudeSetupToken" }]);
+  const field = form.querySelector<HTMLInputElement>('input[type="password"]')!;
+  await changeValue(field, "sk-ant-api03 with spaces");
+  expect(form.querySelector("[data-claude-token-invalid]")).not.toBeNull();
+  expect(action(form, "addClaudeToken")!.disabled).toBe(true);
+  await changeValue(field, "sk-ant-oat01-secret0123456789");
+  expect(form.querySelector("[data-claude-token-invalid]")).toBeNull();
+  await click(action(form, "addClaudeToken")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({
+    action: "addClaudeToken",
+    token: "sk-ant-oat01-secret0123456789",
+  });
+  expect(sheet()).toBeNull();
+  expect(connectionIds(rendered)).toEqual(["claude-token-1"]);
+  expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
+  expect(JSON.stringify(rendered.store.getSnapshot().models)).not.toContain("sk-ant-oat01-secret");
 });

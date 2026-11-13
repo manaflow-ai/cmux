@@ -24,7 +24,7 @@ export default settingsPageEntry({
     empty: variant(mockModels.empty, "No connections and no team: the empty rows and the + to add one."),
     "mac-logins": variant(
       mockModels.macLogins,
-      "This Mac's Codex and Claude Code logins, a ChatGPT plan and an OpenRouter key in thread order; the team's gateway and shared key; the members policy.",
+      "This Mac's Codex and Claude Code logins (This Mac only), a ChatGPT plan, a Claude Code token and an OpenRouter key in thread order; the team's shared key; the members policy.",
     ),
     "chatgpt-pending": variant(
       mockModels.chatgptPending,
@@ -45,6 +45,26 @@ export default settingsPageEntry({
       { selector: '[data-models-choice="anthropic"]', action: "click" },
       { selector: "[data-models-key-form]", action: "wait" },
     ]),
+    "claude-token": variant(
+      mockModels.macLogins,
+      "Add a Connection > Claude Code: Open Terminal runs claude setup-token, then paste the token it prints.",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: '[data-models-choice="claude"]', action: "click" },
+        { selector: "[data-models-claude-form]", action: "wait" },
+      ],
+    ),
+    "claude-token-invalid": variant(
+      mockModels.macLogins,
+      "A pasted value that is not a setup token: the plain-words hint, and Add Token stays off.",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: '[data-models-choice="claude"]', action: "click" },
+        { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
+      ],
+    ),
     member: variant(mockModels.member, "A member: the organization's connections and the members policy read only."),
   },
 });

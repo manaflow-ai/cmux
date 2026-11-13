@@ -14,6 +14,7 @@ const codexLogin: ModelConnection = {
   signedIn: true,
   enabled: true,
   defaultFor: ["codex"],
+  servesCloud: false,
 };
 
 const claudeLogin: ModelConnection = {
@@ -27,6 +28,7 @@ const claudeLogin: ModelConnection = {
   signedIn: true,
   enabled: true,
   defaultFor: ["claude"],
+  servesCloud: false,
 };
 
 const chatgptPlan: ModelConnection = {
@@ -40,6 +42,21 @@ const chatgptPlan: ModelConnection = {
   signedIn: true,
   enabled: true,
   defaultFor: [],
+  servesCloud: true,
+};
+
+const claudeToken: ModelConnection = {
+  id: "claude-token-1",
+  kind: "claude-token",
+  provider: "anthropic",
+  families: ["claude"],
+  label: "Claude Code",
+  email: null,
+  plan: null,
+  signedIn: true,
+  enabled: true,
+  defaultFor: [],
+  servesCloud: true,
 };
 
 const openrouterKey: ModelConnection = {
@@ -53,21 +70,25 @@ const openrouterKey: ModelConnection = {
   signedIn: true,
   enabled: false,
   defaultFor: [],
+  servesCloud: true,
 };
 
 const empty: ModelsState = {
   personal: { connections: [], spread: true, available: true },
-  organization: { team: null, canEdit: false, gateway: null, keys: [] },
+  organization: { team: null, canEdit: false, keys: [] },
   members: null,
   chatgpt: { attempt: null, error: null },
 };
 
 const macLogins: ModelsState = {
-  personal: { connections: [codexLogin, claudeLogin, chatgptPlan, openrouterKey], spread: true, available: true },
+  personal: {
+    connections: [codexLogin, claudeLogin, chatgptPlan, claudeToken, openrouterKey],
+    spread: true,
+    available: true,
+  },
   organization: {
     team: { id: "team-acme", name: "Acme" },
     canEdit: true,
-    gateway: { mode: "gateway", machine: "studio-mac", online: true },
     keys: [
       { agent: "claude", set: true, last4: "abcd" },
       { agent: "codex", set: false, last4: null },
@@ -123,6 +144,21 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return connections.some((c) => c.kind === "claude-login")
         ? state
         : personal({ connections: [...connections, { ...claudeLogin, defaultFor: [] }] });
+    case "claudeSetupToken":
+      // The app opens a terminal tab running `claude setup-token`; the state does not change.
+      return state;
+    case "addClaudeToken": {
+      if (!/^sk-ant-oat\S*$/.test(run.token)) throw new Error("not a Claude setup token");
+      let number = 1;
+      while (connections.some((c) => c.id === `claude-token-${number}`)) number += 1;
+      // The token itself never lands in the state: the app keeps it in the Keychain.
+      return personal({
+        connections: [
+          ...connections,
+          { ...claudeToken, id: `claude-token-${number}`, label: run.label?.trim() || "Claude Code" },
+        ],
+      });
+    }
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");
       let number = 1;
@@ -141,6 +177,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         signedIn: true,
         enabled: true,
         defaultFor: [],
+        servesCloud: true,
       };
       return personal({ connections: [...connections, added] });
     }
