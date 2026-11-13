@@ -319,6 +319,42 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: Some(400_000.0),
     },
     GateRow {
+        pr: "5f",
+        name: "v2.pr05f.apply_update",
+        done_when: "At 2,000 folders against 5, a folder-newest update and a two-row move stay within 1.2x and under 10 microseconds.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: Some(10_000.0),
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.window_page",
+        done_when: "The first folders window and a deep cursor page stay within 1.2x at 2,000 folders against 5.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.published_bytes_path_copy",
+        done_when: "The published folders view stays under 1 MB at 2,000 folders, and one more folder changes one persistent path while the old snapshot remains intact.",
+        measured: false,
+        ratio: 2_000.0,
+        ratio_all: None,
+        god_max: Some((1024 * 1024) as f64),
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.folder_key_bound",
+        done_when: "A folder at 1,024 bytes has a complete row key and is not shortened.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: Some(1_024.0),
+    },
+    GateRow {
         pr: "6",
         name: "v2.pr06.thin_store_geometry",
         done_when: "DOM mutation probe on open: blank to settled and nothing else. Zero visible-row shifts not caused by input, across open, reconnect, restart and page-up. Scroll-up settle 1.2x.",
@@ -637,7 +673,6 @@ mod tests {
             .unwrap()
             .is_match(row)
     }
-
     #[test]
     fn every_gate_name_in_a_source_has_a_registry_row() {
         let names = names_in_sources();

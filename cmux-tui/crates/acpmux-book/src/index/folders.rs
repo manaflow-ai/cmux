@@ -394,3 +394,224 @@ mod tests {
         assert_eq!(row.folder.len(), MAX_FOLDER_BYTES);
     }
 }
+
+#[cfg(test)]
+mod release_gates {
+    use super::*;
+    use std::fs::OpenOptions;
+    use std::hint::black_box;
+    use std::io::Write;
+    use std::time::Instant;
+
+    const ROUNDS: usize = 5;
+    const SAMPLES: usize = 200;
+
+    fn p95(samples: &[u128]) -> u128 {
+        let mut values = samples.to_vec();
+        values.sort_unstable();
+        values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+    }
+
+    fn timed<F: FnMut() -> u128>(mut sample: F) -> (u128, u128) {
+        let mut rounds = Vec::with_capacity(ROUNDS * SAMPLES);
+        for _ in 0..ROUNDS {
+            for _ in 0..SAMPLES {
+                rounds.push(sample());
+            }
+        }
+        let best = rounds.chunks_exact(SAMPLES).map(p95).min().unwrap_or(1);
+        (best, p95(&rounds))
+    }
+
+    fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
+        let line = format!(
+            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{god_all},\"unit\":\"{unit}\"}}"
+        );
+        eprintln!("{line}");
+        if let Ok(path) = std::env::var("V2_GATE_OUT")
+            && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+        {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+
+    fn fixture(count: usize) -> Folders {
+        (0..count).fold(Folders::new(), |folders, n| {
+            folders
+                .apply(FolderEntry::new(
+                    "local",
+                    format!("/folder-{n:04}"),
+                    Some(RowKey::new("local", format!("chat-{n:05}"))),
+                    (count - n) as u64,
+                    1,
+                ))
+                .expect("fixture entry")
+                .0
+        })
+    }
+
+    fn apply_newest(folders: &Folders) -> u128 {
+        let started = Instant::now();
+        let next = folders
+            .apply(FolderEntry::new(
+                "local",
+                "/folder-0000",
+                Some(RowKey::new("local", "chat-newest")),
+                10_000,
+                1,
+            ))
+            .expect("newest update")
+            .0;
+        black_box(next);
+        started.elapsed().as_nanos().max(1)
+    }
+
+    fn apply_move(folders: &Folders) -> u128 {
+        let started = Instant::now();
+        let (next, _) = folders
+            .apply(FolderEntry::new("local", "/folder-0000", None, 0, 0))
+            .expect("old folder removal");
+        let next = next
+            .apply(FolderEntry::new(
+                "local",
+                "/folder-moved",
+                Some(RowKey::new("local", "chat-0000")),
+                10_000,
+                1,
+            ))
+            .expect("new folder insert")
+            .0;
+        black_box(next);
+        started.elapsed().as_nanos().max(1)
+    }
+
+    fn page_window(folders: &Folders) -> u128 {
+        let started = Instant::now();
+        let first = folders.window(20, MAX_FOLDER_PAGE_BYTES).expect("first window");
+        black_box(first);
+        started.elapsed().as_nanos().max(1)
+    }
+
+    fn deep_page(folders: &Folders, cursor: &FolderCursor) -> u128 {
+        let started = Instant::now();
+        let page = folders.page_after(Some(cursor), 20, MAX_FOLDER_PAGE_BYTES).expect("deep page");
+        black_box(page);
+        started.elapsed().as_nanos().max(1)
+    }
+
+    fn encoded_bytes(folders: &Folders) -> usize {
+        folders.iter().map(|row| row.encoded_len()).sum()
+    }
+
+    #[test]
+    #[ignore = "PR5f release gate; run in release with --ignored --nocapture"]
+    fn pr05f_apply_newest_and_move() {
+        let small = fixture(5);
+        let god = fixture(2_000);
+        let (small_newest, _) = timed(|| apply_newest(&small));
+        let (god_newest, god_newest_all) = timed(|| apply_newest(&god));
+        let (small_move, _) = timed(|| apply_move(&small));
+        let (god_move, god_move_all) = timed(|| apply_move(&god));
+        eprintln!(
+            "PR5f apply_newest small_p95_ns={small_newest} god_p95_ns={god_newest} god_p95_all_ns={god_newest_all}"
+        );
+        eprintln!(
+            "PR5f apply_move small_p95_ns={small_move} god_p95_ns={god_move} god_p95_all_ns={god_move_all}"
+        );
+        gate(
+            "v2.pr05f.apply_update",
+            small_newest.max(small_move),
+            god_newest.max(god_move),
+            god_newest_all.max(god_move_all),
+            "ns",
+        );
+    }
+
+    #[test]
+    #[ignore = "PR5f release gate; run in release with --ignored --nocapture"]
+    fn pr05f_window_and_deep_page() {
+        let small = fixture(5);
+        let god = fixture(2_000);
+        let small_cursor = small
+            .iter()
+            .nth(2)
+            .map(|row| FolderCursor::new(row.at, row.key()))
+            .expect("small cursor");
+        let god_cursor = god
+            .iter()
+            .nth(1_000)
+            .map(|row| FolderCursor::new(row.at, row.key()))
+            .expect("deep cursor");
+        let (small_window, _) = timed(|| page_window(&small));
+        let (god_window, god_window_all) = timed(|| page_window(&god));
+        let (small_page, _) = timed(|| deep_page(&small, &small_cursor));
+        let (god_page, god_page_all) = timed(|| deep_page(&god, &god_cursor));
+        gate(
+            "v2.pr05f.window_page",
+            small_window.max(small_page),
+            god_window.max(god_page),
+            god_window_all.max(god_page_all),
+            "ns",
+        );
+    }
+
+    #[test]
+    #[ignore = "PR5f release gate; run in release with --ignored --nocapture"]
+    fn pr05f_published_bytes_and_path_copy() {
+        let small = fixture(5);
+        let god = fixture(2_000);
+        let small_bytes = encoded_bytes(&small);
+        let god_bytes = encoded_bytes(&god);
+        assert!(god_bytes < 1_024 * 1_024, "published folder rows exceed 1 MB: {god_bytes}");
+        let old_len = god.len();
+        let started = Instant::now();
+        let next = god
+            .apply(FolderEntry::new(
+                "local",
+                "/folder-extra",
+                Some(RowKey::new("local", "chat-extra")),
+                20_000,
+                1,
+            ))
+            .expect("path-copy insert")
+            .0;
+        let path_copy_ns = started.elapsed().as_nanos().max(1);
+        assert_eq!(god.len(), old_len);
+        assert_eq!(next.len(), old_len + 1);
+        eprintln!(
+            "PR5f published_bytes small={small_bytes} god={god_bytes} path_copy_ns={path_copy_ns}"
+        );
+        gate(
+            "v2.pr05f.published_bytes_path_copy",
+            small_bytes as u128,
+            god_bytes as u128,
+            god_bytes as u128,
+            "bytes",
+        );
+    }
+
+    #[test]
+    #[ignore = "PR5f release gate; run in release with --ignored --nocapture"]
+    fn pr05f_folder_key_bound() {
+        let folder = "f".repeat(MAX_FOLDER_BYTES);
+        let (folders, _) = Folders::new()
+            .apply(FolderEntry::new(
+                "local",
+                folder.clone(),
+                Some(RowKey::new("local", "chat-bound")),
+                1,
+                1,
+            ))
+            .expect("bounded folder");
+        let row = folders.iter().next().expect("bounded row");
+        assert_eq!(row.folder.len(), MAX_FOLDER_BYTES);
+        assert_eq!(row.key().folder.as_ref(), folder);
+        gate(
+            "v2.pr05f.folder_key_bound",
+            row.folder.len() as u128,
+            row.folder.len() as u128,
+            row.folder.len() as u128,
+            "bytes",
+        );
+    }
+}
