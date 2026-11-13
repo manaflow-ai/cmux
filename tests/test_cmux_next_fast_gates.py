@@ -628,6 +628,16 @@ FAKE = textwrap.dedent("""\
         entry["base_marker"] = (base / "scripts/cmux-next/marker.txt").read_text()
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps(entry) + "\\n")
+    barrier = os.environ.get("FAKE_BARRIER")
+    if barrier and name != "webviews checks":
+        marker = Path(barrier) / ("started-" + name.replace(" ", "-"))
+        marker.touch()
+        expected = int(os.environ.get("FAKE_BARRIER_COUNT", "1"))
+        deadline = time.monotonic() + float(os.environ.get("FAKE_BARRIER_TIMEOUT", "2"))
+        while len(list(Path(barrier).glob("started-*"))) < expected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if len(list(Path(barrier).glob("started-*"))) < expected:
+            raise SystemExit("parallel gate barrier was not reached")
     time.sleep(float(os.environ.get("FAKE_SLEEP", "0")))
     sys.exit(1 if name in os.environ.get("FAKE_FAIL", "").split(",") else 0)
 """)
@@ -655,12 +665,21 @@ class ScriptBehavior(unittest.TestCase):
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
 
-    def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0) -> subprocess.CompletedProcess:
+    def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0,
+               barrier: Path | None = None, budget: int | None = None,
+               summary: Path | None = None) -> subprocess.CompletedProcess:
         env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
                "FAKE_SLEEP": str(sleep),
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
-        return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
+        if barrier is not None:
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+        extra = []
+        if budget is not None:
+            extra += ["--budget-seconds", str(budget)]
+        if summary is not None:
+            extra += ["--summary", str(summary)]
+        return subprocess.run([sys.executable, str(SCRIPT), *args, *extra, "--repo", str(repo)],
                               capture_output=True, text=True, env=env)
 
     def clone(self, shallow: bool = True) -> Path:
@@ -1060,6 +1079,8 @@ class ScriptBehavior(unittest.TestCase):
         for name in GATE_SCRIPTS:
             self.assertIn(name, text)
         self.assertIn(base, text)
+        self.assertIn("Runner CPUs:", text)
+        self.assertIn("child CPU", text)
 
     def test_one_red_gate_fails_the_run_and_the_rest_still_run(self):
         work, out = self.prepared()
@@ -1073,14 +1094,36 @@ class ScriptBehavior(unittest.TestCase):
 
     def test_independent_gates_run_in_parallel(self):
         work, out = self.prepared()
-        started = time.monotonic()
-        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", sleep=0.2)
-        elapsed = time.monotonic() - started
+        barrier = self.tmp / "parallel-barrier"
+        barrier.mkdir()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
+                             sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # Five 200 ms fake gates would take about a second when serial; the webviews gate is a second batch,
-        # so the two batches still finish well below that on a loaded test host.
-        self.assertLess(elapsed, 0.75, result.stdout + result.stderr)
+        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
+        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
+
+    def test_no_gate_started_has_a_critical_path_fallback(self):
+        work, _ = self.prepared()
+        summary = self.tmp / "summary.md"
+        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+                             budget=0, summary=summary)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+
+    def test_gate_logs_are_named_per_gate_across_batches(self):
+        module = load(SCRIPT)
+        with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
+            log_dir = Path(tmp)
+            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+                                          Path(tmp), None, log_dir)
+            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+                                           Path(tmp), None, log_dir)
+            self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
+            self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
+            self.assertTrue((log_dir / "crash-ratchet.log").read_text())
+            self.assertTrue((log_dir / "webviews-checks.log").read_text())
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()

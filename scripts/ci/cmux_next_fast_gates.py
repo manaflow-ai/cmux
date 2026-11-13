@@ -338,8 +338,25 @@ def stop_gate(process: subprocess.Popen) -> None:
             pass
 
 
+def timed_gate_argv(argv: list[str]) -> list[str]:
+    """Wrap a gate with POSIX ``time`` so its child CPU use is recorded."""
+    timer = Path("/usr/bin/time")
+    return [str(timer), "-p", *argv] if timer.is_file() else argv
+
+
+def child_cpu_seconds(output: str) -> float | None:
+    """Return user+system CPU seconds from the private ``time -p`` log."""
+    values = []
+    for label in ("user", "sys"):
+        matches = re.findall(rf"(?m)^{label} ([0-9]+(?:\.[0-9]+)?)$", output)
+        if not matches:
+            return None
+        values.append(float(matches[-1]))
+    return sum(values)
+
+
 def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: float | None,
-                   log_dir: Path) -> dict[str, tuple[int | None, float, str]]:
+                   log_dir: Path) -> dict[str, tuple[int | None, float, str, float | None]]:
     """Run independent gates together, stopping all remaining groups at the shared deadline.
 
     Gate output is captured separately and printed in declaration order after the batch. This keeps concurrent
@@ -350,12 +367,13 @@ def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: f
         return {}
     log_dir.mkdir(parents=True, exist_ok=True)
     active: dict[str, tuple[subprocess.Popen, object, float, Path]] = {}
-    results: dict[str, tuple[int | None, float, str]] = {}
+    results: dict[str, tuple[int | None, float, str, float | None]] = {}
     for name, argv in entries:
-        path = log_dir / f"{len(results) + len(active)}.log"
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-").lower() or "gate"
+        path = log_dir / f"{slug}.log"
         handle = path.open("w+", encoding="utf-8")
-        process = subprocess.Popen(argv, cwd=repo, start_new_session=True, stdout=handle, stderr=subprocess.STDOUT,
-                                   text=True)
+        process = subprocess.Popen(timed_gate_argv(argv), cwd=repo, start_new_session=True, stdout=handle,
+                                   stderr=subprocess.STDOUT, text=True)
         active[name] = (process, handle, time.monotonic(), path)
 
     while active:
@@ -365,7 +383,8 @@ def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: f
             if code is None:
                 continue
             handle.close()
-            results[name] = (code, now - started, path.read_text(encoding="utf-8", errors="replace"))
+            output = path.read_text(encoding="utf-8", errors="replace")
+            results[name] = (code, now - started, output, child_cpu_seconds(output))
             del active[name]
         if not active:
             break
@@ -374,7 +393,8 @@ def run_gate_batch(entries: list[tuple[str, list[str]]], repo: Path, deadline: f
             for name, (process, handle, started, path) in list(active.items()):
                 stop_gate(process)
                 handle.close()
-                results[name] = (None, stopped - started, path.read_text(encoding="utf-8", errors="replace"))
+                output = path.read_text(encoding="utf-8", errors="replace")
+                results[name] = (None, stopped - started, output, None)
                 del active[name]
             break
         time.sleep(0.05)
@@ -404,8 +424,10 @@ def run(args: argparse.Namespace) -> int:
         # every other gate reads the merge and its exported base tree, so they share the critical path safely.
         batches = [[entry for entry in active if entry[0] != "webviews checks"],
                    [entry for entry in active if entry[0] == "webviews checks"]]
-        active_results: dict[str, tuple[int | None, float, str]] = {}
+        active_results: dict[str, tuple[int | None, float, str, float | None]] = {}
+        max_parallel = 0
         for batch in batches:
+            max_parallel = max(max_parallel, len(batch))
             left = None if deadline is None else deadline - time.monotonic()
             if left is not None and left < 1:
                 continue
@@ -422,7 +444,7 @@ def run(args: argparse.Namespace) -> int:
                 rows.append((name, "failed (no time left)", 0.0))
                 continue
             print(f"::group::{name}", flush=True)
-            code, seconds, output = active_results[name]
+            code, seconds, output, _cpu = active_results[name]
             if output:
                 print(output, end="" if output.endswith("\n") else "\n", flush=True)
             print("::endgroup::", flush=True)
@@ -441,17 +463,24 @@ def run(args: argparse.Namespace) -> int:
     finally:
         shutil.rmtree(holder, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
-    timed = [(name, seconds) for name, outcome, seconds in rows if outcome != "skipped"]
+    timed = [(name, seconds) for name, outcome, seconds in rows
+             if outcome not in {"skipped", "failed (no time left)"}]
+    slowest, critical = "no gate ran", 0.0
     if timed:
         slowest, critical = max(timed, key=lambda row: row[1])
         # The CI timing budget is attached to this workflow step. Name the gate that consumed its critical path so
         # a future alert points at the growing check instead of leaving the aggregate step unexplained.
         print(f"::notice title=fast gates timing attribution::{slowest} was the critical-path gate at {critical:.1f}s; "
               "per-gate timings are in the step summary", flush=True)
+    runner_cpus = os.cpu_count() or 1
+    cpu_by_gate = {name: active_results[name][3] for name, _, _ in rows if name in active_results}
     lines = ["### cmux-next fast gates", "", f"Base `{args.base}`, merge `{merge}`.", "",
              f"Critical-path gate: **{slowest}** ({critical:.1f}s).", "",
-             "| gate | result | time |", "| --- | --- | --- |"]
-    lines += [f"| {name} | {outcome} | {seconds:.1f}s |" for name, outcome, seconds in rows]
+             f"Runner CPUs: {runner_cpus}; maximum parallel gates: {max_parallel}.", "",
+             "| gate | result | wall time | child CPU |", "| --- | --- | --- | --- |"]
+    lines += [f"| {name} | {outcome} | {seconds:.1f}s | "
+              f"{cpu_by_gate[name]:.1f}s |" if cpu_by_gate.get(name) is not None else
+              f"| {name} | {outcome} | {seconds:.1f}s | - |" for name, outcome, seconds in rows]
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
