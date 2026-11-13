@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 import Testing
 
@@ -16,12 +17,20 @@ import Testing
 /// proxy also takes `terminal-placement-env-v1` out of what the daemon says it can do: New Terminal Tab then shows no
 /// stand-in and waits for the create (`create-terminal`, then a move).
 ///
+/// The proxy can also hold the daemon's events (`tab-added` with them) from the moment it sends the create on, while
+/// the create's reply passes: the reply then comes before the events, for a time the test chooses (``Late``).
+///
 /// Three cases, each on both daemon forms:
 /// - the daemon refuses the tab: the line runs in no terminal;
 /// - the daemon makes the tab: the line runs in the made terminal, in the typed order, and in no other terminal;
 /// - the person moves to another pane after Ctrl-` and types there, and the daemon refuses the tab: the line is that
 ///   pane's terminal's, as with no create. Only keys typed while the create is the person's newest intent are the new
 ///   terminal's.
+///
+/// And on the current form, for each ``Late``: the person types the start of a line for the new terminal, moves to
+/// another pane, the daemon makes the tab, and the person types the rest in the made terminal. The hold then sends the
+/// held keys into the stand-in's view at the reply, and the stand-in goes away when the daemon's tab comes. The made
+/// terminal must get each key, in the typed order, the held ones before the later ones.
 ///
 /// The keys go through the app's key path (the key router, then the window's first responder). A test window is never
 /// key, so a held key that runs again goes the same way here, not through `NSApp.sendEvent`.
@@ -39,15 +48,33 @@ struct NewTerminalTabRefusedKeysTests {
     nonisolated static let proxy = #"""
     import json, os, socket, sys, threading, time
     path, hold, log, older = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == 'older'
-    passes = hold + '.pass'
+    passes, late = hold + '.pass', hold + '.late'
     daemon = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     daemon.connect(path)
     print('{"ok":true}', file=sys.stderr, flush=True)
     lock, out, held = threading.Lock(), threading.Lock(), []
+    events, parked, wait = threading.Lock(), [], {'on': False, 'ids': [], 'at': None}
     def to_app(line):
         with out:
             sys.stdout.buffer.write(line)
             sys.stdout.buffer.flush()
+    def delay():
+        try:
+            with open(late) as file:
+                text = file.read().strip()
+        except OSError:
+            return None
+        return float(text) if text else None
+    def release():
+        with events:
+            due = wait['at'] is not None and time.time() >= wait['at']
+            if wait['on'] and (due or (wait['at'] is None and not os.path.exists(late))):
+                for line in parked:
+                    to_app(line)
+                del parked[:]
+                wait['on'] = False
+                with open(log, 'a') as file:
+                    file.write('events released\n')
     def to_daemon():
         for line in sys.stdin.buffer:
             try:
@@ -68,6 +95,10 @@ struct NewTerminalTabRefusedKeysTests {
                     made = os.path.exists(passes)
                     for frame, line in held:
                         if made:
+                            if os.path.exists(late):
+                                with events:
+                                    wait['on'] = True
+                                    wait['ids'].append(frame.get('id'))
                             daemon.sendall(line)
                         else:
                             reply = {'id': frame.get('id'), 'ok': False, 'error': 'refused by the proxy of the test'}
@@ -75,18 +106,37 @@ struct NewTerminalTabRefusedKeysTests {
                         with open(log, 'a') as file:
                             file.write(('passed ' if made else 'refused ') + str(frame.get('cmd')) + '\n')
                     del held[:]
+            release()
     threading.Thread(target=to_daemon, daemon=True).start()
     threading.Thread(target=answer, daemon=True).start()
     for line in daemon.makefile('rb'):
         if older:
             line = line.replace(b'"terminal-placement-env-v1",', b'').replace(b',"terminal-placement-env-v1"', b'')
-        to_app(line)
+        with events:
+            if wait['on']:
+                try:
+                    frame = json.loads(line)
+                except ValueError:
+                    frame = {}
+                if isinstance(frame, dict) and 'event' in frame:
+                    parked.append(line)
+                    continue
+                if isinstance(frame, dict) and frame.get('id') in wait['ids'] and wait['at'] is None:
+                    after = delay()
+                    if after is not None:
+                        wait['at'] = time.time() + after / 1000.0
+                    with open(log, 'a') as file:
+                        file.write('replied\n')
+            to_app(line)
     """#
 
-    /// The files of one test: `hold`, `pass` (the proxy sends a held create on to the daemon) and `log`, removed by ``remove()``.
+    /// The files of one test: `hold`, `pass` (the proxy sends a held create on to the daemon), `late` (the proxy holds the
+    /// daemon's events from then on: until the file is removed, or for the milliseconds it names after the create's reply)
+    /// and `log`, removed by ``remove()``.
     struct Files: Sendable {
         let hold: URL
         let pass: URL
+        let late: URL
         let log: URL
         let daemon: Daemon
 
@@ -95,6 +145,7 @@ struct NewTerminalTabRefusedKeysTests {
             let name = "cn-refused-tab-\(UUID().uuidString.prefix(8))"
             hold = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold")
             pass = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold.pass")
+            late = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).hold.late")
             log = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).log")
         }
 
@@ -105,13 +156,18 @@ struct NewTerminalTabRefusedKeysTests {
         }
 
         /// The creates the proxy answered so far: `refused <cmd>` or `passed <cmd>`.
-        var answered: [String] {
+        var answered: [String] { logged.filter { $0.hasPrefix("refused ") || $0.hasPrefix("passed ") } }
+
+        /// Each line of the proxy's log: the answers, `replied` (a create's reply passed while the events wait) and
+        /// `events released`.
+        var logged: [String] {
             (try? String(contentsOf: log, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? []
         }
 
         func remove() {
             try? FileManager.default.removeItem(at: hold)
             try? FileManager.default.removeItem(at: pass)
+            try? FileManager.default.removeItem(at: late)
             try? FileManager.default.removeItem(at: log)
         }
     }
@@ -132,6 +188,21 @@ struct NewTerminalTabRefusedKeysTests {
         case made
         /// The person moves to the other pane after Ctrl-`, types there, and the daemon refuses the tab.
         case movedThenRefused
+        /// The person types the start of a line, moves to the other pane, the daemon makes the tab, and the person
+        /// types the rest of the line in the made terminal.
+        case madeAfterAMove
+    }
+
+    /// When the daemon's events (`tab-added` with them) reach the app, against the reply of the create.
+    nonisolated enum Late: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        /// As the daemon sends them.
+        case asSent
+        /// From 10 to 30 ms after the reply (the proxy looks each 20 ms): the stand-in goes away while its view may
+        /// still send the held keys.
+        case soonAfterTheReply
+        /// After the hold ended with no made tab in the store: the held keys had only the stand-in to go to.
+        case afterTheHoldsEnd
+        var testDescription: String { rawValue }
     }
 
     @Test(arguments: Daemon.allCases)
@@ -152,7 +223,16 @@ struct NewTerminalTabRefusedKeysTests {
         try await Self.run(daemon, .movedThenRefused)
     }
 
-    private static func run(_ daemon: Daemon, _ ending: Ending) async throws {
+    /// The stand-in goes away at the daemon's `tab-added`, and since the fix the hold sends a made terminal's held keys
+    /// into the stand-in's view at the reply (before, only at the hold's limit). A key still in that view's writer when
+    /// the stand-in goes, or a key that comes after one typed later, is a typing fault: the made terminal's shell must
+    /// get the whole line in the typed order.
+    @Test(arguments: Late.allCases)
+    func theKeysHeldForAMadeTerminalReachItInOrderBeforeALaterKeyAfterThePersonMovedAway(_ events: Late) async throws {
+        try await Self.run(.current, .madeAfterAMove, events: events)
+    }
+
+    private static func run(_ daemon: Daemon, _ ending: Ending, events: Late = .asSent) async throws {
         let files = Files(daemon)
         defer { files.remove() }
         let replays = Replays()
@@ -231,30 +311,72 @@ struct NewTerminalTabRefusedKeysTests {
             // The line, typed while the create waits. Its output shows only where a shell ran it, and only when each
             // key came in the typed order.
             let nonce = String(UInt32.random(in: 100_000...999_999))
+            // The moved-away case, typed in two parts (held, then later): a lost key changes the sum or breaks the line,
+            // and the line that the terminal shows gives the order of the keys.
+            let heldPart = "echo nt\(nonce)x$((12345*6789+1011-", laterPart = "1213-1415))\r"
+            let answer = ending == .madeAfterAMove ? "\(12_345 * 6_789 + 1_011 - 1_213 - 1_415)" : "42"
             @MainActor func ran(in surface: SurfaceID, within wait: Int) async -> (ran: Bool, screen: String) {
-                let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "nt\(nonce)x42", timeoutMs: wait),
+                let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "nt\(nonce)x\(answer)", timeoutMs: wait),
                                                           timeout: .milliseconds(wait + 5_000))
                 let screen = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable"
                 return (reply?.matched == true, screen)
             }
             let typingTab = controller.focus.currentState().typingTab
-            for character in "echo nt\(nonce)x$((6*7))\r" {
-                let text = String(character)
-                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
-                                                          isARepeat: false, keyCode: text == "\r" ? 36 : 0))
-                try #require(router.interceptKeyDown(event, in: window), "the creation hold did not take \(text.debugDescription): \(panes())")
+            /// Types `line` as the person does. `held`: the creation hold must take each key; else a key that no hold
+            /// takes goes on to the window's first responder.
+            @MainActor func typeLine(_ line: String, held: Bool) throws {
+                for character in line {
+                    let text = String(character)
+                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                              context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                              isARepeat: false, keyCode: text == "\r" ? 36 : 0))
+                    if held {
+                        try #require(router.interceptKeyDown(event, in: window), "the creation hold did not take \(text.debugDescription): \(panes())")
+                    } else if !router.interceptKeyDown(event, in: window) {
+                        window.sendEvent(event)
+                    }
+                }
             }
+            try typeLine(ending == .madeAfterAMove ? heldPart : "echo nt\(nonce)x$((6*7))\r", held: true)
             try #require(replays.keys.isEmpty, "a held key ran again before the daemon's answer: \(replays.keys)")
+            // The person moves to the other pane with the start of the line held for the new terminal.
+            if ending == .madeAfterAMove {
+                try await focus(other)
+                try #require(coordinator.isHolding(in: window) && files.answered.isEmpty && replays.keys.isEmpty,
+                             "the hold ended at the person's move: \(replays.keys.count) keys ran again, \(panes())")
+            }
 
             // The daemon's answer: it refuses the tab, or (the proxy sends the create on) makes it.
-            if ending == .made { try #require(FileManager.default.createFile(atPath: files.pass.path, contents: nil)) }
+            let makes = ending == .made || ending == .madeAfterAMove
+            if makes { try #require(FileManager.default.createFile(atPath: files.pass.path, contents: nil)) }
+            if ending == .madeAfterAMove, events != .asSent {
+                try #require(FileManager.default.createFile(atPath: files.late.path, contents: events == .soonAfterTheReply ? Data("10".utf8) : nil))
+            }
+            let answeredAt = ContinuousClock.now
             try FileManager.default.removeItem(at: files.hold)
             try await PinnedPageTests.until({ !files.answered.isEmpty && !coordinator.isHolding(in: window) }, within: .seconds(15), report: {
                 "waiting for the answer and the hold's end: answered \(files.answered), holding \(coordinator.isHolding(in: window)), \(panes())"
             })
-            try #require(files.answered.allSatisfy { $0.hasPrefix(ending == .made ? "passed " : "refused ") }, "the proxy answered \(files.answered): this run proves nothing")
+            try #require(files.answered.allSatisfy { $0.hasPrefix(makes ? "passed " : "refused ") }, "the proxy answered \(files.answered): this run proves nothing")
+            @MainActor func madeTerminal() -> SurfaceID? {
+                pressed.pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) && !before.contains($0.surface) }?.surface
+            }
+            var holdEndedBeforeTheEvents = "not asked"
+            if ending == .madeAfterAMove, events == .afterTheHoldsEnd {
+                // The hold ended on the reply alone: the store lists no made tab. The reply can settle the create before
+                // `tab-added` comes, and the stand-in then leaves the pane at the reply: what the pane and the view cache
+                // held at the hold's end is printed, not required.
+                try #require(madeTerminal() == nil && files.logged.contains("replied") && !files.logged.contains("events released"),
+                             "the hold did not end before the daemon's events: this run proves nothing (proxy log \(files.logged), \(panes()))")
+                let listed = standIn.map { tab in pressed.pane.pane.tabs.contains { $0.id == tab } } ?? false
+                let viewKept = standIn.map { services.cache.existingTerminal($0) != nil } ?? false
+                holdEndedBeforeTheEvents = "\(ContinuousClock.now - answeredAt) after the answer, the stand-in listed then \(listed), its view kept then \(viewKept)"
+                try FileManager.default.removeItem(at: files.late)
+            }
+            if ending == .madeAfterAMove, events == .soonAfterTheReply {
+                try await PinnedPageTests.until({ files.logged.contains("events released") }, within: .seconds(10), report: { "waiting for the proxy to release the events: \(files.logged)" })
+            }
             if let standIn {
                 try await PinnedPageTests.until({ !pressed.pane.pane.tabs.contains { $0.id == standIn } }, within: .seconds(10),
                                                 report: { "waiting for the stand-in to leave the pane: \(panes())" })
@@ -278,9 +400,6 @@ struct NewTerminalTabRefusedKeysTests {
                         "the refused create left a terminal tab in the pane: \(panes())")
             case .made:
                 // The made terminal's shell ran the line: each key reached it, in the typed order. No other shell ran it.
-                @MainActor func madeTerminal() -> SurfaceID? {
-                    pressed.pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) && !before.contains($0.surface) }?.surface
-                }
                 try await PinnedPageTests.until({ madeTerminal() != nil }, within: .seconds(15), report: { "waiting for the made terminal's tab in the pane: \(panes())" })
                 let made = try #require(madeTerminal())
                 let result = await ran(in: made, within: 15_000)
@@ -288,6 +407,29 @@ struct NewTerminalTabRefusedKeysTests {
                 for (name, terminal) in [(pressTerminal, pressed), ("the other terminal", other)] {
                     let result = await ran(in: terminal.surface, within: 3_000)
                     #expect(!result.ran, "\(daemon.rawValue) daemon: the line typed for the new terminal tab ran in \(name) (\(how)); its screen: \(result.screen.debugDescription)")
+                }
+            case .madeAfterAMove:
+                // The person goes to the made terminal and types the rest of the line there.
+                try await PinnedPageTests.until({ madeTerminal() != nil }, within: .seconds(15), report: { "waiting for the made terminal's tab in the pane: \(panes()), proxy log \(files.logged)" })
+                let made = try #require(madeTerminal())
+                let madeTab = try #require(pressed.pane.pane.tabs.first { $0.surface == made }?.id)
+                let listedAt = ContinuousClock.now
+                if pressed.pane.currentTabKey != madeTab { pressed.pane.select(TabID(madeTab)) }
+                try await focus((pressed.pane, madeTab, made))
+                let laterKeyAfter = ContinuousClock.now - listedAt
+                try typeLine(laterPart, held: false)
+                let timing = "events \(events.rawValue); the hold ended before the events: \(holdEndedBeforeTheEvents); the first later key \(laterKeyAfter) after the made tab was listed; proxy log \(files.logged)"
+                print("NewTerminalTabRefusedKeysTests madeAfterAMove \(events.rawValue): \(timing)")
+                // The shell printed the sum only if it got each key of both parts, the held ones first and in the typed order.
+                let result = await ran(in: made, within: 15_000)
+                #expect(result.ran, "the made terminal did not get the line as typed: a held key was lost or came out of order (\(timing); \(how)); its screen: \(result.screen.debugDescription)")
+                // Its screen shows the keys in the order they came: the whole typed line (a narrow pane wraps it).
+                let typed = String((heldPart + laterPart).dropLast())
+                #expect(result.screen.filter { !$0.isWhitespace }.contains(typed.filter { !$0.isWhitespace }),
+                        "the made terminal's screen does not show the typed line \(typed.debugDescription) (\(timing)); its screen: \(result.screen.debugDescription)")
+                for (name, terminal) in [(pressTerminal, pressed), ("the other terminal", other)] {
+                    let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
+                    #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(timing); \(how)); its screen: \(screen.debugDescription)")
                 }
             case .movedThenRefused:
                 // The line is the terminal's that the person moved to: it ran there, and not in the terminal of the press.
