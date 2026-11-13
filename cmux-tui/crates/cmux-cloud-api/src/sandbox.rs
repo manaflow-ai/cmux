@@ -1007,7 +1007,13 @@ fn snapshot(run: &Run) -> Value {
                 "totalMs": total,
             },
             "cost": null,
-            "cleanup": if run.cleanup == "destroyed" { "destroyed" } else { "pending" },
+            // `abandoned`: cmux stopped trying and the machine may still run; never `pending`
+            // then, which says cmux is still deleting it (#39022 review at a5563b2d, F2).
+            "cleanup": match run.cleanup.as_str() {
+                "destroyed" => "destroyed",
+                "abandoned" => "abandoned",
+                _ => "pending",
+            },
         })
     });
     json!({
