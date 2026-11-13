@@ -515,7 +515,22 @@ fn randomized_mirror_runs_against_hub_with_cut_frames() {
                     )
                 })
                 .collect();
-            assert_eq!(actual, expected, "seed {seed} step {step}");
+            if actual != expected {
+                let missing = expected
+                    .keys()
+                    .filter(|key| !actual.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let extra = actual
+                    .keys()
+                    .filter(|key| !expected.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                panic!(
+                    "seed {seed} step {step} row={} state={} missing={missing:?} extra={extra:?}",
+                    row.chat_id, row.state
+                );
+            }
         }
         hub.close();
     }
