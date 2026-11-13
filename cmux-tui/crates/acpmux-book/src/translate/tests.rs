@@ -420,9 +420,7 @@ fn assert_settled_group_out(mirror: &Mirror) {
             .filter(|row| {
                 row.id >= group.id
                     && row.id <= last
-                    && (row.id == group.id
-                        || row.group == Some(group.id)
-                        || (row.group.is_none() && row.turn == group.turn))
+                    && (row.id == group.id || (row.turn == group.turn && mirror.visible(row)))
             })
             .map(|row| row.id)
             .collect();
