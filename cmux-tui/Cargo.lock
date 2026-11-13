@@ -1499,6 +1499,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-file-lock"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1518,6 +1525,7 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "libc",
  "serde_json",
  "sha2 0.10.9",
