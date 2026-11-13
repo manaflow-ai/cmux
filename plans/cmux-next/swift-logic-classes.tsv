@@ -1162,15 +1162,6 @@ CmuxNextAgentPermissions	class	PermissionRequestCardView	0	PLATFORM	0	0	Packages
 CmuxNextAgentPermissions	class	PermissionRequestPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/UI/PermissionRequestPanel.swift	Permission card views, panel, presenter, strings
 CmuxNextAgentPermissions	class	PermissionRequestPresenter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/UI/PermissionRequestPresenter.swift	from class PermissionRequestPresenter:10: Permission card views, panel, presenter, strings
 CmuxNextAgentPermissions	struct	PermissionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/UI/PermissionStrings.swift	Permission card views, panel, presenter, strings
-CmuxNextAgentQuestion	struct	AgentQuestionCardLayout	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionCardLayout.swift	agent question card layout metrics (view)
-CmuxNextAgentQuestion	struct	AgentQuestionCardStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionCardStyle.swift	card style
-CmuxNextAgentQuestion	class	AgentQuestionOtherField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionCardView+Keys.swift	from extension AgentQuestionCardView:4: card key handling in view
-CmuxNextAgentQuestion	extension	AgentQuestionCardView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionCardView+Keys.swift	card key handling in view
-CmuxNextAgentQuestion	class	AgentQuestionCardView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionCardView.swift	AppKit question card view
-CmuxNextAgentQuestion	class	AgentQuestionOptionRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionOptionRowView.swift	AppKit option row view
-CmuxNextAgentQuestion	class	AgentQuestionPillButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionPillButton.swift	AppKit pill button
-CmuxNextAgentQuestion	struct	AgentQuestionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionStrings.swift	localized strings
-CmuxNextAgentQuestion	struct	AgentQuestionTextMeasure	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionTextMeasure.swift	text measure
 CmuxNextAgentUpdates	extension	AgentCLIUpdateActions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates/AgentCLIUpdateActions+Observation.swift	agent CLI update flow: intent capture, recovery, receipts, observation
 CmuxNextAgentUpdates	extension	AgentCLIUpdateActions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates/AgentCLIUpdateActions+Recovery.swift	agent CLI update flow: intent capture, recovery, receipts, observation
 CmuxNextAgentUpdates	extension	AgentCLIUpdateActions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates/AgentCLIUpdateActions+Route.swift	agent CLI update flow: intent capture, recovery, receipts, observation
@@ -2723,9 +2714,6 @@ CmuxNextApp	func	remoteViewDebug	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	struct	RemoteViewDebugMethods	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteViewDebugMethods.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	RemoteViewPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/RemoteViewPageService.swift	from class RemoteViewPageService:15: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	RestoredNewTabPages	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RestoredNewTabPages.swift	from enum RestoredNewTabPages:9: restored New Tab page rule (without making the page)
-CmuxNextApp	struct	DockSectionActions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionActions.swift	Action bundle
-CmuxNextApp	class	DockSectionHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionHostView.swift	Dock section host
-CmuxNextApp	struct	DockSectionListView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionListView.swift	Dock section list view
 CmuxNextApp	class	DockSectionModel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionModel.swift	from class DockSectionModel:8: Docked columns list copy of layout
 CmuxNextApp	struct	DockSectionRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionRow.swift	Value snapshot row
 CmuxNextApp	class	MachineSectionHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionHostView.swift	Machine section host view
@@ -3207,7 +3195,6 @@ CmuxNextApps	enum	AppPlatformResources	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApps	extension	AppPlatformResources	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppPlatformResources.swift	bundle resource URLs and manifest directory listing (Bundle.module, FileManager)
 CmuxNextApps	protocol	AppResourceLoading	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppPlatformResources.swift	from enum AppPlatformResources:10: bundle resource URLs and manifest directory listing (Bundle.module, FileManager)
 CmuxNextApps	struct	BundledAppResources	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppPlatformResources.swift	from enum AppPlatformResources:10: bundle resource URLs and manifest directory listing (Bundle.module, FileManager)
-CmuxNextApps	struct	AppScopeClassTable	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppScopeClassTable.swift	Swift reader of the scope-class rule table; Rust validator embeds the same file and rules (first match wins)
 CmuxNextApps	enum	AppsStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppsStrings.swift	localized UI strings
 CmuxNextApps	enum	AppSectionLook	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppsTunables.swift	section look tunables (styling)
 CmuxNextApps	enum	AppsTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/AppsTunables.swift	from enum AppSectionLook:5: section look tunables (styling)
@@ -3651,7 +3638,6 @@ CmuxNextBrowser	extension	CEFPaneHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextBrowser	struct	CEFStartReport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFStartReport.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	class	CEFStartSteps	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFStartSteps.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFStartMark	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFStartSteps.swift	from class CEFStartSteps:12: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
-CmuxNextBrowser	class	CEFSwipeNavigation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwipeNavigation.swift	from class CEFSwipeNavigation:21: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFSwitches	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	extension	CEFTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab+Automation.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	extension	CEFTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab+BackForwardList.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
@@ -3871,7 +3857,6 @@ CmuxNextBrowser	struct	OmniboxResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextBrowser	enum	BrowserURLDisplay	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/BrowserURLDisplay.swift	URL display formatter for the address bar (compact host emphasis, elision)
 CmuxNextBrowser	extension	String	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HTTPSUpgradeFallback.swift	from struct HTTPSUpgradeFallback:9: HTTPS-upgrade fallback rule for scheme-less typed addresses
 CmuxNextBrowser	struct	HTTPSUpgradeFallback	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HTTPSUpgradeFallback.swift	HTTPS-upgrade fallback rule for scheme-less typed addresses
-CmuxNextBrowser	class	HistorySuggestionProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HistorySuggestionProvider.swift	history suggestion provider: ranks local history rows for typed text
 CmuxNextBrowser	class	HostTypoMemory	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HostTypoFixup.swift	from enum HostTypoFixup:15: host typo fixup rule (.con -> .com etc.) with TLD list
 CmuxNextBrowser	enum	HostTypoFixup	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HostTypoFixup.swift	host typo fixup rule (.con -> .com etc.) with TLD list
 CmuxNextBrowser	enum	TopLevelDomains	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/HostTypoFixup.swift	from enum HostTypoFixup:15: host typo fixup rule (.con -> .com etc.) with TLD list
@@ -3896,8 +3881,6 @@ CmuxNextBrowser	struct	OmnibarState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Source
 CmuxNextBrowser	class	OmniboxSuggestionEngine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/OmniboxSuggestionEngine.swift	from struct OmniboxRequest:5: omnibox suggestion engine: phase A/B delivery, generation gate, merging local + remote
 CmuxNextBrowser	enum	OmniboxDelivery	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/OmniboxSuggestionEngine.swift	from struct OmniboxRequest:5: omnibox suggestion engine: phase A/B delivery, generation gate, merging local + remote
 CmuxNextBrowser	struct	OmniboxRequest	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/OmniboxSuggestionEngine.swift	omnibox suggestion engine: phase A/B delivery, generation gate, merging local + remote
-CmuxNextBrowser	class	SearchSuggestionProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/SearchSuggestionProvider.swift	from protocol BrowserSearchCompletionSource:4: platform glue
-CmuxNextBrowser	protocol	BrowserSearchCompletionSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/SearchSuggestionProvider.swift	platform glue
 CmuxNextBrowser	struct	OmniboxCalculator	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/Suggest/OmniboxCalculator.swift	calculator row arithmetic parser/evaluator
 CmuxNextBrowser	actor	OmniboxLocalIndex	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/Suggest/OmniboxLocalIndex.swift	phase A actor owning quick indexes (history, bookmarks, tabs) and local queries
 CmuxNextBrowser	struct	OmniboxMerge	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/Suggest/OmniboxMerge.swift	phase B merge rule: late rows join card without moving highlighted row
@@ -4049,8 +4032,6 @@ CmuxNextBrowser	struct	BrowserPageRetirement	0	PLATFORM	0	0	Packages/macOS/CmuxN
 CmuxNextBrowser	class	BrowserPromptDialogs	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserPromptDialogs.swift	from class BrowserPromptDialogs:13: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBrowser	class	BrowserReloadMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserReloadMenu.swift	from class BrowserReloadMenu:11: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBrowser	struct	BrowserRetirementProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserRetirementProbe.swift	from struct BrowserRetirementProbe:8: AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBrowser	class	BrowserSwipeIndicator	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserSwipeIndicator.swift	from class BrowserSwipeIndicator:13: AppKit/SwiftUI view, panel, menu or style code
-CmuxNextBrowser	class	BrowserSwipeIndicatorView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserSwipeIndicator.swift	from class BrowserSwipeIndicator:13: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBrowser	enum	BrowserToolbarButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButton.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBrowser	struct	BrowserToolbarButtonState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButton.swift	from enum BrowserToolbarButton:17: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBrowser	struct	BrowserToolbarFacts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButton.swift	from enum BrowserToolbarButton:17: AppKit/SwiftUI view, panel, menu or style code
@@ -4302,10 +4283,6 @@ CmuxNextBrowserCore	enum	BrowserPromptResponse	0	PLATFORM	0	0	Packages/macOS/Cmu
 CmuxNextBrowserCore	enum	BrowserScriptGesture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserScriptGesture.swift	Browser runtime seam, engine host protocol, JS or platform plumbing
 CmuxNextBrowserCore	enum	BrowserScriptWorld	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserScripting.swift	Browser runtime seam, engine host protocol, JS or platform plumbing
 CmuxNextBrowserCore	enum	BrowserTabError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserScripting.swift	from enum BrowserScriptWorld:4: Browser runtime seam, engine host protocol, JS or platform plumbing
-CmuxNextBrowserCore	enum	BrowserSwipeDirection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserSwipeGesture.swift	Browser persisted records, routes and gesture/title rules
-CmuxNextBrowserCore	struct	BrowserSwipeEdges	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserSwipeGesture.swift	from enum BrowserSwipeDirection:5: Browser persisted records, routes and gesture/title rules
-CmuxNextBrowserCore	struct	BrowserSwipeGesture	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserSwipeGesture.swift	from enum BrowserSwipeDirection:5: Browser persisted records, routes and gesture/title rules
-CmuxNextBrowserCore	struct	BrowserSwipeProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserSwipeProbe.swift	Browser runtime seam, engine host protocol, JS or platform plumbing
 CmuxNextBrowserCore	struct	BrowserURLFilter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserURLFilter.swift	Browser policy and profile records
 CmuxNextBrowserCore	struct	BrowserURLFilterRule	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserURLFilterRule.swift	Browser policy and profile records
 CmuxNextBrowserCore	struct	BrowserWebNotification	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserWebNotification.swift	Browser runtime seam, engine host protocol, JS or platform plumbing
@@ -6623,7 +6600,6 @@ CmuxNextDesign	enum	OpenPanelWarmCheck	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextDesign	func	personPausedOutsideTrackingLoop	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelWarmGate.swift	from struct OpenPanelWarmGate:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	func	thisAccountIsConsoleUser	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelWarmGate.swift	from struct OpenPanelWarmGate:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	OpenPanelWarmGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelWarmGate.swift	from struct OpenPanelWarmGate:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	struct	OverflowMenuButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverflowButton+SwiftUI.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	OverflowButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverflowButton.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	AgentCursorTagElement	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/AgentCursorTagElement.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	ChildWindowPolicy	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/ChildWindowPolicy.swift	from struct ChildWindowPolicy:15: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6708,7 +6684,7 @@ CmuxNextDesign	protocol	PaneTabRowSharing	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextDesign	struct	PaneTabRowMenuItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	PaneTabRowTool	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	from struct PaneTabRowMenuItem:4: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PaneTintView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTintView.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/KeyWindowObserver.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PointerHover	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TargetIndex	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	CmuxPopoverAnchor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopoverAnchor.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -7032,13 +7008,6 @@ CmuxNextDesignTokens	struct	LayoutGrid	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextDesignTokens	enum	LayoutScrollModifier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutScrollModifier.swift	Design token, drawing geometry, color/glyph or window-material value (plain visual token)
 CmuxNextDesignTokens	class	LowPowerMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LowPowerMode.swift	from class LowPowerMode:8: Design token, drawing geometry, color/glyph or window-material value (plain visual token)
 CmuxNextDesignTokens	class	LowPowerModeObservation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LowPowerModeObservation.swift	Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	struct	MistBackdropPlan	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistBackdropPlan.swift	Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	enum	MistCardMaterial	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistCardStyle.swift	Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	struct	MistCardStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistCardStyle.swift	from enum MistCardMaterial:3: Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	struct	MistContrastCheck	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistCardStyle.swift	from enum MistCardMaterial:3: Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	enum	MistGradientAxis	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistGradient.swift	Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	struct	MistGradient	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistGradient.swift	from enum MistGradientAxis:3: Design token, drawing geometry, color/glyph or window-material value (plain visual token)
-CmuxNextDesignTokens	struct	MistGradientStop	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/MistGradient.swift	from enum MistGradientAxis:3: Design token, drawing geometry, color/glyph or window-material value (plain visual token)
 CmuxNextDesignTokens	struct	AnimatedFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/AnimatedFrame.swift	Per-frame animated value used by views
 CmuxNextDesignTokens	enum	CalmMode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/CalmMode.swift	Motion speed/bounce/category choices; cmux-motion owns them
 CmuxNextDesignTokens	enum	MotionCategory	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionCategory.swift	Motion speed/bounce/category choices; cmux-motion owns them
@@ -7917,10 +7886,10 @@ CmuxNextHome	class	HomeDropHighlightView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextHome	class	HomeDropState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeDropHighlightView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunHero	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunHero.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunIntro	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunIntro.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunSwitchCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeDebugAgentRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	from extension HomeFirstRunView:5: AppKit/SwiftUI view or platform code
-CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeFirstRunAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	VideoJob	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFixtureMedia.swift	from enum HomeFixtureMedia:11: AppKit/SwiftUI view or platform code
@@ -9540,7 +9509,6 @@ CmuxNextRemoteView	class	RemoteRdSurfaceStreamSource	0	PLATFORM	0	0	Packages/mac
 CmuxNextRemoteView	enum	RemoteRdSurfaceStreamChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdSurfaceStreams.swift	Which surface streams show or hide
 CmuxNextRemoteView	extension	RemoteRdJSON	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdSurfaceStreams.swift	from enum RemoteRdSurfaceStreamChange:8: Which surface streams show or hide
 CmuxNextRemoteView	struct	RemoteRdSurfaceStreams	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdSurfaceStreams.swift	from enum RemoteRdSurfaceStreamChange:8: Which surface streams show or hide
-CmuxNextRemoteView	class	RemoteRdTransportInputSink	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Transport/RemoteRdTransportInputSink.swift	from class RemoteRdTransportInputSink:5: Input sink adapter and permission seam
 CmuxNextRemoteView	protocol	RemoteUpstreamPermissions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Upstream/RemoteUpstreamPermissions.swift	from protocol RemoteUpstreamPermissions:7: Input sink adapter and permission seam
 CmuxNextRemoteView	struct	SystemUpstreamPermissions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Upstream/RemoteUpstreamPermissions.swift	from protocol RemoteUpstreamPermissions:7: Input sink adapter and permission seam
 CmuxNextRemoteViewSessions	struct	RemoteVNCCredentialStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift	Remote view/VNC frame sources, sessions and Keychain credentials
@@ -9728,7 +9696,6 @@ CmuxNextServer	protocol	ServerSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextServer	struct	ServerIntent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerSource.swift	from enum ServerIntentKind:6: server intent kinds that the model only sends
 CmuxNextServer	enum	ServerConnection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerSourceEvent.swift	connection state of the source
 CmuxNextServer	enum	ServerSourceEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerSourceEvent.swift	from enum ServerConnection:3: connection state of the source
-CmuxNextServer	struct	ServerStatusWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/ServerStatusWire.swift	decoder for server status wire JSON
 CmuxNextServer	enum	ServerStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerStrings.swift	localized strings
 CmuxNextServer	enum	ServerTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerTunables.swift	debug tunables
 CmuxNextServer	class	ServerAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift	from struct ServerColors:10: colors
@@ -9988,10 +9955,6 @@ CmuxNextSettings	extension	NewTabPosition	0	LOGIC	100	0	Packages/macOS/CmuxNext/
 CmuxNextSettings	enum	NewTabTemplate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	CmuxConfigSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	from enum NewTabTemplate:3: Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NewTabTemplate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabTemplateSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
-CmuxNextSettings	extension	NewTabWidgetSettings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetEdits.swift	Maps other editors settings into cmux.json section
-CmuxNextSettings	extension	SettingsController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetEdits.swift	from extension NewTabWidgetSettings:13: Maps other editors settings into cmux.json section
-CmuxNextSettings	extension	CmuxConfigSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetSettings.swift	from struct NewTabWidgetSettings:6: Setting parser: config path, default, validation and diagnostic for one cmux.json key
-CmuxNextSettings	struct	NewTabWidgetSettings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTabWidgetSettings.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	enum	NewTerminalWorkspaceSetting	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTerminalWorkspaceSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NewTerminalWorkspaceSetting	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NewTerminalWorkspaceSetting.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
 CmuxNextSettings	extension	NotificationConfigParser	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NotificationConfigParser+Sounds.swift	Setting parser: config path, default, validation and diagnostic for one cmux.json key
@@ -10100,8 +10063,6 @@ CmuxNextSettings	enum	GroupHoverCardOrderSetting	0	GENERATED	0	0	Packages/macOS/
 CmuxNextSettings	enum	HoverCardLayoutSetting	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HoverCardsChoices.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	LabsSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	from extension CmuxConfigSnapshot:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	CmuxConfigSnapshot	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	enum	NewTabWidgetSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	from extension NewTabWidgetSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	extension	NewTabWidgetSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	NotificationSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Notifications.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
 CmuxNextSettings	enum	NowPlayingSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift	from extension NowPlayingSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	NowPlayingSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
@@ -10762,8 +10723,6 @@ CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macO
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+PinnedHoverCard.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+PointerEnd.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+Reuse.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowHold.swift	from struct SidebarRowHold:8: holds row content patches while a drag runs, applies after
-CmuxNextSidebar	struct	SidebarRowHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowHold.swift	holds row content patches while a drag runs, applies after
 CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionOrder.swift	from extension SidebarRegionView.Content:6: shift-click range order across pinned tiles and list rows
 CmuxNextSidebar	extension	SidebarRegionView.Content	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionOrder.swift	shift-click range order across pinned tiles and list rows
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionPatch.swift	AppKit/SwiftUI view, drawing, gesture or animation code

@@ -193,6 +193,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_push_trigger_branches.py
 
+      - name: Validate no new check first runs after the merge
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_post_merge_checks.py
+
+      - name: Validate the step table and the pull request job budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_step_table.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -389,6 +397,10 @@ jobs:
             status=$?
           fi
           [[ ! -f "$result_path" ]] || cat "$result_path"
+          # ci-guard.sh's per-command and per-test checks (run_ci_guards.py --results).
+          if [[ -n "${CMUX_GUARD_CHECK_RESULTS:-}" && -f "$state_root/guard-checks.tsv" ]]; then
+            cat "$state_root/guard-checks.tsv" >> "$CMUX_GUARD_CHECK_RESULTS"
+          fi
           exit "$status"
 
       - name: Validate tagged reload works without the shared dev backend
@@ -664,7 +676,7 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/cloud-journey-retry.test.ts
+        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
@@ -1029,6 +1041,7 @@ jobs:
           python3 tests/test_nightly_linux_admission.py
           python3 tests/test_nightly_admission_receipt.py
           python3 tests/test_nightly_dedicated_mini.py
+          python3 tests/test_portable_jobs_bring_their_python.py
 
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1563,6 +1576,10 @@ jobs:
       - name: Validate the cmux-tui tree hand-off cap
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
+
+      - name: Validate that recovery jobs run after a timeout
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_recovery_runs_after_a_timeout.py
 
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -2200,7 +2217,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           python3 scripts/check-test-determinism.py --self-test
-          python3 scripts/check-test-determinism.py --strict
+          python3 scripts/check-test-determinism.py --strict --guard-checks
 
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}

@@ -109,6 +109,58 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
     assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
 }
 
+/// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
+/// it is still that start's alone. A second chat from the same workspace that planned onto the
+/// machine first keeps it; one that plans after the strand never finds it.
+#[test]
+fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let on = |key: &str| {
+        json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "user": ME, "loaded": true,
+            "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
+        .to_string()
+    };
+    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    let (first, second) = (key(), key());
+    assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
+    // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
+    assert_eq!(
+        super::strand(&path, &first, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": false})
+    );
+    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
+    // The second fails for good too, after the third planned onto it: still shared.
+    let third = key();
+    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
+
+    // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
+    let lone = scratch_ledger();
+    let mine = key();
+    assert_eq!(pin(&lone.1, &mine, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        super::strand(&lone.1, &mine, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": true})
+    );
+    assert_eq!(
+        plan(&lone.1, &on(&key()))["machine"],
+        Value::Null,
+        "a later send makes a new machine"
+    );
+    // A strand of a send whose pin is already gone deletes nothing another send holds.
+    let other = key();
+    assert_eq!(pin(&lone.1, &other, ACCOUNT, "vm-kept", None)["ok"], true);
+    assert_eq!(super::strand(&lone.1, &key(), ACCOUNT, "vm-kept")["delete"], false);
+}
+
+fn scratch_ledger() -> (tempfile::TempDir, PathBuf) {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    (dir, path)
+}
+
 fn send(key: &str) -> Send {
     Send::new(key, ACCOUNT)
 }

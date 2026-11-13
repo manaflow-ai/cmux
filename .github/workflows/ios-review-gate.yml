@@ -197,7 +197,9 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.ipa_artifact_name }}
-          path: ipa
+          # The runner's temp folder, emptied before each job: a self-hosted worker keeps its workspace, and an
+          # .ipa an earlier job left in `ipa/` would be linted as this binary (the self-hosted downloads guard, test_ci_self_hosted_downloads_are_fresh, run by hand).
+          path: ${{ runner.temp }}/ipa
       - name: Download the dispatched run's binary
         if: inputs.ipa_artifact_run != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -205,7 +207,7 @@ jobs:
           name: app-store-ipa
           run-id: ${{ inputs.ipa_artifact_run }}
           github-token: ${{ github.token }}
-          path: ipa
+          path: ${{ runner.temp }}/ipa
       - name: Lint
         env:
           WANT_IPA: ${{ inputs.ipa_artifact_name != '' || inputs.ipa_artifact_run != '' }}
@@ -213,7 +215,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(lint --source-root app --lane "$LANE" --check-urls --json "lint-$LANE.json")
-          ipa="$(find ipa -name '*.ipa' 2>/dev/null | head -n 1 || true)"
+          ipa="$(find "$RUNNER_TEMP/ipa" -name '*.ipa' 2>/dev/null | head -n 1 || true)"
           if [ -n "$ipa" ]; then
             # The binary must be built from the judged commit.
             args+=(--ipa "$ipa" --expect-commit "$JUDGED_SHA")
