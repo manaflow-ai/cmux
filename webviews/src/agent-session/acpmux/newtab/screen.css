@@ -480,6 +480,15 @@
      line (Lucas 2026-11-14: "the folder/project image ... needs to drop by 1pt"). */
   translate: 0 1px;
 }
+/* The tray's chips (folder, computer) draw their open and pressed fill 1 pt lower and their content 1 pt higher
+   inside it, so the content stays put and the fill centers on it: the button centers its text's line box, ascender
+   to baseline, and a lowercase name's ink sits low in that box, so the fill read 1 pt high (Lucas 2026-11-14). */
+.nt-above .acpmux-location-button {
+  --acpmux-location-fill-drop: 1px;
+  top: var(--acpmux-location-fill-drop);
+  padding-top: 0;
+  padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
+}
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
   align-self: center;
