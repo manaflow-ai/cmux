@@ -113,7 +113,7 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         // Off a page row, a favicon is the workspace's own image or SVG icon: its loading symbol keeps the column.
         // A row whose focused tab is a page (beside a chat or terminal) shows that page's favicon.
         case .favicon? where ws.kind != .browser && !Self.focusesPage(ws): icon = "symbol:photo"
-        case .favicon?, .pagePlaceholder?: icon = Self.pageIcon
+        case .favicon?, .pagePlaceholder?, .page?: icon = Self.pageIcon
         case nil: break
         }
         self.init(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,

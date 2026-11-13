@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-13 (ask-b931ea5095): a cmux page draws its own icon, never the site globe. Leo, verbatim (2026-11-12, on
+  the Cloud machine row `chat-800dd580cab0487c`, whose focused tab is the machine's desktop): "and it's using the old
+  crummy icon". `cmux://remote-view?...` parsed as a site with host "remote-view" and no favicon, so the row and its
+  hover card tab drew `WorkspaceIcon.pagePlaceholder`. A cmux page is no site (`SidebarMapping.isCmuxPage`); its page
+  face carries the tab strip's icon (`BrowserTabIconState.pageIcon`) as `WorkspaceIcon.page` and `SidebarTab.pageIcon`.
+  A Cloud desktop wears `.cloud`, the icon its machine has on every other surface; another computer's desktop keeps
+  `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
 - 2026-11-11: Home, the pinned rows and the "Workspaces" heading keep one row pitch at every density. Lawrence
   (8:04 PM screenshot of Home, six pins and the heading), verbatim: "spacing here is not consistent anymore either".
   A list block's rows stacked edge to edge while the list keeps its `space1` row gap, so pins stepped 2 pt tighter than

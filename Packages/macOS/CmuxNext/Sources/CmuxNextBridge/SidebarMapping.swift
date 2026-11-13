@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -68,11 +69,15 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// a cmux page is no site, so its row never wears the no-favicon globe.
+        public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.icon = icon
         }
     }
 
@@ -393,8 +398,13 @@ public struct SidebarMapping {
 
     /// Whether `tab` is a site page (a browser tab on a host, not a New Tab page): the tabs that show a favicon.
     static func isSite(_ tab: TabModel?, newTabPages: Set<String>) -> Bool {
-        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id) else { return false }
+        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id), !isCmuxPage(tab.url) else { return false }
         return pageHost(tab.url) != nil
+    }
+
+    /// Whether `url` is a cmux page (`cmux://history`, `cmux://remote-view?...`): it has its own icon, never a site's.
+    static func isCmuxPage(_ url: String?) -> Bool {
+        url.flatMap { URL(string: $0)?.scheme?.lowercased() } == "cmux"
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.
