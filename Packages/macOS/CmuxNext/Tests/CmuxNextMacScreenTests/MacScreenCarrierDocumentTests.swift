@@ -1,4 +1,5 @@
 import CmuxScreenKit
+import CryptoKit
 import Foundation
 @testable import CmuxNextMacScreen
 import Testing
@@ -20,6 +21,32 @@ import Testing
         #expect(TicketSignaling.fingerprint(ofSDP: document.text) == "cmux-rd-key \(key),cmux-rd-carrier rd_wg/1")
         let changed = document.text.replacingOccurrences(of: "rd_wg/1", with: "rd_wg/2")
         #expect(TicketSignaling.fingerprint(ofSDP: changed) != TicketSignaling.fingerprint(ofSDP: document.text))
+    }
+
+    @Test func carrierTamperingFailsTheExistingTicketSignature() throws {
+        let signer = P256.Signing.PrivateKey()
+        let peerKey = signer.publicKey.x963Representation.base64EncodedString()
+        let original = MacScreenRdDocument(key: key, peerCarrier: "rd_wg/1").text
+        let fingerprint = try #require(TicketSignaling.fingerprint(ofSDP: original))
+        let message = TicketSignaling.fingerprintMessage(sessionID: "test", role: "host", fingerprint: fingerprint)
+        let signature = try signer.signature(for: message).rawRepresentation.base64EncodedString()
+        #expect(TicketSignaling.verify(fpSig: signature, sessionID: "test", role: "host",
+                                      fingerprint: fingerprint, peerKey: peerKey))
+        for altered in [
+            MacScreenRdDocument(key: key).text,
+            original.replacingOccurrences(of: "rd_wg/1", with: "rd_wg/2"),
+            original + "a=fingerprint:cmux-rd-carrier rd_wg/1\r\n",
+        ] {
+            let changed = try #require(TicketSignaling.fingerprint(ofSDP: altered))
+            #expect(!TicketSignaling.verify(fpSig: signature, sessionID: "test", role: "host",
+                                           fingerprint: changed, peerKey: peerKey))
+        }
+        // An actually older peer signs its key-only document; absence is authenticated too.
+        let legacy = try #require(TicketSignaling.fingerprint(ofSDP: MacScreenRdDocument(key: key).text))
+        let legacyMessage = TicketSignaling.fingerprintMessage(sessionID: "test", role: "host", fingerprint: legacy)
+        let legacySignature = try signer.signature(for: legacyMessage).rawRepresentation.base64EncodedString()
+        #expect(TicketSignaling.verify(fpSig: legacySignature, sessionID: "test", role: "host",
+                                      fingerprint: legacy, peerKey: peerKey))
     }
 
     @Test func unsignedAttributeDoesNotAdvertiseSupport() throws {
