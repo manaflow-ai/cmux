@@ -384,6 +384,20 @@ impl transport::Stream for Prefixed {
     fn shutdown(&self, how: std::net::Shutdown) -> std::io::Result<()> {
         self.inner.shutdown(how)
     }
+
+    /// The replayed bytes are readable at once; then the socket's wait.
+    fn wait_readable(&self) -> std::io::Result<()> {
+        if self.at < self.prefix.len() {
+            return Ok(());
+        }
+        transport::Stream::wait_readable(&self.inner)
+    }
+}
+
+/// Tests: the remote entry's stream, `prefix` replayed before `inner`.
+#[cfg(test)]
+pub(super) fn prefixed_for_test(prefix: Vec<u8>, inner: UnixStream) -> Box<dyn transport::Stream> {
+    Box::new(Prefixed { prefix, at: 0, inner })
 }
 
 #[cfg(test)]

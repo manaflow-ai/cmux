@@ -37,16 +37,22 @@ else
   : > "$fw/Chromium Embedded Framework"
   # resources.pak (format 5) with one intro sound and one other resource; the
   # artifact's header names the sound, so the embedded pak keeps only the other.
-  mkdir -p "$dist/include"
+  # en.lproj/locale.pak with an AI assistant string, which the embed empties, and a
+  # tab title, which it keeps. The framework binary is empty here, so the
+  # WebUI pages are left as they are, with a warning.
+  mkdir -p "$dist/include" "$fw/Resources/en.lproj"
   printf '#define IDR_INTRO_SOUND_LOGO_FLAC 7\n' > "$dist/include/cef_pack_resources.h"
-  /usr/bin/python3 -c 'import struct, sys
-data = [(7, b"fLaC-sound"), (8, b"kept")]
-off = 12 + 6 * 3
-out = struct.pack("<IB3xHH", 5, 1, 2, 0)
+  printf '#define IDS_GLIC_TITLE 5\n#define IDS_DEFAULT_TAB_TITLE 6\n' > "$dist/include/cef_pack_strings.h"
+  write_pak='import struct, sys
+data = [(int(rid), body.encode()) for rid, body in (arg.split("=", 1) for arg in sys.argv[2:])]
+off = 12 + 6 * (len(data) + 1)
+out = struct.pack("<IB3xHH", 5, 1, len(data), 0)
 for rid, body in data:
     out += struct.pack("<HI", rid, off); off += len(body)
 out += struct.pack("<HI", 0, off) + b"".join(b for _, b in data)
-open(sys.argv[1], "wb").write(out)' "$fw/Resources/resources.pak"
+open(sys.argv[1], "wb").write(out)'
+  /usr/bin/python3 -c "$write_pak" "$fw/Resources/resources.pak" 7=fLaC-sound 8=kept
+  /usr/bin/python3 -c "$write_pak" "$fw/Resources/en.lproj/locale.pak" 5=gemini-text 6=untitled-text
   printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
     cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
@@ -75,6 +81,10 @@ STUB
   pak="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/resources.pak"
   if grep -q 'fLaC-sound' "$pak" || ! grep -q kept "$pak"; then
     echo 'embedded resources.pak still has the intro sound, or lost the other resource' >&2; exit 1
+  fi
+  locale="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/en.lproj/locale.pak"
+  if grep -q gemini-text "$locale" || ! grep -q untitled-text "$locale"; then
+    echo 'embedded locale.pak still has the AI assistant string, or lost the tab title' >&2; exit 1
   fi
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }

@@ -180,6 +180,32 @@ fn serialize() {
     use std::sync::RwLock as Lock;
     static HOOK_TEST: Lock<()> = Lock::new(());
 }
+=== passes hub/watches.rs :: a module's cfg-gated renames are each read, std's first (#42467 F1)
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    #[cfg(unix)] use std::sync::Mutex as L;
+    #[cfg(windows)] use parking_lot::Mutex as L;
+    static HOOK_TEST: L<()> = L::new(());
+}
+=== passes hub/watches.rs :: a module's cfg-gated renames are each read, std's last (#42467 F1)
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    #[cfg(windows)] use parking_lot::Mutex as L;
+    #[cfg(unix)] use std::sync::Mutex as L;
+    static HOOK_TEST: L<()> = L::new(());
+}
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
