@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileLive
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import CmuxMobileAgentChat
@@ -25,6 +26,7 @@ extension InstantPerfTests {
     /// enters the viewport). The source's one page held ahead is on in both.
     static func listFling(_ log: AgentChatLog, readsAhead: Bool) async throws
         -> (fills: [Double], blank: Int, pages: Int, screens: Double, uncovered: Int) {
+        print("SCROLLFILLUI open \(log.count) records, readsAhead \(readsAhead)")
         let fake = InstantPerfAcpmux(log)
         let hub = AcpmuxHub()
         await hub.bind(fake.channel(rtt: FlingReader.rtt, bytesPerSecond: FlingReader.bytesPerSecond))
@@ -32,15 +34,26 @@ extension InstantPerfTests {
         let newest = try #require(log.lastTurn(before: log.count))
         let shown = await waitUntil { shows(store, newest) }
         try #require(shown, "the chat never showed \(newest)")
+        // The chat screen's own transcript controller, in a window, as the app hosts it.
         let surface = AgentChatSurface()
-        let list = ChatTranscriptList(store: store, surface: surface)
+        let controller = ChatTranscriptController(placement: .owned, surface: surface, store: store,
+                                                  empty: AnyView(EmptyView()), dock: nil, jump: nil)
+        controller.reducesMotion = { true }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: FlingReader.viewport))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        let list = controller.transcriptList
         list.readsAhead = readsAhead
-        defer { withExtendedLifetime((store, list)) {} }
+        defer { withExtendedLifetime((store, controller)) {} }
         let view = list.collectionView
-        view.frame = CGRect(x: 0, y: 0, width: 390, height: FlingReader.viewport)
-        list.boundsMayHaveChanged()
-        view.layoutIfNeeded()
-        // At the newest turn, then the reader takes over (the keyboard dock stops following).
+        // Rows near the reader are laid out and measured over the first frames.
+        for _ in 0..<30 {
+            try await Task.sleep(for: .milliseconds(16)) // test: a display frame for the first layout
+            controller.view.layoutIfNeeded()
+        }
+        // At the newest turn, then the reader takes over.
         surface.following = false
         view.contentOffset.y = max(view.contentSize.height - view.bounds.height, -view.adjustedContentInset.top)
         view.layoutIfNeeded()
@@ -74,6 +87,7 @@ extension InstantPerfTests {
             let laid = list.layout.layoutAttributesForElements(in: view.bounds) ?? []
             return laid.filter { !visible.contains($0.indexPath) }.count
         }
+        print("SCROLLFILLUI fling from \(view.contentOffset.y) of \(view.contentSize.height)")
         oldTrigger()
         try await Task.sleep(for: .milliseconds(750)) // test: a person's pause before scrolling
         _ = absorb()
@@ -126,6 +140,7 @@ extension InstantPerfTests {
             frame = waiting
         }
         await hub.bind(nil)
+        print("SCROLLFILLUI done: \(fills.count) frames, \(blank) blank, \(pages) pages")
         return (fills, blank, pages, travelled / viewport, uncovered)
     }
 
