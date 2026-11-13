@@ -82,13 +82,6 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
   async function stream(name: string, cadence: Cadence, liveLine = false, eased = true): Promise<StreamReport> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     const { port } = vite!.httpServer!.address() as { port: number };
-    // The chase's follow motion (followChase.ts), which these frames measure, is the blocks arm's. The
-    // slim `send` arm (the product's, cmux#39825) moves each line at once by design, as Claude Code's
-    // transcript does (34.75 px a frame here); send-stream-motion covers it.
-    await page.addInitScript(() => {
-      const scope = globalThis as { cmuxExperiments?: Record<string, string> };
-      scope.cmuxExperiments = { ...scope.cmuxExperiments, "follow-motion": "blocks" };
-    });
     await page.goto(`http://127.0.0.1:${port}/test/browser/streaming-text.html`);
     await page.waitForFunction(() => "__streamingText" in window);
     await page.getByText("History answer 6.").waitFor();
