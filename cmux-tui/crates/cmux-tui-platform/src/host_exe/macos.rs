@@ -441,13 +441,18 @@ fn collect_unused(root: &Path, current: &str) {
         else {
             continue;
         };
-        // SAFETY: flock on a descriptor this function owns.
-        let free = unsafe {
-            libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX | libc::LOCK_NB)
-        } == 0;
-        if free {
-            let _ = fs::remove_dir_all(&dir);
-        }
+        remove_if_unused(&dir, lock);
+    }
+}
+
+/// Deletes the copy `dir` when its in-use lock, opened as `lock`, is free.
+fn remove_if_unused(dir: &Path, lock: File) {
+    // SAFETY: flock on a descriptor this function owns.
+    let free = unsafe {
+        libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX | libc::LOCK_NB)
+    } == 0;
+    if free {
+        let _ = fs::remove_dir_all(dir);
     }
 }
 
