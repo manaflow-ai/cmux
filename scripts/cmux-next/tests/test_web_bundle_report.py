@@ -140,6 +140,21 @@ class WebBundleReportTests(unittest.TestCase):
             bundles = {"react": {"bundles": [one["name"], two["name"]], "paths": ["node_modules/react/index.js"]}}
             self.assertEqual(len(bundles["react"]["bundles"]), 2)
 
+    def test_duplicate_react_detector_reports_real_multiple_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pages = self.write_bundle(root, "pages", [("one/node_modules/react/index.js", 100, 80)])
+            pane = self.write_bundle(root, "pane", [("two/node_modules/react/index.js", 100, 80)])
+            output = root / "report.json"
+            subprocess.run(
+                [sys.executable, str(SCRIPT), "--metafile", f"pages={pages}",
+                 "--metafile", f"pane={pane}", "--json", str(output)],
+                check=True, capture_output=True, text=True,
+            )
+            report = json.loads(output.read_text())
+            self.assertEqual(len(report["duplicates"]["react"]["instances"]), 2)
+            self.assertTrue(any("duplicate react package across bundles" in finding for finding in report["findings"]))
+
     def test_installed_copies_use_canonical_paths_across_bundlers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
