@@ -153,7 +153,7 @@ impl Negotiation {
     }
     /// Whether the peer has negotiated WG and packets should be offered to the
     /// overlay while its handshake completes. A failed session returns false,
-    /// allowing the caller to continue on authenticated rd-link datagrams.
+    /// allowing the caller to select the signed WebRTC retry before media starts.
     pub fn active(&self) -> bool {
         self.peer.is_some() && !matches!(self.state(), State::Failed(_))
     }
