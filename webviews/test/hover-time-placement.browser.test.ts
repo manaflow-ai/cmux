@@ -41,7 +41,14 @@ await requireBrowserLane("hover-time-placement.browser.test.ts", async () => {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 620 })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".cv-worked-row").first().hover();
-          await page.locator(".cv-worked-row .cv-turn-time").first().waitFor({ state: "attached" });
+          await page.waitForFunction(
+            () => {
+              const time = document.querySelector(".cv-worked-row .cv-turn-time");
+              return time && getComputedStyle(time).opacity === "1";
+            },
+            undefined,
+            { timeout: 5_000 },
+          );
           const geometry = await page.evaluate(() => {
             const worked = document.querySelector(".cv-worked-row .cv-worked")!;
             const box = (node: Element) => {
