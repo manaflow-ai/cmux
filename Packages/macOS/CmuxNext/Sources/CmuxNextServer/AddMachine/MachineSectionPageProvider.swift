@@ -16,8 +16,7 @@ public extension PageDescriptor {
 /// - stream `changes` → the whole snapshot each time it changes, only while the section shows: a
 ///   hidden section observes nothing but whether it shows, and the newest snapshot arrives when it
 ///   shows again;
-/// - `newWorkspace {machine}` → `workspace.newOnMachine`; `viewScreen`/`shareScreen` expose Mac Screen;
-///   `stopSharing` ends the host session; `addMachine` → `device.add` (Add Device);
+/// - `newWorkspace {machine}` → `workspace.newOnMachine`; `addMachine` → `device.add` (Add Device);
 /// - `menu {row, menu, x, y}` → the registry's native menu for the row at the page point, answered
 ///   once it closes (`row`: New Workspace on This Machine; `joined`: Check, Rotate Credential, Revoke…);
 /// - `remove {row}` → a joined machine's Remove, after the page's own question: revoked if it still
@@ -30,9 +29,6 @@ public final class MachineSectionPageProvider: PageProvider {
     static let snapshotOp = "cmux.machines.snapshot"
     static let changesStream = "cmux.machines.changes"
     static let newWorkspaceOp = "cmux.machines.newWorkspace"
-    static let viewScreenOp = "cmux.machines.viewScreen"
-    static let shareScreenOp = "cmux.machines.shareScreen"
-    static let stopSharingOp = "cmux.machines.stopSharing"
     static let addMachineOp = "cmux.machines.addMachine"
     static let menuOp = "cmux.machines.menu"
     static let removeOp = "cmux.machines.remove"
@@ -47,10 +43,6 @@ public final class MachineSectionPageProvider: PageProvider {
         var joined: @MainActor () -> JoinedMachineStore?
         /// New Workspace on a machine (`workspace.newOnMachine`); false when it did not run.
         var newWorkspace: @MainActor (_ machine: String) -> Bool
-        var viewScreen: @MainActor (_ machine: String) -> Bool
-        var shareScreen: @MainActor (_ machine: String) -> Bool
-        var stopSharing: @MainActor () -> Bool
-        var screenSharing: @MainActor () -> MachineScreenSharing?
         /// Add Machine… (`device.add`).
         var addMachine: @MainActor () -> Bool
         /// Shows `menu` at a point of the page (CSS pixels) and returns once it closes.
@@ -63,10 +55,6 @@ public final class MachineSectionPageProvider: PageProvider {
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow], style: @escaping @MainActor () -> MachineSectionStyle,
                     joined: @escaping @MainActor () -> JoinedMachineStore?, newWorkspace: @escaping @MainActor (String) -> Bool,
-                    viewScreen: @escaping @MainActor (String) -> Bool = { _ in false },
-                    shareScreen: @escaping @MainActor (String) -> Bool = { _ in false },
-                    stopSharing: @escaping @MainActor () -> Bool = { false },
-                    screenSharing: @escaping @MainActor () -> MachineScreenSharing? = { nil },
                     addMachine: @escaping @MainActor () -> Bool, present: @escaping @MainActor (NSMenu, CGPoint) async -> Void,
                     menu: @escaping @MainActor (String, MachineSectionRow) -> NSMenu?,
                     cloudTeam: @escaping @MainActor () -> (name: String, personal: Bool)? = { nil }) {
@@ -75,10 +63,6 @@ public final class MachineSectionPageProvider: PageProvider {
             self.style = style
             self.joined = joined
             self.newWorkspace = newWorkspace
-            self.viewScreen = viewScreen
-            self.shareScreen = shareScreen
-            self.stopSharing = stopSharing
-            self.screenSharing = screenSharing
             self.addMachine = addMachine
             self.present = present
             self.menu = menu
@@ -122,23 +106,6 @@ public final class MachineSectionPageProvider: PageProvider {
         case Self.addMachineOp:
             try Self.requireGesture(context)
             return ["ran": .bool(dependencies.addMachine())]
-        case Self.viewScreenOp:
-            try Self.requireGesture(context)
-            guard let machine = params["machine"]?.stringValue,
-                  dependencies.rows().contains(where: { $0.id == machine && $0.isConnected }) else {
-                throw PageError.invalidParams("machine is not a connected machine of the section")
-            }
-            return ["ran": .bool(dependencies.viewScreen(machine))]
-        case Self.shareScreenOp:
-            try Self.requireGesture(context)
-            guard let machine = params["machine"]?.stringValue,
-                  dependencies.rows().contains(where: { $0.id == machine && $0.isConnected }) else {
-                throw PageError.invalidParams("machine is not a connected machine of the section")
-            }
-            return ["ran": .bool(dependencies.shareScreen(machine))]
-        case Self.stopSharingOp:
-            try Self.requireGesture(context)
-            return ["ran": .bool(dependencies.stopSharing())]
         case Self.menuOp:
             try Self.requireGesture(context)
             // A row the section shows (never a fleet daemon the rows leave out), and a menu that row has: its
@@ -218,9 +185,6 @@ public final class MachineSectionPageProvider: PageProvider {
         if let open = joined?.openMenu { reply["openMenu"] = .string(open) }
         if let team = dependencies.cloudTeam() {
             reply["cloudTeam"] = .object(["name": .string(team.name), "personal": .bool(team.personal)])
-        }
-        if let sharing = dependencies.screenSharing() {
-            reply["screenSharing"] = .object(["viewerName": .string(sharing.viewerName), "scope": .string(sharing.scope), "connected": .bool(sharing.connected)])
         }
         return .object(reply)
     }

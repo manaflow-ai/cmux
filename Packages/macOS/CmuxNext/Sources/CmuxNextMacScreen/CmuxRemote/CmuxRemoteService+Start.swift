@@ -10,8 +10,8 @@ private let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "
 extension CmuxRemoteService {
     /// cmux Remote's app side (docs/cmux-remote.md), when this build embeds it: Computer Use
     /// runs as its worker; the hub is made with the Screen Sharing worker's device identity and
-    /// reads the worker's one User DO socket, and the worker is anchored while signed in; Mac
-    /// Screen's host sessions and approval banner are the worker's. Nil (and nothing changes) in
+    /// reads the worker's one User DO socket, and the worker is anchored while signed in. The app
+    /// serves Mac Screen and shows approvals while attached. Nil (and nothing changes) in
     /// a build without the bundle.
     public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
@@ -51,21 +51,41 @@ extension CmuxRemoteService {
             // path speaks the older ScreenStreamHost protocol, so its app channel is explicitly
             // relay-only; it retains identity, signing and push delivery, and can host again only
             // after every app channel closes.
-            let remote = false
-            followHub(hub, userID: user, hubURL: url, devices: devices)
-            pages?.remoteHosted = remote
+            let usesRemoteIdentity = hub != nil && hub === remoteHub
+            followHub(usesRemoteIdentity ? hub : nil, userID: user, hubURL: url, devices: devices)
+            pages?.remoteHosted = false
         }
         return devices
     }
 
-    /// Sends the person's switches whenever `config` (read inside an observation) changes,
+    /// Uses one consent snapshot for new channels and changes on an existing worker. The caller
+    /// invokes the returned callback after its consent model changes.
+    public func bindConsent(_ devices: CmuxRemoteDevices,
+                            source: @escaping @MainActor () -> (enabled: Bool, view: Bool, full: Bool)) -> @MainActor () -> Void {
+        devices.setConsentSource { await source() }
+        return { [weak self] in
+            let consent = source()
+            // task-owner: one consent line to a running worker, bounded by its availability wait.
+            Task { [weak self] in
+                guard await self?.waitAvailable() == true else { return }
+                await devices.consent(enabled: consent.enabled, view: consent.view, full: consent.full)
+            }
+        }
+    }
+
+    /// Sends the person's switches whenever settings or app state (read inside an observation) changes,
     /// from the first settings load on.
     public func follow(_ settings: SettingsController,
-                       config: @escaping @MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool)) {
+                       appState: @escaping @MainActor () -> (signedIn: Bool, computerUseAllowed: Bool)) {
         // task-owner: lives with the app; follows the settings, the sign-in and the daemon.
         Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
+            let config = { @MainActor in
+                let state = appState(), computerUse = settings.snapshot.computerUse
+                return (computerUse: computerUse.enabled && ComputerUseHelperDaemon.shared.effectiveDriver(computerUse.driver) == .upstream && state.computerUseAllowed,
+                        screenSharing: state.signedIn, headless: !settings.snapshot.remote.endSharingOnQuit)
+            }
             self?.currentConfig = config
             for await next in ObservationStream(config) {
                 guard let self else { return }

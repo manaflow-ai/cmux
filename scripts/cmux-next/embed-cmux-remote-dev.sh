@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Embeds the pinned, Apple Development signed "cmux Remote (dev).app"
+# Embeds the pinned, team-signed "cmux Remote (dev).app"
 # (cmux-remote-dev.pin.json; docs/cmux-remote.md) at
 #   Contents/Library/cmux Remote (dev).app
 # of a DEV build, where its cmux-tui daemon finds it, copies it outside the app
@@ -8,8 +8,8 @@
 # (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
 # The embedded worker is signed separately and is also used by NIGHTLY Release builds.
-# An unavailable pin warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1;
-# a sha256 mismatch fails the build.
+# Release requires the asset, so a published build cannot silently lose Screen Sharing.
+# DEV warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails.
 # CMUX_NEXT_SKIP_CMUX_REMOTE=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,9 +26,14 @@ skip() {
 [[ "${CMUX_NEXT_SKIP_CMUX_REMOTE:-0}" == "1" ]] && skip "CMUX_NEXT_SKIP_CMUX_REMOTE=1"
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"
-[[ -f "$pin" ]] || skip "no pin file $pin"
+required="${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}"
+[[ "${CONFIGURATION:-}" == "Release" ]] && required=1
+if [[ ! -f "$pin" ]]; then
+  [[ "$required" == "1" ]] && { echo "error: cmux Remote requires pin file $pin" >&2; exit 1; }
+  skip "no pin file $pin"
+fi
 args=(--optional)
-[[ "${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}" == "1" ]] && args=()
+[[ "$required" == "1" ]] && args=()
 zip="$("$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})"
 [[ -n "$zip" ]] || skip "the pinned cmux Remote is unavailable"
 want="$(shasum -a 256 "$zip" | awk '{print $1}')"

@@ -7,8 +7,6 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import {
   KIND_ICON,
-  canShareScreen,
-  canViewScreen,
   groups,
   healthHelp,
   isLinked,
@@ -156,21 +154,6 @@ describe("words", () => {
     expect(isLinked(machine("ssh-7", "ssh", { joined }))).toBe(true);
     expect(isLinked(machine("joined:m_1", "joined", { joined }))).toBe(false);
     expect(isLinked(machine("ssh-8", "ssh"))).toBe(true);
-  });
-
-  test("screen sharing is local-only while viewing accepts connected Macs and Cloud machines", () => {
-    expect(canShareScreen(local)).toBe(true);
-    expect(canShareScreen(machine("cloud", "cloud", { isConnected: true }))).toBe(false);
-    expect(
-      canShareScreen(
-        machine("joined:m_1", "joined", {
-          isConnected: true,
-          joined: { id: "m_1", name: "Mac", state: "online", platform: "macos" },
-        }),
-      ),
-    ).toBe(false);
-    expect(canViewScreen(local)).toBe(false);
-    expect(canViewScreen(machine("cloud", "cloud", { isConnected: true }))).toBe(true);
   });
 });
 

@@ -673,6 +673,9 @@
 				"$(CMUX_NEXT_CUA_HELPER_PIN)",
 				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
 				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
+				"$(CMUX_NEXT_CMUX_REMOTE_PIN)",
+				"$(CMUX_NEXT_SKIP_CMUX_REMOTE)",
+				"$(CMUX_NEXT_REQUIRE_CMUX_REMOTE)",
 				"$(ARCHS)",
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
@@ -685,6 +688,8 @@
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
 				"$(TARGET_TEMP_DIR)/embed-cua-helper-dev.stamp",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Remote (dev).app",
+				"$(TARGET_TEMP_DIR)/embed-cmux-remote-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

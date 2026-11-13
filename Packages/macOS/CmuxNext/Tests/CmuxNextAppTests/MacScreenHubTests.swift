@@ -123,11 +123,24 @@ struct MacScreenDeviceRecordTests {
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        #expect(pages.record(forMachine: "joined:\(deviceID)") == MacScreenRecord(deviceID: deviceID))
         pages.hub = hub
         #expect(pages.record(forMachine: deviceID) == MacScreenRecord(deviceID: deviceID))
         #expect(pages.record(forMachine: "joined:\(deviceID)") == MacScreenRecord(deviceID: deviceID))
         #expect(pages.record(forMachine: "Air Blue") == MacScreenRecord(deviceID: deviceID))
         #expect(pages.record(forMachine: "missing-machine").isHome)
+        #expect(pages.pendingScopes.isEmpty)
+        let requested = pages.record(forMachine: "joined:\(deviceID)", requesting: .view)
+        // Automation/restoration does not consume a person's pending connection choice.
+        pages.prepare("restored", record: requested, byPerson: false)
+        _ = pages.makeView(for: "restored")
+        #expect(pages.tab("restored")?.pane?.model.hub?.resumeScope == nil)
+        pages.prepare("view", record: requested, byPerson: true)
+        _ = pages.makeView(for: "view")
+        #expect(pages.tab("view")?.pane?.model.hub?.resumeScope == .view)
+        #expect(pages.pendingScopes.isEmpty)
+        pages.tabClosed("restored")
+        pages.tabClosed("view")
         pages.hub = nil
     }
 }

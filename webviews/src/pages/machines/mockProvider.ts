@@ -99,9 +99,6 @@ export class MockMachinesProvider implements PageClient {
         return this.snapshot as R;
       case MachinesOps.newWorkspace:
       case MachinesOps.addMachine:
-      case MachinesOps.viewScreen:
-      case MachinesOps.shareScreen:
-      case MachinesOps.stopSharing:
         return { ran: true } as R;
       case MachinesOps.menu:
         return {} as R;

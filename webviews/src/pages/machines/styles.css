@@ -138,57 +138,11 @@ html[data-cmux-page="machines"] body {
 .machines-action:hover:not(:disabled),
 .machines-row[data-menu-open] .machines-more { background: var(--page-hover); }
 .machines-action:disabled { color: var(--page-text-disabled); }
-.machines-action:not(.machines-screen-action):not(.machines-share-action) {
-  width: 0;
-  margin-inline: calc(-1 * var(--ds-space-1));
-  overflow: hidden;
-  pointer-events: none;
-}
-.machines-row:hover .machines-action:not(.machines-screen-action):not(.machines-share-action),
-.machines-row:has([data-popup-open]) .machines-action:not(.machines-screen-action):not(.machines-share-action),
-.machines-row:focus-within .machines-action:not(.machines-screen-action):not(.machines-share-action),
-.machines-row[data-menu-open] .machines-action:not(.machines-screen-action):not(.machines-share-action) {
-  width: var(--machines-button);
-  margin-inline: 0;
-  overflow: visible;
-  pointer-events: auto;
-}
 .machines-action:focus-visible,
 .machines-add:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 0;
 }
-
-/* Screen controls are first-class row actions: the display and share glyphs stay visible on capable
-   machines so the person never has to open the Command Palette to reach the shared screen. */
-.machines-screen-action,
-.machines-share-action { opacity: 1; }
-.machines-share-action { color: var(--ds-color-attention); }
-
-.machines-sharing-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin: var(--ds-space-2) var(--machines-inset) var(--ds-space-3);
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--ds-radius-control);
-  background: var(--ds-color-success-subtle);
-  color: var(--page-text);
-}
-.machines-sharing-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: var(--ds-space-1); }
-.machines-sharing-title { font-weight: var(--weight-emphasis); }
-.machines-sharing-detail { color: var(--page-text-2); font-size: var(--text-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.machines-stop-sharing {
-  flex: none;
-  min-height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: var(--page-hover);
-  color: var(--ds-color-danger);
-}
-.machines-stop-sharing:hover { background: var(--page-active); }
-.machines-stop-sharing:focus-visible { outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus); outline-offset: 0; }
 
 .machines-add-line { padding: 0 var(--machines-inset); }
 .machines-add-line[data-gap] { margin-top: var(--ds-space-3); }

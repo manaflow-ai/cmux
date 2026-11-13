@@ -96,10 +96,10 @@ public final class MacScreenPages {
 
     /// - Parameters:
     ///   - store: the saved Mac Screen records.
-    ///   - work: the app's blocking-work lanes (the permission checks run on its system lane).
+    ///   - work: the app's blocking-work context. Permission probes run in a fresh async child.
     public init(store: MacScreenStore, work: BackgroundWork) {
         self.store = store
-        host = MacScreenShareHost(work: work)
+        host = MacScreenShareHost()
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
@@ -114,18 +114,22 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
-    /// The record a Machines row should open. Machine registries and the device hub use different
-    /// ids in some builds, so a missing match deliberately falls back to the Mac Screen home.
-    public func record(forMachine machine: String) -> MacScreenRecord {
+    /// The record a machine row should open. Joined ids are device ids even before the hub's
+    /// device list arrives; legacy machine names need a hub match. A person's View action also
+    /// supplies its scope, so the new tab connects without a second Connect click.
+    public func record(forMachine machine: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+        guard !machine.isEmpty else { return MacScreenRecord(macID: nil) }
         let candidate = machine.hasPrefix("joined:") ? String(machine.dropFirst("joined:".count)) : machine
-        guard let device = hub?.devices.first(where: { $0.id == candidate || $0.name == candidate }) else {
+        guard let id = MacScreenRecord.normalizedDeviceID(candidate)
+            ?? hub?.devices.first(where: { $0.name == candidate })?.id else {
             return MacScreenRecord(macID: nil)
         }
-        return MacScreenRecord(deviceID: device.id)
+        if let scope { pendingScopes[id] = scope }
+        return MacScreenRecord(deviceID: id)
     }
 
-    /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
-    /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
+    /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
+    /// uses the worker only for identity and pushes; a host ticket must have exactly one owner.
     public var remoteHosted = false {
         didSet {
             guard remoteHosted != oldValue else { return }

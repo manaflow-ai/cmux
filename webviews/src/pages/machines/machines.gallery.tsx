@@ -109,42 +109,5 @@ export default componentEntry<Props>({
       note: "300 machines: rows past the viewport skip layout and paint; the section scrolls.",
       props: { snapshot: { rows: [thisMac, ...many], style: "compact", busy: [], failed: {} } },
     },
-    "screen-actions": {
-      note: "The one primary screen action stays visible at rest: This Mac exposes Share, while connected Cloud and joined Mac rows expose View screen; workspace and overflow actions reveal on hover.",
-      props: {
-        snapshot: {
-          ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!, joinedRows[2]!],
-          style: "compact",
-          busy: [],
-          failed: {},
-        },
-      },
-    },
-    "screen-sharing": {
-      note: "The persistent host bar names the viewer and scope; one-click Stop sharing stays together with the rows and their primary actions.",
-      props: {
-        snapshot: {
-          ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!, joinedRows[2]!],
-          style: "compact",
-          busy: [],
-          failed: {},
-          screenSharing: { viewerName: "studio-mac", scope: "full", connected: true },
-        },
-      },
-    },
-    "screen-awaiting": {
-      note: "A connecting Cloud machine keeps its quiet spinner; the joined Mac keeps its caption space and View screen remains the primary action.",
-      props: {
-        snapshot: {
-          ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!, sampleRows[2]!, joinedRows[2]!],
-          style: "grouped",
-          busy: [],
-          failed: {},
-        },
-      },
-    },
   },
 });

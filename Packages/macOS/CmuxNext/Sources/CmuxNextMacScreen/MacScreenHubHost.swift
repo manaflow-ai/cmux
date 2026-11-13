@@ -69,9 +69,9 @@ public final class MacScreenHubHost {
     /// The person's switch: asks for Screen Recording (and Accessibility)
     /// when turning on, and tells the hub. Off ends a running session (the
     /// hub revokes it too).
-    public func setSharing(_ on: Bool) async throws {
+    public func setSharing(_ on: Bool, requestPermissions: Bool = true) async throws {
         guard let hub = hub() else { throw DeviceHubError.notSignedIn }
-        if on {
+        if on && requestPermissions {
             await share.refreshPermissions()
             if !share.screenRecordingGranted {
                 share.requestScreenRecording()
