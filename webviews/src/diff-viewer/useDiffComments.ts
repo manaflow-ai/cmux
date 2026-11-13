@@ -44,7 +44,7 @@ export function useDiffComments({
   // the host failed to clear its comments, so the next Send there sends that same batch under the
   // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
   // listed unchanged; one added or edited since waits for the press after.
-  const pendingSends = useRef(new Map<string, SendBatch>());
+  const pendingSends = useRef(new Map<string, SendBatch[]>());
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
   const draftSave = useRef<{ draft: unknown; message: string; opid: string } | null>(null);
@@ -140,21 +140,42 @@ export function useDiffComments({
     }
     const targetRepoRoot = repoRoot;
     const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
-    const pending = pendingSends.current.get(targetRepoRoot);
-    const batch: SendBatch =
-      pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])
-        ? pending
-        : {
-            ids: comments.map((comment) => comment.id),
-            versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
-            text: commentsPromptText(comments),
-            opid: `diff-comments-${crypto.randomUUID()}`,
-          };
-    pendingSends.current.set(targetRepoRoot, batch);
+    const pending = pendingSends.current.get(targetRepoRoot) ?? [];
+    let batch: SendBatch | undefined;
+    while (pending.length > 0 && batch == null) {
+      const original = pending[0]!;
+      const retry = comments.filter(
+        (comment) => original.ids.includes(comment.id) && listed.get(comment.id) === original.versions[comment.id],
+      );
+      if (retry.length === 0) {
+        pending.shift();
+        continue;
+      }
+      batch = {
+        ids: retry.map((comment) => comment.id),
+        versions: Object.fromEntries(retry.map((comment) => [comment.id, comment.updatedAt])),
+        text: commentsPromptText(retry),
+        opid: original.opid,
+      };
+    }
+    if (batch == null) {
+      batch = {
+        ids: comments.map((comment) => comment.id),
+        versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
+        text: commentsPromptText(comments),
+        opid: `diff-comments-${crypto.randomUUID()}`,
+      };
+      pending.push(batch);
+    }
+    if (pending.length > 0) pendingSends.current.set(targetRepoRoot, pending);
+    else pendingSends.current.delete(targetRepoRoot);
     setSendState("sending");
     bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid)
       .then((cleared) => {
-        pendingSends.current.delete(targetRepoRoot);
+        const outstanding = pendingSends.current.get(targetRepoRoot);
+        if (outstanding?.[0]?.opid === batch.opid) outstanding.shift();
+        if (outstanding?.length) pendingSends.current.set(targetRepoRoot, outstanding);
+        else pendingSends.current.delete(targetRepoRoot);
         // Another repository is shown now: its button is idle; the sent one lists what the host kept
         // when it is shown again.
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");

@@ -188,7 +188,7 @@ impl crate::mux::Mux {
             Ok(Withdrawn::NoSession) => {
                 let info = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
                 match info {
-                    Ok(info) if local_session_info(&info, session) => Ok(Withdrawn::NotFound),
+                    Ok(info) if session_info(&info, session, true) => Ok(Withdrawn::NotFound),
                     // acpmux names another session, or its own lookup
                     // (`Hub::resolve`) knows none here or on a peer.
                     Ok(_) => Ok(Withdrawn::NoSession),
