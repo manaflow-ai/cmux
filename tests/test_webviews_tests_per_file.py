@@ -550,6 +550,29 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8"}), [7, 11])  # 6 plain, 2 browser, 2 dev lanes
         self.assertEqual(split({"CMUX_WEB_TEST_JOBS": "8", "CMUX_WEB_TEST_DEV_JOBS": "8"}), [1, 17])
 
+    def test_a_shard_with_a_head_start_gets_that_much_less_test_work(self):
+        """Shard 1 runs the shard-independent checks (about 2 min) before its tests, and the split
+        counted that as no load: shard 1 ended about 2 min after its siblings every run. Eight 10 s
+        files on one lane each: even halves, until shard 1 starts 20 s in."""
+        files = [f"test/{index}.test.ts" for index in range(8)]
+        manifest = self.manifest({name: 10 for name in files})
+        def split(extra):
+            env = {"CMUX_WEB_TEST_DURATIONS": manifest, "CMUX_WEB_TEST_JOBS": "2", **extra}
+            return [len(self.run_runner(files, shard=n, shard_count=2, extra_env=env)[2]) for n in (1, 2)]
+        self.assertEqual(split({}), [4, 4])
+        self.assertEqual(split({"CMUX_WEB_TEST_SHARD_HEAD_START": "1:20"}), [3, 5])
+
+    def test_a_malformed_head_start_fails_the_split(self):
+        """Every shard must split the same way: a head start no shard can read stops the run."""
+        for value in ("1", "0:20", "3:20", "1:x", "a:1"):
+            with self.subTest(value=value):
+                result = subprocess.run(
+                    [sys.executable, str(SHARDS), "assign",
+                     "/dev/null", "/dev/null", "/dev/null", "1", "2"],
+                    env={**os.environ, "CMUX_WEB_TEST_SHARD_HEAD_START": value}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("CMUX_WEB_TEST_SHARD_HEAD_START", result.stderr)
+
     def test_unrecorded_files_split_by_a_stable_hash_of_their_path(self):
         names = [f"test/{index}.test.ts" for index in range(40)]
         expected = {name: int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % 4 + 1 for name in names}
