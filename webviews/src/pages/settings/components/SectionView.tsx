@@ -33,6 +33,7 @@ import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
 import { TailnetCard } from "./TailnetCard";
+import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -80,6 +81,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
+  models: (focus) => <ModelsCard focus={focus} />,
   worktreeSetup: () => <WorktreeSetupCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
   personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
