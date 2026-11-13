@@ -1774,6 +1774,28 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         with mock.patch.object(smoke, "user_processes", return_value=table):
             self.assertEqual(smoke.clone_helpers(root), {12: "Ab12Cd", 13: None, 15: None})
 
+    def test_a_launch_with_no_cleanup_helper_reads_the_process_list_one_time(self):
+        # A read is a `ps` of each process of the account (0.27 s on a VM with 470 of them). The run's end had one
+        # read before the clone cleanup; a launch with no helper, as each launch of a build without CEF, pays no more.
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(smoke, "user_processes", return_value=[]) as read:
+            self.assertEqual(smoke.stop_own(Path(d), BUNDLE), {"helpers": 0})
+        self.assertEqual(read.call_count, 1)
+
+    def test_a_launch_with_a_cleanup_helper_looks_again_for_what_is_left_after_the_wait(self):
+        root = Path("/tmp/cmux-fresh-abc")
+        helper = (12, f"{root}/Stub.app/Contents/MacOS/stub --type=code-sign-clone-cleanup "
+                      "--unique-temp-dir-suffix=Ab12Cd --wait-for-parent-exit")
+        stopped: list[list[int]] = []
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"CMUX_FRESH_SMOKE_CLONE_DIR": d}), \
+                mock.patch.object(smoke, "user_processes", return_value=[(11, f"{root}/x"), helper]) as read, \
+                mock.patch.object(smoke, "stop", side_effect=lambda pids, grace=5.0: stopped.append(list(pids))), \
+                mock.patch.object(smoke, "alive", return_value=True):
+            told = smoke.stop_own(root, BUNDLE, wait=0.0)
+        # The helper is not in the first stop; the second stop, from a new read, takes what is left with it.
+        self.assertEqual(stopped, [[11], [11, 12]])
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual((told["helpers"], told["helper_ended"], told["clones"]), (1, False, {"Ab12Cd": "gone"}))
+
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
