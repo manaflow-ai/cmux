@@ -665,6 +665,10 @@ where
                         charge,
                     );
                 }
+                Ok(DeltaOp::Folder { seq, .. }) | Ok(DeltaOp::FolderGone { seq, .. }) => {
+                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                    self.advance(&sid, seq);
+                }
                 Err(_) => {
                     self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
                     self.advance(&sid, seq);
