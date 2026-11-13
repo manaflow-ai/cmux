@@ -612,6 +612,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     static var widthPasses = 0, widthPassesDeferred = 0
     /// cmux: width passes that derived every loaded message again (no rows of an earlier width pass to re-measure).
     static var widthRowsDerived = 0
+    /// cmux: rows that width passes handed to measuring (bench and test evidence, HomeWidthPassRowCountTests).
+    private(set) var widthRowsVisited = 0
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -737,6 +739,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if let near { MeasureCache.shared.prefetchParallel(Array(st.conversation.messages.slice(near.lowerBound, near.upperBound)), width: bounds.width, scale: renderScale) } // clamped
         let now = store.date(at: clock())
         let rows = widthRows(st, now: now, near: near)
+        widthRowsVisited += rows.count // cmux
         model.set(rows, at: clock(), ghosts: false)
         collection.reloadData()
         if near != nil, rows.contains(where: \.estimated) { measureWhenSettled() }
