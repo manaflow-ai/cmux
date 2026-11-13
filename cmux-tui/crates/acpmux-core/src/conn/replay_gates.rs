@@ -226,7 +226,7 @@ async fn append_replay_sample(
     let after = active.load(Ordering::Acquire);
     let elapsed = start.elapsed().as_nanos().max(1);
     let was_active = before && after;
-    let _ = timeout(Duration::from_secs(20), reader_task).await.unwrap().unwrap();
+    timeout(Duration::from_secs(20), reader_task).await.unwrap().unwrap();
     drop(writer_io);
     task.await.unwrap().unwrap();
     assert!(scope.close(Duration::from_secs(1)).await.joined());

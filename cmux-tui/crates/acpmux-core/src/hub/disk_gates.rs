@@ -19,9 +19,10 @@ const TAIL_ROWS: usize = 16;
 // The fixture uses millisecond stamps near day thirty of the Unix epoch,
 // well before the hot cutoff. Both sides retain the same fixed-width shape.
 const COLD_ACTIVITY_MS: u64 = HOT_WINDOW_MS;
-// The largest frame is a running row with its ten-digit millisecond stamp.
+// The largest frame is a running row with its ten-digit millisecond stamp
+// and the optional peerForm field serialized as null (16 bytes).
 // This is the page's own row size in the 64 KiB + page-row-bytes bound.
-const FIXTURE_FRAME_BYTES: usize = 163;
+const FIXTURE_FRAME_BYTES: usize = 179;
 
 fn page_time_failed(label: &str, small: u128, god: u128, all: u128) -> bool {
     if label == "last" {
