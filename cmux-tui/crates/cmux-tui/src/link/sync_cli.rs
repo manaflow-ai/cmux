@@ -666,13 +666,58 @@ pub(super) fn upload(
     if !file.metadata()?.is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
+    let meta = file.metadata()?;
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
+    if upload_through_store(socket, &mut remote, local, &meta, parent, target, progress)? {
+        return Ok(());
+    }
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
     Ok(())
+}
+
+/// [`upload`] through the content-addressed store ([`store`]), when one is
+/// configured and the machine fetches from it: this Mac uploads the file's
+/// blobs over HTTPS, several at once, and the machine fetches them over the
+/// data-centre network. Over the link a part is one request the forwarder
+/// buffers whole, so a seed bundle crossed at about 200 KB/s (DEV
+/// 36050-cloud-multiplayer, 2026-11-13: 76 MB in 6 minutes). True when the
+/// machine wrote the file; false leaves it to the link, which nothing has
+/// written to. A fetch that may still be running fails the upload, as it
+/// does a push.
+fn upload_through_store(
+    socket: &Path,
+    remote: &mut Remote,
+    local: &Path,
+    meta: &std::fs::Metadata,
+    folder: &str,
+    target: &str,
+    progress: &mut dyn FnMut(u64),
+) -> anyhow::Result<bool> {
+    if meta.len() < STORE_MIN_BYTES || !store::usable(store::fetch_served(socket) == Some(true)) {
+        return Ok(false);
+    }
+    let mut file = LocalFile::listed(local, meta);
+    file.permissions = 0o600;
+    let pending = store::Pending {
+        target: target.to_string(),
+        sha256: hash(&file)?,
+        size: meta.len(),
+        file: &file,
+    };
+    match store::send(remote, folder, std::slice::from_ref(&pending), progress) {
+        Ok(sent) => Ok(sent.written.contains_key(target)),
+        Err(error) if error.is::<store::Unsettled>() || error.is::<store::Superseded>() => {
+            Err(error)
+        }
+        Err(error) => {
+            eprintln!("{}", json!({"store": {"used": false, "error": format!("{error:#}")}}));
+            Ok(false)
+        }
+    }
 }
 
 /// Copies the folder at `local` once to `target` on the machine (a
