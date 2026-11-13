@@ -1,0 +1,10 @@
+{
+  "source": "schemas/settings/source/now-playing.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NowPlaying.generated.swift",
+  "type": "NowPlayingSettingsSchema",
+  "lists": {
+    "nowPlaying": ["descriptors", "NowPlayingSettings"],
+    "newTab": ["newTabDescriptors", "NowPlayingSettings"],
+    "pictureInPicture": ["pictureInPictureDescriptors", "NowPlayingSettings"]
+  }
+}

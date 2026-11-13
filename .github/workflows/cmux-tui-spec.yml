@@ -17,10 +17,12 @@ on:
       - ".github/scripts/cmux-tui-spec-changed.py"
       - ".github/scripts/test_cmux_tui_spec_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "scripts/cmux-next/rust_panic_ratchet.py"
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
       - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
@@ -30,6 +32,9 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
+      - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -39,6 +44,8 @@ on:
       - "skills/cmux-customization/**"
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
+      - "scripts/ci/webviews_test_results.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
   # the change touches a `push` path above; when it touches none, every job is skipped,
@@ -203,7 +210,7 @@ jobs:
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
             && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
             && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
-            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/)' <<<"$changed"; then
+            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/|\.github/actions/runner-cargo-home/)' <<<"$changed"; then
               run=false
               echo "No acpmux or cmux-tui build input changed since ${BASE_SHA:0:12}; nothing to check." >> "$GITHUB_STEP_SUMMARY"
             fi
@@ -257,6 +264,10 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
+    permissions:
+      contents: read
+      # The scope step reads this workflow's earlier base-branch runs (below).
+      actions: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -265,16 +276,44 @@ jobs:
       - name: Test the per-test verdict
         run: python3 tests/test_cargo_test_verdict.py
 
-      # As acpmux-protocol-ir: pull requests compare with their merge commit's first parent,
-      # pushes with the commit before them; with no usable base the suites run.
+      # Pull requests compare with their merge commit's first parent. A push compares with the
+      # newest earlier push whose run of this job ran the tests, not the commit before it: a
+      # newer push replaces a pending run in this workflow's concurrency group, and the next
+      # run, compared only with the push before it, tested nothing of the replaced ones. Neither
+      # #41559 nor #41564 was tested on feat-cmux-next (runs 43137402639 and 43156816398 were
+      # replaced before they started; run 43168814999 compared with its own parent and skipped),
+      # and a list test of theirs that ran past the 40-minute limit first showed on an unrelated
+      # pull request (run 43164890485, 2026-11-12). With no usable base the suites run.
       - name: Does the change touch an input of acpmux's tests
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          JOB_NAME: acpmux tests (lib, hub_integration)
+          TEST_STEP: cargo test -p acpmux --lib --test hub_integration
         run: |
+          BASE_SHA=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          elif [[ "$EVENT_NAME" == push ]]; then
+            # The 20 newest finished push runs, newest first; one jobs read each until a run
+            # whose test step ran to a verdict (a cancelled or skipped step tested nothing).
+            runs=$(gh api "repos/$REPO/actions/workflows/cmux-tui-spec.yml/runs?branch=$BRANCH&event=push&status=completed&per_page=20" \
+              --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\(.id) \(.head_sha)\"" || true)
+            while read -r id sha; do
+              [[ -n "$id" ]] || continue
+              ran=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                --jq '.jobs[] | .name as $job | .steps[]? | [$job, .name, (.conclusion // "")] | @tsv' \
+                | awk -F'\t' -v job="$JOB_NAME" -v step="$TEST_STEP" '$1 == job && $2 == step { print $3; exit }' || true)
+              if [[ "$ran" == success || "$ran" == failure ]]; then
+                BASE_SHA=$sha
+                echo "Compared with ${sha:0:12}, the newest push whose acpmux tests ran (run $id)." >> "$GITHUB_STEP_SUMMARY"
+                break
+              fi
+            done <<<"$runs"
           fi
           run=true
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
@@ -311,6 +350,20 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-tests
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: v2 bench home emits all gate rows
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        run: |
+          output="$RUNNER_TEMP/acpmux-v2-bench.json"
+          cargo bench -q -p acpmux --bench v2 -- --output "$output"
+          python3 - "$output" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              rows = json.load(f)["rows"]
+          expected = {"1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"}
+          assert expected.issubset({row["pr"] for row in rows})
+          PY
 
       - name: cargo test -p acpmux --lib --test hub_integration
         if: ${{ steps.scope.outputs.run == 'true' }}
@@ -427,6 +480,88 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
 
+  # The carrier's deterministic simulation (cmux-remote tests/carrier_sim.rs): the real daemon and
+  # client over a simulated carrier with seeded cuts, drops, slow links, relay swaps and daemon
+  # restarts. A fixed window of seeds on every change that touches the carrier's crates; the sweep
+  # (cmuxterm-hq cloud-chaos.yml, probe carrier-sim-no-lost-events) runs thousands of new seeds a day.
+  carrier-sim:
+    name: carrier simulation (seeds)
+    needs: changes
+    # A router that failed or was skipped never skips the job (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 40
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Does the change touch the carrier's crates
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          run=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
+            && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
+            # cmux-remote and its path dependencies, plus the carrier crates that drive it.
+            if ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/cmux-remote <<<"$changed" \
+              && ! grep -qE '^(cmux-tui/crates/(cmux-link|cmux-relay|cmux-tui/src/carrier)/|\.github/workflows/cmux-tui-spec\.yml$)' <<<"$changed"; then
+              run=false
+              echo "No input of the carrier's crates changed since ${BASE_SHA:0:12}; nothing to simulate." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux build dependencies
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
+      # ghostty-next gitlink with zig, as the clippy job does.
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-carrier-sim
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: cargo test -p cmux-remote --test carrier_sim
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        env:
+          # The same seeds on every change, so a red names the change and not the window.
+          CARRIER_SIM_SEEDS: "256"
+          CARRIER_SIM_SEED_BASE: "0"
+        run: |
+          set -o pipefail
+          cargo test --locked -p cmux-remote --test carrier_sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
+          grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.
@@ -474,7 +609,7 @@ jobs:
           rc=0
           python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
           if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
-            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            # The script already printed a ::warning file=<the file>,line= annotation for each unformatted file.
             exit 0
           fi
           exit "$rc"

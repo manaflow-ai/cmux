@@ -4,7 +4,14 @@
 // own transcript, read only, fed by a fake room. `asking` is an ask only the owner answers;
 // `view-only` an account invitee with the view role.
 import { componentEntry } from "../../gallery/format";
-import { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } from "./fixtures/liveChat";
+import {
+  askingRecords,
+  fakeRoom,
+  guestMessageRecords,
+  joinFrames,
+  memoryStorage,
+  workingRecords,
+} from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
 const live = (frames: object[]): GuestPageProps => ({
@@ -50,6 +57,10 @@ export default componentEntry<GuestPageProps>({
         await ctx.click({ selector: 'button[data-tool-id="run-1"]' });
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
       },
+    },
+    "guest-messages": {
+      props: live(joinFrames(guestMessageRecords(), "Uploader retries")),
+      note: 'Two signed-in guests\' approved messages as prompts under their 20px picture (else initials) and name (guest); Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture instead".',
     },
     asking: {
       props: live(joinFrames(askingRecords())),

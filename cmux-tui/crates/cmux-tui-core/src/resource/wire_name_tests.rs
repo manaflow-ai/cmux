@@ -21,11 +21,15 @@ fn wire_name_round_trips_through_serde() {
         "origin.confirmation.issue",
         "chief.continue",
         "chief.retry",
+        "classic_import.plan",
+        "classic_import.record",
         "conductor_import.plan",
         "conductor_import.record",
-        "cloud.vm.resize",
+        "cloud.vm.domains",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
+        "cloud.machine.chat_access",
+        "cloud.machine.share_chat",
         "palette.rank",
     ] {
         let operation: ResourceOperation =

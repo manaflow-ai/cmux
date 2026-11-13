@@ -75,6 +75,54 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
     await page.close();
   });
 
+  // A reload with a message still held (#38197 F1): the dock draws the held bubble on the first frame,
+  // before the transcript's stylesheet (the pane's sheet past the first frame's part) has arrived.
+  // When it arrives, neither the bubble nor the dock changes size or place.
+  test("a reload with a held message: the dock keeps its size when the transcript's sheet arrives", async () => {
+    const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript((share) => {
+      sessionStorage.setItem(`cmux.guest.${share}.joined`, "g1");
+      sessionStorage.setItem(`cmux.guest.${share}.via`, "invite");
+      sessionStorage.setItem(`cmux.guest.${share}.role`, "talk");
+      sessionStorage.setItem(
+        `cmux.guest.${share}.prompts`,
+        JSON.stringify([
+          { clientId: "c1", text: "Could you also run the upload tests on Linux?", at: 1, state: "held" },
+        ]),
+      );
+    }, SHARE);
+    // The transcript's chunk and its sheet wait until the first frame is measured: the built page loads
+    // them together, and on the dev server the chunk's own modules bring in sheets of their own.
+    let releaseSheet!: () => void;
+    const sheetHeld = new Promise<void>((resolve) => (releaseSheet = resolve));
+    let held = 0;
+    await page.route(/\/(GuestTranscript\.tsx|transcriptSheet\.ts|transcript\.virtual\.css)(\?|$)/, async (request) => {
+      held += 1;
+      await sheetHeld;
+      await request.continue();
+    });
+    const frames = joinFrames(workingRecords());
+    await page.routeWebSocket(`**/v1/chat-shares/${SHARE}/guest`, (socket) => {
+      for (const frame of frames) socket.send(JSON.stringify(frame));
+    });
+    await page.goto(`${origin}/i/${SHARE}`);
+    const bubble = page.locator(".guest-mine .cv-user__bubble");
+    await bubble.waitFor();
+    const before = { dock: await page.locator(".guest-live__dock").boundingBox(), bubble: await bubble.boundingBox() };
+    expect(await page.locator(".guest-live__transcript [data-row-id]").count()).toBe(0);
+    expect(held).toBeGreaterThan(0);
+    releaseSheet();
+    await page.locator(".guest-live__transcript [data-row-id]").first().waitFor();
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const after = { dock: await page.locator(".guest-live__dock").boundingBox(), bubble: await bubble.boundingBox() };
+    expect(after).toEqual(before);
+    expect(before.dock!.y + before.dock!.height).toBeCloseTo(VIEWPORT.height, 0);
+    expect(errors).toEqual([]);
+    await page.close();
+  });
+
   for (const [kind, route, via, role] of [
     ["a link guest (view only)", "g", "link", undefined],
     ["an invitee who may talk (composer)", "i", "invite", "talk"],

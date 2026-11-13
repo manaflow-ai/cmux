@@ -433,6 +433,40 @@ mod tests {
         }
     }
 
+    /// Restoring a session opens many PTYs at the same moment (170 kept agent
+    /// terminals after an app update). macOS refuses a PTY master open for a
+    /// moment under such a burst (`posix_openpt` fails with -6, a
+    /// kernel-internal code; 44 of 64 opens on macOS 26.5.2, 24 of 60 on
+    /// 27.0.1), far below `kern.tty.ptmx_max`. Every open must succeed.
+    #[test]
+    fn ptys_opened_at_the_same_moment_all_open() {
+        const OPENS: usize = 64;
+        let start = std::sync::Barrier::new(OPENS);
+        let size = PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 };
+        let failures = std::thread::scope(|scope| {
+            let workers = (0..OPENS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        open(size).map_err(|error| format!("{error:#}"))
+                    })
+                })
+                .collect::<Vec<_>>();
+            // Every pair stays open until the last open ended.
+            let opened = workers
+                .into_iter()
+                .map(|worker| worker.join().expect("an open panicked"))
+                .collect::<Vec<_>>();
+            opened.iter().filter_map(|pair| pair.as_ref().err().cloned()).collect::<Vec<_>>()
+        });
+        assert!(
+            failures.is_empty(),
+            "{} of {OPENS} PTYs opened at the same moment did not open: {}",
+            failures.len(),
+            failures[0]
+        );
+    }
+
     #[test]
     fn unrelated_pty_open_errors_remain_distinguishable() {
         let error = PtyOpenError::from_io(io::Error::from_raw_os_error(libc::EBADF));

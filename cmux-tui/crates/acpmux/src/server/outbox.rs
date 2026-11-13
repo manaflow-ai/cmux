@@ -139,6 +139,9 @@ pub(super) async fn handle(
         target,
         request,
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        // A token it could not prove keeps the replay off the owner too (#38260 F1).
+        unproven_caller: conn.unproven_caller.get().filter(|_| !conn.is_person()).cloned(),
+        not_terminal: !conn.is_person() && !conn.may_be_owner_terminal(),
         state: State::Queued,
         attempts: 0,
         never_sent: true,
@@ -151,7 +154,7 @@ pub(super) async fn handle(
         created_at: now,
         updated_at: now,
     };
-    // Its attachments are kept beside outbox.json, once, not in each rewrite of it.
+    // Its attachments are kept beside outbox.json, once, never in its snapshot or journal.
     let kept = hub.outbox.attachments_path(&new);
     if let Some(path) = kept.clone() {
         let request = new.request.clone();
@@ -160,15 +163,26 @@ pub(super) async fn handle(
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
     }
-    // The send's one durable write (the whole of outbox.json, a group commit with other
+    // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
     // a slow disk never holds an async worker that serves other connections, and agent work at
     // its clamped priority never starves the write the sender waits on.
-    let delivery = {
+    let added = {
         let (hub, new) = (hub.clone(), new.clone());
         tokio::task::spawn_blocking(move || crate::qos::on_screen(|| hub.outbox.add(new)))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
+    };
+    // Not on disk, so not kept: the sender is told to send it again, and its attachments go.
+    let delivery = match added {
+        Ok(delivery) => delivery,
+        Err(e) => {
+            if let Some(path) = kept {
+                forget_attachments(path).await;
+            }
+            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
+                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+        }
     };
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
@@ -235,6 +249,8 @@ pub(super) async fn remember_forward(
         target,
         request,
         caller: Some(caller.to_owned()),
+        unproven_caller: None,
+        not_terminal: false,
         // Held is terminal to older daemons: rollback never sends this lookup
         // record as a prompt. New code recognizes the forwardProjection marker.
         state: State::Held,
@@ -575,6 +591,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
+        // ready while the attempt runs or its failure is saved still ends the retry wait.
+        let ready = hub.outbox.peer_ready.notified();
+        tokio::pin!(ready);
+        ready.as_mut().enable();
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -632,8 +653,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             })
         } else {
             crate::hub::open_delivery::name_generation(&mut request, pin.as_ref());
-            let outcome =
-                attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
+            let caller = Caller::of(&delivery);
+            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
@@ -737,7 +758,6 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                let ready = hub.outbox.peer_ready.notified();
                 if delivery.projection_only() {
                     sleep.await;
                 } else {
@@ -864,7 +884,7 @@ async fn redeliver_one(
             // To the pinned session, by its id, never by the name it was sent to (review of
             // #37284 at 4bce04df, F2).
             let request = od::again_request(d, &pin);
-            let again = match attempt_once(hub, d.caller.as_deref(), request, Origin::Local).await {
+            let again = match attempt_once(hub, Caller::of(d), request, Origin::Local).await {
                 Ok(answer) => Again::Taken(answer),
                 Err((error, Next::Fail | Next::NoSession | Next::Stale)) => Again::Refused(error),
                 Err(_) => Again::Unknown,
@@ -966,7 +986,28 @@ fn start_attempt(d: &mut Delivery, attempt: u32) {
 
 /// Deletes a settled delivery's kept attachments.
 async fn forget_attachments(path: std::path::PathBuf) {
-    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+    let _ = tokio::task::spawn_blocking(move || crate::home_fs::remove_file(path)).await;
+}
+
+/// The session a kept send is delivered as (`Delivery::caller`, `Delivery::unproven_caller`): one
+/// the sender's connection proved, or one it named with a token this daemon could not prove.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Caller<'a> {
+    Proven(&'a str),
+    Unproven(&'a str),
+    /// No session, from a connection that declared no terminal (`Delivery::not_terminal`).
+    NotTerminal,
+}
+
+impl<'a> Caller<'a> {
+    fn of(delivery: &'a Delivery) -> Option<Self> {
+        delivery
+            .caller
+            .as_deref()
+            .map(Caller::Proven)
+            .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
+            .or_else(|| delivery.not_terminal.then_some(Caller::NotTerminal))
+    }
 }
 
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
@@ -974,7 +1015,7 @@ async fn forget_attachments(path: std::path::PathBuf) {
 /// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
 pub(super) async fn attempt_once(
     hub: &Arc<Hub>,
-    caller: Option<&str>,
+    caller: Option<Caller<'_>>,
     request: Value,
     origin: Origin,
 ) -> Result<Value, (String, Next)> {
@@ -1005,12 +1046,23 @@ pub(super) async fn attempt_once(
         "clientCapabilities": {},
         "clientInfo": {"name": "acpmux-outbox", "version": crate::hub::VERSION},
     });
-    if let Some(id) = caller {
-        let mut mux = serde_json::Map::new();
-        mux.insert(
-            crate::hub::person::CALLER_FIELD.to_owned(),
-            json!({"sessionId": id, "token": crate::hub::person::caller_token(id)}),
-        );
+    if let Some(caller) = caller {
+        // An unproven one goes with no token, which proves nothing: the fresh connection binds it
+        // unproven, as the sender's own did (`Conn::bind_person`).
+        let (id, token) = match caller {
+            Caller::Proven(id) => (Some(id), crate::hub::person::caller_token(id)),
+            Caller::Unproven(id) => (Some(id), String::new()),
+            Caller::NotTerminal => (None, String::new()),
+        };
+        // Never a terminal's declaration: a send that names a session or declared none is no
+        // owner's terminal send (`cli_caller.rs`).
+        let mut mux = crate::cli_caller::agent_declaration();
+        if let Some(id) = id {
+            mux.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+        }
         hello.set("_meta", json!({"acpmux": mux}));
     }
     let lines = [
@@ -1126,6 +1178,8 @@ mod retry_delay_tests {
             target: "gone/lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: true,

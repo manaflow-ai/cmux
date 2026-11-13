@@ -75,7 +75,9 @@ for attempt in 1 2 3; do
   lease=$(grep '^slot-' "$work/lease" | tail -1)
   [ -n "$lease" ] || { echo "no capture slot: $(tail -3 "$work/lease")" >&2; exit 3; }
   eval "$(capture-host slot-info "$lease" | grep -E '^(host|slot|root)=')"
-  echo "perceived-speed: lease $lease on $host slot $slot"
+  # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
+  # before it releases the lease and stops acquire (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE; echo "perceived-speed: lease $lease on $host slot $slot" ) || true
   ssh "$host" "ls -d $cache/*.app" >/dev/null 2>&1 && break
   capture-host release "$lease" >/dev/null 2>&1; lease=""; kill "$acquire" 2>/dev/null; acquire=""
   echo "perceived-speed: staging job $job on $host"
@@ -89,11 +91,11 @@ app=$(ssh "$host" "ls -d $cache/*.app | head -1")
 btag=$(basename "$app" .app); btag=${btag#cmux DEV }
 # The bundle id spells the tag's hyphens as dots (`whatsnew-ff` is `debug.whatsnew.ff`).
 as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.${btag//-/.}.capslot$slot
-state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
+state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux-next/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
 # Since per-build isolation a slot clone keeps its state under its build key, `<bundle id>--<tag slug>`
 # (scripts/cmux-next/build_names.py): without these a run restores the last run's workspaces and tabs.
 key="$bid--$(printf %s "$btag" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
-state="$state '$as/cmux/builds/$key' '/Users/cmux/.acpmux/builds/$key'"
+state="$state '$as/cmux/builds/$key' '$as/cmux-next/builds/$key' '/Users/cmux/.acpmux/builds/$key'"
 ssh "$host" "rm -rf $state"
 # A slot app is never visible, so App Nap drops it to priority 4 after ~20 s; on a loaded host the
 # main thread then waits seconds to be scheduled and every timing (and the DEBUG watchdog) reads

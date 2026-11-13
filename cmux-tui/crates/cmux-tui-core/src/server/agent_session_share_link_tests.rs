@@ -24,7 +24,7 @@ fn reads_both_link_forms() {
     );
     let page = format!("https://share.cmux.dev/g/{SHARE}");
     let encoded: String = url::form_urlencoded::byte_serialize(page.as_bytes()).collect();
-    for scheme in ["cmux", "cmux-dev", "cmux-nightly", "cmux-dev-my-tag"] {
+    for scheme in ["cmux", "cmux-dev", "cmux-nightly", "cmux-dev-my-tag", "cmux.my-build"] {
         assert_eq!(
             parse(&format!("{scheme}://share?link={encoded}#{SECRET}")).as_ref(),
             Some(&https),
@@ -63,6 +63,9 @@ fn refuses_anything_else() {
         format!("cmux://other?link={encoded}"),
         format!("notcmux://share?link={encoded}"),
         format!("cmux-://share?link={encoded}"),
+        format!("cmux..x://share?link={encoded}"),
+        format!("cmuxevil://share?link={encoded}"),
+        format!("cmux-dev.://share?link={encoded}"),
     ] {
         assert_eq!(parse(&raw), None, "{raw}");
     }

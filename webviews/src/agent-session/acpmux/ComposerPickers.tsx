@@ -5,6 +5,7 @@ import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
+import { chipFace as faceFor } from "./chipFace";
 import {
   isDefaultChoice,
   loadResolvedAlias,
@@ -25,7 +26,18 @@ import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
+import type { QuickSetup } from "./quickModelMenuModel";
+import {
+  clearHarnessSetup,
+  retryHarnessSetup,
+  signInHarnessSetup,
+  startHarnessSetup,
+  useHarnessSetup,
+  type HarnessSetup,
+} from "./harnessSetup";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -47,7 +59,7 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
-import { continueTargets } from "./cmuxCommands";
+import { switchTargets } from "./cmuxCommands";
 import { clearHeldFork, holdFork, useHeldFork } from "./forkHold";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -80,9 +92,11 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudStartAgent,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
+  remoteStartMode,
   shownModes,
 } from "./harnessModes";
 import {
@@ -99,6 +113,7 @@ import {
   aliasNamedAsRelease,
   modelFamily,
   reasoningChoices,
+  effortTakes,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -121,16 +136,18 @@ type Props = {
   settleMs?: number;
   /// Schedules the settle check and returns its cancel; tests run it by hand.
   settleTimer?: SettleTimer;
+  /// How often a sign-in a model pick started is checked (harnessSetup.ts); tests shorten it.
+  setupPollMs?: number;
   /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
   /// and draws it at once, also before it opens (a New Tab's deferred switch). `options`: a typed
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
-  /// A started chat can fork into a new chat on another harness (see ModelPickerProps.fork): with
-  /// it, its model menus list the models of every harness Continue In… can take (continueTargets),
-  /// and a pick of another harness's model is held as the next message's target (forkHold.ts),
-  /// which the composer's send forks to.
+  /// A started chat can switch to another harness's model (see ModelPickerProps.fork): with it, its
+  /// model menus list the models of every other harness that runs here (switchTargets), and a pick
+  /// of another harness's model is held as the next message's target (forkHold.ts), which the
+  /// composer's send forks the chat onto in the same pane, asking nothing (App.tsx `chat.switchModel`).
   fork?: boolean;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
@@ -184,6 +201,7 @@ export function ComposerPickers({
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
+  setupPollMs,
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
@@ -221,7 +239,12 @@ export function ComposerPickers({
     !harnessSwitch &&
     !!summary?.harness &&
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
-  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
+  const allEntries = composerPickerEntries(
+    snapshot,
+    pickerCatalog,
+    // A snapshot that already holds acpmux's harnesses has had its answer, flag or not.
+    harnessesListed || snapshot.catalog.some((entry) => !entry.folder),
+  );
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
   // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -422,21 +445,37 @@ export function ComposerPickers({
     { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
   >(undefined);
   const effortId = effort?.id;
+  const hasUltracode = ultracodeOption !== undefined;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
     const wanted = pending.current;
     if (!wanted) return;
-    // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
-    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
+    // Dropped on a session switch, or once the session moves off the picked model (or never reaches
+    // it). While a model pick is still in flight (`confirmedModel`: the chip draws the pick), a report
+    // of another model is an earlier pick landing on the way, not a move away: two quick picks then
+    // a level lost the level when the first pick's model reported before the second's.
+    const inFlight = summary?.confirmedModel !== undefined && summary.model === wanted.model;
+    const away = current !== wanted.model && !inFlight && (current !== wanted.from || wanted.reached);
     if (wanted.sessionId !== summary?.sessionId || away) {
       pending.current = undefined;
       return;
     }
     if (current === wanted.model) wanted.reached = true;
-    if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
+    const takes = effortTakes(wanted.effort, effortValues.split("\u0000"), hasUltracode);
+    if (current !== wanted.model || !effortId || !takes) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
-  }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
+  }, [
+    summary?.sessionId,
+    summary?.model,
+    summary?.confirmedModel,
+    current,
+    currentEffort,
+    effortId,
+    effortValues,
+    hasUltracode,
+    onEffort,
+  ]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
   // that model offering it (the effect above); the same model only changes the effort.
   // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
@@ -462,7 +501,7 @@ export function ComposerPickers({
   // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
   const sessionId = summary?.sessionId;
   const forks = locked && fork === true && !!sessionId;
-  const forkTargets = forks ? continueTargets(snapshot.catalog, summary?.harness, summary?.family) : [];
+  const forkTargets = forks ? switchTargets(snapshot.catalog, summary?.harness) : [];
   // One set per list of targets, so the menus' lists are not rebuilt on every render.
   const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
   const targetSet = useMemo(() => new Set(targetsKey ? targetsKey.split("\u0000") : []), [targetsKey]);
@@ -471,7 +510,7 @@ export function ComposerPickers({
     if (!forks || !sessionId) return;
     return () => clearHeldFork(sessionId);
   }, [forks, sessionId]);
-  // A harness Continue In… can't take is never held.
+  // A harness that can't run here is never held.
   const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean; name?: string }) => {
     if (!forks || !sessionId || !forkTargets.some((target) => target.id === picked.harness)) return;
     holdFork({
@@ -563,6 +602,72 @@ export function ComposerPickers({
       onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
     else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
+  // A pick of a model whose harness this Mac cannot run yet (Lawrence 2026-11-07: "search for any
+  // model ... it needs to 'just work' aka download the relevant harness"): its CLI installs in
+  // place, it signs in when it needs to, and then the chat starts on the model (harnessSetup.ts).
+  const setup = useHarnessSetup();
+  const setupCwd = folder ?? summary?.cwd;
+  const setUpPick = (pick: SetupRequest) => {
+    const { notInstalled, login, ...picked } = pick;
+    const install = notInstalled ? INSTALL_COMMANDS[pick.harness] : undefined;
+    // No command installs it here: the Harnesses page offers its setup page.
+    if (notInstalled && !install) {
+      onAddAgent?.();
+      return;
+    }
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
+    );
+    startHarnessSetup(picked, {
+      native: postNative,
+      ...(setupCwd ? { cwd: setupCwd } : {}),
+      ...(install ? { install } : {}),
+      ...(login ? { login } : {}),
+      ...(entry?.docsUrl ? { docsUrl: entry.docsUrl } : {}),
+      ...(catalogRefresh ? { refreshCatalog: async () => await catalogRefresh.refresh() } : {}),
+      // The pane's own Log In (a terminal tab running the login); a page with none opens the same tab.
+      logIn: async (command) => {
+        if (signIn?.openLogIn) return signIn.openLogIn(pick.harness, command);
+        if (signIn) {
+          signIn.logIn(pick.harness, command);
+          return true;
+        }
+        await postNative("tab.open", {
+          kind: "terminal",
+          text: command,
+          ...(setupCwd ? { cwd: setupCwd } : {}),
+          run: true,
+        });
+        return true;
+      },
+      ...(setupPollMs ? { pollMs: setupPollMs } : {}),
+    });
+  };
+  useEffect(() => {
+    if (setup?.phase.kind !== "ready") return;
+    const { pick } = setup;
+    // Once acpmux lists the harness (its rescan found the new CLI), the pick starts there as any
+    // pick of another harness's model does; until then the setup waits (harnessSetup.ts bounds it).
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => candidate.id === pick.harness || candidate.acpmuxHarness === pick.harness,
+    );
+    const target = entry
+      ? entry.installed
+        ? entry.acpmuxHarness
+        : undefined
+      : snapshot.catalog.some((candidate) => candidate.id === pick.harness)
+        ? pick.harness
+        : undefined;
+    if (!target) return;
+    clearHarnessSetup();
+    combo({
+      harness: target,
+      model: pick.model,
+      ...(pick.effort ? { effort: pick.effort } : {}),
+      ...(pick.fast ? { fast: true } : {}),
+    });
+  });
+  const setupStrip = setup ? setupView(setup, t) : undefined;
   const switchFailed = snapshot.switching?.phase === "failed";
   useEffect(() => {
     const wanted = crossing.current;
@@ -731,13 +836,25 @@ export function ComposerPickers({
   // The model the chip names before the session reports one: the model menu checks it.
   const predictedModel =
     shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
-  const modelName =
-    listedName ??
-    (opensListed
-      ? (harnessOnly ?? t(PICKER_LABELS.model))
+  // The model the chip names, with its name: one pair, so the chip's logo (that model's provider,
+  // chipFace.ts) never names another model than its text. No id: the chip names the harness only.
+  const startingPick = starting && chipHarness ? startingId(chipHarness) : undefined;
+  const named: { id?: string; name: string | undefined } = listedName
+    ? { id: listedModel, name: listedName }
+    : opensListed
+      ? { name: harnessOnly ?? t(PICKER_LABELS.model) }
       : defaulted || unreported
-        ? (starting ?? resolvedName ?? harnessOnly ?? t(PICKER_LABELS.model))
-        : (runningName ?? starting ?? harnessOnly));
+        ? starting
+          ? { id: startingPick, name: starting }
+          : resolvedName
+            ? { id: resolvedId, name: resolvedName }
+            : { name: harnessOnly ?? t(PICKER_LABELS.model) }
+        : runningName
+          ? { id: runningModel ?? shown, name: runningName }
+          : starting
+            ? { id: startingPick, name: starting }
+            : { name: harnessOnly };
+  const modelName = named.name;
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -816,8 +933,10 @@ export function ComposerPickers({
   // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
   // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
   // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
-  // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
-  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  // machine (a peer, the cloud) starts in what that machine decides: none until it reports. So does
+  // a new chat here whose send starts it on a Cloud machine (`startsOnCloud`): this Mac's answer
+  // ("Bypass permissions") is not the Cloud chat's, which starts asking (cloud-ergo-start-chat).
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud;
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
   // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's. A peer's chat comes
@@ -860,7 +979,47 @@ export function ComposerPickers({
   // keeps switching around"): with no mode to name (acpmux sets none, has not answered, or the
   // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
   // place, so nothing in the row moves when the harness, its model or its modes arrive.
+  // A new chat whose first send starts it on a Cloud machine (`startsOnCloud`) begins in the
+  // harness's asking mode there (Claude's Manual, the Codex bridge's Ask: acpmux sets no start mode
+  // on a remote start and holds the `ask` policy, web_modes.rs). The chip names that mode, as the
+  // model chip names its model, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird").
+  // A mode the person picked for that start (`cloudStartMode`, cloudModePick.ts) is what the
+  // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
+  // allowed to just go through with stuff?"); with no pick, the asking mode above.
+  const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
+  // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
+  // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
+  const cloudAgent = cloudStartAgent(chipFamily, chipHarness);
+  const cloudKnown = cloudAgent.named;
+  const cloudFamily = cloudAgent.family;
+  const cloudHarness = cloudAgent.harness;
+  // The chat starts on the machine, not here: a session this Mac's acpmux already opened for the
+  // new chat (a real app's New Agent Chat does, with or without modes) is not the one that runs, so
+  // its session id and modes never decide the chip (journey run 43021965230: every cell read "Mode").
+  const cloudAsking =
+    fresh && snapshot.startsOnCloud && snapshot.switching?.phase !== "failed"
+      ? remoteStartMode(cloudFamily, cloudHarness)
+      : undefined;
+  const cloudPick = cloudAsking && snapshot.cloudStartMode;
+  const cloudStart = cloudPick
+    ? {
+        id: cloudPick,
+        name:
+          harnessFamilyMenu(cloudFamily, cloudHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
+          (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
+      }
+    : cloudAsking;
+  // The modes a Cloud start can be picked into: the asking mode it starts in and the harness's
+  // highest level. acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
+  // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
+  const cloudPickable = cloudAsking
+    ? [cloudAsking.id, highestMode(cloudFamily, cloudHarness)?.id].filter((id): id is string => id !== undefined)
+    : undefined;
+  // The default agent's own menu, not the face harness's modes, for a Cloud start that runs it.
+  const cloudDefaultMenu = cloudAsking && !cloudKnown ? harnessFamilyMenu(cloudFamily, cloudHarness) : undefined;
   const startMode: KeptStartMode | undefined =
+    (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
     (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
     (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
@@ -868,6 +1027,7 @@ export function ComposerPickers({
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
   const pendingMenu =
+    cloudDefaultMenu ??
     modeMenu ??
     harnessModeMenu(undefined, chipHarness, [
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
@@ -876,7 +1036,8 @@ export function ComposerPickers({
   // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
   // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
   // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
-  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  // sets none here (the harness's own mode applies) and for a chat on another machine (a peer, a
+  // remote host) or a harness whose Cloud start mode cmux does not know.
   const shownStart: StartMode | undefined = startMode?.borrowed
     ? startMode.modeId
       ? startMode
@@ -899,6 +1060,9 @@ export function ComposerPickers({
   // for this folder) it checks none and says "Mode", still a pick (Lucas 2026-10-24: a New Tab's
   // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
   // access row.
+  // The modes the access chip lists: this session's, except for a Cloud start, whose own modes
+  // (pendingAccessModes) are the ones the machine starts in.
+  const accessModes = cloudAsking ? [] : modes;
   const pendingAccessModes: ModeChoice[] = (() => {
     if (!(holdsModePick || holdsStartMode) || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
     const menu =
@@ -907,13 +1071,13 @@ export function ComposerPickers({
         summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
         chipHarness,
       );
-    const profileModes = harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [];
+    const profileModes = cloudDefaultMenu ? [] : (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []);
     const rows: readonly { id: string; name?: string; description?: string }[] =
       profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
       menu,
       rows
-        .filter((choice) => !isPlan(choice.id))
+        .filter((choice) => !isPlan(choice.id) && (cloudPickable === undefined || cloudPickable.includes(choice.id)))
         .map((choice) => ({
           id: choice.id,
           name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,
@@ -1042,6 +1206,16 @@ export function ComposerPickers({
           : {}),
       }
     : undefined;
+  // The chip's logo, name and effort, made once from the model it names (chipFace.ts): a held pick
+  // of another harness's model names that model with its level; else the model this chat runs, or
+  // will start on, with this chat's level.
+  const chipMark = chipHarness;
+  const chipFace = held
+    ? faceFor(held.model, heldName ?? held.harness, held.harness, heldDetail ? { detail: heldDetail } : {})
+    : faceFor(named.id, modelName ?? t(PICKER_LABELS.model), chipMark, {
+        ...(quickDetail ? { detail: quickDetail } : {}),
+        ...(quickShort ? { detailShort: quickShort } : {}),
+      });
   const picksModel =
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
@@ -1053,11 +1227,19 @@ export function ComposerPickers({
           model={shown}
           {...(predictedModel ? { predictedModel } : {})}
           label={heldName ?? modelName ?? t(PICKER_LABELS.model)}
+          face={chipFace}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
           onSessionAuthRefresh={signIn?.recheckSession}
           {...(modelChip && !held ? { chip: modelChip } : {})}
-          switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
+          switching={
+            setup && setupStrip
+              ? { harness: setup.pick.harness, name: setupStrip.chip }
+              : snapshot.switching?.phase === "failed"
+                ? undefined
+                : snapshot.switching
+          }
+          {...(setupStrip ? { setup: setupStrip.strip } : {})}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -1073,6 +1255,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          onSetUpPick={setUpPick}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
@@ -1110,18 +1293,20 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+      {picksModel && accessModes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingMode
           label={startModeName}
           modeId={shownStart?.modeId}
           icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
         />
       )}
-      {(modes.length > 0 || pendingAccessModes.length > 0) && (
+      {(accessModes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
+          modes={accessModes.length > 0 ? accessModes : pendingAccessModes}
+          current={
+            (cloudAsking ? undefined : mode?.id) ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
+          }
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           managed={fullAccessManaged}
@@ -1584,12 +1769,8 @@ export function ContextRing({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [shown]);
   return (
-    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
-    <span
-      ref={wrapper}
-      className="acpmux-picker acpmux-context"
-      title={known ? undefined : t("context.ringTooltipEmpty")}
-    >
+    // Before any usage the inert ring has no tooltip (Lucas 2026-11-11); once usage is known the card shows.
+    <span ref={wrapper} className="acpmux-picker acpmux-context">
       <button
         ref={trigger}
         type="button"
@@ -2110,4 +2291,68 @@ function shortLevel(choice: Choice, t: (key: StringKey) => string): string | und
   const first = choice.name.trim().split(/\s+/)[0] ?? "";
   if (first.length < 3 || first === choice.name.trim()) return undefined;
   return shortLevelName(first, t);
+}
+
+/// A setup's strip in the model menu and the name its chip draws while it runs.
+function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: QuickSetup; chip: string } {
+  const harness = setup.pick.name;
+  const cancel = { label: t("picker.setup.cancel"), run: clearHarnessSetup };
+  const { phase } = setup;
+  switch (phase.kind) {
+    case "installing": {
+      const text = t("picker.setup.installing", { harness });
+      return {
+        strip: { text, ...(phase.line ? { detail: phase.line } : {}), busy: true, actions: [cancel] },
+        chip: text,
+      };
+    }
+    case "checking": {
+      const text = t("picker.setup.checking", { harness });
+      return { strip: { text, busy: true, actions: [cancel] }, chip: text };
+    }
+    case "signIn":
+      return {
+        strip: {
+          text: t("picker.setup.signIn", { harness }),
+          busy: false,
+          actions: [{ label: t("harnesses.signIn"), run: signInHarnessSetup }, cancel],
+        },
+        chip: t("picker.setup.signInChip", { harness }),
+      };
+    case "signingIn": {
+      const text = t("picker.setup.signingIn", { harness });
+      return { strip: { text, busy: true, actions: [cancel] }, chip: text };
+    }
+    case "ready": {
+      const text = t("picker.setup.starting", { harness });
+      return { strip: { text, busy: true, actions: [] }, chip: text };
+    }
+    case "failed": {
+      const text = t("picker.setup.failed", { harness });
+      const docsUrl = setup.docsUrl;
+      return {
+        strip: {
+          text,
+          detail: phase.reason ?? t(phase.reasonKey ?? "harnesses.commandFailed"),
+          busy: false,
+          actions: [
+            { label: t("picker.tryAgain"), run: retryHarnessSetup },
+            ...(docsUrl
+              ? [
+                  {
+                    label: t("harnesses.setupGuide"),
+                    run: () =>
+                      void postNative("tab.open", { kind: "browser", text: docsUrl, keep: true }).catch(
+                        () => undefined,
+                      ),
+                  },
+                ]
+              : []),
+            { label: t("picker.setup.dismiss"), run: clearHarnessSetup },
+          ],
+        },
+        chip: text,
+      };
+    }
+  }
 }

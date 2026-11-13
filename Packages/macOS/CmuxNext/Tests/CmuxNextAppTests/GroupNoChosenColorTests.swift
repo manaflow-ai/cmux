@@ -45,7 +45,11 @@ struct GroupNoChosenColorTests {
         let item = Self.tabGroup(color: nil)
         #expect(item.tint == .none)
         let chip = TabGroupChipCell(group: item, memberCount: 1)
-        #expect(Self.alpha(chip.pill.backgroundColor) == 0, "no dot")
+        // The chip is the band's neutral step, no hue, so it reads as a group's chip and not a bare label (Leo
+        // 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were unhovered").
+        let pill = Self.alpha(chip.pill.backgroundColor)
+        #expect(pill > 0 && pill < 0.06, "a faint neutral chip, not \(pill)")
+        #expect(chip.pill.backgroundColor?.components == chip.themeScope.perform { Palette.sidebarStep.cgColor }.components)
         let band = TabGroupBandCell(color: item.tint)
         #expect(Self.alpha(band.lineLayer.backgroundColor) == 0, "no underline")
         // A faint neutral wash, no hue (Leo 2026-11-05: "a grouped up thing"): the theme's sidebarStep, under the hover.

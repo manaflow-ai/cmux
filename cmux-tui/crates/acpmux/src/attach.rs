@@ -643,7 +643,7 @@ impl Saved {
                 remove_uploads(&owned);
             }
             if let Some(dir) = dir.filter(|_| !keep) {
-                let _ = std::fs::remove_dir_all(dir);
+                let _ = crate::home_fs::remove_dir_all(dir);
             }
         })
         .await;
@@ -661,7 +661,7 @@ impl Held {
     fn remove(self) {
         remove_uploads(&self.owned);
         if let Some(dir) = self.dir {
-            let _ = std::fs::remove_dir_all(dir);
+            let _ = crate::home_fs::remove_dir_all(dir);
         }
     }
 }
@@ -705,7 +705,7 @@ fn off_runtime(f: impl FnOnce() + Send + 'static) {
 
 /// Deletes folder `dir` off the runtime when there is one.
 fn remove_soon(dir: PathBuf) {
-    off_runtime(move || drop(std::fs::remove_dir_all(dir)));
+    off_runtime(move || drop(crate::home_fs::remove_dir_all(dir)));
 }
 
 impl Drop for Saved {

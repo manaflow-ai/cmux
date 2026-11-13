@@ -10,11 +10,9 @@ import Testing
 /// SHOWING FUCKING BULLSHIT ON LOAD"). Each launch is a fresh store over the same recovery
 /// directory, as the app makes one at launch; the draft stays on disk and restorable throughout.
 @MainActor @Suite(.serialized, .closesItsWindows) struct RecoveryNoticeOnceTests {
-    /// Records the toast views (the center's overlay host, without an overlay).
+    /// Draws no toast (the center keeps and times them).
     @MainActor private final class RecordingHost: CmuxToastHosting {
-        func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
-        func move(_ toast: CmuxToastView, to slot: Int) {}
-        func hide(_ toast: CmuxToastView, animated: Bool) {}
+        func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {}
     }
 
     private static let id = QuitParticipantID.file(path: "/tmp/recovery-notice-once/notes.md")

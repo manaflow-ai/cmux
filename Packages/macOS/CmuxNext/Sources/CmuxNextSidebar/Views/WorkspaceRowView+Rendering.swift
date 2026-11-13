@@ -78,9 +78,10 @@ extension WorkspaceRowView {
 
     override func updateLayer() {
         performWithTheme {
-            // An idle workspace nobody named reads quiet until it is selected, hovered or busy.
-            title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.textPrimary
-            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
+            // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
+            title.textColor = Palette.sidebarTitle
+            // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
+            subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             if isArchived { // dimmed (archiving-DESIGN.md)
                 title.textColor = title.textColor.withAlphaComponent(SidebarStyle.archivedAlpha)
                 subtitle.setColor(Palette.textTertiary)
@@ -129,11 +130,11 @@ extension WorkspaceRowView {
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
         let leading = columns.lead
-        // A `leftRail` row keeps its dot's slot empty, so its title stays clear of the rail, where the dot style has it.
-        let railSlot = iconKind == nil && rowColor?.style == .leftRail
+        // A `leftRail` row's bar sits in the row's leading inset, left of the one title edge, so it takes no slot
+        // (Lawrence 2026-11-09, "red dot on left feels weird": the dot's slot pushed that one title right).
         let side: CGFloat
         switch iconKind {
-        case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
+        case nil: side = 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?, .pagePlaceholder?: side = SidebarStyle.iconColumnBox
         }
@@ -258,6 +259,11 @@ extension WorkspaceRowView {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
             trailing = columns.trailingEdge(before: audioSlot.frame)
         }
+        if !driveIndicator.isHidden {
+            let size = CGSize(width: driveIndicator.preferredWidth, height: driveIndicator.preferredHeight)
+            driveIndicator.frame = columns.trailingFrame(before: trailing, centerY: cy, size: size)
+            trailing = columns.trailingEdge(before: driveIndicator.frame)
+        }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
             presenceDots.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: isExpanded ? th : b.height))
@@ -266,7 +272,7 @@ extension WorkspaceRowView {
 
         // Without an icon the title starts on lead; with one (or a left rail's kept dot slot), on the text column
         // (`workspaceTitleX`).
-        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
@@ -288,7 +294,13 @@ extension WorkspaceRowView {
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        let warningStart = usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX
+        // The drive indicator never gives way to the hover controls (it is a button the person came to press):
+        // while they show it sits just left of them, as the usage warning does.
+        if !driveIndicator.isHidden, let overlayStart, driveIndicator.frame.maxX > overlayStart - Metrics.space1 {
+            driveIndicator.frame.origin.x = overlayStart - Metrics.space1 - driveIndicator.frame.width
+        }
+        let warningStart = [usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX,
+                            driveIndicator.isHidden ? nil : driveIndicator.frame.minX].compactMap { $0 }.min()
         // The text and marks give way to the controls and to the badge beside them.
         let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)

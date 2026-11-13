@@ -10,6 +10,11 @@ extension CEFRuntime {
             respond(token: token, with: .notFound)
             return
         }
+        // What the tab holds ready answers in this turn: no main-actor task queued behind a busy launch.
+        if let ready = tab?.readyPageResource?(parsed) {
+            respond(token: token, with: ready)
+            return
+        }
         // task-owner: one generated file per request; a request the page cancelled is answered into nothing
         Task { @MainActor [weak self] in
             let response = await answer(parsed, range)

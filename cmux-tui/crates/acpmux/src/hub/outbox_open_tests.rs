@@ -26,10 +26,10 @@ fn delivery(id: &str, age_ms: u64, state: &str, open: bool) -> Delivery {
 #[test]
 fn an_open_delivery_outlives_a_day_with_its_peer_offline() {
     let outbox = Outbox::default();
-    outbox.add(delivery("open", DAY_MS + 60 * 60 * 1000, "delivered", true));
-    outbox.add(delivery("settled", DAY_MS + 60 * 60 * 1000, "delivered", false));
+    outbox.add(delivery("open", DAY_MS + 60 * 60 * 1000, "delivered", true)).unwrap();
+    outbox.add(delivery("settled", DAY_MS + 60 * 60 * 1000, "delivered", false)).unwrap();
     // Any change runs the retention.
-    outbox.add(delivery("new", 0, "queued", false));
+    outbox.add(delivery("new", 0, "queued", false)).unwrap();
     outbox.update("new", |d| d.attempts += 1);
     let open: Vec<String> = outbox.open_on_peers().into_iter().map(|d| d.id).collect();
     assert_eq!(open, ["open"], "the open delivery was pruned");

@@ -955,8 +955,10 @@ mod sidebar_face_tests;
 
 pub mod auto_archive;
 pub mod closing_panes;
+pub mod divider_insert;
 
 pub mod group_hover_summary;
+pub mod keep_awake;
 pub mod new_placement;
 pub mod optimistic;
 #[cfg(kani)]
@@ -964,10 +966,12 @@ mod proofs;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_bridge;
+pub mod sidebar_caps;
 pub mod sidebar_doc;
 pub mod sidebar_drag;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
+pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;

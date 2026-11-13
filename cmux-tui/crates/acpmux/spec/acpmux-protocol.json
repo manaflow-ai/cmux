@@ -247,6 +247,18 @@
     },
     {
       "kind": "request",
+      "name": "chat.fix_from_link.prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "chat.fix_from_link",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -282,7 +294,7 @@
         "$ref": "#/types/ViewParams"
       },
       "result": {
-        "$ref": "#/types/Done"
+        "$ref": "#/types/ViewDone"
       }
     },
     {
@@ -299,10 +311,20 @@
       "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
-        "$ref": "#/types/SessionRef"
+        "$ref": "#/types/MarkUnreadParams"
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/seen",
+      "params": {
+        "$ref": "#/types/SeenParams"
+      },
+      "result": {
+        "$ref": "#/types/SeenDone"
       }
     },
     {
@@ -318,6 +340,12 @@
     {
       "kind": "request",
       "name": "_acpmux/rename",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/register",
       "params": true,
       "result": true
     },
@@ -387,6 +415,36 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/race/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/ack",
       "params": true,
       "result": true
@@ -416,6 +474,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_directories",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/project_new",
       "params": true,
       "result": true
     },
@@ -473,7 +537,43 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/ledger",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team_audit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/workspace_purge",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_brief",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/review_verdict",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/audit",
       "params": true,
       "result": true
     },
@@ -502,6 +602,22 @@
       "name": "_acpmux/bookmark_set",
       "params": {
         "$ref": "#/types/BookmarkSetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/memory_resolve",
+      "params": {
+        "$ref": "#/types/MemoryResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompt_coach",
+      "params": {
+        "$ref": "#/types/PromptCoachParams"
       },
       "result": true
     },
@@ -633,6 +749,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/run_elsewhere/plan",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/goal/set",
       "params": true,
       "result": true
@@ -646,6 +774,24 @@
     {
       "kind": "request",
       "name": "_acpmux/goal/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/build",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/compare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/keep",
       "params": true,
       "result": true
     },
@@ -680,6 +826,12 @@
     {
       "kind": "request",
       "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/cold_archive",
       "params": true,
       "result": true
     },
@@ -866,6 +1018,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/hunk_summary",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/wait",
       "params": true,
       "result": true
@@ -955,6 +1113,22 @@
       "name": "_acpmux/queue_text",
       "params": true,
       "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/rows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_patch",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_lagged",
+      "params": true
     },
     {
       "kind": "request",
@@ -1311,6 +1485,12 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_resolve",
       "params": true,
       "result": true
     },
@@ -1899,6 +2079,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine.tunnel.attach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.detach",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine.tunnel.rekey",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -2022,6 +2220,8 @@
         "argv": true,
         "author": true,
         "beforePromptId": true,
+        "callerKind": true,
+        "callerProtocol": true,
         "callerSession": true,
         "cancelToken": true,
         "class": true,
@@ -2076,6 +2276,7 @@
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
+        "senderToken": true,
         "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
@@ -2087,6 +2288,7 @@
         "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "throwaway": true,
         "topic": true,
         "via": true,
         "vmBoundary": true,
@@ -2306,6 +2508,13 @@
             "null"
           ]
         },
+        "attending": {
+          "description": "False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it\nsees nothing, so a reconnect while they are away keeps the chat's unread; default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "beforeSeq": {
           "description": "The newest `limit` records before this one.",
           "format": "uint64",
@@ -2351,6 +2560,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "settled": {
+          "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
@@ -2399,6 +2615,15 @@
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
         },
+        "readThrough": {
+          "description": "The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they\nsaw while attending; null before they saw any. An older acpmux leaves it out.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "session": {
           "$ref": "#/types/SessionDetail"
         },
@@ -2420,6 +2645,7 @@
         "lastSeq",
         "pageThrough",
         "presence",
+        "readThrough",
         "session",
         "turnOpener"
       ],
@@ -2567,9 +2793,35 @@
         "inline": true,
         "model": true,
         "question": true,
-        "sessionId": true
+        "sessionId": true,
+        "targetHarness": true
       },
       "type": "object"
+    },
+    "Carrier": {
+      "description": "The carrier a live link runs over (`carrier`); null while no link is open.",
+      "oneOf": [
+        {
+          "const": "direct",
+          "description": "Straight to the peer: its WebSocket URL, or the paired machines' WireGuard link.",
+          "type": "string"
+        },
+        {
+          "const": "ssh",
+          "description": "An `ssh -W` tunnel to the peer's daemon.",
+          "type": "string"
+        },
+        {
+          "const": "hub",
+          "description": "Relayed by the team hub. Not sent by acpmux yet (carrier slice 3).",
+          "type": "string"
+        },
+        {
+          "const": "cloud",
+          "description": "cmux Cloud's relay. Not sent by acpmux yet (carrier slice 3).",
+          "type": "string"
+        }
+      ]
     },
     "ChangedSession": {
       "anyOf": [
@@ -2694,6 +2946,31 @@
     "Done": {
       "description": "An acknowledgement with nothing in it.",
       "type": "object"
+    },
+    "DownCause": {
+      "description": "Why a link is down (`cause`), so a surface can tell this Mac's network apart from the\nmachine. Null while the link is up or on its way the first time.",
+      "oneOf": [
+        {
+          "const": "localNetwork",
+          "description": "This machine's own network is down: the last attempt failed before it left this host\n(no route, no DNS).",
+          "type": "string"
+        },
+        {
+          "const": "hubDown",
+          "description": "The team hub does not answer, so a relayed link cannot be made. Not sent yet: it needs\nthe hub carrier's probe (carrier slice 3).",
+          "type": "string"
+        },
+        {
+          "const": "peerDown",
+          "description": "This machine's network works, and the peer (or its daemon) does not answer.",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token.",
+          "type": "string"
+        }
+      ]
     },
     "DraftGetParams": {
       "additionalProperties": false,
@@ -2968,9 +3245,23 @@
             "null"
           ]
         },
+        "harness": {
+          "description": "With `live`: the harness the fork runs on, carrying the conversation over (a model switch).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3005,6 +3296,25 @@
           "$ref": "#/types/RequestMeta"
         }
       },
+      "type": "object"
+    },
+    "GoneRow": {
+      "description": "A row that left the list since a follow's cursor.",
+      "properties": {
+        "peer": {
+          "description": "The peer a remote session ran on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
       "type": "object"
     },
     "HandoffDiscardParams": {
@@ -3268,6 +3578,26 @@
       ],
       "type": "object"
     },
+    "LastReturn": {
+      "description": "A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when\nthey left, and how many turns ended while nobody showed it.",
+      "properties": {
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "since",
+        "turns"
+      ],
+      "type": "object"
+    },
     "LastTurn": {
       "description": "The outcome of the session's last turn. Keys the turn result lacked\nare absent.",
       "properties": {
@@ -3375,6 +3705,90 @@
         "state"
       ],
       "type": "object"
+    },
+    "LoopEpisodeSummary": {
+      "description": "The bounded diagnosis shown beside a looping chat. The daemon emits one event when this\nbecomes active and another when progress clears it; the summary lets a newly attached client\nrender the current state without replaying the transcript.",
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "episodeId": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "episodeId",
+        "since",
+        "count",
+        "diagnosis",
+        "hint"
+      ],
+      "type": "object"
+    },
+    "MachineLink": {
+      "description": "A machine link's whole state (`link`): what every surface draws, from acpmux alone.",
+      "oneOf": [
+        {
+          "const": "connected",
+          "description": "The handshake finished and the peer answers.",
+          "type": "string"
+        },
+        {
+          "const": "connecting",
+          "description": "Not reached yet, this run or a saved one; the first attempt runs.",
+          "type": "string"
+        },
+        {
+          "const": "reconnecting",
+          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on\n(`nextRetryAt`).",
+          "type": "string"
+        },
+        {
+          "const": "restarting",
+          "description": "The peer's daemon announced a restart (an update); it is dialed again at once.",
+          "type": "string"
+        },
+        {
+          "const": "degraded",
+          "description": "The WebSocket is open and the handshake runs, or a ping went unanswered: slow, not gone.",
+          "type": "string"
+        },
+        {
+          "const": "offline",
+          "description": "Never reached and attempts failed, or removed. Attempts go on (`nextRetryAt`).",
+          "type": "string"
+        },
+        {
+          "const": "authFailed",
+          "description": "The peer refused this daemon's token (HTTP 401 or 403): a person must sign in again.",
+          "type": "string"
+        },
+        {
+          "const": "updateRequired",
+          "description": "The peer is too old to link with: a person must update it. Not sent by acpmux yet; a\nrenderer draws it when a carrier reports it.",
+          "type": "string"
+        },
+        {
+          "const": "paused",
+          "description": "A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud\ncarrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.",
+          "type": "string"
+        }
+      ]
     },
     "MailAckParams": {
       "additionalProperties": false,
@@ -3614,6 +4028,37 @@
       ],
       "type": "object"
     },
+    "MarkUnreadParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor\nmoves back to it (never forward).",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "McpReconnectParams": {
       "additionalProperties": false,
       "properties": {
@@ -3665,6 +4110,20 @@
         "decisionNonce",
         "approverDecision"
       ],
+      "type": "object"
+    },
+    "MemoryResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "dismiss": true,
+        "file": true,
+        "offerId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "MessageEvent": {
@@ -3731,6 +4190,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "localOnly": true,
         "probe": true,
         "refresh": true
       },
@@ -3793,7 +4253,7 @@
       "type": "object"
     },
     "PeerLinkState": {
-      "description": "A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`).",
+      "description": "A peer link's state, folded for older apps (`state`): read `link` for the whole of it.",
       "oneOf": [
         {
           "const": "connecting",
@@ -3812,12 +4272,12 @@
         },
         {
           "const": "reconnecting",
-          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on.",
+          "description": "Down after it was reached (or restarting); its last-known sessions stay listed.",
           "type": "string"
         },
         {
           "const": "offline",
-          "description": "Never reached and attempts failed, or removed (`error: \"removed\"`, its last note).",
+          "description": "Never reached and attempts failed, the peer refused this daemon's token, or removed\n(`error: \"removed\"`, its last note).",
           "type": "string"
         }
       ]
@@ -3848,13 +4308,35 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "at": {
-          "description": "When the state changed, ms since the epoch.",
+          "description": "When the note was made, ms since the epoch.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "carrier": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Carrier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The carrier the open link runs over; null while none is open."
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DownCause"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the link is down; null while it is up or on its way the first time."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -3872,19 +4354,44 @@
             "null"
           ]
         },
+        "link": {
+          "$ref": "#/types/MachineLink",
+          "description": "The link's whole state: what a surface draws."
+        },
+        "nextRetryAt": {
+          "description": "When acpmux dials again on its own, ms since the epoch; null while it is not waiting.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "peer": {
           "description": "The peer's name, as in `_acpmux/peers`.",
           "type": "string"
         },
+        "since": {
+          "description": "When `link` took its value, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "state": {
-          "$ref": "#/types/PeerLinkState"
+          "$ref": "#/types/PeerLinkState",
+          "description": "`link` folded to the older five words, for an app that predates `link`."
         }
       },
       "required": [
         "at",
+        "carrier",
+        "cause",
         "error",
         "lastSeen",
+        "link",
+        "nextRetryAt",
         "peer",
+        "since",
         "state"
       ],
       "type": "object"
@@ -4294,6 +4801,22 @@
     "PermissionRespondResult": {
       "type": "object"
     },
+    "PersonHold": {
+      "description": "What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and\nwhy an agent does not start there unasked.",
+      "properties": {
+        "folder": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "folder",
+        "reason"
+      ],
+      "type": "object"
+    },
     "PresenceNote": {
       "description": "`_acpmux/presence`, to every connection attached to the chat on each change, and\n`presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.",
       "properties": {
@@ -4420,6 +4943,17 @@
           "type": "string"
         }
       ]
+    },
+    "PromptCoachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "coachId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "ProtocolParams": {
       "additionalProperties": false,
@@ -4880,6 +5414,51 @@
       },
       "type": "object"
     },
+    "SeenDone": {
+      "description": "`_acpmux/seen`'s answer: the person's cursor after the request.",
+      "properties": {
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readThrough"
+      ],
+      "type": "object"
+    },
+    "SeenParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it\n(`hub/seen.rs`). Moves their seen cursor forward only.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whose cursor: an author's, the owner's when absent."
+        },
+        "seq": {
+          "description": "The newest log seq of a row that was on screen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "seq"
+      ],
+      "type": "object"
+    },
     "SessionAuthLogin": {
       "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
       "properties": {
@@ -5080,6 +5659,12 @@
           "description": "The record kind, or `queue`, `permission_resolved` or `purged`.",
           "type": "string"
         },
+        "listSeq": {
+          "description": "The list position this change took (`hub/row_log.rs`): the client's cursor for\n`_acpmux/watch {afterSeq}` is the highest it applied.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "peer": {
           "description": "The peer a remote session runs on.",
           "type": [
@@ -5107,7 +5692,8 @@
         "session",
         "kind",
         "recordKind",
-        "seq"
+        "seq",
+        "listSeq"
       ],
       "type": "object"
     },
@@ -5205,6 +5791,21 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -5253,6 +5854,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -5278,6 +5890,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -5343,6 +5967,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "personHold": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PersonHold"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
         "policy": {
           "type": [
@@ -5412,6 +6047,15 @@
         },
         "rulesJson": {
           "description": "The session's permission rules."
+        },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -5508,6 +6152,17 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -5563,6 +6218,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -5838,6 +6500,21 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -5886,6 +6563,17 @@
             "null"
           ]
         },
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the\n`turns` that ended unseen. A client opening the chat then draws \"New since you looked\" at\n`since`, also when its attach answers before its list read."
+        },
         "lastSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -5911,6 +6599,18 @@
             }
           ],
           "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "loopEpisode": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LoopEpisodeSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.\nAdditive so older clients and peers can omit it."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -5967,6 +6667,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "personHold": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PersonHold"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
         "policy": {
           "type": [
@@ -6033,6 +6744,15 @@
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
+        },
+        "seenSeq": {
+          "description": "The log seq the person had seen when they last stopped showing the chat: a client\nopening it while `unreadTurns` is above 0 draws \"New since you looked\" after it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -6129,6 +6849,17 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
+        "timeBreakdown": {
+          "anyOf": [
+            {
+              "$ref": "#/types/TimeBreakdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Incremental wall-time and token attribution for the chat. This is seeded by a detail or\nattach read and omitted from census rows until then (`hub/time_breakdown.rs`)."
+        },
         "title": {
           "type": [
             "string",
@@ -6184,6 +6915,13 @@
         },
         "unread": {
           "type": "boolean"
+        },
+        "unreadTurns": {
+          "default": 0,
+          "description": "Turns that ended while no client showed the chat, since a person last showed it\n(`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "updatedAt": {
           "format": "uint64",
@@ -6341,8 +7079,41 @@
     },
     "SessionsResult": {
       "properties": {
-        "delta": {
-          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+        "follow": {
+          "description": "A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the\nrows that went; the client's other rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "gone": {
+          "description": "With `follow`: the rows that went since `afterSeq`.",
+          "items": {
+            "$ref": "#/types/GoneRow"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "With `listSeq`: this daemon run's id for list positions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listSeq": {
+          "description": "A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after\nit reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the\none held only when its position is not lower.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "more": {
+          "description": "With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the\nclient follows again from there.",
           "type": [
             "boolean",
             "null"
@@ -6355,13 +7126,10 @@
             "null"
           ]
         },
-        "removed": {
-          "description": "With `delta`: the known sessions no longer listed.",
-          "items": {
-            "type": "string"
-          },
+        "reset": {
+          "description": "A watch whose `afterSeq` the log could not follow (another daemon run, or older than its\noldest removal): this is the list's first page, and the client drops the rows it held.",
           "type": [
-            "array",
+            "boolean",
             "null"
           ]
         },
@@ -6371,15 +7139,6 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
-        },
-        "unchanged": {
-          "description": "With `delta`: how many listed rows were left out as unchanged.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
         }
       },
       "required": [
@@ -6476,6 +7235,122 @@
         "sessionId": true,
         "workspaceId": true
       },
+      "type": "object"
+    },
+    "TimeBreakdown": {
+      "properties": {
+        "categories": {
+          "items": {
+            "$ref": "#/types/TimeCategory"
+          },
+          "type": "array"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/TimeSpan"
+          },
+          "type": "array"
+        },
+        "tokensComplete": {
+          "type": "boolean"
+        },
+        "totalMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "totalTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "totalMs",
+        "tokensComplete",
+        "categories",
+        "spans"
+      ],
+      "type": "object"
+    },
+    "TimeCategory": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wallMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "wallMs"
+      ],
+      "type": "object"
+    },
+    "TimeSpan": {
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "endAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "startAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turnTokens": {
+          "description": "Whole-turn usage, not usage attributed to this interval.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "turnSeq",
+        "category",
+        "startAt",
+        "endAt"
+      ],
       "type": "object"
     },
     "ToolSummary": {
@@ -6773,6 +7648,22 @@
       ],
       "type": "object"
     },
+    "ViewDone": {
+      "description": "`_acpmux/view`'s answer: the person's return when coming to attend put \"New since you looked\"\non the chat (`hub/seen.rs`), so the client draws it without waiting for its list.",
+      "properties": {
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ViewParams": {
       "additionalProperties": false,
       "properties": {
@@ -6786,6 +7677,22 @@
             }
           ],
           "description": "An author changes only that person's presence (`hub/presence.rs`), not whether the\nchat counts as shown."
+        },
+        "attending": {
+          "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "seenSeq": {
+          "description": "With `attending: false`, the log seq the client had at its person's last input: where the\nchat is left off, when earlier than now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -6815,6 +7722,15 @@
     "WatchParams": {
       "additionalProperties": false,
       "properties": {
+        "afterSeq": {
+          "description": "Follow the list from this position (`hub/row_log.rs`, capability\n`session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the\nrows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is\nanswered with the list's first page and `reset: true`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "cursor": {
           "type": [
             "string",
@@ -6828,21 +7744,18 @@
             "null"
           ]
         },
-        "known": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
-          "type": [
-            "object",
-            "null"
-          ]
-        },
         "limit": {
           "format": "uint64",
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.",
+          "type": [
+            "string",
             "null"
           ]
         },

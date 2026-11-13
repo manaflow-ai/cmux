@@ -1,13 +1,13 @@
 // l10n-allow-file: test fixtures.
-// Another agent's message in the real agent pane is one disclosure line where it arrived
-// (conversation/IncomingMessageCard.tsx on the shared DisclosureRow; Leo, 2026-10-29: "why the
+// Another agent's message in the real agent pane is one message line where it arrived
+// (conversation/IncomingMessageCard.tsx on the one message row, AgentMessageRow.tsx; Leo, 2026-10-29: "why the
 // fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"):
 //
 // - A 40-paragraph message draws as one 26px line, closed. Its toggle opens all of it: the last
 //   paragraph is there, nothing in the panel is clipped by an ellipsis, and its text box hides
 //   nothing (scrollHeight equals clientHeight).
 // - Opening and closing never move the line: mid-view with rows above and below, and as the chat's
-//   last row with the view pinned to its end, the toggle's top stays within 1px once the fold ends.
+//   last row with the view pinned to its end, the line's top stays within 1px once the fold ends.
 // - Each message is its own row: three from three senders between two replies are three rows in
 //   their order, never one card; ones queued behind the running turn draw after that turn, with
 //   one "Read after this turn" over the first of them.
@@ -272,13 +272,13 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await row.count()).toBe(1);
       // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
       expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
-      expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
+      expect(await row.locator(".cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
       expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",
       );
-      expect(await row.locator(".cv-disclosure__panel").count()).toBe(0);
-      const toggle = row.locator(".cv-disclosure__toggle");
+      expect(await row.locator(".cv-agentmsg__card").count()).toBe(0);
+      const toggle = row.locator(".cv-agentmsg__toggle");
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       expect(await toggle.getAttribute("aria-label")).toMatch(/^Message from Grid fix: Paragraph 1 /);
 
@@ -291,7 +291,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       // No From: line in the panel: the line names the sender once.
       expect(await row.locator(".cv-received__from-line").count()).toBe(0);
       // Nothing in the panel is cut with an ellipsis, and the text box hides none of its text.
-      const clipped = await row.locator(".cv-disclosure__panel").evaluate((panel) =>
+      const clipped = await row.locator(".cv-agentmsg__card").evaluate((panel) =>
         [panel, ...panel.querySelectorAll<HTMLElement>("*")]
           .filter((el) => {
             const style = getComputedStyle(el);
@@ -304,7 +304,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(box.scroll).toBe(box.client);
       // The panel is as tall as the text it holds: no max-height cut around it.
       const panel = await row
-        .locator(".cv-disclosure__panel")
+        .locator(".cv-agentmsg__card")
         .evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight, wrap: el.parentElement!.clientHeight }));
       expect(panel.scroll).toBe(panel.client);
       expect(panel.wrap).toBeGreaterThanOrEqual(panel.client);
@@ -327,17 +327,21 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       "Answer 15.2",
     );
     try {
-      const toggle = page.locator(".cv-received .cv-disclosure__toggle");
+      // The toggle carries aria-expanded; the line is what is measured and clicked (its chevron):
+      // open, the toggle button holds no preview and has no box.
+      const toggle = page.locator(".cv-received .cv-agentmsg__toggle");
+      const line = page.locator(".cv-received > .cv-agentmsg__line");
+      const chevron = line.locator(".cv-agentmsg__chevron");
       await page.getByText("Answer 15.2").first().waitFor({ timeout: 10_000 });
-      expect(await scrollUntilDrawn(page, ".cv-received .cv-disclosure__toggle")).toBe(true);
+      expect(await scrollUntilDrawn(page, ".cv-received > .cv-agentmsg__line")).toBe(true);
       // The transcript scrolls: there is more above and below than the view holds.
       const scroll = await page
         .locator(".acpmux-scroll")
         .evaluate((el) => ({ height: el.scrollHeight, view: el.clientHeight }));
       expect(scroll.height).toBeGreaterThan(scroll.view * 2);
-      await scrollTo(toggle, scroll.view / 2);
+      await scrollTo(line, scroll.view / 2);
       await rest(page);
-      const before = await topOf(toggle);
+      const before = await topOf(line);
       expect(
         Math.abs(
           before -
@@ -346,21 +350,21 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         ),
       ).toBeLessThan(40);
 
-      await toggle.click();
+      await chevron.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
       await rest(page);
-      const opened = await topOf(toggle);
+      const opened = await topOf(line);
       console.log(`mid-view: line top ${before} -> ${opened} opened`);
       expect(Math.abs(opened - before)).toBeLessThan(1);
       await page.locator(".cv-received__text").getByText("Paragraph 1 ").first().waitFor({ timeout: 5_000 });
 
-      await toggle.click();
+      await chevron.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await rest(page);
-      const closed = await topOf(toggle);
+      const closed = await topOf(line);
       console.log(`mid-view: line top ${before} -> ${closed} closed`);
       expect(Math.abs(closed - before)).toBeLessThan(1);
-      expect(await page.locator(".cv-received .cv-disclosure__panel").count()).toBe(0);
+      expect(await page.locator(".cv-received .cv-agentmsg__card").count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -375,27 +379,31 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       "Paragraph 1 of the landing report",
     );
     try {
-      const toggle = page.locator(".cv-received .cv-disclosure__toggle");
+      // aria-expanded is on the toggle; the line (its chevron) is measured and clicked, as the toggle
+      // button is empty and has no box while open.
+      const toggle = page.locator(".cv-received .cv-agentmsg__toggle");
+      const line = page.locator(".cv-received > .cv-agentmsg__line");
+      const chevron = line.locator(".cv-agentmsg__chevron");
       await toggle.waitFor({ timeout: 10_000 });
       await rest(page);
       expect(await atLatest(page)).toBe(true);
-      const before = await topOf(toggle);
+      const before = await topOf(line);
 
-      await toggle.click();
+      await chevron.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
       await rest(page);
-      const opened = await topOf(toggle);
+      const opened = await topOf(line);
       console.log(`end: line top ${before} -> ${opened} opened`);
       expect(Math.abs(opened - before)).toBeLessThan(1);
       expect(await atLatest(page)).toBe(false);
 
-      await toggle.scrollIntoViewIfNeeded();
+      await line.scrollIntoViewIfNeeded();
       await rest(page);
-      const shown = await topOf(toggle);
-      await toggle.click();
+      const shown = await topOf(line);
+      await chevron.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await rest(page);
-      const closed = await topOf(toggle);
+      const closed = await topOf(line);
       console.log(`end: line top ${shown} -> ${closed} closed`);
       expect(Math.abs(closed - shown)).toBeLessThan(1);
     } finally {
@@ -411,7 +419,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       "Paragraph 1 of the landing report",
     );
     try {
-      const toggle = page.locator(".cv-received .cv-disclosure__toggle");
+      const toggle = page.locator(".cv-received .cv-agentmsg__toggle");
       await toggle.waitFor({ timeout: 10_000 });
       await rest(page);
       expect(await atLatest(page)).toBe(true);
@@ -520,7 +528,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await rows.nth(1).waitFor({ timeout: 10_000 });
       const lines = await rows.evaluateAll((all) =>
         all.map((row) => {
-          const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+          const line = row.querySelector<HTMLElement>(":scope > .cv-agentmsg__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
           // The line's last words: its first line's, or the sender's (its text, not its padded box) in
           // the stacked gallery look. The preview first: in the default one-line look (#34464) the
@@ -534,6 +542,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           return {
             right: Math.round(chevron.right),
             after: chevron.left - words.right,
+            // No separate clickable region inside the line (the old disclosure row's open control).
             open: Boolean(line.querySelector(".cv-disclosure__open")),
             groups: line.querySelectorAll(".cv-received-actions").length,
             hidden: hover ? getComputedStyle(hover).opacity : "missing",
@@ -550,7 +559,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       }
       expect(await page.getByText(/Read after this|Open chat|^From:/).count()).toBe(0);
       // Hovered, the actions show at the line's end with no plate under the line, and the chevron stays put.
-      await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
+      await rows.nth(1).locator(":scope > .cv-agentmsg__line").hover();
       // Measure the revealed controls after their transition, not in its first frame.
       const actions = await rows.nth(1).locator(".cv-received__hover").elementHandle();
       try {
@@ -561,7 +570,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         await actions?.dispose();
       }
       const hovered = await rows.nth(1).evaluate((row) => {
-        const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+        const line = row.querySelector<HTMLElement>(":scope > .cv-agentmsg__line")!;
         return {
           plate: getComputedStyle(line).backgroundColor,
           shown: getComputedStyle(line.querySelector<HTMLElement>(".cv-received__hover")!).opacity,
@@ -648,14 +657,16 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         scheme,
       );
       try {
+        // Another agent's message is the one message row (AgentMessageRow.tsx, cmux#37653): its
+        // line's toggle opens it.
         const line = page.locator(".cv-received").last();
-        await line.locator(".cv-disclosure__toggle").click();
+        await line.locator(".cv-agentmsg__toggle").click();
         await rest(page);
         if (process.env.SENDER_IDENTITY_CAPTURE)
           await page.screenshot({ path: `${process.env.SENDER_IDENTITY_CAPTURE}-${scheme}.png` });
         expect(await line.locator(".cv-received__from").allInnerTexts()).toEqual(["design-check"]);
         expect(await line.locator(".cv-received__host-name").allInnerTexts()).toEqual(["review-box"]);
-        expect(await line.locator(".cv-disclosure__toggle").getAttribute("aria-label")).toBe(
+        expect(await line.locator(".cv-agentmsg__toggle").getAttribute("aria-label")).toBe(
           "Message from design-check: Synthetic review complete. The layout and keyboard checks passed.",
         );
         expect(await line.locator(".cv-received__from--open").getAttribute("aria-label")).toBe(

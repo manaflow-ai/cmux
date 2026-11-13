@@ -14,7 +14,7 @@ import { useChatFind } from "../conversation/chatFind";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { setHeaderState } from "../header/headerState";
-import { useSessionInfo } from "./SessionInfo";
+import { useSessionInfo } from "./useSessionInfo";
 import { setSessionInfoOpen } from "./sessionInfoState";
 
 const BEFORE = "#!/bin/bash\nexport PATH=/usr/local/bin:$PATH\n";

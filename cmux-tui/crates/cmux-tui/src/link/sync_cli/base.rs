@@ -90,6 +90,22 @@ pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyh
     std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
 }
 
+/// A folder that moved machine to machine (`cmux link sync relay`, which copies the machine's own
+/// record with it): the base kept for `from_root` is the base for `to_root` too. Nothing when no
+/// push left one.
+pub(super) fn carry(local: &Path, from_root: &str, to_root: &str) -> anyhow::Result<bool> {
+    let path = path_of(local, from_root)?;
+    let kept = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
+    };
+    let kept: Manifest = serde_json::from_slice(&kept)
+        .with_context(|| format!("{} is not a sync record", path.display()))?;
+    save(local, to_root, &kept)?;
+    Ok(true)
+}
+
 /// The base of `local` synced to `remote_root`, checked against the
 /// machine's own record (`machine`, None when it has none).
 pub(super) fn trusted(

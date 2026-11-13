@@ -43,6 +43,16 @@ struct GitHubPageDetailsTests {
         }}}}
         """#
 
+    /// Review of #38263, F1: a read that got every comment and review is whole, though the empty
+    /// review wrapper it leaves out makes `conversation` shorter than the total.
+    @Test func aWholeReadCountsTheEmptyReviewItLeavesOut() throws {
+        let whole = Self.answer.replacingOccurrences(of: #""comments": {"totalCount": 3,"#, with: #""comments": {"totalCount": 2,"#)
+        let details = try #require(GitHubPullRequestDetails.parse(Data(whole.utf8)))
+        #expect(details.conversation.count == 3)
+        #expect(details.conversationTotal == 4)
+        #expect(details.conversationRead == details.conversationTotal)
+    }
+
     @Test func theDetailsReadKeepsTheConversationInTimeOrder() throws {
         let details = try #require(GitHubPullRequestDetails.parse(Data(Self.answer.utf8)))
         #expect(details.body == "## Summary\nFixes it.")
@@ -56,6 +66,10 @@ struct GitHubPageDetailsTests {
         #expect(details.conversation[1].state == "changes_requested")
         #expect(details.conversation[1].comments == [.init(path: "a.swift", line: 12, body: "Here", url: nil)])
         #expect(details.conversationTotal == 5)
+        // The read got 2 of 3 comments and both reviews: 4 of 5, counted before the empty review is
+        // left out (review of #38263, F1), so not `conversation.count`.
+        #expect(details.conversationRead == 4)
+        #expect(details.json["conversationRead"] == JSONValue(4))
         // Asked again after reviewing: requested, not "changes requested".
         #expect(details.reviewers.map(\.name) == ["lawrence", "austin", "core"])
         #expect(details.reviewers.map(\.state) == ["approved", "requested", "requested"])
@@ -89,6 +103,30 @@ struct GitHubPageDetailsTests {
             return
         }
         #expect(first["html"]?.stringValue == "<p><sup>c</sup></p>")
+    }
+
+    /// The conversation's filters: "Mine" needs the signed-in login, "Unresolved" each review comment's thread.
+    @Test func theReadCarriesTheViewerAndEachThreadsState() throws {
+        #expect(GitHubPullRequestDetails.query.contains("viewer { login }"))
+        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { isResolved"))
+        let open = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r1"
+        let done = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r2"
+        let answer = #"""
+            {"data": {"viewer": {"login": "teamleaderleo"}, "repository": {"pullRequest": {"body": "", "headRefOid": "",
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "",
+                "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+                  {"path": "a.yml", "line": 3, "body": "open", "url": "\#(open)"},
+                  {"path": "a.yml", "line": 9, "body": "done", "url": "\#(done)"},
+                  {"path": "b.yml", "line": 1, "body": "unknown", "url": null}]}}]},
+              "reviewThreads": {"nodes": [
+                {"isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
+                {"isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.viewer == "teamleaderleo")
+        #expect(details.conversation.first?.comments.map(\.resolved) == [false, true, nil])
+        #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
     }
 
     @Test func oneReadSendsAtMostItsHTMLBudgetTheDescriptionAndNewestFirst() throws {

@@ -21,9 +21,21 @@ public nonisolated struct MainActorLineDrain<Value: Sendable>: Sendable {
 /// and reports `overflowed`, so memory and main-actor work stay bounded and
 /// the receiver resyncs instead. Close travels in the same channel, after
 /// the last value, so a drain never runs after the receiver saw the close.
+///
+/// A value with a `key` replaces the pending one with the same key, which
+/// leaves its place and the new one joins at the end: a burst of pushes of
+/// one chat is one value, and the order against every other value holds. A
+/// watch of many busy chats then never overflows on repeats; its every
+/// overflow made the turn-state feed read the whole session list again
+/// (31 MB on one Mac, 2026-11-11: "im at 100% cpu rn").
 public nonisolated final class MainActorLineBatch<Value: Sendable>: Sendable {
     private nonisolated struct State {
-        var values: [Value] = []
+        /// The pending values in arrival order; nil where a newer value of its key replaced it.
+        var values: [(key: String?, value: Value)?] = []
+        /// Where each pending keyed value sits in `values`.
+        var slots: [String: Int] = [:]
+        /// The pending values not replaced.
+        var live = 0
         var overflowed = false
         var closed = false
         var scheduled = false
@@ -31,24 +43,50 @@ public nonisolated final class MainActorLineBatch<Value: Sendable>: Sendable {
 
     private let state = Mutex(State())
     private let limit: Int
+    private let key: (@Sendable (Value) -> String?)?
     private let drain: @MainActor @Sendable (MainActorLineDrain<Value>) -> Void
 
     /// - Parameters:
     ///   - limit: the most values one drain may carry (default 4096).
+    ///   - key: a value's key: a later value with the same key replaces it while both are pending.
     ///   - drain: runs on the main actor with everything since the last drain.
-    public init(limit: Int = 4096, drain: @escaping @MainActor @Sendable (MainActorLineDrain<Value>) -> Void) {
+    public init(limit: Int = 4096, key: (@Sendable (Value) -> String?)? = nil,
+                drain: @escaping @MainActor @Sendable (MainActorLineDrain<Value>) -> Void) {
         self.limit = max(limit, 1)
+        self.key = key
         self.drain = drain
     }
 
     /// Adds one decoded value (any thread).
     public func submit(_ value: Value) {
+        let key = key?(value)
         let schedule = state.withLock { state -> Bool in
             guard !state.closed else { return false }
-            if state.values.count < limit { state.values.append(value) } else { state.overflowed = true }
+            if let key, let at = state.slots.removeValue(forKey: key) {
+                state.values[at] = nil
+                state.live -= 1
+            }
+            if state.live < limit {
+                if let key { state.slots[key] = state.values.count }
+                state.values.append((key, value))
+                state.live += 1
+                // Replaced values leave holes: at most as many as the limit before they close up.
+                if state.values.count >= 2 * limit { Self.compact(&state) }
+            } else {
+                state.overflowed = true
+            }
             return Self.claim(&state)
         }
         if schedule { scheduleDrain() }
+    }
+
+    private static func compact(_ state: inout State) {
+        let kept = state.values.compactMap { $0 }
+        state.values = kept
+        state.slots = [:]
+        for (at, entry) in kept.enumerated() {
+            if let key = entry.key { state.slots[key] = at }
+        }
     }
 
     /// Marks the source closed (any thread); later values are ignored.
@@ -77,10 +115,13 @@ public nonisolated final class MainActorLineBatch<Value: Sendable>: Sendable {
         let batch = state.withLock { state -> MainActorLineDrain<Value> in
             defer {
                 state.values = []
+                state.slots = [:]
+                state.live = 0
                 state.overflowed = false
                 state.scheduled = false
             }
-            return MainActorLineDrain(values: state.values, overflowed: state.overflowed, closed: state.closed)
+            return MainActorLineDrain(values: state.values.compactMap { $0?.value }, overflowed: state.overflowed,
+                                      closed: state.closed)
         }
         drain(batch)
     }

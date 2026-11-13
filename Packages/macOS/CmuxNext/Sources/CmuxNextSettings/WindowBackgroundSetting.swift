@@ -37,6 +37,23 @@ public nonisolated enum WindowBackgroundSetting {
         }
     }
 
+    /// The material a fresh install's window starts on (Leo, 2026-11-05: "new install should default
+    /// to glass"). Existing installs keep what they have: only the first launch writes it.
+    public static let freshInstallMaterial = WindowMaterialChoice.glass
+
+    /// The edit a fresh install's first launch writes: Material Glass, unless cmux.json already names
+    /// a window background or the Ghostty config's own `background-blur` gives a material.
+    ///
+    /// - Parameter root: The settings document before the write.
+    /// - Parameter ghosttyMaterial: The material the config files' own `background-blur` gives.
+    /// - Returns: The material write, or none.
+    public static func freshInstallEdits(in root: JSONValue,
+                                         ghosttyMaterial: WindowMaterialChoice) -> [(path: [String], value: JSONValue?)] {
+        guard root.value(at: materialPath) == nil, root.value(at: opacityPath) == nil,
+              ghosttyMaterial == .unblurred else { return [] }
+        return [(materialPath, .string(freshInstallMaterial.rawValue))]
+    }
+
     /// A missing key keeps Ghostty's value with no diagnostic; a bad value
     /// keeps it too, plus a diagnostic at the key.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WindowBackgroundOverride {

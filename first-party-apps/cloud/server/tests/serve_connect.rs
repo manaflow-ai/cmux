@@ -89,9 +89,7 @@ fn other_ops_run_while_a_connect_waits() {
 
 fn command() -> cmux_cloud::link::LinkCommand {
     cmux_cloud::link::LinkCommand {
-        binary: "/opt/cmux/bin/cmux-tui".into(),
-        args: Vec::new(),
-        env: Vec::new(),
+        upstream: "/tmp/cmux-test/carrier-vm-alpha01.sock".into(),
         state_dir: "/tmp/cmux-test/link-state".into(),
         local_socket: "/tmp/cmux-test/link.sock".into(),
     }
@@ -135,7 +133,8 @@ fn a_connect_whose_start_finds_the_machine_already_woken_still_connects() {
     // ending with "only a paused machine can be started".
     let mut host = Host::start(&["vm-list", "vm-start-not-paused"]);
     host.answer_of("1", "cloud.machine.list", json!({}));
-    let result = host.result("2", "cloud.machine.connect", json!({ "machine": "vm-beta02" }), Some("c-2"));
+    let result =
+        host.result("2", "cloud.machine.connect", json!({ "machine": "vm-beta02" }), Some("c-2"));
     assert_eq!(result["ok"], true, "{result}");
     assert_eq!(result["result"]["machine"], "vm-beta02");
 }

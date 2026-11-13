@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
-import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("session-info-push-motion.test.ts", async () => {
@@ -56,6 +56,8 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
       bridge.applyHeaderState({ inspector: true, version: 2 });
       document.documentElement.style.setProperty("--agent-motion-in", "4000ms");
       document.documentElement.style.setProperty("--agent-motion-out", "4000ms");
+      // The push opens on the move step (sessionInfo.css).
+      document.documentElement.style.setProperty("--agent-motion-move", "4000ms");
     });
     // It takes a column only with Settings Push always (SessionInfo.tsx pushes).
     await sessionInfoPushAlways(page, push);

@@ -71,7 +71,7 @@ missing_tool() {
 }
 
 need_bun() {
-  want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
+  want="$(python3 -I "$ROOT/scripts/webviews_bun_version.py" "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
     missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi

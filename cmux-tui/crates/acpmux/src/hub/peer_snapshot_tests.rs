@@ -1184,7 +1184,7 @@ async fn a_capture_after_peer_remove_cannot_recreate_a_snapshot() {
     hub.apply_peer_notice(
         PEER,
         peer.generation,
-        PeerNotice::Sessions(vec![json!({
+        PeerNotice::sessions_from_values(vec![json!({
             "sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
             "updatedAt": 5
         })]),
@@ -1221,7 +1221,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
                      "updatedAt": 5, "retry": {"attempt": 1, "of": 3, "nextAt": 99}});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![row]));
     let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
     let on = |link: u64| (PEER, peer.generation, link, hub.listed_generation(PEER, "m1"));
     let notice = |seq: u64, link: u64| {
@@ -1274,7 +1274,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     assert!(!path("m1").exists());
     // A recreated session (a changed row) replaces its copy; removing the peer drops them all.
     let m2 = |created: u64| json!({"sessionId": "m2", "name": "two", "status": "idle", "createdAt": created, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![m2(42)]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![m2(42)]));
     let link = peer.link_epoch();
     let events: Vec<Value> = recs(1..=2).into_iter().map(|r| of("m2", r)).collect();
     let page =
@@ -1304,7 +1304,7 @@ fn an_events_page_of_a_session_recreated_meanwhile_is_not_kept() {
     let home = snapshot_home(&hub);
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![row]));
     let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
     let page = |created: u64, to: u64| {
         json!({"events": recs(3..=to), "hasMore": false, "lastSeq": to, "pageThrough": to,
@@ -1333,7 +1333,11 @@ fn a_purge_through_this_daemon_drops_only_its_peers_generation() {
     for name in [PEER, "clone"] {
         let peer = add_idle_peer(&hub, name);
         instances.insert(name, peer.generation);
-        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice(
+            name,
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![row.clone()]),
+        );
         let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
         let on = (name, peer.generation, peer.link_epoch(), Some(42));
         hub.capture_peer_page(on, ("m1", false), &json!({}), &page);
@@ -1360,7 +1364,11 @@ fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
     let home = snapshot_home(&hub);
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(
+        PEER,
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(vec![row]),
+    );
     let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
     let first = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
     hub.capture_peer_page(on, ("m1", false), &json!({}), &first);
@@ -1395,9 +1403,9 @@ fn a_listing_under_way_when_a_peer_is_removed_never_lets_its_copies_back() {
     let home = snapshot_home(&hub);
     let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
     let peer = add_idle_peer(&hub, PEER);
-    // A listing that found the peer current holds the rows lock; the removal waits for it, so its
+    // A listing that found the peer current holds the rows writer lock; the removal waits for it, so its
     // op comes before the removal's.
-    let rows = hub.remote_sessions.lock().unwrap();
+    let rows = hub.remote_sessions.fence();
     let remover = {
         let hub = hub.clone();
         std::thread::spawn(move || hub.forget_peer_cache(PEER))
@@ -1426,9 +1434,11 @@ fn a_capture_of_an_instance_replaced_while_it_was_sent_is_not_kept() {
     let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
     let old = add_idle_peer(&hub, PEER);
     hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
-    // The replacing instance registers under the rows lock, as `spawn_peer` does, and lists the
-    // session; a capture of the old one checks and sends under that lock, so it goes first or not.
-    let rows = hub.remote_sessions.lock().unwrap();
+    // The replacing instance registers holding `peers` then the rows writer lock, as
+    // `spawn_peer` does (that lock order), and lists the session; a capture of the old one checks
+    // and sends under both, so it goes first or not at all.
+    let mut peers = hub.peers.lock().unwrap();
+    let rows = hub.remote_sessions.fence();
     let capture = {
         let hub = hub.clone();
         let on = (PEER, old.generation, old.link_epoch(), Some(42));
@@ -1440,9 +1450,10 @@ fn a_capture_of_an_instance_replaced_while_it_was_sent_is_not_kept() {
     std::thread::sleep(Duration::from_millis(50));
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let new = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
-    hub.peers.lock().unwrap().insert(PEER.to_owned(), new);
+    peers.insert(PEER.to_owned(), new);
     hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
     drop(rows);
+    drop(peers);
     capture.join().unwrap();
     hub.peer_snapshots.flush_now();
     assert!(!path.exists(), "the replaced instance's page was kept");
@@ -1510,8 +1521,8 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
         }))
         .unwrap()
     };
-    outbox.add(delivery("d1", "p1"));
-    outbox.add(delivery("d2", "p2"));
+    outbox.add(delivery("d1", "p1")).unwrap();
+    outbox.add(delivery("d2", "p2")).unwrap();
     keep(&mut store, "m1", 1..=3);
     store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
     store.write_due(None, When::Last);
@@ -1583,7 +1594,7 @@ fn steps_of_an_accepted_attachment_prompt(
         "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
     }))
     .unwrap();
-    outbox.add(d);
+    outbox.add(d).unwrap();
     let mut accepted = life("m1", 4, "user_message", "p1");
     accepted["msg"]["text"] = json!("see the notes");
     accepted["msg"]["hiddenContext"] = json!("the notes' text, read from the attachment");
@@ -1656,7 +1667,7 @@ fn an_image_prompt_started_at_once(rules: u8) -> (crate::hub::open_delivery::Ste
         "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
     }))
     .unwrap();
-    outbox.add(d);
+    outbox.add(d).unwrap();
     let mut accepted = life("m1", 4, "user_message", "p1");
     accepted["msg"]["text"] = json!("what is this");
     accepted["msg"]["images"] = json!([{"id": id, "mimeType": "image/png"}]);
@@ -1715,7 +1726,7 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
         "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
     }))
     .unwrap();
-    outbox.add(d);
+    outbox.add(d).unwrap();
     keep(&mut store, "m1", 1..=3);
     store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
     store.write_due(None, When::Last);
@@ -1812,7 +1823,7 @@ fn files_of_a_proven_attachment(rules: u8) -> Vec<(std::path::PathBuf, Vec<u8>)>
     let data = base64::engine::general_purpose::STANDARD.encode(b"the notes");
     let attachment = json!([{"type": "resource", "resource": {"uri": "attachment:notes.txt", "blob": data},
                              "_meta": {"acpmux": {"attachment": {"name": "notes.txt"}}}}]);
-    outbox.add(open_delivery("d1", "p1", attachment));
+    outbox.add(open_delivery("d1", "p1", attachment)).unwrap();
     let queued = json!({"sessionId": "m1", "seq": 4, "at": 4, "dir": "mux", "kind": "queued",
         "msg": {"promptId": "p1", "turnId": "t-p1", "prompt": [
             {"type": "resource_link", "uri": "file:///up/m1/019a/notes.txt", "name": "notes.txt"}]}});
@@ -1851,7 +1862,7 @@ fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
     store.scan();
     let outbox = crate::hub::outbox::Outbox::default();
-    outbox.add(open_delivery("d1", "p1", json!([])));
+    outbox.add(open_delivery("d1", "p1", json!([]))).unwrap();
     keep(&mut store, "m1", 1..=3);
     let paused = json!({"sessionId": "m1", "seq": 5, "at": 5, "dir": "mux", "kind": "queue_paused",
                         "msg": {"held": ["p1"], "reason": "stop"}});
@@ -1938,7 +1949,7 @@ fn a_proof_whose_save_failed(rules: u8) -> bool {
     // The proof as the outbox's file holds it: only what a save that worked wrote.
     let on_disk = crate::hub::outbox::Outbox::default();
     on_disk.add(d.clone());
-    outbox.add(d);
+    outbox.add(d).unwrap();
     {
         let hook = Arc::new(StdMutex::new(Some(hook)));
         let mut store = Store::new(disk::root(dir.path()), Arc::default(), hook);
@@ -2042,7 +2053,7 @@ fn proven_with(blocks: Vec<Value>) -> crate::hub::outbox::Delivery {
         "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
     }))
     .unwrap();
-    outbox.add(d);
+    outbox.add(d).unwrap();
     let mut queued = life("m1", 4, "queued", "p1");
     queued["msg"]["prompt"] = json!(links);
     queued["msg"]["images"] = json!(images);
@@ -2189,7 +2200,7 @@ fn step_after_a_restore_settled_its_cut_turn(
         "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
     }))
     .unwrap();
-    outbox.add(d);
+    outbox.add(d).unwrap();
     let mut accepted = life("m1", 4, "user_message", "p1");
     accepted["msg"]["text"] = json!("read the notes");
     accepted["msg"]["hiddenContext"] = json!(true);

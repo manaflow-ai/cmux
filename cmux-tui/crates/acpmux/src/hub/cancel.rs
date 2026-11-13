@@ -377,6 +377,28 @@ impl Hub {
         self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
     }
 
+    /// A `session/prompt` its client cancelled with `$/cancel_request` (`server/prompt_cancel.rs`):
+    /// out of the queue while it waits, else exactly its turn stopped, as a workflow's prompt is
+    /// (`cancel_prompt`). Its request runs on, so the turn ends as any other (`finish_turn`).
+    pub(crate) async fn stop_cancelled_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt: &str,
+    ) {
+        if self.remove_queued(session, prompt) {
+            return;
+        }
+        if let Err(e) = self.cancel_prompt(session, prompt).await {
+            tracing::debug!(
+                target: crate::request_cancel::LOG_TARGET,
+                session = %session.id,
+                prompt,
+                "a cancelled prompt's stop: {}",
+                e.message
+            );
+        }
+    }
+
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
     /// prompts, a prompt promoted with Send now included, except `replacement` (an interrupt's
     /// own prompt); other agents' messages are held, never dropped (`hold_agent_messages`).

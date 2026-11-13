@@ -4,6 +4,7 @@
 // draws the owner's transcript read only, an ask showing who it waits on and no answer buttons.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -56,12 +57,8 @@ type Props = Parameters<typeof GuestPage>[0];
 type RedeemRequest = Parameters<Props["redeem"]>[1];
 type AcceptRequest = Parameters<NonNullable<Props["accept"]>>[1];
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMTIzNDU2Nzg";
@@ -479,6 +476,28 @@ test("another guest's message draws as a prompt under their picture and name", a
   const author = page.host.querySelector(".cv-author");
   expect(author?.textContent).toBe(translate("multiplayer.guestName", { name: "Priya Raman" }));
   expect(author?.querySelector("img")?.getAttribute("src")).toBe("https://avatars.example.com/priya.png");
+  await page.unmount();
+});
+
+// The owner's own `acpmux send` at a plain terminal (acpmux `owner_terminal`, #38260) is recorded as
+// their prompt: `_meta.origin` person with a CLI client. The shared chat draws it as the owner's
+// prompt, never as a received card from the label its text starts with (#38260 F2).
+test("the owner's terminal send of `[P1] fix the race` draws as the owner's prompt, not a card from P1", async () => {
+  const records = workingRecords();
+  const first = records[0]!;
+  records[0] = {
+    ...first,
+    msg: {
+      ...(first.msg as Record<string, unknown>),
+      text: "[P1] fix the race",
+      client: "acpmux-cli#01a2f3@my-mac",
+      _meta: { origin: { actor: "person", verified: true } },
+    },
+  };
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(records)) });
+  await roomFrames();
+  expect(page.host.textContent).toContain("[P1] fix the race");
+  expect(page.host.querySelector(".cv-received__sender")).toBeNull();
   await page.unmount();
 });
 

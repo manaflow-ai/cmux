@@ -27,9 +27,42 @@ export type AgentNotice = {
   severity: NoticeSeverity;
   title: string;
   links: readonly NoticeLink[];
+  /// cmux's own notice (a background command's end): its sender is an internal component, named
+  /// `cmux` on the line, and no chat of the list stands behind it.
+  system?: true;
+  /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
+  /// line names this one, the most severe, and counts the rest.
+  more?: number;
 };
 
 const SEVERITIES: readonly string[] = ["info", "warn", "fire"];
+
+/// The names cmux's own parts sign their notices with. The reader never sees them: cmux's
+/// components are cmux to the person (user, 2026-11-09: "generally in gui we should not mention
+/// stuff like \"acpmux\"").
+const SYSTEM_SENDERS = new Set(["acpmux", "optchat", "cmux-tui", "cmuxd"]);
+
+/// Whether a sender's name is one of cmux's own parts.
+export const isSystemSender = (name: string) => SYSTEM_SENDERS.has(name.trim().toLowerCase());
+
+/// The name a sender reads as: cmux's own parts read `cmux`, any other its own name.
+export const shownSender = (name: string) => (isSystemSender(name) ? "cmux" : name);
+
+/// A system notice's body as the reader sees it: without the `Task bg-…: COMMAND` line (the title
+/// already names the command; the id is the model's handle) and the `(bg_output reads all of it.)`
+/// hint, which names a tool only the model calls (acpmux hub/bg_notify.rs `end_body`).
+export function shownNoticeBody(notice: AgentNotice, body: string): string {
+  if (!notice.system) return body;
+  const lines = body.split("\n");
+  if (lines[0] && /^Task \S+: /.test(lines[0])) lines.shift();
+  if (lines.length && /^\(bg_output reads all of it\.\)$/.test(lines.at(-1)!.trim())) lines.pop();
+  return lines.join("\n").trim();
+}
+
+/// A notice signed by `sender`: cmux's own parts are marked and named `cmux`.
+function signed(sender: string): Pick<AgentNotice, "sender" | "system"> {
+  return isSystemSender(sender) ? { sender: "cmux", system: true } : { sender };
+}
 /// A host name as acpmux accepts one: letters, digits, `.`, `-` or `_`, 1 to 64.
 const HOST = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -39,6 +72,24 @@ const line = (value: unknown, max: number): string | undefined => {
   return text && text.length <= max ? text : undefined;
 };
 
+/// A title as one line of at most `TITLE_MAX` characters. A longer one keeps its end (a
+/// background command's `(exit 2)`) and loses the middle, cut with `…`: it is still the notice's.
+const TITLE_MAX = 200;
+function noticeTitle(value: unknown): string | undefined {
+  const text = line(value, Number.MAX_SAFE_INTEGER);
+  if (!text || text.length <= TITLE_MAX) return text;
+  const end = titleParts(text).end;
+  const keep = end ? ` ${end}` : "";
+  return `${text.slice(0, TITLE_MAX - keep.length - 1).trimEnd()}…${keep}`;
+}
+
+/// A title split where its line may cut it: what it is about (`lead`, cut first), and the outcome in
+/// parentheses that ends it (`(exit 2)`, `(signal 9)`), which the line always shows whole.
+export function titleParts(title: string): { lead: string; end?: string } {
+  const split = /^(.*\S)[ \t]+(\([^()\n]{1,80}\))$/.exec(title);
+  return split ? { lead: split[1]!, end: split[2]! } : { lead: title };
+}
+
 /// The notice a `notice` provenance carries, or undefined when it names no sender, severity or
 /// title (an older or broken record: the prompt then reads as its sender's message).
 export function provenanceNotice(provenance: Record<string, unknown>): AgentNotice | undefined {
@@ -46,7 +97,7 @@ export function provenanceNotice(provenance: Record<string, unknown>): AgentNoti
   if (!raw || typeof raw !== "object") return undefined;
   const notice = raw as Record<string, unknown>;
   const sender = line(notice.sender, 64) ?? line(provenance.fromName, 64);
-  const title = line(notice.title, 200);
+  const title = noticeTitle(notice.title);
   const severity = typeof notice.severity === "string" && SEVERITIES.includes(notice.severity) ? notice.severity : "";
   if (!sender || !title || !severity) return undefined;
   const host = typeof notice.host === "string" && HOST.test(notice.host) ? notice.host : undefined;
@@ -58,7 +109,13 @@ export function provenanceNotice(provenance: Record<string, unknown>): AgentNoti
         return [{ url, ...(label && { label }) }];
       })
     : [];
-  return { sender, ...(host && { host }), severity: severity as NoticeSeverity, title, links: links.slice(0, 16) };
+  return {
+    ...signed(sender),
+    ...(host && { host }),
+    severity: severity as NoticeSeverity,
+    title,
+    links: links.slice(0, 16),
+  };
 }
 
 /// The rendered head's first line: `[notice from SENDER( on HOST)?( · FIRE| · WARN)?] TITLE`.
@@ -101,7 +158,7 @@ export function renderedNotice(text: string): { notice: AgentNotice; body: strin
     : [];
   return {
     notice: {
-      sender,
+      ...signed(sender),
       ...(host && { host }),
       severity: tag === "FIRE" ? "fire" : tag === "WARN" ? "warn" : "info",
       title: title.trim(),
@@ -138,7 +195,7 @@ export function legacyNotice(
     .slice(words.indexOf(sentence) + sentence.length)
     .replace(/^[.!?]/, "")
     .trim();
-  return { notice: { sender, host, severity, title, links: [] }, body };
+  return { notice: { ...signed(sender), host, severity, title, links: [] }, body };
 }
 
 /// A link's chip label: a GitHub pull request or issue reads `#32827`, an Actions run `run 1234567`

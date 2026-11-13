@@ -23,6 +23,7 @@ each with p50/p95/p99/max:
 The HEADLINE is the WORST arm (a missed run first, else the highest p95, then the highest max), printed as
 `HEADLINE agent-pane/switch pick_to_ready_ms = <arm> arm ...`; the warm arm alone never stands for the bench."""
 import glob, json, os, plistlib, re, signal, socket, subprocess, sys, time
+import tempfile
 
 import argparse
 _parser = argparse.ArgumentParser()
@@ -63,7 +64,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/hqnt-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="hqnt-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 
 def rpc(method, params=None, timeout=60):
     try:
@@ -146,9 +147,11 @@ def descendants(pid):
     return kids
 
 # This tag's own daemon state (tabs and panes of earlier runs): moved aside, so each run starts clean.
-TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
-    os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
+        os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 os.makedirs(HOME_ACP, exist_ok=True)

@@ -1,0 +1,471 @@
+The rows of the test-hooks check (src/test_hooks.rs), read by test_hooks_tests.rs.
+
+Kept out of the .rs sources so no checker reads a row's source as the crate's own statics. Each row
+starts with a line `=== KIND ARGS :: TITLE`; its source runs to the next `===` line. KIND is
+  passes FILE                   the check finds nothing in FILE (a path under src/)
+  refused FILE LINE [WORDS]     the check names FILE:LINE, with WORDS in that finding, and
+                                nothing else; `& LINE [WORDS]` names one more finding (each named
+                                finding takes one, so a second copy of one fails the row)
+  clear FILE LINE               the check names nothing at FILE:LINE
+  chain refused|passes          a generated chain (the property's prelude goes first): the python
+                                check's verdict, which this check gives too
+The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, the
+type-alias rows of the timing-ratio review, and #41523), then the chains.
+
+=== passes lib.rs :: production caches, thread_local! hooks and a serializer
+use regex::Regex;
+use std::collections::HashMap;
+struct Cached { at: u64 }
+struct Watch;
+static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+static WATCHES: LazyLock<Mutex<HashMap<String, Watch>>> = LazyLock::new(Default::default);
+static ID: LazyLock<Regex> = LazyLock::new(|| Regex::new("{").unwrap());
+#[cfg(test)]
+thread_local! {
+    static SWAP_HOOK: std::cell::RefCell<Option<(SwapFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+    static AFTER_ADD: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+static HOOK_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+=== refused hub/transfer_in.rs 3 test slot :: the SWEEP_PAUSE shape
+/// A test's hook right after a sweep read a durable marker.
+#[cfg(test)]
+pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
+    std::sync::Mutex::new(None);
+=== passes hub/transfer_in.rs :: SWEEP_PAUSE in a thread_local!
+#[cfg(test)]
+type PauseFn = Box<dyn FnMut(&str)>;
+#[cfg(test)]
+thread_local! {
+    /// A test's hook right after a sweep read a durable marker.
+    static SWEEP_PAUSE: std::cell::RefCell<Option<(PauseFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+=== refused meta.rs 2 test slot :: a #[cfg(test)] Mutex<Option<_>>
+#[cfg(test)]
+pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+=== refused meta.rs 5 test slot :: a slot inside a #[cfg(test)] module
+fn real() {}
+
+#[cfg(test)]
+mod tests {
+    static HELD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+}
+=== refused meta_tests.rs 1 test slot :: a slot in a test file
+static HELD: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+=== passes meta.rs :: a cache under #[cfg(not(test))] is no test slot
+struct Cached { at: u64 }
+#[cfg(not(test))]
+static HELD: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+=== refused text.rs 1 closure :: a fn pointer in a OnceLock
+pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+=== refused text.rs 1 closure & 1 closure :: review of #42341 F1: two statics on one line are two findings, each named
+pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new(); pub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+=== refused text.rs 4 closure :: a closure alias in a LazyLock
+type Seam = Arc<
+    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<bool, RpcError>> + Send>> + Send + Sync,
+>;
+static SEAM: std::sync::LazyLock<std::sync::Mutex<Vec<Seam>>> = std::sync::LazyLock::new(Default::default);
+=== refused exit.rs 1 named as a hook :: a pub static ...HOOK
+pub static EXIT_HOOK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+=== passes hub/watches.rs :: READ_HOOK under HOOK_TEST with its marker
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+}
+=== refused hub/watches.rs 5 no `static HOOK_TEST: Mutex<()>` :: a marker naming a serializer the file lacks
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static OTHER_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+}
+=== refused hub/watches.rs 5 no `static HOOK_TEST: Mutex<()>` :: a serializer that is not a Mutex<()>
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: tokio::sync::Mutex<u8> = tokio::sync::Mutex::const_new(0);
+}
+=== passes hub/watches.rs :: a serializer whose Mutex is imported under an alias (#41523 F1)
+use std::sync::Mutex as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== passes hub/watches.rs :: a serializer through a renamed module and a grouped rename (#41523 F1)
+use tokio::sync as tsync;
+use tsync::{Mutex as AsyncLock, RwLock};
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: AsyncLock<()> = AsyncLock::const_new(());
+}
+=== refused hub/watches.rs 6 no `static HOOK_TEST: Mutex<()>` :: an alias of a lock that is no std or tokio Mutex (#41523 F1)
+use std::sync::RwLock as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== passes hub/watches.rs :: a serializer whose rename a fn body holds, through the file's module rename (#41523 F1 with #41581 F1)
+use std::sync as s;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+fn serialize() {
+    use s::Mutex as Lock;
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== refused hub/watches.rs 6 no `static HOOK_TEST: Mutex<()>` :: a fn body's rename to Mutex stays in its body, so the file's RwLock rename is the serializer's (#41523 F1 with #41581 F1)
+use std::sync::RwLock as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+fn f() { use std::sync::Mutex as Lock; let _: Lock<()> = Lock::new(()); }
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== refused hub/watches.rs 6 no `static HOOK_TEST: Mutex<()>` :: a serializer in a fn body reads its body's RwLock rename, not the file's Mutex one (#41523 F1 with #41581 F1)
+use std::sync::Mutex as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+fn serialize() {
+    use std::sync::RwLock as Lock;
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== refused hub/watches.rs 5 gives no reason :: a marker with no reason
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: fine
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+}
+=== refused hub/watches.rs 5 test slot :: READ_HOOK without its marker
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// Some comment.
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+}
+=== refused two.rs 4 closure :: a marker two lines up, past a blank line
+// test-hook-allow: one process per test, set once by its only test
+pub static A_HOOK: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+
+pub static B_HOOK: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+=== refused alias.rs 2 closure :: a direct alias of a closure cell (cmux#41355 F1)
+type HookCell = Mutex<Option<Box<dyn Fn()>>>;
+static H: HookCell = Mutex::new(None);
+=== refused alias.rs 3 closure :: a transitive alias (type A = Mutex<Option<B>>; type B = Box<dyn Fn()>)
+type A = Mutex<Option<B>>;
+type B = Box<dyn Fn()>;
+static H: A = Mutex::new(None);
+=== refused alias.rs 4 closure :: a three-step alias to a fn pointer
+type Seam = OnceLock<Inner>;
+type Inner = Step;
+type Step = fn(bool);
+pub static SEAM: Seam = OnceLock::new();
+=== refused alias.rs 3 test slot :: a generic alias of a test slot
+type Slot<T> = Mutex<Option<T>>;
+#[cfg(test)]
+static HELD: Slot<String> = Mutex::new(None);
+=== passes alias.rs :: a generic alias that does not use its fn() argument (#41383 F1)
+struct Cached { at: u64 }
+type Cache<T> = Mutex<Option<Cached>>;
+static CACHE: Cache<fn()> = Mutex::new(None);
+=== refused alias.rs 2 closure :: a generic alias given a closure it holds
+type Slot<T> = Mutex<Option<T>>;
+static S: Slot<Box<dyn Fn()>> = Mutex::new(None);
+=== passes alias.rs :: a two-parameter alias that uses only its first, given a closure and an unseen name second
+struct Cached { at: u64 }
+type Pair<A, B> = Mutex<Option<A>>;
+static P: Pair<Cached, Box<dyn Fn()>> = Mutex::new(None);
+static Q: Pair<Cached, Unseen> = Mutex::new(None);
+=== refused alias.rs 3 closure :: a two-parameter alias given a closure in the parameter it uses
+struct Cached { at: u64 }
+type Pair<A, B> = Mutex<Option<A>>;
+static P: Pair<Box<dyn Fn()>, Cached> = Mutex::new(None);
+=== refused alias.rs 4 closure :: a nested alias passing its closure on to the parameter used
+type Inner<A, B> = std::sync::OnceLock<B>;
+type Outer<T> = Inner<u8, T>;
+type Wrong<T> = Inner<T, u8>;
+static O: Outer<fn(bool)> = std::sync::OnceLock::new();
+static W: Wrong<fn(bool)> = std::sync::OnceLock::new();
+=== clear alias.rs 5 :: a nested alias passing its closure to an unused parameter
+type Inner<A, B> = std::sync::OnceLock<B>;
+type Outer<T> = Inner<u8, T>;
+type Wrong<T> = Inner<T, u8>;
+static O: Outer<fn(bool)> = std::sync::OnceLock::new();
+static W: Wrong<fn(bool)> = std::sync::OnceLock::new();
+=== passes alias.rs :: #41418 F1: a default naming an earlier parameter (struct Pair<T, U = T>, Mutex<Pair<u8>>)
+struct Pair<T, U = T> { first: T, second: U }
+static PAIR: std::sync::Mutex<Pair<u8>> = std::sync::Mutex::new(Pair { first: 0, second: 0 });
+=== refused alias.rs 2 closure :: #41418 F1: a default naming an earlier parameter given a fn pointer
+type Later<T, U = T> = std::sync::OnceLock<U>;
+static LATER: Later<fn(bool)> = std::sync::OnceLock::new();
+=== refused alias.rs 2 closure :: #41418 F2: a parameter named Future given a fn pointer
+type Slot<Future> = Mutex<Option<Future>>;
+static S: Slot<fn()> = Mutex::new(None);
+=== refused alias.rs 4 :: #41418 F3: T::Hook with T a fn pointer
+trait Callback { type Hook; }
+impl Callback for fn() { type Hook = fn(); }
+type Slot<T: Callback> = Mutex<Option<T::Hook>>;
+static S: Slot<fn()> = Mutex::new(None);
+=== refused alias.rs 3 unresolved :: #41418 F3: T::Hook with T a struct of the file
+struct Cached { at: u64 }
+type Slot<T: Callback> = Mutex<Option<T::Hook>>;
+static S: Slot<Cached> = Mutex::new(None);
+=== refused alias.rs 4 closure :: a struct field holding a closure cell
+struct Hooks {
+    on_read: Mutex<Option<Box<dyn Fn(&str) + Send>>>,
+}
+static HOOKS: Hooks = Hooks { on_read: Mutex::new(None) };
+=== refused alias.rs 3 test slot :: a test slot in a renamed Mutex
+use std::sync::{Arc, Mutex as StdMutex};
+#[cfg(test)]
+static HELD: StdMutex<Option<Arc<str>>> = StdMutex::new(None);
+=== passes alias.rs :: resolved production state: an aliased cache, a struct of atomics, an array of serializers
+use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+type SizeCache = std::sync::Mutex<Option<(std::time::Instant, PathBuf, Option<u64>)>>;
+static CACHE: SizeCache = std::sync::Mutex::new(None);
+struct SizeWatch { near_cap: AtomicU64, inner: std::sync::Mutex<Inner> }
+struct Inner { last: Option<u64> }
+static GLOBAL: SizeWatch = SizeWatch::new();
+const SLOTS: usize = 64;
+static LOCKS: [std::sync::Mutex<()>; SLOTS] = [const { std::sync::Mutex::new(()) }; SLOTS];
+=== passes local.rs :: thread_local!( ) and thread_local! { } hooks, task_local! in both forms (cmux#41355 F2)
+thread_local!(static PAUSE_HOOK: std::cell::RefCell<Option<Box<dyn FnMut(&str)>>> = const { std::cell::RefCell::new(None) });
+#[cfg(test)]
+thread_local!(
+    static SWAP_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) }
+);
+thread_local! {
+    static READ_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+}
+tokio::task_local! {
+    static TASK_HOOK: std::sync::Arc<dyn Fn() + Send + Sync>;
+}
+tokio::task_local!(static SCOPE_HOOK: u64);
+=== refused local.rs 14 named as a hook :: a process-wide hook after a thread_local!( )
+thread_local!(static PAUSE_HOOK: std::cell::RefCell<Option<Box<dyn FnMut(&str)>>> = const { std::cell::RefCell::new(None) });
+#[cfg(test)]
+thread_local!(
+    static SWAP_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) }
+);
+thread_local! {
+    static READ_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+}
+tokio::task_local! {
+    static TASK_HOOK: std::sync::Arc<dyn Fn() + Send + Sync>;
+}
+tokio::task_local!(static SCOPE_HOOK: u64);
+pub static AFTER_HOOK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+=== refused unseen.rs 2 unresolved :: an imported alias heading the type
+use crate::hooks::HookCell;
+static H: HookCell = HookCell::new();
+=== refused unseen.rs 2 unresolved :: a glob-imported name in a cell
+use super::*;
+static PENDING: std::sync::OnceLock<Pending> = std::sync::OnceLock::new();
+=== refused unseen.rs 1 unresolved :: a crate path in a cell
+static SEAM: std::sync::Mutex<Vec<super::seams::Seam>> = std::sync::Mutex::new(Vec::new());
+=== passes unseen.rs :: an unresolved static with a reasoned marker
+// test-hook-allow: holds the parsed route file, no closure
+static LAST: std::sync::Mutex<Option<crate::route::RouteFile>> = std::sync::Mutex::new(None);
+=== refused alias.rs 4 unresolved: its type names <Fut as Future>::Output :: review of #41427 F1: <T as Future>::Output is a projection, never the file's own Output
+struct Fut;
+type Output = u8;
+type Slot<T> = std::sync::OnceLock<<T as Future>::Output>;
+static S: Slot<Fut> = std::sync::OnceLock::new();
+=== refused alias.rs 3 unresolved :: review of #41427 F1: a projection not rooted at a parameter is unresolved too
+struct Fut;
+type Output = u8;
+static S: std::sync::OnceLock<<Fut as Future>::Output> = std::sync::OnceLock::new();
+=== refused alias.rs 2 closure :: review of #41427 F1: what a projection's type holds still counts
+type Slot<T> = std::sync::OnceLock<<T as Future>::Output>;
+static S: Slot<fn()> = std::sync::OnceLock::new();
+=== refused local.rs 1 closure :: review of #41383 F1: a static on the line a thread_local! opens is judged
+static AFTER_HOOK: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); thread_local! { static LOCAL: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
+=== refused local.rs 1 closure :: review of #41383 F1: and on the line a thread_local! closes
+thread_local! { static LOCAL: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; } static AFTER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+=== refused local.rs 2 closure :: another macro's statics are judged when its body is items
+wrapped! {
+    static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+}
+=== refused alias.rs 3 test slot :: a default that uses an earlier parameter, `type A<T, U = Option<T>>`, hiding a test slot
+type A<T, U = Option<T>> = std::sync::Mutex<U>;
+#[cfg(test)]
+static S: A<u8> = std::sync::Mutex::new(None);
+=== refused alias.rs 2 closure :: a default that uses an earlier parameter, `type A<T, U = T>`, given a closure
+type A<T, U = T> = std::sync::OnceLock<U>;
+static S: A<Box<dyn Fn()>> = std::sync::OnceLock::new();
+=== refused alias.rs 3 test slot :: a parameter named Option, given std's Option: a test slot under its own name
+type Hide<Option> = std::sync::Mutex<Option>;
+#[cfg(test)]
+static S: Hide<std::option::Option<u8>> = std::sync::Mutex::new(None);
+=== refused alias.rs 2 closure :: a parameter named Option hiding a closure
+type Hide<Option> = std::sync::OnceLock<Option>;
+static S: Hide<fn()> = std::sync::OnceLock::new();
+=== refused macro.rs 3 test slot :: review of #41523 F2: a #[cfg(test)] macro's statics are test-gated
+#[cfg(test)]
+wrapped! {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== passes macro.rs :: review of #41523 F2: the same macro without #[cfg(test)] is a production cache
+wrapped! {
+    static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== refused macro.rs 4 test slot :: review of #41523 F2: a #[cfg(test)] macro statement in a fn body
+fn setup() {
+    #[cfg(test)]
+    wrapped! {
+        static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== passes macro.rs :: review of #41523 F2: the same macro statement without #[cfg(test)]
+fn setup() {
+    wrapped! {
+        static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== refused macro.rs 3 test slot :: review of #41523 F2: every item kind carries #[cfg(test)], a const block too
+#[cfg(test)]
+const _: () = {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+};
+=== refused local.rs 2 closure :: review of cmux#41567 F1: a static in dbg!({ .. })
+fn f() {
+    dbg!({ static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); });
+}
+=== refused local.rs 3 closure :: review of cmux#41567 F1: a static in a user macro over statements
+fn f() {
+    wrapped! {
+        static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+        let ready = true;
+    }
+}
+=== refused local.rs 5 closure :: review of cmux#41567 F1: an alias a user macro over statements defines
+wrapped! {
+    type Hook = Box<dyn Fn()>;
+    let ready = true;
+}
+static H: std::sync::OnceLock<Hook> = std::sync::OnceLock::new();
+=== passes local.rs :: review of cmux#41567 F1: a thread_local! in dbg!({ .. }) is still per thread
+fn f() {
+    dbg!({
+        thread_local! {
+            static AFTER: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+        }
+    });
+}
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: an alias a dbg!({ .. }) block defines stays in its block
+type Callback = fn();
+static CELL: std::sync::OnceLock<Callback> = std::sync::OnceLock::new();
+fn f() { dbg!({ type Callback = (); let _: Callback = (); }); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: an alias a fn body defines stays in its body
+type Callback = fn();
+static CELL: std::sync::OnceLock<Callback> = std::sync::OnceLock::new();
+fn f() { type Callback = (); let _: Callback = (); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: a `use` a dbg!({ .. }) block holds stays in its block
+use std::sync::OnceLock as Slot;
+static CELL: Slot<fn()> = Slot::new();
+fn f() { dbg!({ use std::vec::Vec as Slot; let _: Slot<u8> = Slot::new(); }); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: a static in dbg!({ .. }) reads its block's alias, not a later outer one
+fn f() {
+    dbg!({ type Hook = fn(); static INNER: std::sync::OnceLock<Hook> = std::sync::OnceLock::new(); });
+}
+type Hook = ();
+=== chain refused :: generated chain 0000 (seed 41418)
+type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
+type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;
+type L2<V: Callback> = Mutex<Option<(V::Hook, String)>>;
+static CHAIN: L0<Arc<dyn Fn(u8) + Send + Sync>> = todo();
+=== chain refused :: generated chain 0001
+struct L0<W, String = W, U = String> { f0: Mutex<Option<String>>, f1: U, f2: RwLock<Option<W>>, f3: Option<fn(bool)> }
+static CHAIN: std::sync::OnceLock<L0<RwLock<Option<Vec<u8>>>>> = todo();
+=== chain refused :: generated chain 0002
+struct L0<String, Iterator = String> { f0: L1<Iterator, Mutex<Option<fn(bool)>>>, f1: String }
+type L1<Future, Default = Future> = ((Default, u8), Future, L2<Arc<Future>, Arc<dyn Fn(u8) + Send + Sync>>);
+struct L2<V: Callback, Default> { f0: Box<Default>, f1: <V as Callback>::Hook }
+static CHAIN: OnceLock<Mutex<L0<Arc<Leaf>>>> = todo();
+=== chain refused :: generated chain 0003
+struct L0<Iterator, W: Callback, V> { f0: V, f1: Iterator, f2: L1<(Cached, u8)>, f3: <W as Callback>::Hook }
+type L1<V: Callback> = L2<Box<dyn Fn()>, V::Hook>;
+type L2<Iterator, U> = Mutex<Option<(Iterator, L3<String>, U)>>;
+type L3<V> = Vec<V>;
+static CHAIN: Mutex<Option<L0<String, Vec<u8>, (Box<dyn Fn()>, u8)>>> = todo();
+=== chain refused :: generated chain 0004
+type L0<W, Future, U> = Option<(Future, Option<W>, Mutex<Option<U>>, L1<u8, Vec<Cached>>)>;
+struct L1<Default: Callback, Future: Callback = Default, Iterator: Callback = Default> { f0: <Iterator as Callback>::Hook, f1: Default::Hook, f2: Future::Hook }
+static CHAIN: L0<u8, Vec<u8>, Option<u8>> = todo();
+=== chain passes :: generated chain 0012
+type L0<Future: Callback> = L1<Future::Hook, <Future as Callback>::Hook>;
+type L1<T: Callback, U> = ((U, u8), T);
+#[cfg(test)]
+static CHAIN: Vec<L0<Box<dyn Fn()>>> = todo();
+=== chain passes :: generated chain 0013
+struct L0<U> { f0: L1<U> }
+struct L1<W> { f0: (W, u8) }
+static CHAIN: Vec<L0<fn()>> = todo();
+=== chain passes :: generated chain 0024
+type L0<V> = Vec<L1<(V, u8), V>>;
+type L1<U: Callback, W> = (Box<W>, L2<U>);
+type L2<W> = (RwLock<Option<(u8, bool)>>, L3<W, W>);
+type L3<String, Default: Callback> = Mutex<Option<(Default, String)>>;
+static CHAIN: L0<String> = todo();

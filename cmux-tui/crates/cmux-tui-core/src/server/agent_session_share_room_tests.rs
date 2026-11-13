@@ -414,6 +414,25 @@ fn a_link_names_the_build_that_made_it_unless_it_is_the_default_app() {
     let share = &reply["data"];
     let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
     assert_eq!(share["url"], format!("{}/g/{id}?app=cmux-next-dev#{secret}", room.url));
+    // An invite names the build too: the listed share's invite link opens in this build.
+    assert_eq!(state(&mut owner)["invite_url"], format!("{}/i/{id}?app=cmux-next-dev", room.url));
+}
+
+#[test]
+fn every_invite_url_of_an_answer_names_the_build() {
+    let mut answer = json!({"invite_url": "https://share.cmux.dev/i/a", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b"}, {"invite_url": null}]});
+    name_app_in_invites(&mut answer, "?app=cmux-rc");
+    assert_eq!(
+        answer,
+        json!({"invite_url": "https://share.cmux.dev/i/a?app=cmux-rc", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b?app=cmux-rc"}, {"invite_url": null}]})
+    );
+    // The default build names nothing.
+    let before = json!({"invite_url": "https://share.cmux.dev/i/a"});
+    let mut after = before.clone();
+    name_app_in_invites(&mut after, "");
+    assert_eq!(after, before);
 }
 
 #[test]
@@ -707,19 +726,31 @@ fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
 #[test]
 fn expired_cleanup_retries_when_settling_the_pending_delete_cannot_be_saved() {
     let room = FakeRoom::start(&[]);
+    // The room answers the DELETE only once writes fail, and the test waits for the refused save:
+    // a worker that settled the DELETE before the test refused writes (a loaded full --lib run)
+    // left nothing pending.
+    let gate = room.block_deletes();
     let (_fake, mux, surface, mut owner) = bridged("room-expired-unsaved", &room);
     let share = create(&mut owner, surface)["data"].clone();
     room.request("PUT");
+    let entered = room.watch_delete();
     assert_eq!(
         owner.request(json!({"cmd":"agent-session-share-revoke",
         "share_id":share["share_id"]}))["ok"],
         true
     );
-    room.request("DELETE");
+    entered.recv_timeout(WAIT).expect("the DELETE enters the room");
 
     let shares = shares_of(&mux);
     shares.advance(Duration::from_secs(2 * 86_400));
+    let (told, refused) = channel();
+    *shares.refused_write.lock().unwrap() = Some(told);
     shares.refuse_writes.store(true, Ordering::Relaxed);
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    room.request("DELETE");
+    refused.recv_timeout(WAIT).expect("the worker's save of the settled DELETE is refused");
     shares.expired(&mux);
     assert!(
         view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,

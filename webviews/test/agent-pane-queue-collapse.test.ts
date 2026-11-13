@@ -161,6 +161,14 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         message(ws, raw) {
           lastSocket = ws;
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          // A prompt behind the running turn: acpmux records it queued and answers when its turn ends.
+          if (message.method === "session/prompt") {
+            const text = (message.params?.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join("");
+            const promptId = message.params?._meta?.acpmux?.promptId ?? `q-${queue.length + 1}`;
+            queue.push({ promptId, prompt: text });
+            event(ws, "queued", { text, promptId });
+            return;
+          }
           const result = answer(ws, message.method, message.params ?? {});
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
@@ -227,9 +235,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       return active?.dataset.promptId ?? (active?.classList.contains("acpmux-queue-fold") ? "fold" : null);
     });
 
-  /// Waits out the list's max-height transition (#24718 eases the fitted height on the move
-  /// token): a painted frame for fitList to write the new height, then every finite animation to
-  /// finish. The whole-row checks are about where the list rests, not its frames mid-move.
+  /// A painted frame for fitList to write the new height, then every finite animation to finish.
+  /// The whole-row checks are about where the list rests, not its frames mid-move.
   const settled = (page: Page) =>
     page.evaluate(async () => {
       await window.cmuxPaintFrame();
@@ -340,7 +347,64 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
-    test("queue growth uses the structural motion token while its fitted height changes", async () => {
+    test("a prompt sent behind the turn is a whole queued row in the frame the composer clears (Leo, 2026-11-11)", async () => {
+      // Leo, 2026-11-11: "you sending a message while I have things queued up, like that sort of slow
+      // growth is just... it gives me the heebie-jeebies to look at." The list eased its new height
+      // in on the move token, and the row waited on the app's chat.persistSession answer: the field
+      // cleared, nothing showed, then the row slid open. The host answers 400 ms late here.
+      const page = await openChat(["one"]);
+      await settled(page);
+      const before = await page.evaluate(() => {
+        (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs = 400;
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        return { height: list.getBoundingClientRect().height };
+      });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("two");
+      // The state before the press, then each painted frame from the press: the field's text, the
+      // rows drawn and the list's height. The first entry is read now, not on a paint: an idle page
+      // may paint nothing between this and the press, and the first painted frame is then the send.
+      await page.evaluate(() => {
+        const frames: { text: string; rows: number; height: number; cut: boolean }[] = [];
+        (window as { queueFrames?: typeof frames }).queueFrames = frames;
+        const sample = () => {
+          const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
+          const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-queued")];
+          const box = list?.getBoundingClientRect();
+          const last = rows.at(-1)?.getBoundingClientRect();
+          frames.push({
+            text: field.innerText,
+            rows: rows.length,
+            height: box?.height ?? 0,
+            cut: Boolean(box && last && last.bottom > box.bottom + 0.5),
+          });
+        };
+        sample();
+        window.cmuxAfterPaint(() => {
+          sample();
+          return frames.length < 40;
+        });
+      });
+      await page.keyboard.press("Meta+Enter");
+      await page.waitForFunction(() => ((window as { queueFrames?: unknown[] }).queueFrames?.length ?? 0) >= 40);
+      const frames = await page.evaluate(
+        () => (window as { queueFrames?: { text: string; rows: number; height: number; cut: boolean }[] }).queueFrames!,
+      );
+      // The first frame whose field no longer holds the sent words.
+      const cleared = frames.findIndex((frame) => !frame.text.includes("two"));
+      expect(cleared).toBeGreaterThan(0);
+      // No frame with the field cleared and the prompt nowhere.
+      expect(frames.slice(cleared).every((frame) => frame.rows === 2)).toBe(true);
+      // The list is at its new height in that first frame, the new row whole: no frame in between.
+      const rest = frames.at(-1)!.height;
+      expect(rest).toBeGreaterThan(before.height + 1);
+      expect(frames.slice(cleared).map((frame) => frame.height)).toEqual(frames.slice(cleared).map(() => rest));
+      expect(frames.some((frame) => frame.cut)).toBe(false);
+      await page.close();
+    });
+
+    test("the reader opening the fold eases the list on the structural motion token", async () => {
       const page = await openChat(PROMPTS);
       const before = await page.evaluate(() => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
@@ -753,7 +817,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     test("in a short pane a held long row gives room back when a permission card arrives under the pointer", async () => {
       // Review (Codex astra) at 5918647: the hold kept its min-height while the stack around it grew,
       // so a card arriving under the pointer could not take room from it and drew over the queue.
-      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(10);
+      // Long enough to overflow the held list in a 420 tall pane with any UI face (ten repeats did with
+      // DejaVu Sans, not with the narrower Inter the browser tests pin).
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(20);
       const page = await openChat([long], { width: 900, height: 420 });
       await openHeld(page, "q-1");
       // acpmux asks for a permission while the pointer rests on the opened row.

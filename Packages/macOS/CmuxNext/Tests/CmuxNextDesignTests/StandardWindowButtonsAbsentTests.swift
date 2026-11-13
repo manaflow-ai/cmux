@@ -15,7 +15,8 @@ import Testing
             if case .known(let button) = buttons.answer(b, in: self) { return button }
             searches += 1
             let button = super.standardWindowButton(b)
-            buttons.store(button, for: b, in: self)
+            let found = StandardWindowButtons.Found(button, for: b, in: self)
+            buttons.store(found)
             return button
         }
     }
@@ -53,7 +54,7 @@ import Testing
         var buttons = StandardWindowButtons()
         let w = window()
         defer { w.close() }
-        buttons.store(nil, for: .documentIconButton, in: w)
+        buttons.store(.init(nil, for: .documentIconButton, in: w))
         guard case .known(nil) = buttons.answer(.documentIconButton, in: w) else {
             Issue.record("the absent answer was not kept")
             return
@@ -69,7 +70,7 @@ import Testing
         var buttons = StandardWindowButtons()
         let w = window()
         defer { w.close() }
-        buttons.store(nil, for: .documentIconButton, in: w)
+        buttons.store(.init(nil, for: .documentIconButton, in: w))
         w.representedURL = URL(fileURLWithPath: NSTemporaryDirectory())
         guard case .unknown = buttons.answer(.documentIconButton, in: w) else {
             Issue.record("a document window kept the old absent answer")
@@ -81,9 +82,36 @@ import Testing
         var buttons = StandardWindowButtons()
         let w = window()
         defer { w.close() }
-        buttons.store(nil, for: .closeButton, in: w)
+        buttons.store(.init(nil, for: .closeButton, in: w))
         guard case .unknown = buttons.answer(.closeButton, in: w) else {
             Issue.record("a nil traffic light was kept; it can be one AppKit moved during a full-screen exit")
+            return
+        }
+    }
+
+    // #38147 review P2 1: AppKit can show the versions button when `isDocumentEdited` changes, with no change of style
+    // or URL, so a document window keeps no absent document button at all.
+    @Test func aDocumentWindowKeepsNoAbsentDocumentButton() {
+        var buttons = StandardWindowButtons()
+        let w = window()
+        defer { w.close() }
+        w.representedURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        buttons.store(.init(nil, for: .documentVersionsButton, in: w))
+        guard case .unknown = buttons.answer(.documentVersionsButton, in: w) else {
+            Issue.record("a document window kept an absent versions button")
+            return
+        }
+    }
+
+    // #38147 review P2 3: a window that gets a toolbar can have a toolbar button.
+    @Test func aToolbarAsksAgain() {
+        var buttons = StandardWindowButtons()
+        let w = window()
+        defer { w.close() }
+        buttons.store(.init(nil, for: .toolbarButton, in: w))
+        w.toolbar = NSToolbar(identifier: "swb-p2")
+        guard case .unknown = buttons.answer(.toolbarButton, in: w) else {
+            Issue.record("a window with a new toolbar kept the old absent toolbar button")
             return
         }
     }

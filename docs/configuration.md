@@ -139,21 +139,6 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -257,7 +242,7 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
+The layout of the New Tab page. On every template but `minimal`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -265,7 +250,7 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 }
 ```
 
-- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `minimal` (the default): the composer, with its folder and machine, and nothing else.
 - `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
@@ -275,26 +260,6 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 - `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
-
-## `tabs.newTabWidgets`
-
-The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
-
-```json
-{
-  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
-}
-```
-
-| Key | Default | Shows |
-| --- | --- | --- |
-| `greeting` | `true` | A short greeting by the time of day over the composer. |
-| `projects` | `false` | A card of this Mac and its recent projects. |
-| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
-| `chats` | `false` | The recent chats, as rows under the composer. |
-| `styleDots` | `false` | The template dots under the page. |
-
-With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -648,7 +613,8 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |

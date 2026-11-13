@@ -449,9 +449,15 @@ pub(in crate::server) struct LinkShares {
     /// Every write fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_writes: std::sync::atomic::AtomicBool,
+    /// Told each write that `refuse_writes` failed (tests: a test waits for a refused save).
+    #[cfg(test)]
+    pub(super) refused_write: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Moving an unreadable file aside fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
+    /// The millisecond a move aside names its copy with while set (tests; 0: the wall clock).
+    #[cfg(test)]
+    pub(super) set_aside_ms: AtomicU64,
 }
 
 impl Drop for LinkShares {
@@ -748,12 +754,21 @@ impl LinkShares {
         if self.refuse_set_aside.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("set aside refused (test)"));
         }
+        #[cfg(test)]
+        if let ms @ 1.. = self.set_aside_ms.load(Ordering::Relaxed) {
+            return set_aside_unreplaced(directory, ms);
+        }
         set_aside_unreplaced(directory, wall_ms())
     }
 
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
         #[cfg(test)]
         if self.refuse_writes.load(Ordering::Relaxed) {
+            if let Some(told) =
+                self.refused_write.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                let _ = told.send(());
+            }
             return Some(Err(std::io::Error::other("writes refused (test)")));
         }
         let directory = directory?;
@@ -1455,6 +1470,10 @@ pub(super) fn handle(
         }
         _ => Err("share.bad_request"),
     };
+    let answer = answer.map(|mut data| {
+        room::name_app_in_invites(&mut data, &shares.bridge.app_query());
+        data
+    });
     // A revoke, a kick, or an expiry any verb noticed closes the guests' connections now.
     shares.settle(mux);
     match answer {

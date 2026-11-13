@@ -198,6 +198,14 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
     }
 
+    /// The source's answer at once (``PageReadyResourceSource``), as ``dynamicResponse(to:source:)``
+    /// gives it; nil when it has none ready.
+    static func readyResponse(to request: PageResourceRequest, source: any PageReadyResourceSource) -> PageChromiumResponse? {
+        guard let resource = source.readyResource(for: request) else { return nil }
+        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
+        return PageChromiumResponse(status: 200, mimeType: resource.mimeType.flatMap(validMIMEType) ?? fallback, body: resource.data)
+    }
+
     /// A ranged source's answer as it set it (206 and `Content-Range` for a range), else a 404 with
     /// the page's headers.
     static func rangedReply(url: URL, page: PageDescriptor, request: PageResourceRequest, range: String?,

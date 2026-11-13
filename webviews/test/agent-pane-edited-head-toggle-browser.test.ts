@@ -169,7 +169,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       };
     }, HEAD);
 
-  test("a click anywhere on the one-file card's header opens and closes its diff", async () => {
+  test("the header toggles its diff while counts and review buttons open the review", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Notes updated.").waitFor();
@@ -180,7 +180,6 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     const points: [string, (box: Box) => { x: number; y: number }][] = [
       ["the left padding", ({ head }) => ({ x: head.left + 3, y: middle(head) })],
       ["the icon", ({ icon }) => ({ x: (icon.left + icon.right) / 2, y: (icon.top + icon.bottom) / 2 })],
-      ["the counts", ({ counts }) => ({ x: (counts.left + counts.right) / 2, y: (counts.top + counts.bottom) / 2 })],
       // Between the title's words and View changes: the header's empty middle.
       [
         "the empty space after the title",
@@ -210,8 +209,11 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       open = true;
     }
     await page.locator(".acpmux-edited .cv-edit-diff").waitFor();
+    // Counts are an explicit review control and must not bubble into the header's diff toggle.
+    await page.locator(".acpmux-edited-summary").click();
+    expect(await expanded(page)).toBe("true");
     // View changes keeps its own click: it opens the changes view and leaves the diff open.
-    await page.locator(".acpmux-edited-head .acpmux-review-changes").click();
+    await page.locator(".acpmux-edited-head").getByRole("button", { name: "View changes", exact: true }).click();
     expect(await expanded(page)).toBe("true");
     await page.close();
   });

@@ -780,7 +780,7 @@ impl World {
     fn new(seed: u64, rules: Rules) -> Self {
         let dir = cmux_unix_socket::short_test_dir("acpmux-msim");
         let store = sim_store(dir.path());
-        crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
+        crate::store::test_clock::reset();
         let mut world = World {
             rng: Rng(seed),
             rules,
@@ -929,7 +929,7 @@ impl World {
                                           "_meta": {"acpmux": {"attachment": {"name": "f.txt"}}}}]);
             self.machine.with_file.insert(prompt.clone());
         }
-        self.outbox.add(d);
+        self.outbox.add(d).unwrap();
         self.sent.push(prompt.clone());
         self.note(format!("send {prompt}"));
     }
@@ -1575,7 +1575,7 @@ impl World {
     fn clock_ahead(&mut self, ms: u64) {
         // As last seen before the retention runs at the new time.
         self.look();
-        crate::store::CLOCK_AHEAD_MS.with(|c| c.set(c.get() + ms));
+        crate::store::test_clock::advance(ms);
         // A restore's hold lapses long before.
         self.machine.lapse();
         // Any change runs the retention.
@@ -1707,7 +1707,7 @@ fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     }
     world.settle();
     let verdict = world.check();
-    crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
+    crate::store::test_clock::reset();
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     od::INCARNATION.with(|i| *i.borrow_mut() = None);
     (verdict, world.trace)

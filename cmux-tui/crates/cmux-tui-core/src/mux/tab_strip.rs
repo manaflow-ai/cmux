@@ -8,6 +8,13 @@
 //! replaces the live state only after the commit. The batch restates every
 //! tab whose group or pin changed and every tab group the change touched,
 //! so `session.events` readers converge without refetching.
+//!
+//! This is the whole-session path: it clones the session state and projects
+//! every workspace, because a strip change may move tabs between panes and
+//! workspaces. A change of one tab's record alone (`tab.update`) moves
+//! nothing and does not commit here: it is a state commit of that tab's
+//! rows (`Mux::state_update_tab`), which patches the presentation cache with
+//! [`Mux::patch_tab_presentation`].
 
 pub(crate) mod reopen_identity;
 pub(crate) mod tab_slot;
@@ -81,7 +88,54 @@ pub(crate) struct StripEdit {
     pub(crate) result: StripResult,
 }
 
+#[cfg(test)]
+thread_local! {
+    static SESSION_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 impl Mux {
+    /// Whole-session state clones that strip commits made on this thread
+    /// (test hook).
+    #[cfg(test)]
+    pub(crate) fn strip_state_clones_for_test() -> u64 {
+        SESSION_STATE_CLONES.with(std::cell::Cell::get)
+    }
+
+    /// Bring the presentation cache up to date after a commit that wrote one
+    /// tab's record: its attention mark (`Some` holds the committed mark, or
+    /// `None` when the tab holds none) and the owner of its frontend browser.
+    /// These are the only cached fields a tab's record feeds, so the cache
+    /// equals a whole reload without the read of every workspace's
+    /// presentation. The caller holds the registry lock, as for
+    /// [`Self::reload_presentation`], so no other commit can interleave.
+    pub(crate) fn patch_tab_presentation(
+        &self,
+        tab: &str,
+        attention: Option<Option<crate::state::tab_state_store::TabAttentionRecord>>,
+        owner: Option<(crate::resource::BrowserPublicId, String)>,
+    ) {
+        if attention.is_none() && owner.is_none() {
+            return;
+        }
+        let mut presentation = self.presentation.lock().unwrap_or_else(PoisonError::into_inner);
+        // In place unless a reader holds the snapshot now; then it copies.
+        let snapshot = Arc::make_mut(&mut *presentation);
+        match attention {
+            Some(Some(mark)) => {
+                snapshot.tab_attention.insert(tab.to_string(), mark);
+            }
+            Some(None) => {
+                snapshot.tab_attention.remove(tab);
+            }
+            None => {}
+        }
+        if let Some((browser, owner)) = owner
+            && let Some(record) = snapshot.frontend_browsers.get_mut(browser.as_str())
+        {
+            record.owner = Some(owner);
+        }
+    }
+
     /// Commit a tab strip change. Returns `mutate`'s output (`None` on a
     /// replay, which runs nothing) and the commit.
     #[track_caller]
@@ -101,6 +155,8 @@ impl Mux {
             None,
             request.expected_revision,
             |state, registry| {
+                #[cfg(test)]
+                SESSION_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
                 let mut projected = state.clone();
                 let presentation = mux.presentation_snapshot();
                 let mut edit = StripEdit {
@@ -174,6 +230,7 @@ impl Mux {
                     projection.changes,
                     projected,
                 )
+                .projected(projection.restates_all)
                 .with_state_write(write);
                 if let Some(ledger) = ledger {
                     plan = plan.with_workspace_ledger(ledger);

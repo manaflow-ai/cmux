@@ -293,7 +293,7 @@ impl Hub {
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Only its sender changes a prompt (`author.rs`), checked under the lock that changes it;
         // `resume` changes no one prompt.
@@ -457,8 +457,8 @@ impl Hub {
         if let Some(display_parts) = &run.display_parts {
             msg.set("displayParts", display_parts.clone());
         }
+        let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         // An edit a restore's hold could not keep on disk is undone and refused (review of
         // #37284 at b7496c3f, F1): b7496c3f answered it made, and a crash lost it.
         if let Err(e) = self.append_answered(session, "mux", "queue_updated", msg) {

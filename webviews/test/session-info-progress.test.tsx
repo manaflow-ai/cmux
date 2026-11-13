@@ -12,11 +12,12 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxPlanEntry, AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { currentPlan } from "../src/agent-session/acpmux/session-info/progressSectionModel";
 import { projectLiveProgress, type LiveProgress } from "../src/agent-session/acpmux/liveProgress";
 import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -65,6 +66,7 @@ afterEach(async () => {
   planArrays.clear();
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

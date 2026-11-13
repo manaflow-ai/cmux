@@ -19,6 +19,26 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+/// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
+/// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
+/// these rows with the re-pin, which takes them off this list (#38644, #41954).
+const AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+
+/// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
+/// lists) does not have yet: once the export has it, it comes off the list.
+fn check_awaiting_repin(export: &[Value], file: &str) {
+    for id in AWAITING_REPIN {
+        assert!(
+            cmux_action_catalog::find(id).is_some(),
+            "{id} is awaiting the re-pin but not an action"
+        );
+        assert!(
+            !export.iter().any(|row| row["id"] == *id),
+            "{file} has {id}: the re-pin landed, so take it off AWAITING_REPIN"
+        );
+    }
+}
+
 fn read_json(path: &Path) -> Value {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
@@ -71,6 +91,47 @@ fn english_catalog_equals_the_swift_dump() {
             }
         }
     }
+    // Swift's `ActionEnumCase` also has `subtitle` and `symbol`: run-time list data (a team
+    // row's kind and plan, from the cloud team rows) that the app's decoder never reads from
+    // the catalog. The dump reflects them as null; only a null is dropped, so a case that
+    // carries one still differs. A case without them is not a Swift dump's (a hand-written
+    // row): it fails here, not in the app's ActionCatalogDumpTests after the re-pin.
+    let mut missing = Vec::new();
+    let arguments = swift
+        .get_mut("actions")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|action| action.get_mut("arguments").and_then(Value::as_array_mut))
+        .flatten()
+        .filter_map(Value::as_object_mut);
+    for argument in arguments {
+        for (key, value) in argument.iter_mut() {
+            let cases = match key.as_str() {
+                "kind" => value.get_mut("enumeration"),
+                "suggestions" => value.get_mut("pinned"),
+                _ => None,
+            };
+            for case in cases.and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(case) = case.as_object_mut() {
+                    for field in ["subtitle", "symbol"] {
+                        match case.get(field) {
+                            Some(Value::Null) => {
+                                case.remove(field);
+                            }
+                            Some(_) => {}
+                            None => missing
+                                .push(format!("{key} case {:?} has no {field}", case.get("value"))),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "enum cases the Swift dump writes with null subtitle and symbol: {missing:?}"
+    );
     // A set in Swift: compare it in one order.
     let sort = |v: &mut Value| {
         if let Some(keys) = v["key_binding_defaults"]["text_input_keys"].as_array_mut() {
@@ -86,8 +147,64 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    check_awaiting_repin(
+        swift["actions"].as_array().map_or(&[], Vec::as_slice),
+        "action-catalog.json",
+    );
+    if let Some(actions) = object.get_mut("actions").and_then(Value::as_array_mut) {
+        actions
+            .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
+    }
+    awaiting_family_repin(&mut rust, &swift);
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
+    }
+}
+
+/// Palette family members the crate has and the pinned app's dump does not yet: the app reads
+/// the crate through the pinned FFI, so its dump gains them only with the next re-pin. Each
+/// leaves the Rust side here until then, and fails once the dump has it.
+const FAMILY_AWAITING_REPIN: &[(&str, &[&str])] = &[(
+    "browserProfile",
+    &["browserProfile.move", "browserProfile.setProxy", "browserProfile.clearProxy"],
+)];
+
+fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
+    let members = |catalog: &Value, family: &str| {
+        catalog["palette"]["families"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|f| f["id"] == family)
+            .and_then(|f| f["members"].as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    for (family, ids) in FAMILY_AWAITING_REPIN {
+        for id in *ids {
+            assert!(
+                !members(swift, family).iter().any(|m| m == id),
+                "action-catalog.json's {family} family has {id}: the re-pin landed, so take it off FAMILY_AWAITING_REPIN"
+            );
+        }
+        let families = rust["palette"]["families"].as_array_mut().into_iter().flatten();
+        for f in families.filter(|f| f["id"] == *family) {
+            if let Some(list) = f["members"].as_array_mut() {
+                list.retain(|m| !m.as_str().is_some_and(|m| ids.contains(&m)));
+            }
+        }
+        // A member's row derives its family and its tier (a family member is niche) from the
+        // list: those two take the dump's values, every other field is still compared.
+        let dump = |id: &str| {
+            swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
+        };
+        let actions = rust["actions"].as_array_mut().into_iter().flatten();
+        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| ids.contains(&id))) {
+            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            for field in ["palette_family", "palette_tier"] {
+                action["computed"][field] = dumped["computed"][field].clone();
+            }
+        }
     }
 }
 
@@ -95,7 +212,9 @@ fn english_catalog_equals_the_swift_dump() {
 fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
     let rows = export["actions"].as_array().expect("actions");
-    let rust: Vec<_> = cmux_action_catalog::actions().collect();
+    check_awaiting_repin(rows, "action-surfaces.json");
+    let rust: Vec<_> =
+        cmux_action_catalog::actions().filter(|a| !AWAITING_REPIN.contains(&a.id)).collect();
     assert_eq!(rows.len(), rust.len(), "action count");
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
@@ -198,7 +317,7 @@ fn debug_build_only_entries_exist() {
     for id in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_ACTIONS {
         let action =
             cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
-        assert!(action.is_debug_only, "{id} is Debug-build only but not in the Debug menu");
+        assert!(action.is_debug_only, "{id} is Debug-build only but not debug-only");
     }
     for (id, name, value) in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_CASES {
         let action =

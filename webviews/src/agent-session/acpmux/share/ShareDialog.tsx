@@ -1,6 +1,6 @@
 // The Share dialog (design chat-multiplayer.md 2, "Share dialog"; Leo, 2026-11-07: "like being able
 // to share Google Docs"): add people by email or @handle with a role, the people with access and
-// their roles, General access (Restricted, or Anyone with the link as a viewer), Copy link and Done.
+// their roles, General access (Restricted, or Anyone with the link: signed-in people may send, others watch), Copy link and Done.
 // Render only: every step is a prop the control (ShareControl.tsx) runs against the daemon, and
 // the dialog never reads the host itself, so the gallery draws each state from a fixture.
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -130,7 +130,9 @@ export function ShareDialogBody({
               {view.general === "anyone" ? t("share.anyoneHint") : t("share.restrictedHint")}
             </span>
           </span>
-          {view.general === "anyone" && <span className="share-dialog__fixed-role">{t("share.role.view")}</span>}
+          {/* A signed-in guest on the link may send (cmux#38102), so the row names the People rows'
+              "Can send"; the hint says a guest nobody signed in only watches. */}
+          {view.general === "anyone" && <span className="share-dialog__fixed-role">{t("share.role.talk")}</span>}
         </RowPicker>
       </section>
       <footer className="share-dialog__footer">

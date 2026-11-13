@@ -21,9 +21,9 @@ name: cmux-tui artifacts
 #   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
 #                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
-#                                                  detector (macOS); install as
+#                                                  detector (macOS and Linux); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
-#                                                  optional (a failed build publishes none)
+#                                                  required (a failed build fails the publish)
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
@@ -131,6 +131,15 @@ concurrency:
 permissions: {}
 
 env:
+  # x86_64-apple-darwin builds only where an Intel build ships: main and rc/** pushes and
+  # dispatches from main, whose commit-addressed objects and latest/ the
+  # universal classic app and the RC nightly and release bundle. Pull requests and every other branch
+  # (feat-cmux-next, lanes) build aarch64-apple-darwin only: the NEXT app is
+  # arm64 only, and the Intel leg ran about 24 min (max 38) on every PR
+  # (Leo, 2026-11-12: "WHY DO WE KEEP ... BUILDING INTEL MACS ALL THE ... TIME").
+  # '1' or empty: steps read it as ${CMUX_TUI_DARWIN_X86_64:+...}. Job `with:`
+  # and `if:` cannot read env, so they repeat the expression.
+  CMUX_TUI_DARWIN_X86_64: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && '1' || '' }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -161,7 +170,11 @@ jobs:
   tree-preflight:
     name: cmux-tui tree preflight
     if: ${{ !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
-    environment: ci-routing-agent
+    # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
+    # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The feat-cmux-next election fetches each active run's commit.
     timeout-minutes: 6
@@ -747,7 +760,11 @@ jobs:
     # job; every consumer reads takeover as owner-wait's or owns_key.
     if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' && needs.tree-preflight.outputs.owns_key != 'true'
     needs: tree-preflight
-    environment: ci-routing-agent
+    # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
+    # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:
@@ -1210,8 +1227,8 @@ jobs:
       # this call every tree, and so every nightly-next promotion, waited
       # for it (2026-10-21: it ended last in 217 of 219 published trees).
       include_windows: false
-      # The Linux targets build in build-linux.
-      target_set: macos
+      # The Linux targets build in build-linux. Intel only on main and rc/** (CMUX_TUI_DARWIN_X86_64).
+      target_set: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && 'macos' || 'macos-arm64' }}
       # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
       # its same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -1304,9 +1321,21 @@ jobs:
   # Mac (darwin_builder=mac, the real SDK) and publishes with them; a missing
   # Linux target still fails the run. A rerun would hit the same stub, so the
   # fallback runs in the same run.
+  #
+  # FALLBACK_AFTER_TIMEOUT: a leg that its job timeout cancels ends
+  # `cancelled`, not `failure`, and so does the build call. On 2026-11-13 the
+  # macOS leg of run 43346255778 was placed on an owned Mac
+  # (darwin_mac_runner), waited 49 min in that runner's job setup and was
+  # cancelled by its 60 min timeout 7 min into the build. This plan read only
+  # `failure`, so no fallback ran, the tree was never published and the
+  # nightly that waited for it gave up after 45 min (run 43347371069). The
+  # plan now runs after either result; a cancelled run still plans nothing
+  # (!cancelled()). The fallback takes the builder the first build did not
+  # use: the Linux cross build after a build on an owned Mac, a Mac after the
+  # Linux cross build.
   darwin-fallback-plan:
     name: plan the macOS fallback build
-    if: ${{ !cancelled() && needs.build.result == 'failure' && needs.build-linux.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
+    if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.build-linux.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     needs: [tree-preflight, build, build-linux]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
@@ -1325,6 +1354,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          FIRST_ON_MAC: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}
         run: |
           set -euo pipefail
           names="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[].name')"
@@ -1340,7 +1371,8 @@ jobs:
           done
           arm=missing; intel=missing
           have aarch64-apple-darwin && arm=present
-          have x86_64-apple-darwin && intel=present
+          # Off main no Intel target is built (CMUX_TUI_DARWIN_X86_64), so none is missing.
+          { [[ -z "${CMUX_TUI_DARWIN_X86_64:-}" ]] || have x86_64-apple-darwin; } && intel=present
           case "$arm/$intel" in
             missing/missing) set=macos ;;
             missing/present) set=macos-arm64 ;;
@@ -1351,8 +1383,10 @@ jobs:
           # ones, and "Re-run failed jobs" reran this plan with the build.
           [[ -z "$set" ]] && recovered=true || recovered=false
           echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
-          if [[ -n "$set" ]]; then
-            echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets failed (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. Regenerate the stubs: scripts/ci/macos_stubs.py"
+          if [[ -n "$set" && "$FIRST_ON_MAC" == true ]]; then
+            echo "::warning title=macOS fallback build::the build of the macOS targets on an owned Mac ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set with the Linux cross build in this run"
+          elif [[ -n "$set" ]]; then
+            echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. After a failed link, regenerate the stubs: scripts/ci/macos_stubs.py"
           fi
           echo "target_set=$set" >> "$GITHUB_OUTPUT"
 
@@ -1373,7 +1407,10 @@ jobs:
       package_pypi: false
       include_windows: false
       target_set: ${{ needs.darwin-fallback-plan.outputs.target_set }}
-      darwin_builder: mac
+      # The builder the first build did not use (FALLBACK_AFTER_TIMEOUT). No
+      # darwin_mac_runner: after a build on an owned Mac this is the Linux
+      # cross build, the route every tree takes when no Mac is idle.
+      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -1678,7 +1715,9 @@ jobs:
           echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:
-    environment: sentry-dsyms
+    environment:
+      name: sentry-dsyms
+      deployment: false
     # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.
@@ -1717,7 +1756,11 @@ jobs:
     # The artifacts environment's deployment branch policy allows every
     # branch (pushes from any same-repo branch publish, cx-r2is); signing,
     # Sparkle, Homebrew and Apple secrets stay in the release environment.
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish to R2
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
@@ -1728,9 +1771,13 @@ jobs:
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
+      # actions: write dispatches the Cloud VM image roll (the last step).
+      actions: write
       contents: read
       id-token: write
       attestations: write
+    outputs:
+      image_roll_requested: ${{ steps.image-roll.outputs.requested }}
     env:
       # publish-windows runs these same steps (the publish-steps anchor) once
       # build-windows is done; this run's Windows build usually ends later.
@@ -1920,6 +1967,11 @@ jobs:
                   "cmux-tui-x86_64-unknown-linux-musl",
                   "cmux-tui-aarch64-unknown-linux-musl",
               ]
+              if not os.environ.get("CMUX_TUI_DARWIN_X86_64"):
+                  required_dependency_files = [
+                      name for name in required_dependency_files
+                      if not name.endswith("-x86_64-apple-darwin")
+                  ]
               dependency_binaries = dependency.get("binaries", {})
               missing = [
                   name for name in required_dependency_files
@@ -1969,6 +2021,7 @@ jobs:
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$release_url" "$workflow_run_url" <<'PY'
           import hashlib
           import json
+          import os
           import pathlib
           import sys
           from typing import Any
@@ -1993,6 +2046,8 @@ jobs:
               "x86_64-unknown-linux-musl",
               "aarch64-unknown-linux-musl",
           )
+          if not os.environ.get("CMUX_TUI_DARWIN_X86_64"):
+              targets = tuple(t for t in targets if t != "x86_64-apple-darwin")
 
           def record(path: pathlib.Path, name: str, prefix: str) -> dict[str, Any]:
               if path.name != name or not path.is_file():
@@ -2029,7 +2084,7 @@ jobs:
 
           machine_targets=(
             aarch64-apple-darwin
-            x86_64-apple-darwin
+            ${CMUX_TUI_DARWIN_X86_64:+x86_64-apple-darwin}
             x86_64-unknown-linux-musl
             aarch64-unknown-linux-musl
           )
@@ -2051,23 +2106,27 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-tui-aarch64-apple-darwin \
-            --require-artifact cmux-tui-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
             --require-artifact cmux-tui-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-apple-darwin \
-            --require-artifact cmux-tui-acpmux-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-acpmux-x86_64-apple-darwin} \
             --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
-            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2087,7 +2146,7 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-relay-aarch64-apple-darwin \
-            --require-artifact cmux-relay-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-relay-x86_64-apple-darwin} \
             --require-artifact cmux-relay-x86_64-unknown-linux-musl \
             --require-artifact cmux-relay-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
@@ -2096,6 +2155,10 @@ jobs:
             --manifest-file assets/chatmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-directory assets/chatmux-relay
 
       # The attestation is the only GitHub API write on the publish path, and it
@@ -2532,21 +2595,25 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-tui-aarch64-apple-darwin \
-            --require-artifact cmux-tui-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
             --require-artifact cmux-tui-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
-            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2566,7 +2633,7 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-relay-aarch64-apple-darwin \
-            --require-artifact cmux-relay-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-relay-x86_64-apple-darwin} \
             --require-artifact cmux-relay-x86_64-unknown-linux-musl \
             --require-artifact cmux-relay-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
@@ -2575,6 +2642,10 @@ jobs:
             --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
 
       # Not again in the Windows pass: latest has no Windows file, and a newer
@@ -2649,21 +2720,25 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-tui-aarch64-apple-darwin \
-            --require-artifact cmux-tui-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
             --require-artifact cmux-tui-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
-            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2676,7 +2751,7 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-relay-aarch64-apple-darwin \
-            --require-artifact cmux-relay-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-relay-x86_64-apple-darwin} \
             --require-artifact cmux-relay-x86_64-unknown-linux-musl \
             --require-artifact cmux-relay-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
@@ -2685,7 +2760,28 @@ jobs:
             --manifest-file assets/chatmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-directory assets/chatmux-relay
+
+      # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build, as soon as the immutable,
+      # attested commit manifests are published and checked above. It no longer waits for verify-publish's
+      # read-back (about a minute) and a job start of its own: the bake reads the same manifest from
+      # files.cmux.com and installs each pinned binary only if its sha256 and size match
+      # (web/scripts/cmux-vm-image/lock.ts programInstallCommand), and a red read-back still fails the run.
+      # A failed dispatch leaves publish green: request-image-roll then asks once verify-publish passes.
+      - name: Request the Cloud VM image roll
+        id: image-roll
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+          echo "requested=true" >> "$GITHUB_OUTPUT"
 
       # The read-back through files.cmux.com: here for the Windows pass, in
       # verify-publish (the same script) for the first.
@@ -2702,21 +2798,25 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-tui-aarch64-apple-darwin \
-            --require-artifact cmux-tui-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
             --require-artifact cmux-tui-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
-            --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
-            --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
             --require-artifact cmux-tui-holder-aarch64-apple-darwin \
-            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2738,7 +2838,7 @@ jobs:
             --expected-commit "$GITHUB_SHA" \
             --require-provenance \
             --require-artifact cmux-relay-aarch64-apple-darwin \
-            --require-artifact cmux-relay-x86_64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-relay-x86_64-apple-darwin} \
             --require-artifact cmux-relay-x86_64-unknown-linux-musl \
             --require-artifact cmux-relay-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
@@ -2747,6 +2847,10 @@ jobs:
             --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             verify python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -2754,21 +2858,25 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-aarch64-apple-darwin \
-              --require-artifact cmux-tui-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
               --require-artifact cmux-tui-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
-              --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
-              --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
               --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
-              --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
-              --require-artifact cmux-tui-host-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
               --require-artifact cmux-tui-holder-aarch64-apple-darwin \
-              --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+              --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2781,11 +2889,13 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-relay-aarch64-apple-darwin \
-              --require-artifact cmux-relay-x86_64-apple-darwin \
+              ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-relay-x86_64-apple-darwin} \
               --require-artifact cmux-relay-x86_64-unknown-linux-musl \
               --require-artifact cmux-relay-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-relay/latest"
+            # No --machine-target here: latest/ is published on main only, and
+            # the check then wants every machine target, Intel macOS too.
             verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/chatmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
               --expected-commit "$GITHUB_SHA" \
@@ -2822,7 +2932,11 @@ jobs:
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
   # first pass wrote are write-once, so this pass keeps them as published.
   publish-windows:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish the Windows daemon to R2
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
@@ -2859,7 +2973,8 @@ jobs:
     # Only while the Mac builds publish: with darwin_builder=linux the
     # references are this job's own output.
     # !cancelled(): publish's chain runs through the skipped macOS fallback jobs.
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' }}
+    # It fetches the Mac-built x86_64 objects, which only main builds (CMUX_TUI_DARWIN_X86_64).
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     # 32 vCPU: the shadow builds both macOS targets of every binary.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 60
@@ -3050,7 +3165,11 @@ jobs:
           exit "$status"
 
   publish-tree:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: publish tree-addressed cmux-tui
     if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     # Independent of the daemon tests on every ref (chief 2026-10-13, hq-11;
@@ -3573,7 +3692,11 @@ jobs:
   # completion-windows.json; every object the first pass wrote is write-once
   # and written again with the same bytes.
   publish-tree-windows:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: add the Windows daemon to the tree
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
@@ -3601,7 +3724,11 @@ jobs:
   # Only a macOS run of those tests writes it: a pin push tests on Linux, and
   # the feat-cmux-next push of its tree then tests it on its Mac pool.
   publish-tree-tested:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: mark the published tree as daemon-tested
     needs: [tree-preflight, tree-owner-wait, publish-tree, cmux-next-daemon-tests]
     # Any OS: the Linux gate's pass marks the tree (Leo, 2026-10-26), and the
@@ -3637,7 +3764,11 @@ jobs:
   # queue, which may be an older push's. Runs that overlap are safe because the
   # write is a compare-and-swap (tests/test_cmux_tui_point_channel.py).
   point-feat-channel:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the feat-cmux-next channel at this tree
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
@@ -3677,7 +3808,11 @@ jobs:
   # published, or one another run owns); the script verifies each tree itself
   # (tree-commit-marker.sh tree-ready), so it never marks an unpublished one.
   mark-tree-commits:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: mark the commits whose tree is ready
     needs: [tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.publish-tree.result == 'success' || needs.publish-tree.result == 'skipped') }}
@@ -3729,7 +3864,11 @@ jobs:
   # upload lands first wins, the early job skips when it lost, and publish
   # adopts the served bytes, so neither ever waits for the other.
   point-machine-channel-early:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit's Linux build
     needs: [tree-preflight, tree-owner-wait, build-linux]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-linux.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
@@ -3774,14 +3913,19 @@ jobs:
   # After publish and verify-publish, as before point-machine-channel-early: it moves the channel when
   # the early job skipped or failed, and otherwise finds it current and keeps it.
   point-machine-channel:
-    environment: artifacts
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
     permissions:
       contents: read
+      actions: read  # the Linux release file: this run's own build artifacts (gh run download)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3794,6 +3938,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -3803,14 +3948,36 @@ jobs:
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
+          # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
+          # (forward only), the same envelope and key with purpose cmux-linux-release, so neither file
+          # stands in for a Cloud machine update. A bucket writer controls every byte in the bucket, the
+          # manifest included, and publish adopts (and attests) whatever Linux bytes the prefix already
+          # serves, so CI signs only bytes equal to this run's own build artifacts (GitHub's artifact store,
+          # --binaries-dir). Bytes another run uploaded first are not signed by this one. Delivery for the
+          # installers, not a gate: a failure is a warning and never holds the Cloud machine channel above.
+          lr="$dir/linux-release"
+          mkdir -p "$lr" && chmod 700 "$lr"
+          export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY
+          if ! timeout 900 bash -euo pipefail -c '
+                 gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                   --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
+                 mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+                 python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
+                   --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+                   --download-dir "$lr/binaries" --out "$lr/payload.json"
+                 rm -rf "$lr/binaries"
+                 scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
+            echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
+          fi
 
-  # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build: the same published and read-back
-  # commit manifests point-machine-channel reads. The roll's plan decides whether the build changes what
-  # the image carries; its concurrency keeps one roll running and replaces a waiting one with this.
+  # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
+  # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
+  # build changes what the image carries; its concurrency keeps one roll running and replaces a waiting one.
   request-image-roll:
     name: request the Cloud VM image roll
     needs: [publish, verify-publish]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
@@ -3902,6 +4069,10 @@ jobs:
     if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
+    # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
     permissions:
       actions: write
       contents: read
@@ -3931,11 +4102,31 @@ jobs:
       # Each marker is used once, a deferred run is re-run at most twice, and
       # an owner that failed only on GitHub's rate limit or attestation hands
       # nothing off (scripts/ci/cmux_tui_tree_handoff.py).
+      #
+      # HANDOFF_NEVER_SILENT: on 2026-11-13 run 43346255778 ended without its
+      # tree while a feat-cmux-next run had deferred to it. The hand-off's
+      # first read answered "API rate limit exceeded for installation" (the
+      # workflow token's hourly budget was spent), the step was
+      # continue-on-error, and the job ended green with nothing re-run: no
+      # run built the tree. The hand-off now moves to the cmux-bot App's
+      # token when the workflow token is rate limited, and a hand-off that
+      # could not run fails this job in red.
+      - name: Mint the hand-off's spare token
+        id: cmux-bot-token
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
       - name: Hand the key to a run that deferred to this one
         if: github.event_name == 'push'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
         run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY"

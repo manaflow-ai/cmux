@@ -75,6 +75,10 @@ fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
 /// acpmux kept (`image(id)`). None when a part cannot be rebuilt (a document, an audio clip, a
 /// link, an image not kept) or there is nothing to send.
 fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<Vec<Value>> {
+    // A throwaway session's long prompt kept only a preview (`hub/ephemeral.rs`).
+    if crate::hub::ephemeral::body_left_out(msg) {
+        return None;
+    }
     let blocks: Option<Vec<Value>> = match msg.get("inlineParts").and_then(Value::as_array) {
         Some(parts) => parts
             .iter()
@@ -114,7 +118,11 @@ impl Hub {
         by: RetryBy,
     ) -> Result<Value, RpcError> {
         match subagent {
-            Some(subagent) => self.retry_subagent(session, subagent, by).await,
+            // A stopped one starts again from its transcript and brief (`subagent_resume.rs`).
+            Some(subagent) => match self.resumable_subagent(session, subagent).await {
+                Some((id, brief)) => self.resume_subagent(session, id, brief, by).await,
+                None => self.retry_subagent(session, subagent, by).await,
+            },
             None => self.retry_turn(session, by).await,
         }
     }

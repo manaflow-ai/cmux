@@ -18,6 +18,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
+import { useFoldMotion } from "./foldMotion";
 import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { isAppId, MORE_LINE, moveTo, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
@@ -97,11 +98,21 @@ export function SessionInfoSectionList({
   // section is under it, and only in the `more` look.
   const present = base.filter((id) => (id === MORE_LINE ? look === "more" && !!onMoreChange : sections[id]));
   const tucked = look === "more" ? tuckedSections(present, base) : [];
+  const list = useRef<HTMLDivElement>(null);
+  // Show more opens the sections under the line in place, and Show less closes the list over them, as
+  // one motion with the panel's edge; they stay drawn until it has (foldMotion.ts).
+  const moreFold = useFoldMotion(
+    more,
+    (box) => {
+      const line = [...box.children].find((node) => (node as HTMLElement).dataset.slot === MORE_LINE);
+      return line ? line.getBoundingClientRect().bottom - box.getBoundingClientRect().top : box.offsetHeight;
+    },
+    list,
+  );
   // The held section stays drawn while it is under a closed line: it folds away on the drop.
-  const shown = (more ? present : present.filter((id) => !tucked.includes(id) || id === dragging)).filter(
+  const shown = (moreFold.drawn ? present : present.filter((id) => !tucked.includes(id) || id === dragging)).filter(
     (id) => id !== MORE_LINE || tucked.length > 0,
   );
-  const list = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | undefined>(undefined);
   // Each section's layout top at the last commit, the order then, and the slides running.
   const places = useRef(new Map<SessionInfoSectionId, number>());
@@ -315,7 +326,11 @@ export function SessionInfoSectionList({
             // Open, it reads Show less with a hairline to the row's end, over the sections it holds.
             // It has no handle: sections drag across it, into view or under it.
             <div key={id} className="acpmux-session-info-slot" data-slot={id}>
-              <SessionInfoFold className="acpmux-session-info-more" open={more} onToggle={() => onMoreChange?.(!more)}>
+              <SessionInfoFold
+                className="acpmux-session-info-more"
+                open={more}
+                onToggle={() => onMoreChange && moreFold.toggle(!more, onMoreChange)}
+              >
                 <span>{t(more ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}</span>
                 {more && <span className="acpmux-session-info-more__rule" aria-hidden="true" />}
               </SessionInfoFold>
