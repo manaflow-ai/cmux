@@ -40,21 +40,12 @@ const running = (steer: AcpmuxRow["steer"], extra: Partial<AcpmuxRow> = {}) => [
 ];
 
 for (const family of ["claude", "codex"])
-  test(`${family}: a turn's stretch before a landed steer ends on a footer with Copy once the turn ends`, () => {
-    // While the turn runs nothing comes in over the steer: the transcript only appends (Leo,
-    // 2026-11-09: "i hate the way when i send off a message it seems to move up").
-    const options = { agentFamily: family, now: START + 200_000 };
-    const live = turnView(running("landed"), new Set(), { ...options, working: true });
-    expect(live.some((each) => each.id === `${SUPERSEDED}-s1`)).toBe(false);
-    const view = turnView(
-      [
-        ...running("landed"),
-        row("r2", "assistant", { text: "Seed is hooked in." }),
-        row("sum", "turnSummary", { status: "completed" }),
-      ],
-      new Set(),
-      options,
-    );
+  test(`${family}: a running turn's stretch before a landed steer ends on a footer with Copy`, () => {
+    const view = turnView(running("landed"), new Set(), {
+      working: true,
+      agentFamily: family,
+      now: START + 200_000,
+    });
     const list = ids(view);
     const footer = view.find((each) => each.id === `${SUPERSEDED}-s1`);
     expect(footer).toBeDefined();
@@ -102,9 +93,8 @@ test("a stretch's Timeline starts at its prompt, with each call at its real offs
     },
     { id: "r1", kind: "assistant", version: 1, at: at0 + 30_000, text: "All three are contained Rust changes." },
     { id: "s1", kind: "user", version: 1, at: at0 + 40_000, text: "ofc", steer: "landed" },
-    { id: "sum", kind: "turnSummary", version: 1, at: at0 + 50_000, status: "completed" },
   ];
-  const view = turnView(rows, new Set(), { agentFamily: "claude", now: at0 + 60_000 });
+  const view = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: at0 + 60_000 });
   const footer = view.find((each) => each.id === `${SUPERSEDED}-s1`)!;
   expect(footer.durationMs).toBe(40_000);
   // Its time is still its reply's.
@@ -139,16 +129,17 @@ test("a Send now (the prompt continues the turn it ended) counts too", () => {
     row("s1", "user", { text: "do it now", continues: true }),
     bash("b2"),
   ];
-  const live = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: START + 1e6 });
-  expect(ids(footers(live))).toEqual([]);
-  const ended = [...rows, row("sum", "turnSummary", { status: "completed" })];
-  const view = turnView(ended, new Set(), { agentFamily: "claude", now: START + 1e6 });
-  expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s1`, "sum"]);
+  const view = turnView(rows, new Set(), { working: true, agentFamily: "claude", now: START + 1e6 });
+  expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s1`]);
 });
 
-test("no footer for a steer the agent has not read, a reply still streaming, or work alone", () => {
+test("a steer the agent has not read has its footer from the send; none for a reply still streaming, or work alone", () => {
   const options = { working: true, agentFamily: "claude", now: START + 1e6 };
-  expect(footers(turnView(running("waiting"), new Set(), options))).toEqual([]);
+  // The footer comes with the prompt the person sent, and is the same one once the agent reads it: it
+  // never comes in above the prompt after it was drawn (Leo, 2026-11-09: "i hate the way when i send
+  // off a message it seems to move up and under your current running tool call or whatever").
+  expect(ids(footers(turnView(running("waiting"), new Set(), options)))).toEqual([`${SUPERSEDED}-s1`]);
+  expect(ids(footers(turnView(running("landed"), new Set(), options)))).toEqual([`${SUPERSEDED}-s1`]);
   expect(footers(turnView(running("landed", { streaming: true }), new Set(), options))).toEqual([]);
   const workOnly = [
     row("u", "user", { text: "Run it" }),
