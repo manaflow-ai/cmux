@@ -996,6 +996,103 @@ fn the_lint_reads_a_file_backed_child_in_its_parent() {
     );
 }
 
+/// The rows of `fixture`, read as a crate's root module, without their locations.
+fn rows_of(fixture: &str) -> Vec<String> {
+    rows_in("x.rs", &syn::parse_file(fixture).unwrap())
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect()
+}
+
+/// #42003 review F1: "STD_FS_ITEMS lacks std::fs::try_exists (glob import misses it)".
+#[test]
+fn the_lint_reads_try_exists_through_a_std_fs_glob() {
+    let rows = rows_of(
+        r#"
+        mod globbed {
+            use std::fs::*;
+            fn a(p: &Path) -> bool { try_exists(p).unwrap_or(false) }
+        }
+        "#,
+    );
+    assert_eq!(rows, ["try_exists(..) (std::fs::try_exists)"]);
+}
+
+/// #42139 review F1: an import under a `#[cfg(..)]` that aliases a std::fs function is followed
+/// when it is written through another import (`fs::`) or `self::`, not only when it starts with
+/// `std`.
+#[test]
+fn the_lint_follows_a_cfg_gated_import_alias() {
+    let rows = rows_of(
+        r#"
+        mod gated_alias {
+            use std::fs;
+            #[cfg(unix)]
+            use fs::symlink_metadata as sm;
+            #[cfg(windows)]
+            use self::fs::metadata as m;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+            fn b(p: &Path) -> bool { m(p).is_ok() }
+        }
+        "#,
+    );
+    assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"]);
+}
+
+/// The resolver fails closed (#42003 review: "a call the resolver can't settle to a known
+/// non-fs path is reported, not skipped"): a `super::` past the crate root, another crate's
+/// `metadata`, a module the lint cannot read, an import into one and a loop of imports are rows,
+/// and a `crate::` path is followed to what it names. A call it settles on a known item that is
+/// not a read (the prelude's, another crate's other functions, a local fn, `Self::`,
+/// `crate::home_fs`) is none.
+#[test]
+fn the_lint_reports_a_call_it_cannot_resolve() {
+    let rows = rows_of(
+        r#"
+        mod gone;
+        mod inner {
+            pub use std::fs::metadata;
+        }
+        fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+        fn b(p: &Path) -> bool { tokio::fs::metadata(p).is_ok() }
+        fn c(p: &Path) -> bool { gone::probe(p) }
+        fn d(p: &Path) -> bool {
+            use self::gone::probe as q;
+            q(p)
+        }
+        fn e(p: &Path) -> bool { crate::inner::metadata(p).is_ok() }
+        mod cycle {
+            use self::b as a;
+            use self::a as b;
+            fn c(p: &Path) -> bool { a(p) }
+        }
+        struct Store;
+        impl Store {
+            fn known(&self, p: &Path) -> bool {
+                let _ = Vec::<u8>::new();
+                let _ = String::from("x");
+                let _ = serde_json::from_str::<u8>("1");
+                let _ = crate::home_fs::metadata(p);
+                Self::helper(p) && helper(p) && Some(1).is_some()
+            }
+            fn helper(_: &Path) -> bool { true }
+        }
+        fn helper(_: &Path) -> bool { true }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "super::metadata(..) (unresolved: super::metadata)",
+            "tokio::fs::metadata(..)",
+            "gone::probe(..) (unresolved: crate::gone::probe)",
+            "q(..) (unresolved: crate::gone::probe)",
+            "crate::inner::metadata(..)",
+            "a(..) (unresolved: a loop of imports)",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
