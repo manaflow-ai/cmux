@@ -64,11 +64,20 @@ export function mountIconPicker(
   // A refused finish (an unknown session, an icon the host rejects) is shown and logged, never
   // dropped: the picker stays open so the person sees that the icon did not change.
   let failure: string | undefined;
+  // The refused line is about one try. It goes at the start of the next one (a pick, or a file or
+  // URL that the Image or SVG sheet takes or refuses): the line is a band over the picker's lower
+  // edge, and one that stayed lay over the sheet's own error line.
+  const newTry = () => {
+    if (failure === undefined) return;
+    failure = undefined;
+    render();
+  };
   // A pick belongs to the session it was made in. An image or URL pick can resolve seconds later,
   // after the popover was closed and opened again for another target; its icon is then dropped, never
   // sent with the newer session's id (which the host would apply to that other target).
   const finish = (id: string, result: { value?: string; clear?: true; cancel?: true }) => {
     if (id !== session.id) return;
+    newTry();
     void client?.call(IconPickerOps.finish, { session: id, ...result }).catch((error: unknown) => {
       console.error("icon picker: the host refused the pick", error);
       if (result.cancel || id !== session.id) return;
@@ -96,6 +105,7 @@ export function mountIconPicker(
           assets={client && session.assets ? hostAssets(client) : undefined}
           symbolImageURL={(name, mode) => symbolImageURL(name, mode, session.symbolStyle)}
           error={failure}
+          onTry={newTry}
         />
       </UiProvider>,
     );

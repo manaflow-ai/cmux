@@ -209,7 +209,7 @@ impl Inner {
     ) -> std::result::Result<Repaired, RepairError> {
         let keep_journaled = || journaled.iter().map(|(_, line)| line.clone()).collect::<Vec<_>>();
         let chat_error = |error: anyhow::Error| RepairError::Chat { error, keep: keep_journaled() };
-        match std::fs::symlink_metadata(self.local.dir(id)) {
+        match crate::home_fs::symlink_metadata(self.local.dir(id)) {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Repaired::Gone);
@@ -397,7 +397,8 @@ impl Inner {
         for (index, path) in segments.iter().rev() {
             if *index > segment {
                 crate::config::refuse_lost_home(path)?;
-                std::fs::remove_file(path).with_context(|| format!("remove {}", path.display()))?;
+                crate::home_fs::remove_file(path)
+                    .with_context(|| format!("remove {}", path.display()))?;
             } else if *index == segment {
                 truncate_private(path, offset)?;
             }
@@ -408,7 +409,7 @@ impl Inner {
     fn forget_index_copy(&self, id: &str, index: u32) -> Result<()> {
         let copy = self.local.dir(id).join(kind_index::DIR).join(format!("{index:06}.ndjson"));
         crate::config::refuse_lost_home(&copy)?;
-        match std::fs::remove_file(&copy) {
+        match crate::home_fs::remove_file(&copy) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => {
@@ -465,13 +466,12 @@ impl Inner {
         let rest = rest.strip_suffix(".ndjson").unwrap_or(rest);
         let tmp = dir.join(format!("{name}.{rest}{KEPT_TEMPORARY}{}-{n}", std::process::id()));
         let written = (|| -> Result<()> {
-            let mut options = OpenOptions::new();
-            options.write(true).create(true).truncate(true);
+            // Through the folder this daemon holds (`home_fs`): a home replaced after the check
+            // never gets the file.
+            let mut options = crate::home_fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true).mode(0o600);
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-            }
+            options.custom_flags(libc::O_NOFOLLOW);
             let mut file =
                 options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
             if let Some(header) = header {
@@ -486,12 +486,12 @@ impl Inner {
                 .map_err(SyncFailed)
                 .with_context(|| format!("sync {}", tmp.display()))?;
             drop(file);
-            std::fs::rename(&tmp, &path)
+            crate::home_fs::rename(&tmp, &path)
                 .with_context(|| format!("rename to {}", path.display()))?;
             sync_directory(&dir)
         })();
         if written.is_err() {
-            let _ = std::fs::remove_file(&tmp);
+            let _ = crate::home_fs::remove_file(&tmp);
         }
         written.map(|()| path)
     }
@@ -515,7 +515,7 @@ impl Inner {
             let path = entry.path();
             if name.contains(KEPT_TEMPORARY) {
                 if let Err(error) = crate::config::refuse_lost_home(&path)
-                    .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                    .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
                 {
                     tracing::warn!("remove {}: {error:#}", path.display());
                 }
@@ -550,7 +550,7 @@ impl Inner {
             self.order.lock_or_recover().rewrite.insert(chat.clone());
             replay.chats.entry(chat).or_default().extend(lines);
             match crate::config::refuse_lost_home(&path)
-                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
             {
                 Ok(()) => removed = true,
                 Err(error) => tracing::warn!("remove {}: {error:#}", path.display()),
@@ -630,7 +630,7 @@ impl Inner {
     /// Removes a repair file (`Store::delete` of its chat) and syncs its folder.
     pub(super) fn remove_repair(&self, path: &Path) -> Result<()> {
         crate::config::refuse_lost_home(path)?;
-        match std::fs::remove_file(path) {
+        match crate::home_fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
@@ -693,7 +693,7 @@ fn piece_seq(line: &[u8]) -> Option<u64> {
 
 /// Syncs the folder at `path`; nothing when it is not there.
 fn sync_if_there(path: &Path) -> Result<()> {
-    match std::fs::symlink_metadata(path) {
+    match crate::home_fs::symlink_metadata(path) {
         Ok(_) => log_sync::sync_directory_ordered(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),
@@ -725,13 +725,11 @@ fn end_of_last_line_before(path: &Path, from_seq: u64) -> Result<u64> {
 /// Shortens the log segment at `path` (owner-only, never through a symlink) and syncs it.
 fn truncate_private(path: &Path, len: u64) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
-    let mut options = OpenOptions::new();
+    // Through the folder this daemon holds (`home_fs`), never the new home's segment.
+    let mut options = crate::home_fs::OpenOptions::new();
     options.write(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let file = options.open(path).with_context(|| format!("open {}", path.display()))?;
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
     #[cfg(all(test, unix))]
@@ -746,9 +744,9 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
 /// `config::private_state_file`, which every read of a segment makes).
 #[cfg(unix)]
 pub(in crate::store) fn open_segment_to_write(path: &Path) -> Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
     crate::config::refuse_lost_home(path)?;
-    let file = OpenOptions::new()
+    // Through the folder this daemon holds (`home_fs`), never the new home's segment.
+    let file = crate::home_fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)

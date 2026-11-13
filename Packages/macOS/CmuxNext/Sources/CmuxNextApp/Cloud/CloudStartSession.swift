@@ -234,7 +234,8 @@ struct CloudStartSession {
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
+        if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
+        if let local = request.fromFolder, let cli = services.cloud.move.cli, let refusal = await CloudMoveCLI(binary: cli).startChatPreflight(local: local) { throw ActionFailure(message: refusal.message) } // past the copy's limits
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
@@ -289,7 +290,7 @@ struct CloudStartSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), AgentRemoteStartRefusal.untrustedCopy(error, of: copy?.trusted == false ? request.fromFolder : nil)?.userMessage ?? Self.startFailure(error, name: name, id: id, agent: agent))
         }
         steps.done("start")
         CloudStartStepRecord.current?.machine = started.phases
@@ -385,6 +386,7 @@ struct CloudStartSession {
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        if let refused = await cloud.agentCheck.newMachineRefusal(harness: request.agent, model: request.model, login: request.login, userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled) { throw ActionFailure(message: refused.limitWords ?? CloudStartSessionStrings.loginRefused(Self.loginRefusal(refused.loginReason ?? .ffiFailed), request.asked(machine: name))) } // a new machine: the login rules' refusal or a used-up Claude limit before it is made
         do {
             return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.

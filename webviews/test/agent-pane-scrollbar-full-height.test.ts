@@ -326,7 +326,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
     const grown = await measure(page);
-    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(80);
+    // The card grew by several lines (60 px, as the other growing cases here hold it). In the Codex
+    // look, the default since cmux#42247, this prompt grows the card from 96 to 176 px, exactly the
+    // 80 px that a bound of "more than 80" read as red on every run.
+    expect(grown.cardHeight - before.cardHeight).toBeGreaterThan(60);
     // No painted frame moved the offset, or changed the scroller's height or its content's, which
     // move and resize the scrollbar's thumb.
     expect(frames.length).toBeGreaterThan(5);

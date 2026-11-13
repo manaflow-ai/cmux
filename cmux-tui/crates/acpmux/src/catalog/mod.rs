@@ -110,28 +110,25 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
     // A refresh that ends after the home was lost never makes it again (`config::mark_home_lost`).
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
-    // Owner-only whatever the umask, like the rest of the acpmux home.
-    let mut made = std::fs::DirBuilder::new();
-    made.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-    made.create(dir)?;
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file. Owner-only whatever the umask, like the rest of the acpmux home.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
     let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
     // A file a crashed process left under a reused pid keeps its mode: start anew.
-    let _ = std::fs::remove_file(&tmp);
+    let _ = crate::home_fs::remove_file(&tmp);
     let result = (|| {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
+        let mut file = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        std::fs::File::open(dir)?.sync_all()
+        crate::home_fs::rename(&tmp, path)?;
+        crate::home_fs::sync_dir(dir)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     result
 }

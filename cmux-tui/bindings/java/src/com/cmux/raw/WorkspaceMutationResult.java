@@ -70,7 +70,7 @@ public final class WorkspaceMutationResult implements WireValue {
         }
         Object rawFirstTab = Wire.optional(object, "first_tab");
         if (!Wire.isMissing(rawFirstTab)) {
-            builder.firstTab(Wire.immutableJson(rawFirstTab));
+            builder.firstTab(Wire.immutableJson(ProtocolSupport.nonNull(rawFirstTab, "WorkspaceMutationResult.first_tab")));
         }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "WorkspaceMutationResult.generation"));

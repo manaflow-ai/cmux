@@ -81,6 +81,13 @@
     "_acpmux/presets": "always",
     "_acpmux/run_elsewhere/start": "always"
   },
+  "click_only": [
+    "_acpmux/permission_group_respond",
+    "_acpmux/permission_respond",
+    "_acpmux/plan/build",
+    "_acpmux/presets"
+  ],
+  "click_window_ms": 1500,
   "act_as_me_covers": ["session/prompt", "_acpmux/queue_approve"],
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
@@ -99,7 +106,7 @@
     "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/peer_reconnect": {"params": ["name", "wait"], "acpmux": []},
     "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
-    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], "acpmux": []},
+    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
     "_acpmux/typing": {"params": ["sessionId", "on"], "acpmux": []},
@@ -182,7 +189,7 @@
     "_acpmux/race/cancel": {"params": ["parent", "raceId"], "acpmux": []},
     "_acpmux/race/stats": {"params": ["parent"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
-    "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken"], "acpmux": []},
+    "acp.session.fork": {"params": ["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId", "peer"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId", "peer"], "acpmux": []},
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
