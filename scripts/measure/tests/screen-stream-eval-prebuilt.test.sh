@@ -38,8 +38,14 @@ if [[ "$prebuilt_branch" == *swiftc* ]]; then
 fi
 if ! grep -q 'EVAL_PRESENTED_OBSERVER_BIN' "$apple" ||
    ! grep -q 'cmux.presented-marker/1' "$apple" ||
-   ! grep -q 'no supported glass-to-glass timestamp API' "$apple"; then
+   ! grep -q 'no supported glass-to-glass timestamp API' "$apple" ||
+   ! grep -q 'AXMenuItemMarkChar' "$apple"; then
   echo "FAIL: Apple latency path does not require a complete presented-marker observer"
+  fail=1
+fi
+if ! grep -q 'presented-observer=' "$harness" ||
+   ! grep -q 'EVAL_PRESENTED_OBSERVER_BIN=.*EVAL_BIN/cmux-rd' "$harness"; then
+  echo "FAIL: presented observer geometry is not exposed through harness arguments"
   fail=1
 fi
 

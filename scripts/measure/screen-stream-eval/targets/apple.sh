@@ -17,6 +17,65 @@ screen_sharing_app() {
   return 1
 }
 
+connect() {
+  [[ "$host" != 127.* && "$host" != localhost ]] || {
+    echo "apple-$mode: requires a second Mac; set lan=/viewer-of= or EVAL_APPLE_HOST" >&2
+    return 1
+  }
+  app=$(screen_sharing_app)
+  if ! open -g -a "$app" "vnc://$host" >/dev/null 2>&1; then
+    echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
+    return 1
+  fi
+  # These are the two quality settings of an Apple Standard connection,
+  # not the separate High Performance connection type. Apple's documented
+  # View menu contains the quality items directly (no Quality submenu).
+  quality_item="Adaptive Quality"
+  [[ "$mode" == high ]] && quality_item="Full Quality"
+  osascript - "$quality_item" <<'OSA'
+on run argv
+  tell application "System Events"
+    tell process "Screen Sharing"
+      repeat 50 times
+        try
+          click menu bar item "View" of menu bar 1
+          set item_name to item 1 of argv
+          click menu item item_name of menu 1 of menu bar item "View" of menu bar 1
+          delay 0.1
+          click menu bar item "View" of menu bar 1
+          set mark to value of attribute "AXMenuItemMarkChar" of menu item item_name of menu 1 of menu bar item "View" of menu bar 1
+          if mark is "✓" or mark is "checkmark" then return
+        end try
+      end repeat
+    end tell
+  end tell
+  error "Screen Sharing quality menu is unavailable or the requested item is not selected"
+end run
+OSA
+  window_id=""
+  for _ in $(seq 1 100); do
+    window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" 2>/dev/null || true)
+    [[ "$window_id" =~ ^[0-9]+$ ]] && break
+    sleep 0.1
+  done
+  [[ "$window_id" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing window id unavailable" >&2; return 1; }
+  viewer_pid=$(ps -axo pid=,comm= | awk '$0 ~ /Screen Sharing/ {print $1; exit}')
+  [[ "$viewer_pid" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing process unavailable" >&2; return 1; }
+  if [[ -n "${EVAL_PRESENTED_OBSERVER_WINDOW:-}" && "$window_id" != "$EVAL_PRESENTED_OBSERVER_WINDOW" ]]; then
+    echo "apple-$mode: selected Screen Sharing window id $window_id differs from presented-window=$EVAL_PRESENTED_OBSERVER_WINDOW" >&2
+    return 1
+  fi
+  if [[ -n "${EVAL_PRESENTED_OBSERVER_PID:-}" && "$viewer_pid" != "$EVAL_PRESENTED_OBSERVER_PID" ]]; then
+    echo "apple-$mode: selected Screen Sharing pid $viewer_pid differs from presented-pid=$EVAL_PRESENTED_OBSERVER_PID" >&2
+    return 1
+  fi
+  python3 -I - "$EVAL_STATE/apple-connection.json" "$host" "$mode" "$quality_item" "$window_id" "$viewer_pid" <<'PY'
+import json, sys
+json.dump({"host": sys.argv[2], "mode": sys.argv[3], "quality": sys.argv[4],
+           "window": int(sys.argv[5]), "pid": int(sys.argv[6])}, open(sys.argv[1], "w"))
+PY
+}
+
 case "$verb" in
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
@@ -55,6 +114,7 @@ case "$verb" in
         echo "apple-$mode: presented observer is not executable: $EVAL_PRESENTED_OBSERVER_BIN" >&2
         exit 1
       }
+      connect || exit 1
       kind=key
       [[ "$input" == pointer ]] && kind=click
       observer_raw="$raw.observer"
@@ -104,49 +164,7 @@ PY
     ;;
   window-view)
     seconds=$1; snapshot=$2; go=$3; raw=$4
-    [[ "$host" != 127.* && "$host" != localhost ]] || {
-      echo "apple-$mode: requires a second Mac; set lan=/viewer-of= or EVAL_APPLE_HOST" >&2
-      exit 1
-    }
-    app=$(screen_sharing_app)
-    if ! open -g -a "$app" "vnc://$host" >/dev/null 2>&1; then
-      echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
-      exit 1
-    fi
-    # These are the two quality settings of an Apple Standard connection,
-    # not the separate High Performance connection type. Apple's documented
-    # View menu contains the quality items directly (no Quality submenu).
-    # The two wrappers select the quality profile in Screen Sharing.app itself;
-    # fail closed if the requested menu item is unavailable instead of labeling
-    # an unselected profile as high or standard.
-    quality_item="Adaptive Quality"
-    [[ "$mode" == high ]] && quality_item="Full Quality"
-    osascript - "$quality_item" <<'OSA'
-on run argv
-  tell application "System Events"
-    tell process "Screen Sharing"
-      repeat 50 times
-        try
-          click menu bar item "View" of menu bar 1
-          click menu item (item 1 of argv) of menu 1 of menu bar item "View" of menu bar 1
-          return
-        end try
-        delay 0.1
-      end repeat
-    end tell
-  end tell
-  error "Screen Sharing quality menu is unavailable"
-end run
-OSA
-    window_id=""
-    for _ in $(seq 1 100); do
-      window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" 2>/dev/null || true)
-      [[ "$window_id" =~ ^[0-9]+$ ]] && break
-      sleep 0.1
-    done
-    [[ "$window_id" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing window id unavailable" >&2; exit 1; }
-    viewer_pid=$(ps -axo pid=,comm= | awk '$0 ~ /Screen Sharing/ {print $1; exit}')
-    [[ "$viewer_pid" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing process unavailable" >&2; exit 1; }
+    connect || exit 1
     # Capture only the remote Screen Sharing window. A full-display capture
     # would measure the local scene and is not evidence about Apple's stream.
     deadline=$((SECONDS + seconds))

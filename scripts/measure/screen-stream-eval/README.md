@@ -115,14 +115,18 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  A managed GUI step may provide `EVAL_PRESENTED_OBSERVER_BIN` (the `cmux-rd`
-  binary) plus `EVAL_PRESENTED_OBSERVER_PID`, `EVAL_PRESENTED_OBSERVER_WINDOW`,
-  `EVAL_PRESENTED_MARKER_ORIGIN`, `EVAL_PRESENTED_CELL_SIZE` and
-  `EVAL_PRESENTED_INPUT_POINT` in viewer capture pixels. The target then runs
-  `cmux-rd observe` against that exact visible window and accepts only a complete
-  `cmux.presented-marker/1` receipt. Without all of those values, Apple latency
-  stays explicitly unavailable; screenshot sampling never becomes a latency
-  claim.
+  A managed GUI step may pass `presented-observer=1` with numeric
+  `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
+  `presented-marker-origin=X,Y`, `presented-cell-size=N` and
+  `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
+  optional `presented-display=main`, `presented-timeout-ms=1000` and
+  `presented-seed=1`. The viewer step exports these values locally and runs its
+  bundled `cmux-rd observe` against that exact visible window; it accepts only
+  a complete `cmux.presented-marker/1` receipt. Without all values, Apple
+  latency stays explicitly unavailable; screenshot sampling never becomes a
+  latency claim. Each connection attempt reopens the documented View menu,
+  verifies the selected check mark, binds the observed PID/window, and records
+  `apple-connection.json` with the chosen quality profile and host.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`

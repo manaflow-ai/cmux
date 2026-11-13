@@ -16,6 +16,7 @@
 # 5: no target measured a window).
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -33,6 +34,17 @@ for arg in "$@"; do
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
+    # presented-observer=1: run cmux-rd observe on the viewer's visible window; the
+    # remaining values are capture-pixel geometry owned by that viewer step.
+    presented-observer=*) presented_observer="${arg#presented-observer=}" ;;
+    presented-pid=*) presented_pid="${arg#presented-pid=}" ;;
+    presented-window=*) presented_window="${arg#presented-window=}" ;;
+    presented-marker-origin=*) presented_marker_origin="${arg#presented-marker-origin=}" ;;
+    presented-cell-size=*) presented_cell_size="${arg#presented-cell-size=}" ;;
+    presented-input-point=*) presented_input_point="${arg#presented-input-point=}" ;;
+    presented-display=*) presented_display="${arg#presented-display=}" ;;
+    presented-timeout-ms=*) presented_timeout_ms="${arg#presented-timeout-ms=}" ;;
+    presented-seed=*) presented_seed="${arg#presented-seed=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -49,6 +61,21 @@ for arg in "$@"; do
   case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
 done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
+[[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
+if [[ "$presented_observer" == 1 ]]; then
+  [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
+    echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
+    exit 2
+  }
+  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^[2-9][0-9]*$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented observer needs capture-pixel marker origin, cell size >=2 and input point" >&2
+    exit 2
+  }
+  [[ "$presented_timeout_ms" =~ ^[1-9][0-9]*$ && "$presented_seed" =~ ^[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented-timeout-ms= must be positive and presented-seed= numeric" >&2
+    exit 2
+  }
+fi
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -84,6 +111,13 @@ rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
 export EVAL_ROOT="$root" EVAL_BIN="$work/bin"
+if [[ "$presented_observer" == 1 ]]; then
+  export EVAL_PRESENTED_OBSERVER_BIN="$EVAL_BIN/cmux-rd"
+  export EVAL_PRESENTED_OBSERVER_PID="$presented_pid" EVAL_PRESENTED_OBSERVER_WINDOW="$presented_window"
+  export EVAL_PRESENTED_MARKER_ORIGIN="$presented_marker_origin" EVAL_PRESENTED_CELL_SIZE="$presented_cell_size"
+  export EVAL_PRESENTED_INPUT_POINT="$presented_input_point" EVAL_PRESENTED_DISPLAY="$presented_display"
+  export EVAL_PRESENTED_TIMEOUT_MS="$presented_timeout_ms" EVAL_PRESENTED_SEED="$presented_seed"
+fi
 
 if [[ "$tools_only" == 1 ]]; then
   # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
