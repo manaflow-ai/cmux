@@ -419,12 +419,18 @@
   /* The prompt's room: what its line leaves of the chat composer's box (composerLocation.css
      --grid-composer-box, 48 px at the composer's size scale), so New Tab's bar is the chat's at every density
      (Lucas 2026-11-13). */
-  /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density). */
-  --nt-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  /* New Tab's box corner: 20 px on its 48 px one-line box at Default (about 42%) and at every density's scale, in
+  /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density), and
+     at least its text's scale, so Compact's 12 pt text gets a roomier box (0.86) than Ultra-compact's 11 (0.8): the
+     two shared Compact's rows and one size (Lucas 2026-11-14: "compact is too small"). Default and up are unchanged. */
+  --nt-density: max(
+    0.8,
+    var(--cmux-density-scale, var(--cmux-interface-scale, 1)),
+    var(--cmux-density-text-scale, 0)
+  );
+  /* New Tab's box corner: 18 px on its 48 px one-line box at Default (about 38%) and at every density's scale, in
      every look and template, rounder than the chat composer's 12 but never a pill (Lucas 2026-11-14: "a bit more
-     rounded. not fully rounded", then "make it a bit more rounded"). */
-  --nt-box-radius: calc(20px * var(--nt-density));
+     rounded. not fully rounded", then 20 px was "just a tiny bit" too round). */
+  --nt-box-radius: calc(18px * var(--nt-density));
   /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
      line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
      10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
