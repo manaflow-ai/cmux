@@ -72,6 +72,15 @@ struct CloudPaletteTargetSourceTests {
         #expect(!visible.contains("cmux cloud"))
     }
 
+    @Test func generatedMachineNamesStayRecognizableInThePicker() throws {
+        var record = try machine("private-machine-id", desktop: true)
+        record.slug = "design-desktop"
+        let row = try #require(options(machines: [record], desktop: true).first)
+        #expect(row.title == "design-desktop")
+        record.displayName = "My desktop"
+        #expect(options(machines: [record], desktop: true).first?.title == "My desktop")
+    }
+
     @Test func emptyAccountOffersCreatingADesktop() throws {
         let row = try #require(options(machines: [], desktop: true).first)
         #expect(row.recovery?.action == "newCloudMachine")

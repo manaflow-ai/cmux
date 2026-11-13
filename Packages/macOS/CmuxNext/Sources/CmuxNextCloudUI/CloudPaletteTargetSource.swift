@@ -63,7 +63,7 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
     }
 
     public func title(of target: ActionTargetRef) -> String? {
-        if target.kind == .machine, let machine = machines().first(where: { $0.id == target.id }) { return machine.displayName }
+        if target.kind == .machine, let machine = machines().first(where: { $0.id == target.id }) { return machine.shownName }
         return next.title(of: target)
     }
 
@@ -71,7 +71,7 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
 
     public static func options(machines: [CloudMachine], desktop: Bool, ask: ([String: Any]) -> [String: Any]?) -> [PaletteTargetOption] {
         let facts: [[String: Any]] = machines.map { machine in
-            ["id": machine.id, "title": machine.displayName.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? Words.machine,
+            ["id": machine.id, "title": machine.shownName.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? Words.machine,
              "status": machine.shownStatus.rawValue, "desktop": machine.opensCarrierDesktop]
         }
         let answer = ask(["desktop": desktop, "machines": facts])
