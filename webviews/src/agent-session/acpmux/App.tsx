@@ -524,6 +524,7 @@ import {
   cloudFolderGrants,
   cloudPickExtras,
   cloudStartFolder,
+  composerCloudStartFolder,
   cloudStartSaid,
   cloudStartTeam,
   makeCloudSignInRetry,
@@ -4567,7 +4568,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
-      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      const folder = composerCloudStartFolder(composerSnapshot.summary);
       if ("cwd" in folder)
         cloudFolderGrant.granting(
           folder.cwd,
@@ -11599,12 +11600,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
-                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
+                // The folder the chip names, copied to the machine; none: the machine's own folder (composerCloudStartFolder).
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...composerCloudStartFolder(composerSnapshot.summary),
                     ...heldPick(composerSnapshot),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),

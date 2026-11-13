@@ -9,6 +9,7 @@ import {
   cloudRunsHere,
   cloudStartFolder,
   cloudStartKeys,
+  composerCloudStartFolder,
   cloudStartSaid,
   grantedCloudStart,
   makeCloudSignInRetry,
@@ -482,4 +483,18 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
+});
+
+test("a composer's Cloud start copies only the folder its chip names, never one the host only offered", () => {
+  const local = { sessionId: "", host: "This Mac", hostKind: "local" as const };
+  // No folder on the chip: home, nothing copied, whatever folder the app or its New Tab page inherited.
+  expect(composerCloudStartFolder(local)).toEqual({ home: true });
+  expect(composerCloudStartFolder(undefined)).toEqual({ home: true });
+  expect(
+    composerCloudStartFolder({ ...local, cwd: "/Users/me/Library/Application Support/cmux/agent-home/abc" }),
+  ).toEqual({ home: true });
+  // The chat's own project (a pick folds into the summary, newtab/draftFolder.ts) is copied.
+  expect(composerCloudStartFolder({ ...local, cwd: "/Users/me/src/paint/" })).toEqual({ cwd: "/Users/me/src/paint" });
+  // A folder on another machine is not this Mac's to copy.
+  expect(composerCloudStartFolder({ ...local, peer: "build-box", cwd: "/home/me/api" })).toEqual({ home: true });
 });
