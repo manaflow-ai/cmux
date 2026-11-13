@@ -164,7 +164,7 @@ fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
 }
 
 #[test]
-fn blockers_wake_any_chat_actions_only_from_its_parent_or_delegator_and_fyis_never() {
+fn blockers_wake_any_chat_actions_from_its_work_or_itself_and_fyis_never() {
     let mut meta: SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "s", "name": "lane", "harness": "fake",
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
@@ -181,6 +181,10 @@ fn blockers_wake_any_chat_actions_only_from_its_parent_or_delegator_and_fyis_nev
     assert!(!wakes(&meta, &from(PromptClass::Fyi, Some("parent"))));
     let stranger = from(PromptClass::Result, Some("other"));
     assert!(!wakes(&meta, &stranger));
+    assert!(wakes(&meta, &from(PromptClass::Result, Some("s"))), "its own completion watch");
+    assert!(!wakes(&meta, &from(PromptClass::Fyi, Some("s"))), "a self FYI still waits");
+    let declared = item("declared", "t", "s", PromptClass::Result, 0, "same display name");
+    assert!(!wakes(&meta, &declared), "a display name is not a session identity");
     meta.delegator = Some("other".into());
     assert!(wakes(&meta, &stranger), "its delegator");
     meta.delegator = None;
@@ -510,6 +514,23 @@ fn carried(session: &Session) -> Option<Vec<String>> {
         ids.sort();
         ids
     })
+}
+
+#[tokio::test]
+async fn a_self_completion_watch_wakes_after_debounce_without_waiting_for_the_flush() {
+    let (hub, session) = hub_with_chat("watch-parent");
+    let mut result = item(
+        "watch-result",
+        "self",
+        "watch-parent",
+        PromptClass::Result,
+        now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1),
+        "acpmux watch: the child finished",
+    );
+    result.from_session = Some(session.id.clone());
+    session.inbox.lock().unwrap().items.push(result);
+    hub.inbox_review(&session);
+    assert_eq!(carried(&session), Some(vec!["watch-result".to_owned()]));
 }
 
 /// FYIs alone never interrupt a running turn: no steer before their flush, only the timer for it
