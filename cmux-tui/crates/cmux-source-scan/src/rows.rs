@@ -47,17 +47,23 @@ fn augment<N, F>(
     seen: &mut [bool],
     owner: &mut [Option<usize>],
 ) -> bool {
-    for j in 0..found.len() {
-        if seen[j] || !hits(&named[i], &found[j]) {
+    // Every slot is read with `get`, so an index past the end is "taken" and never a panic.
+    let Some(n) = named.get(i) else { return false };
+    for (j, f) in found.iter().enumerate() {
+        if seen.get(j).copied().unwrap_or(true) || !hits(n, f) {
             continue;
         }
-        seen[j] = true;
-        let free = match owner[j] {
+        if let Some(s) = seen.get_mut(j) {
+            *s = true;
+        }
+        let free = match owner.get(j).copied().flatten() {
             None => true,
             Some(k) => augment(k, named, found, hits, seen, owner),
         };
         if free {
-            owner[j] = Some(i);
+            if let Some(o) = owner.get_mut(j) {
+                *o = Some(i);
+            }
             return true;
         }
     }
