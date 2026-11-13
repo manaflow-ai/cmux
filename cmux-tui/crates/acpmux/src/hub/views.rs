@@ -632,6 +632,13 @@ impl Hub {
 
     /// Saves the fold's bytes beside the chat's log. A cache: the next daemon folds the records
     /// past an older copy when this one fails.
+    ///
+    /// The path is the chat's id's folder, and the seed and the append seam write after they let
+    /// go of the append lock, so a purge and a new chat under the same id can land in between: the
+    /// purged chat's fold must not go into the new chat's folder (review of #42481, F3). So the
+    /// write runs under the breakdown's lock, which a purge takes to mark the chat purged
+    /// (`turns.rs` `kill_held`): a write that sees the chat not purged lands before its folder is
+    /// deleted, and none starts after. Callers must not hold that lock.
     pub(super) fn write_time_breakdown(
         &self,
         session: &Session,
@@ -639,6 +646,11 @@ impl Hub {
         bytes: &[u8],
         seq: u64,
     ) {
+        let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+            tracing::debug!(session = %session.id, seq, "time breakdown not saved: chat purged");
+            return;
+        }
         match crate::config::write_atomic_unsynced(path, bytes) {
             Ok(()) => {
                 tracing::debug!(session = %session.id, seq, "saved the time breakdown");
