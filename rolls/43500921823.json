@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43500921823",
+  "recorded_at": "2026-11-13T20:34:38Z",
+  "reason": "cmux-tui b731784a979d changes the image's cmux-tui (pinned 02d7de222c5d)",
+  "dry_run": false,
+  "cmux_tui": "b731784a979db88e559a554466c23a57c223f9af",
+  "fixes": [
+    {
+      "sha": "b731784a979db88e559a554466c23a57c223f9af",
+      "mergedAt": "2026-11-13T13:51:00-06:00",
+      "subject": "cmux-tui tests: line connections that end leave no kqueue or socket behind"
+    },
+    {
+      "sha": "1e84ffe2b706aa73672177c95be7f4048295ffa7",
+      "mergedAt": "2026-11-13T13:50:59-06:00",
+      "subject": "cmux-tui: the daemon line reader waits in kevent on macOS"
+    },
+    {
+      "sha": "a06312d40bac75a1ebd2cf0fa7f10e4ccf102686",
+      "mergedAt": "2026-11-13T11:32:01-08:00",
+      "subject": "ci(cmux-tui): the tree key hashes what the artifacts build calls build, not the artifacts workflow (#42643)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T20:34:38Z",
+    "snapshot_id": "sh-40c6eeee110b4ccaafa7e2a040d77741",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43500921823): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ea640f9aaa0d5f2016ffb8bd6366a824c9a966e0",
+    "image": "cloud-native-auto-b731784a-43500921823-1",
+    "revision": "ci-43500921823-1",
+    "at": "2026-11-13T20:34:38Z"
+  },
+  "rolled_back": false
+}
