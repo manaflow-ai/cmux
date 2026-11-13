@@ -289,7 +289,7 @@ public final class ComputerUsePreviewPresenter {
         shown = nil
         current.stream?.stop()
         guard completing else { return current.overlay.removeFromSuperview() }
-        current.overlay.complete { current.overlay.removeFromSuperview() }
+        current.overlay.playFinish { current.overlay.removeFromSuperview() }
     }
 
     // MARK: The person's requests

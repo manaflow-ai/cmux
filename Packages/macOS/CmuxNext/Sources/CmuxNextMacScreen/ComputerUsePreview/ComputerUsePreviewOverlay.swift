@@ -79,14 +79,14 @@ public final class ComputerUsePreviewOverlay: NSView {
     public func present(_ presentation: ComputerUsePreviewPresentation) {
         guard presentation != self.presentation || !entered else { return }
         entered = true
-        let wasExpanded = self.presentation == .expanded && expanded.superview === self
+        let collapsing = self.presentation == .expanded && expanded.superview === self && presentation != .expanded
         self.presentation = presentation
         chip.removeFromSuperview()
-        if wasExpanded, presentation != .expanded { fadeOutExpanded() }
+        if collapsing { expanded.isClosing = true }
         switch presentation {
         case .card:
             // From the expanded view: the card shows, with the picture, once its fade ends.
-            thumbnail.isHidden = wasExpanded
+            thumbnail.isHidden = expanded.isClosing
         case .expanded:
             // The large view takes the picture; the card under the scrim is hidden, not doubled.
             thumbnail.isHidden = true
@@ -99,12 +99,13 @@ public final class ComputerUsePreviewOverlay: NSView {
             thumbnail.isHidden = true
             addSubview(chip)
         }
-        // While the expanded view fades out it keeps the picture; it moves when the fade ends.
-        if !(wasExpanded && presentation != .expanded) {
-            if let video { place(video: video) }
-            placeStill()
-        }
+        // While the expanded view fades out it keeps the picture (placement routes by isClosing).
+        if let video { place(video: video) }
+        placeStill()
         needsLayout = true
+        // Last, after the switch and the placement: a fade that ends at once (the window cannot
+        // animate) finishes the collapse here, and nothing above undoes it.
+        if collapsing { fadeOutExpanded() }
     }
 
     /// The thumbnail's corner and long side (the person's drag and resize).
@@ -116,10 +117,14 @@ public final class ComputerUsePreviewOverlay: NSView {
 
     /// The agent finished or stopped: the completion effect on whichever view shows (the card's
     /// pulse, or the expanded view fading out), then `done`.
-    public func complete(_ done: @escaping @MainActor @Sendable () -> Void) {
+    /// Not `complete(_:)`: NSResponder's `complete:` (text completion) shares that name, and a call
+    /// whose closure is not `@Sendable` resolves to it and is sent to AppKit.
+    public func playFinish(_ done: @escaping @MainActor @Sendable () -> Void) {
         guard !isHidden else { return done() }
-        if presentation == .expanded, expanded.superview === self {
-            return Motion.overlays.animate(.fadeOut, in: expanded, { self.expanded.animator().alphaValue = 0 }, completion: done)
+        // Expanded, or fading out after a collapse: the expanded view holds the picture, and its
+        // fade (to the end, from wherever it is) is the effect.
+        if presentation == .expanded || expanded.isClosing, expanded.superview === self {
+            return fadeOut(expanded, { self.expanded.animator().alphaValue = 0 }, done)
         }
         guard !thumbnail.isHidden else { return done() }
         thumbnail.playCompletion(done)
@@ -129,8 +134,7 @@ public final class ComputerUsePreviewOverlay: NSView {
     /// It takes no click while it fades (the surface under it does), keeps the picture until the
     /// fade ends, and then hands the picture to the card.
     private func fadeOutExpanded() {
-        expanded.isClosing = true
-        Motion.overlays.animate(.fadeOut, in: expanded, { self.expanded.animator().alphaValue = 0 }, completion: { [weak self] in
+        fadeOut(expanded, { self.expanded.animator().alphaValue = 0 }, { [weak self] in
             guard let self, self.presentation != .expanded else { return }
             self.expanded.removeFromSuperview()
             self.expanded.isClosing = false
@@ -138,12 +142,19 @@ public final class ComputerUsePreviewOverlay: NSView {
         })
     }
 
-    /// The collapse ended: the picture moves to the card, which shows unless hidden meanwhile.
+    /// The collapse ended (isClosing is false now): the picture moves to the card, which shows
+    /// unless hidden meanwhile.
     private func finishCollapse() {
         if let video { place(video: video) }
         placeStill()
         if presentation == .card { thumbnail.isHidden = false }
         collapseFinished?()
+    }
+
+    /// Runs a fade-out on `view` (``Motion/overlays``). It completes at once when the window cannot
+    /// animate (minimized, ordered out, covered, its display asleep); tests make it do so.
+    var fadeOut: (_ view: NSView, _ changes: () -> Void, _ completion: @escaping @MainActor @Sendable () -> Void) -> Void = {
+        Motion.overlays.animate(.fadeOut, in: $0, $1, completion: $2)
     }
 
     /// Runs when a collapse's fade ended and the picture moved (tests wait on it).
@@ -158,15 +169,19 @@ public final class ComputerUsePreviewOverlay: NSView {
         set { thumbnail.surfaceIsTerminal = newValue }
     }
 
-    /// The still goes where the picture is: the expanded view while expanded, else the thumbnail.
+    /// The expanded view holds the picture: it is expanded, or fading out after a collapse (a still
+    /// that comes mid-fade stays on the view that shows, not on the card under it).
+    private var expandedHoldsPicture: Bool { presentation == .expanded || expanded.isClosing }
+
+    /// The still goes where the picture is.
     private func placeStill() {
-        let expandedHolds = presentation == .expanded
+        let expandedHolds = expandedHoldsPicture
         expanded.show(still: expandedHolds ? still : nil)
         thumbnail.show(still: expandedHolds ? nil : still)
     }
 
     private func place(video layer: AVSampleBufferDisplayLayer) {
-        if presentation == .expanded {
+        if expandedHoldsPicture {
             thumbnail.attach(video: nil)
             expanded.attach(video: layer)
         } else {

@@ -166,6 +166,54 @@ import VideoToolbox
         #expect(!ComputerUsePreviewPresenter.closesExpandedView(keyCode: 36, modifiers: []))
     }
 
+    /// A window that cannot animate (minimized, ordered out, covered, its display asleep) ends a
+    /// fade at once: collapsing there shows the card with the picture, not a card stuck hidden
+    /// (review of 6b856c2, N1). A still that comes during a running fade stays on the fading view
+    /// (N2), and a finish during the fade plays on that view (N3).
+    @Test func collapsingWhereNothingAnimatesShowsTheCard() throws {
+        let overlay = ComputerUsePreviewOverlay(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        overlay.fadeOut = { _, changes, completion in
+            changes()
+            completion()
+        }
+        overlay.present(.card)
+        let source = try #require(CGImageSourceCreateWithData(try jpeg(width: 40, height: 20) as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        overlay.show(still: image)
+        overlay.present(.expanded)
+        overlay.present(.card)
+        #expect(!overlay.thumbnail.isHidden, "the card shows after a collapse that ended at once")
+        #expect(overlay.showsStill == (thumbnail: true, expanded: false) && !overlay.expandedIsClosing)
+    }
+
+    @Test func aStillDuringTheCollapseStaysOnTheFadingView() throws {
+        let overlay = ComputerUsePreviewOverlay(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        var finishFade: (@MainActor @Sendable () -> Void)?
+        overlay.fadeOut = { _, changes, completion in
+            changes()
+            finishFade = completion // the fade runs until the test ends it
+        }
+        overlay.present(.card)
+        overlay.present(.expanded)
+        overlay.present(.card)
+        #expect(overlay.expandedIsClosing)
+        let source = try #require(CGImageSourceCreateWithData(try jpeg(width: 40, height: 20) as CFData, nil))
+        overlay.show(still: try #require(CGImageSourceCreateImageAtIndex(source, 0, nil)))
+        #expect(overlay.showsStill == (thumbnail: false, expanded: true), "mid-fade, the still is on the view that shows")
+        // The agent finishes mid-fade: its effect is that fade, on the fading view; done comes after it.
+        let finished = OSAllocatedUnfairLock(initialState: false)
+        var fadesAfterFinish = 0
+        overlay.fadeOut = { _, changes, completion in
+            changes()
+            fadesAfterFinish += 1
+            completion()
+        }
+        overlay.playFinish { finished.withLock { $0 = true } }
+        #expect(finished.withLock { $0 } && fadesAfterFinish == 1, "the finish played on the fading expanded view")
+        finishFade?()
+        #expect(overlay.showsStill == (thumbnail: true, expanded: false), "the collapse hands the picture over")
+    }
+
     /// Escape closes the expanded view only while the keyboard is in the preview's own surface:
     /// typed into another field of the window (a tab being renamed), it belongs to that field.
     @Test func escapeBelongsToTheFieldThatHasTheKeyboard() {
