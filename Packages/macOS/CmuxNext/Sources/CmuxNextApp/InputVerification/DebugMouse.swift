@@ -15,8 +15,7 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content; `focused` names the focused pane) or `view` (the center of
-/// the visible view with that accessibility identifier) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// `pane` (the center of that pane's content; `focused` names the focused pane) or `view` (an accessibility id) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
 /// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
@@ -185,19 +184,11 @@ enum DebugMouse {
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 
-    /// The center of the first visible view in `window` whose accessibility identifier is `identifier`
-    /// (`cmux.browser.profileBadge`: the omnibar's profile avatar), for a capture that clicks a control
-    /// wherever the layout put it.
-    private static func viewPoint(_ identifier: String, in window: NSWindow) -> NSPoint? {
-        func find(_ view: NSView) -> NSView? {
-            if view.isHiddenOrHasHiddenAncestor { return nil }
-            if view.accessibilityIdentifier() == identifier { return view }
-            for child in view.subviews { if let found = find(child) { return found } }
-            return nil
-        }
-        guard let root = window.contentView, let view = find(root) else { return nil }
-        let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
-        return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
+    /// The center of `window`'s first visible view with accessibility identifier `id` (a capture clicks the omnibar avatar).
+    private static func viewPoint(_ id: String, in window: NSWindow) -> NSPoint? {
+        func find(_ view: NSView) -> NSView? { view.isHidden ? nil : view.accessibilityIdentifier() == id ? view : view.subviews.lazy.compactMap(find).first }
+        guard let view = window.contentView.flatMap(find) else { return nil }
+        return InputJournal.topLeftPoint(view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil), in: window, relativeTo: window)
     }
 
     /// Moves the synthesized pointer that layout and chrome hover read, for the window's on-screen layouts.

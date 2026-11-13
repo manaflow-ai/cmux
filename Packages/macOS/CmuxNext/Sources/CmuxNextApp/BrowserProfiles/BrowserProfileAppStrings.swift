@@ -41,16 +41,6 @@ nonisolated enum BrowserProfileAppStrings {
     static var positionRequired: String { text("browserProfiles.refusal.positionRequired", "an index argument is required") }
     static var invalidProxy: String { text("browserProfiles.refusal.invalidProxy", "a proxy needs a scheme (http, https or socks5), a host and a port") }
 
-    // The profile switcher (Chrome's profile menu, `BrowserToolbarHandlers.profileSwitcherMenu`).
-    static var currentProfile: String { text("browserProfiles.switcher.current", "Current profile") }
-    static var otherProfiles: String { text("browserProfiles.switcher.others", "Other Profiles") }
-    static var addProfile: String { text("browserProfiles.switcher.add", "Add Browser Profile…") }
-    static var guestWindow: String { text("browserProfiles.switcher.guest", "Open Guest Window") }
-    static var manageProfiles: String { text("browserProfiles.switcher.manage", "Manage Browser Profiles…") }
-    static func useForWorkspace(_ name: String) -> String {
-        String(format: text("browserProfiles.switcher.useForWorkspace", "Use “%@” for This Workspace"), name)
-    }
-
     /// The typed reason of a refused edit.
     static func message(_ error: BrowserProfileBookError) -> String {
         switch error {

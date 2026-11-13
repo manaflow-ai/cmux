@@ -661,12 +661,9 @@ final class AppServices {
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
         // Customize Menu… at the end of a right-click menu opens Settings > Menus on that menu.
         registry.customizeMenu = { [weak self] context in self?.settingsWindow.showMenus(context) }
-        // The omnibar avatar's menu is Chrome's profile menu: switch the tab's profile, add, guest, manage,
-        // then the profile's own actions, which open in the badge's tab's pane (`profileSwitcherMenu`).
+        // The omnibar avatar's menu: Chrome's profile menu for its tab (`BrowserToolbarHandlers.profileSwitcherMenu`).
         cache.profileBadgeMenu = { [weak self] key in
-            guard let self, cache.tabModel(key) != nil else { return nil }
-            return BrowserToolbarHandlers.profileSwitcherMenu(forTab: key, services: self)
-        }
+            self.flatMap { $0.cache.tabModel(key) == nil ? nil : BrowserToolbarHandlers.profileSwitcherMenu(forTab: key, services: $0) } }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
