@@ -201,9 +201,8 @@ const footerSays = (row: AcpmuxRow) =>
 /// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
 /// Its "Worked for" label is the time's tooltip now,
 /// never a word in the row (TurnRows.tsx TurnFooter), so it no longer keeps the line. It takes no line in the transcript
-/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight). A turn with a work
-/// disclosure draws the footer beside that label in reserved space; its logical boundary stays
-/// here. Other empty footers still use the turn gap below.
+/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
+/// show over the turn gap below, so nothing moves.
 ///
 /// The chat's last turn (`retryable`: no prompt after it) that spoke and then ended on work, with no
 /// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
@@ -1845,7 +1844,7 @@ function shapeTurn(
   // live snapshot/token while the turn is still running.
   const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
   const work = live ? undefined : turnWork(body);
-  const footer: AcpmuxRow = {
+  shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
@@ -1882,23 +1881,7 @@ function shapeTurn(
       (resumable || continuable ? 2 : 0) +
       (retryTarget ? 4 : 0) +
       (changedFiles ? 8 : 0),
-  };
-  // A footer with no answer used to float over the gap after the work. That gap can be smaller
-  // than its controls, letting its age cover this label or the next row. Give it the work row's
-  // trailing space instead, using the same footer rail as replies. Keep the logical boundary
-  // for retry, hover and turn navigation, but render the footer exactly once.
-  let footerHost = -1;
-  if (isEmptyFooter(footer))
-    for (let at = shaped.length - 1; at >= 0; at--)
-      if (shaped[at]!.kind === WORKED) {
-        footerHost = at;
-        break;
-      }
-  if (footerHost >= 0) {
-    const worked = shaped[footerHost]!;
-    shaped[footerHost] = { ...worked, workedFooter: footer, version: mixVersion(worked.version, footer.version) };
-    shaped.push({ ...footer, footerInWorked: true });
-  } else shaped.push(footer);
+  });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
   // A turn the agent started on its own while still working keeps its plan live. Once it runs tools

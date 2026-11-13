@@ -131,25 +131,6 @@ Every card over the composer that waits on the person can be put away (the compo
 - A started chat's name has the head's line to itself and its question the line under it, so neither is
   cut at a fixed share of the band.
 
-## Row hover times
-
-A row's age occupies space after its content and controls, on their shared center line. It uses
-the same `MessageFooterRow` and `MessageTime` as message rows. Revealing the age changes opacity
-alone: the label, disclosure chevron, buttons and following row keep their positions.
-
-The footer of a turn with no answer belongs beside its final Worked for label, including when the
-work is expanded. Its actions and time participate in that row's layout; they never float over
-the gap between rows. The disclosure label gives way first in a narrow pane, with an ellipsis,
-while the age stays readable. A timestamp's exact-date tooltip still uses the shared tooltip layer.
-
-Reference: `cmux-design-references/apps/codex/live/transcript-worked-for-collapsed-summary.png`
-(the quiet disclosure and its divider), and
-`apps/cmux/live/transcript-timestamp-hover-icons-caret.jpg` (the time after a message's actions).
-Gallery `agent-pane.hover-time-placement` compares inline, trailing-edge and separated placements.
-The inline placement keeps the age close to its row without moving its label on hover.
-Detector: `webviews/test/hover-time-placement.browser.test.ts` measures the label, age and row
-bounds at narrow and normal widths, using the real transcript layout.
-
 ## Tokens only
 
 Every colour, radius, size and motion of these controls is a token: `unread.css`, `jumpPair.css` and

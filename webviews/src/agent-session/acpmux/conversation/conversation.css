@@ -92,7 +92,6 @@
   --cv-message-inline-gap: var(--grid-gap);
   --cv-message-indent: var(--grid-transcript-text-gap);
   --cv-footer-gap: 0px;
-  --cv-footer-time-gap: 8px;
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
   --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
@@ -889,7 +888,7 @@
   white-space: nowrap;
 }
 .cv-message-footer-row.cv-turn-footer-row {
-  gap: var(--cv-footer-time-gap);
+  gap: 8px;
 }
 .cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) {
   display: inline-flex;
@@ -914,7 +913,6 @@
   .cv-received-actions,
   .cv-received__hover,
   .cv-reply-actions,
-  .cv-worked-row > .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions,
   .cv-turn-actions .cv-turn-time {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
@@ -933,8 +931,6 @@
   .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
   .acpmux-turnSummary:hover .cv-turn-time,
-  .cv-worked-row:hover > .cv-turn-actions,
-  .cv-worked-row:hover .cv-turn-time,
   .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
@@ -2378,8 +2374,7 @@ pre.cv-math-source {
   cursor: default;
   height: var(--cv-tool-row-height);
 }
-.cv-worked.has-divider::after,
-.cv-worked-row::after {
+.cv-worked.has-divider::after {
   content: "";
   position: absolute;
   left: 0;
@@ -2387,43 +2382,6 @@ pre.cv-math-source {
   bottom: 0;
   height: 1px;
   background: var(--cv-rule);
-}
-/* A turn without an answer keeps its shared footer rail beside its work label. The rail owns
-   space even while hidden: revealing the time never paints over a label or a neighbouring row. */
-.cv-worked-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, var(--cv-worked-label-track, max-content)) max-content;
-  align-items: center;
-  column-gap: var(--cv-worked-footer-gap, var(--cv-footer-time-gap));
-  padding-bottom: var(--grid-gap-foot);
-  margin-bottom: var(--grid-gap);
-}
-.cv-worked-row > .cv-worked {
-  min-width: 0;
-}
-.cv-worked-row .cv-worked__label {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cv-worked-row > .cv-turn-actions {
-  position: static;
-  opacity: 0;
-}
-.cv-worked-row:hover > .cv-turn-actions,
-.cv-worked-row > .cv-worked:hover ~ .cv-turn-actions,
-.cv-worked-row > .cv-worked:has([data-popup-open]) ~ .cv-turn-actions,
-:root:not([data-page-inactive]) .cv-worked-row:has(:focus-visible) > .cv-turn-actions,
-.cv-worked-row:has([data-popup-open]) > .cv-turn-actions,
-.cv-worked-row:hover .cv-turn-time,
-.cv-worked-row > .cv-worked:hover ~ .cv-turn-actions .cv-turn-time,
-.cv-worked-row > .cv-worked:has([data-popup-open]) ~ .cv-turn-actions .cv-turn-time,
-:root:not([data-page-inactive]) .cv-worked-row:has(:focus-visible) .cv-turn-time,
-.cv-worked-row:has([data-popup-open]) .cv-turn-time {
-  opacity: 1;
 }
 .cv-worked__chevron {
   margin-top: 0;

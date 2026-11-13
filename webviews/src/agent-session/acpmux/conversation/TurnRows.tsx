@@ -32,15 +32,7 @@ import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-} from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
@@ -109,10 +101,10 @@ export function WorkedFor({
   // that was stopped or failed did not succeed, so it gets none.
   const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
   const finished = ended && !UNFINISHED.has(row.status ?? "");
-  const disclosure = (
+  return (
     <button
       type="button"
-      className={`cv-worked is-toggle${row.workedFooter ? "" : " has-divider"}`}
+      className="cv-worked has-divider is-toggle"
       data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
@@ -124,14 +116,6 @@ export function WorkedFor({
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
       {finished && <FinishCheck />}
     </button>
-  );
-  return row.workedFooter ? (
-    <div className="cv-worked-row">
-      {disclosure}
-      <TurnFooter row={row.workedFooter} inline />
-    </div>
-  ) : (
-    disclosure
   );
 }
 
@@ -349,7 +333,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
 /// row. Successful replies offer Send prompt again and model choices through More. Failed replies
 /// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
-export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: boolean }) {
+export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const messages = useContext(PresentationContext) === "messages";
   const {
@@ -391,8 +375,8 @@ export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: b
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  // The shared reply timestamp is rendered in the footer rail below; the worked-row host places that
-  // rail beside its label so the hover time never covers the transcript or the next row.
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -520,13 +504,11 @@ export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: b
       )}
       <div
         className={
-          inline
-            ? "cv-turn-actions cv-turn-actions--empty cv-turn-actions--inline"
-            : failed
-              ? "cv-turn-actions cv-turn-actions--failed"
-              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
-                ? "cv-turn-actions cv-turn-actions--empty"
-                : "cv-turn-actions"
+          failed
+            ? "cv-turn-actions cv-turn-actions--failed"
+            : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
@@ -583,7 +565,6 @@ export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: b
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
-          <ReplyTime at={row.at} />
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
