@@ -53,6 +53,42 @@ final class ComposerGrowKeepsTranscriptUITests: XCTestCase {
         assertSame(before, visibleRows(app), "after the composer shrank back")
     }
 
+    /// The other half: a reader on the newest turn keeps seeing it, riding above the taller composer.
+    @MainActor
+    func testFollowingTranscriptRidesAboveGrowingComposer() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "kbd-chat"]
+        app.launch()
+        defer { app.terminate() }
+
+        let field = app.textViews["chat.composer.field"]
+        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
+        if !app.keyboards.firstMatch.exists { field.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        field.typeText("one")
+        XCTAssertFalse(app.buttons["Jump to bottom"].firstMatch.exists, "following the newest turn")
+        let before = lowestRowBottom(app, above: field.frame.minY)
+
+        for _ in 0..<3 { field.typeText("\nanother line") }
+        attach(app, "following-4-lines")
+        let top = field.frame.minY
+        let after = lowestRowBottom(app, above: top)
+        XCTAssertFalse(app.buttons["Jump to bottom"].firstMatch.exists, "still following the newest turn")
+        XCTAssertLessThan(after, before - 20, "the newest turn rose with the composer (\(before) -> \(after))")
+        XCTAssertGreaterThan(after, top - 120, "the newest turn sits right above the composer (row \(after), composer \(top))")
+    }
+
+    /// The bottom of the lowest transcript text drawn above `limit` (screen y).
+    @MainActor
+    private func lowestRowBottom(_ app: XCUIApplication, above limit: CGFloat) -> CGFloat {
+        app.collectionViews.firstMatch.staticTexts.allElementsBoundByIndex
+            .map(\.frame).filter { $0.height > 0 && $0.maxY <= limit + 1 }
+            .map(\.maxY).max() ?? 0
+    }
+
     /// Transcript text elements in the middle of the screen (clear of the header and the
     /// composer), by label: their screen y.
     @MainActor
