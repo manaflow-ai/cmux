@@ -469,9 +469,10 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             subprocess.run(["rm", "-rf", str(root)], check=False)
         self.assertTrue(app.exists())
 
-    def seeded(self, mode: str, *extra: str) -> tuple[int, str, dict, Path]:
+    def seeded(self, mode: str, *extra: str, setup: str = "") -> tuple[int, str, dict, Path]:
         status, output, report = self.run_smoke(mode, "--seconds", "0", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "0", *extra)
+                                                "--arms", "empty,seeded", "--seeded-seconds", "0", *extra,
+                                                setup=setup)
         return status, output, report, self.dir / f"out-{mode}-{self.runs}"
 
     def test_the_seed_tool_makes_a_home_with_cookie_sync_on_and_a_store_with_rows(self):
@@ -613,6 +614,36 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(report["arms"]["seeded"]["host"], died)
         self.assertEqual((report["arm"], report["host"]), ("seeded", died))
         self.assertEqual(report["arms"]["seeded"]["marks"], report["marks"])
+
+    def test_the_load_at_home_is_read_when_home_rendered_not_when_the_watch_ends(self):
+        # The validator's load is the count of its own poll waits so far, and each "Home rendered" line prints
+        # that count. The watch polls on to --seconds after Home, so a read at its end is a larger count. (On a
+        # host where Home takes longer than --seconds the 2 counts are equal and this test proves nothing.)
+        polls = ("import time\ncount, nap, say = [0], time.sleep, smoke.log\n"
+                 "def counted(seconds):\n    count[0] += 1\n    nap(seconds)\n"
+                 "def said(message):\n"
+                 "    say(message)\n"
+                 "    if 'Home rendered' in message:\n        say(f'polls at Home: {count[0]}')\n"
+                 "time.sleep, smoke.log, smoke.host_load = counted, said, lambda: float(count[0])")
+        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", setup=polls)
+        self.assertEqual(status, smoke.PASS, output)
+        (at_home,) = [line for line in output.splitlines() if line.startswith("polls at Home: ")]
+        self.assertEqual(report["host"]["load_at_home"], float(at_home.split(": ")[1]))
+
+    def test_a_passed_seeded_launch_keeps_its_own_marks_not_the_first_launchs(self):
+        # The stub writes the same marks in each launch. Here each read of a marks file adds one key that names
+        # the launch of that file (the seeded launch's is in the folder SEEDED), so the marks say whose they are.
+        named = ("read = smoke.read_marks\n"
+                 "smoke.read_marks = lambda path: {**read(path), 'launch: ' + "
+                 "('seeded' if path.parent.name == smoke.SEEDED else 'first'): 1.0}")
+        status, output, report, _out = self.seeded("healthy", setup=named)
+        self.assertEqual(status, smoke.PASS, output)
+        seeded = report["arms"]["seeded"]
+        self.assertEqual(seeded["verdict"], "pass", output)
+        self.assertEqual([key for key in seeded["marks"] if key.startswith("launch: ")], ["launch: seeded"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        # The report of a run that passed describes the first launch.
+        self.assertEqual([key for key in report["marks"] if key.startswith("launch: ")], ["launch: first"])
 
     def test_the_hosts_load_is_the_one_minute_number_with_two_decimals(self):
         with mock.patch.object(os, "getloadavg", return_value=(1.234, 9.0, 9.0)):
