@@ -409,6 +409,9 @@ class TagGate(unittest.TestCase):
             with self.subTest(endpoint=endpoint):
                 self.assertTrue(publishes({"run": f"gh api {endpoint} -f 'query=mutation{{x}}'"}))
 
+    def test_ghes_graphql_endpoint_is_classified_through_publishes(self) -> None:
+        self.assertTrue(publishes({"run": "gh api https://host/api/graphql -f 'query=mutation{x}'"}))
+
     def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
         policy = POLICIES["app-ffi-release.yml"]
         branch = "github.ref == 'refs/heads/feat-cmux-next'"
