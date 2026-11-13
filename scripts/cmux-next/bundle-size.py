@@ -380,7 +380,11 @@ RUST_LEGACY = re.compile(r"17h[0-9a-f]{16}E$")
 
 
 def symbol_language(name: str) -> str:
-    """The language a symbol map name was compiled from, by its mangling."""
+    """The language a symbol map name was compiled from, by its mangling.
+
+    The map drops Mach-O's leading underscore, as dladdr does: Swift's `_$s` reads `$s`, and the
+    `__ZN` / `__RN` of C++ and Rust read `_ZN` / `_RN`.
+    """
     if name.startswith(("$s", "_$s", "$S")) or name.startswith(SWIFT_PREFIXES):
         return "Swift"
     if name.startswith("_R") or (name.startswith("_ZN") and RUST_LEGACY.search(name)) or name.startswith(RUST_PREFIXES):

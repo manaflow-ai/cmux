@@ -249,10 +249,13 @@ def symbol_map(functions: list[tuple[str, int]]) -> bytes:
 def test_tree_splits_the_app_code_by_language(tmp: Path) -> None:
     app = make_app(tmp)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux"}))
+    # Names as write-app-symbol-map.py stores them: Mach-O's leading underscore dropped, so
+    # `__ZN...` (C++ and legacy Rust) and `__RN...` (Rust v0) read `_ZN...` and `_RN...`, and
+    # `_$s...` (Swift) reads `$s...`. These are the forms in nightly 4328833946401's map.
     (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([
         ("$s10CmuxNextApp4mainyyF", 700),
         ("_ZN4core3fmt5write17h0123456789abcdefE", 200),
-        ("_RNvCs1_4core3fmt", 50),
+        ("_RNvCsfLfy6EI15iL_7___rustc12___rust_alloc", 50),
         ("cmux_layout_reducer_apply", 30),
         ("ghostty_surface_new", 40),
         ("_ZN11spirv_cross8Compiler4compileEv", 25),
