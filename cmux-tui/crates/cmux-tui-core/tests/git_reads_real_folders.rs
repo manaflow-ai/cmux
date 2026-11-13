@@ -13,8 +13,9 @@
 //! - `git.diff` counts the lines of each untracked file that git lists. It counts no line of
 //!   a file below a link, also when the link took a folder's place after git's listing.
 //! - `git.files.search` and `git.files.list` say of a listed name if it is a folder (a
-//!   submodule). A link is a file whatever its target is, and a name below a link is no
-//!   folder, also when the link took a folder's place after git's listing.
+//!   submodule). A link is a file whatever its target is, also when git lists tracked paths
+//!   below its name. A name below a link is no folder and no search result, also when the
+//!   link took a folder's place after git's listing.
 //!
 //! The git on `PATH` is a stand-in that is the real git. After a child that lists the
 //! untracked files (`ls-files --others`) it runs `.git/after-untracked-listing` of the work
@@ -519,6 +520,21 @@ fn git_worktree_setup_makes_no_file_through_a_link_in_the_place_of_the_ports_loc
     assert!(!made, "the read made a file where the link points");
 }
 
+#[test]
+fn git_worktree_setup_waits_for_no_lock_of_a_named_pipe_in_the_place_of_the_ports_lock() {
+    let (worktree, git_dir) = linked_worktree();
+    let shared = shared_git_folder(&git_dir);
+    std::fs::write(shared.join("cmux-worktree-ports.json"), ports_text(&worktree, 4310)).unwrap();
+    let lock = shared.join("cmux-worktree-ports.lock");
+    named_pipe(&lock);
+    // The two ends of the pipe are open here, so no open of it waits. Where a pipe takes a
+    // lock, this one is held to the end of the test: a read that asks for it does not end.
+    let holder = OpenOptions::new().read(true).write(true).open(&lock).unwrap();
+    let locked = holder.lock().is_ok();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["port"], 4310, "the port with a pipe as the lock (locked: {locked}): {run}");
+}
+
 /// The status file of a setup that runs.
 const RUNS: &str = r#"{"state":"running","started_ms":1}"#;
 
@@ -595,4 +611,66 @@ fn git_files_list_gives_no_folder_below_a_folder_that_became_a_link_after_the_li
     let during = client.listed_kind(&folder, "name");
     swapped(&repo, &hook);
     assert_eq!(during, "file", "the kind of a name that is not in the work tree");
+}
+
+#[test]
+fn git_files_search_gives_no_path_below_a_folder_that_became_a_link_after_the_listing() {
+    let repo = fresh_repository();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("dir/name.txt"), "inside\n").unwrap();
+    let outside = outside_folder("name.txt", b"outside\n");
+    let mut client = Client::of_a_new_daemon();
+    assert_eq!(client.found(&repo, "name"), ["dir/name.txt"], "the file of the work tree");
+
+    let hook = swap_after(&repo, "after-deleted-listing", &outside);
+    let during = client.found(&repo, "name");
+    swapped(&repo, &hook);
+    assert_eq!(during, NO_PATH, "a path that is not in the work tree");
+}
+
+/// No search result.
+const NO_PATH: [&str; 0] = [];
+
+/// A new repository whose tracked folder `dir` is now a link to a folder outside it. That
+/// folder has a `below.txt` of its own, the name of the tracked file `dir/below.txt`.
+fn repository_with_a_link_in_the_place_of_a_tracked_folder() -> PathBuf {
+    let repo = fresh_repository();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("dir/below.txt"), "inside\n").unwrap();
+    git(&repo, &["add", "dir/below.txt"]);
+    git(&repo, &["commit", "--quiet", "-m", "dir"]);
+    let outside = outside_folder("below.txt", b"outside\n");
+    std::fs::rename(repo.join("dir"), repo.join(".git").join("dir-away")).unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("dir")).unwrap();
+    repo
+}
+
+#[test]
+fn git_files_list_gives_no_folder_for_a_link_in_the_place_of_a_tracked_folder() {
+    let repo = repository_with_a_link_in_the_place_of_a_tracked_folder();
+    let kind = Client::of_a_new_daemon().listed_kind(&repo, "dir");
+    assert_eq!(kind, "file", "a link with tracked paths below its name");
+}
+
+#[test]
+fn git_files_search_gives_no_path_below_a_link_in_the_place_of_a_tracked_folder() {
+    let repo = repository_with_a_link_in_the_place_of_a_tracked_folder();
+    let found = Client::of_a_new_daemon().found(&repo, "below");
+    assert_eq!(found, NO_PATH, "a path that is not in the work tree");
+}
+
+#[test]
+fn git_files_list_gives_a_submodule_as_a_folder_and_the_search_gives_it_as_no_file() {
+    let repo = fresh_repository();
+    let inner = repo.join("inner-repo");
+    std::fs::create_dir_all(&inner).unwrap();
+    git(&inner, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(inner.join("s.txt"), "one\n").unwrap();
+    git(&inner, &["add", "s.txt"]);
+    git(&inner, &["commit", "--quiet", "-m", "s.txt"]);
+    // git records the folder as one path, a repository of its own.
+    git(&repo, &["add", "inner-repo"]);
+    let mut client = Client::of_a_new_daemon();
+    assert_eq!(client.listed_kind(&repo, "inner-repo"), "directory", "a real folder");
+    assert_eq!(client.found(&repo, "inner-repo"), NO_PATH, "a folder is no file");
 }
