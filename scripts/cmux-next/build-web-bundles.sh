@@ -29,6 +29,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 MODE=build
 OUT_ROOT=""
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) MODE=force ;;
@@ -37,13 +38,17 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "error: --out-root needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
       shift ;;
+    --report-dir)
+      [ $# -ge 2 ] || { echo "error: --report-dir needs a directory" >&2; exit 2; }
+      case "$2" in /*) REPORT_DIR="$2" ;; *) REPORT_DIR="$PWD/$2" ;; esac
+      shift ;;
     --from)
       [ $# -ge 2 ] || { echo "error: --from needs a directory" >&2; exit 2; }
       MODE=from
       case "$2" in /*) FROM_ROOT="$2" ;; *) FROM_ROOT="$PWD/$2" ;; esac
       shift ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
-    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--from DIR]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--report-dir DIR] [--from DIR]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -172,13 +177,25 @@ out() {
 }
 
 rm -f "$STAMP"
-"$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
-"$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
-"$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR"
+  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
+  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json" "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
+  CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
+else
+  "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
+  "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+  "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
+  "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
+fi
 # In-tree, the committed page was checked above.
 if [ -n "$OUT_ROOT" ]; then
-  "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
+  if [ -n "$REPORT_DIR" ]; then
+    CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
+  else
+    "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
+  fi
 fi
 
 if [ -z "$OUT_ROOT" ]; then

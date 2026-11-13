@@ -141,6 +141,8 @@ try {
       });
     });
     let rendered = false;
+    const openStart = performance.now();
+    let openMs = null;
     try {
       const route = name === "server-cards" ? "#/pair-invite" : "";
       await page.goto(`http://${name}.pages.test${mode === "daemon" ? `/pages/${name}/` : "/"}?mock${route}`, {
@@ -150,6 +152,7 @@ try {
       await page.waitForFunction(() => document.querySelector("#root")?.childElementCount > 0, null, {
         timeout: 10_000,
       });
+      openMs = performance.now() - openStart;
       rendered = true;
     } catch (error) {
       errors.push(String(error).split("\n")[0]);
@@ -163,7 +166,17 @@ try {
     await page.screenshot({ path: capturePath });
     const captureSize = (await stat(capturePath)).size;
     if (!captureSize) errors.push("production capture is empty");
-    const receipt = { page: name, rendered, text: text.slice(0, 300), capture, captureSize, errors, missing, requests };
+    const receipt = {
+      page: name,
+      rendered,
+      openMs,
+      text: text.slice(0, 300),
+      capture,
+      captureSize,
+      errors,
+      missing,
+      requests,
+    };
     receipts.push(receipt);
     console.log(JSON.stringify(receipt));
     await context.close();
@@ -180,6 +193,17 @@ try {
     ),
   );
 }
+const openTimes = receipts.map((item) => item.openMs).filter((value) => typeof value === "number");
+openTimes.sort((a, b) => a - b);
+const percentile = (p) =>
+  openTimes.length ? openTimes[Math.min(openTimes.length - 1, Math.ceil(p * openTimes.length) - 1)] : null;
+const timing = {
+  count: openTimes.length,
+  p50Ms: percentile(0.5),
+  p95Ms: percentile(0.95),
+  maxMs: openTimes.at(-1) ?? null,
+};
+console.log(JSON.stringify({ timing }));
 if (
   receipts.length !== expectedPages.size ||
   receipts.some((item) => !item.rendered || item.missing.length || item.errors.length)

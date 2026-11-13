@@ -8,13 +8,14 @@ import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "../agent-pane/reactCompilerPlugin.mjs";
 import { artifactRuntimePlugin } from "../agent-pane/artifactRuntimePlugin.mjs";
 import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
-import { jsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
+import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
 const srcRoot = fileURLToPath(new URL("../../src", import.meta.url));
 const mode = reactCompilerMode();
+const jsonParseSettingsPagePlugin = createJsonParsePlugin({ settingsPageOnly: true });
 const compiled = new Set();
 const bailouts = [];
 const result = await build({
@@ -42,7 +43,7 @@ const result = await build({
     }),
     artifactRuntimePlugin(),
     tailwindPlugin,
-    jsonParsePlugin,
+    jsonParseSettingsPagePlugin,
     // Preserve the existing pages' math styling; splitting must not add new styling defaults.
     katexStylePlugin({ split: false }),
   ],
@@ -65,7 +66,7 @@ for (const page of pages) {
     loader: { ".png": "dataurl", ".woff2": "dataurl" },
     alias: { shiki: path.join(srcRoot, page === "github" ? "pages/github/shiki" : "agent-session/acpmux/shiki") },
     logLevel: "warning",
-    plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split: false })],
+    plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
   await writeFile(path.join(outdir, page, "app.css"), css?.contents ?? "");
