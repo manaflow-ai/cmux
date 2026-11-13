@@ -64,6 +64,7 @@ mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
+mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
@@ -241,6 +242,7 @@ mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
+pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
@@ -279,6 +281,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) mod time_breakdown;
 mod titles;
+mod tool_installs;
 mod tool_paths;
 mod tool_read_images;
 mod tool_shell;
@@ -1890,6 +1893,8 @@ impl Hub {
             parent_print: AtomicU64::new(parent_print),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
+            idle: std::sync::atomic::AtomicUsize::new(0),
+            turn_ended_seq: AtomicU64::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),

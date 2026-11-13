@@ -5,12 +5,12 @@ import CmuxNextTerminal
 /// (NEW-TERMINAL-INHERITS-CWD, cx-zld). By default it inherits: the caller
 /// passes the focused terminal's folder or nothing, and the daemon's
 /// new-terminal resolver decides. Ghostty's `window-`, `tab-` or
-/// `split-inherit-working-directory = false` turns that off for its kind:
-/// the terminal starts in the home folder, an explicit folder still wins.
-/// Only on this Mac's daemon: the home folder is this Mac's path, so a
-/// terminal of another machine (its daemon, or a remote terminal tab beside
-/// it) keeps its own folder rules.
+/// `split-inherit-working-directory = false` turns that off for its kind: the terminal starts
+/// in Ghostty's `working-directory`, else home (docs/cmux-next/new-terminal-folder.md). Only on
+/// this Mac's daemon: a terminal of another machine keeps its own folder rules.
 enum NewTerminalStart {
+    /// A new terminal's folder when none is named or inherited: Ghostty's `working-directory` on this Mac, else the daemon's default.
+    @MainActor static func defaultFolder(on daemon: DaemonService) -> String? { GhosttyRuntime.shared.defaultTerminalFolder(local: daemon.isLocal, fallback: daemon.defaultCwd) }
     /// The start folder of a new terminal of `kind` whose caller named none,
     /// opened on `daemon` beside `tab`: nil while it inherits, else the home folder.
     @MainActor static func uninherited(_ kind: GhosttyWorkingDirectoryInheritance.Kind, services: AppServices,

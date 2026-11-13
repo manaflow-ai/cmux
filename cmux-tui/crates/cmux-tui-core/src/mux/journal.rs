@@ -96,6 +96,12 @@ impl Mux {
         self.journal_ingress.spawn_writer(name, task)
     }
 
+    /// Sets this session's journal deadline (deadline tests: `JOURNAL_DEADLINE_TEST_WAIT`).
+    #[cfg(test)]
+    pub(crate) fn set_journal_durable_wait_for_test(&self, wait: Duration) {
+        self.journal_ingress.set_durable_wait_for_test(wait);
+    }
+
     #[cfg(test)]
     pub(crate) fn install_journal_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);
@@ -380,6 +386,16 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.registry_connection.set_journal_before_commit_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_failing_statement_after_hold_for_test(&self) {
+        self.registry_connection.set_journal_failing_statement_after_hold_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_statement_until_deadline_for_test(&self) {
+        self.registry_connection.set_journal_statement_until_deadline_for_test();
     }
 
     #[cfg(test)]
