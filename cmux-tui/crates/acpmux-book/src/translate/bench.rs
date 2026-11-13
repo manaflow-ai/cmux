@@ -122,7 +122,7 @@ fn measure_child() {
             "RSS {count} {point}: VmHWM={} KiB VmRSS={} KiB",
             resident_kib("VmHWM:"),
             resident_kib("VmRSS:")
-        )
+        );
     };
     resident("before_translate");
     let mut state = State::default();
