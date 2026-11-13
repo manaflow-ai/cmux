@@ -114,7 +114,8 @@ NOT_RUN = "not-run"
 # Where --out keeps the crash reports that an arm found and did not count (the log says why).
 NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
-# how long Home may take to render in it, and how long after launch the sync may take to read the store.
+# how long Home may take to render in it, and how long after launch the sync may take to read the store. (A
+# clone cleanup helper that hangs adds up to CLONE_HELPER_WAIT + 5 s to each arm; these bounds do not count it.)
 SEEDED_STARTUP_LIMIT = 45.0
 DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
@@ -124,12 +125,11 @@ SEEDED_SCAN_WAIT = 30.0
 # about 1 s after the app ends. The X folder is beside the account's temp folder, not under the launch's TMPDIR,
 # so the removal of the run's root never takes it. A helper that is stopped with the app leaves the clone until
 # reboot (29 GB on cmux18, 2026-11-02; scripts/perf-bench/procs.py has the same wait). CLONE_HELPER_WAIT: how
-# long the helper gets after the app's end; it is a bound, the wait ends when the helper does.
+# long the helper gets after the app's end; it is a bound, the wait ends when the helper does. The helper shows
+# only when the app is stopped: an app that crashed or was killed starts none, and its clone stays.
 CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
 CLONE_SUFFIX = re.compile(r"(?:^|\s)--unique-temp-dir-suffix=([A-Za-z0-9]{1,32})(?=\s|$)")
 CLONE_HELPER_WAIT = 15.0
-# Set when a signal cuts the run (main): the processes are then stopped with no wait for the helper.
-CUT = False
 # The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
 # app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
 # browser of that table, so it has none to ask for here, whatever a build does with the seeded cookies.
@@ -844,9 +844,8 @@ def clone_folder() -> Path | None:
     if given:
         return Path(given)
     try:
-        temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
-                              timeout=10).stdout.strip().rstrip("/")
-    except (OSError, subprocess.SubprocessError):
+        temp = os.confstr(65537).rstrip("/")  # _CS_DARWIN_USER_TEMP_DIR, what `getconf DARWIN_USER_TEMP_DIR` says
+    except (AttributeError, OSError, ValueError):
         return None
     if not temp.startswith("/") or not temp.endswith("/T"):
         return None
@@ -881,31 +880,38 @@ def remove_own_clone(bundle_id: str, suffix: str) -> str:
     return "removed by this tool"
 
 
-def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> dict:
-    """Stops every process of the run that still runs, after the app's end. The code-sign clone cleanup helper
-    (CLONE_CLEANUP) is the last: it gets up to WAIT seconds (CLONE_HELPER_WAIT; none in a run that a signal cut)
-    to remove the launch's clone and end by itself, then what is left is stopped. A clone that the helper did
-    not remove is removed here, only when the helper's command line named its suffix. Returns what was seen, for
-    the report; a fault in here is told there and never fails or cuts the run.
-
-    One read of the process list serves the search for the helpers and the first stop, so a launch with no
-    helper costs the one read that it cost before; the second read is only for a launch that had a helper."""
-    facts: dict = {"helpers": 0}
+def stop_but_helpers(root: Path) -> dict:
+    """The first part of a launch's end, after the app's: stops every process of the run that still runs but
+    its code-sign clone cleanup helpers (CLONE_CLEANUP), from one read of the process list. Returns what
+    end_clones needs: the helpers (pid -> the suffix that it names), when this ended, and a fault if one came."""
+    state: dict = {"helpers": {}}
     try:
         processes = user_processes()
-        helpers = clone_helpers(root, processes)
-        stop([pid for pid in own_pids(root, processes) if pid not in helpers])
+        state["helpers"] = clone_helpers(root, processes)
+        stop([pid for pid in own_pids(root, processes) if pid not in state["helpers"]])
+    except Exception as error:  # noqa: BLE001 - end_clones then stops all, and the verdict is not of this
+        state["error"] = f"{type(error).__name__}: {error}"[:300]
+    state["asked"] = time.monotonic()
+    return state
+
+
+def end_clones(root: Path, bundle_id: str | None, state: dict, wait: float | None = None) -> dict:
+    """The second part, after the look for the launch's crash reports (so that look is no later than it was
+    without a helper): the helpers of STATE get until WAIT seconds (CLONE_HELPER_WAIT) after the first part to
+    remove the launch's clone and end by themselves, then what is left of the run is stopped from a new read. A
+    clone that its helper named and did not remove is removed here. Returns what was seen, for the report; a
+    fault in here is told there and never fails or cuts the run."""
+    helpers = state["helpers"]
+    facts: dict = {"helpers": len(helpers), **({"error": state["error"]} if "error" in state else {})}
+    try:
         if helpers:
             if wait is None:
-                wait = 0.0 if CUT else float(os.environ.get("CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS",
-                                                             CLONE_HELPER_WAIT))
-            asked = time.monotonic()
-            while time.monotonic() - asked < wait and any(alive(pid) for pid in helpers):
+                wait = float(os.environ.get("CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS", CLONE_HELPER_WAIT))
+            while time.monotonic() - state["asked"] < wait and any(alive(pid) for pid in helpers):
                 time.sleep(0.1)
-            facts.update(helpers=len(helpers), helper_ended=not any(alive(pid) for pid in helpers),
-                         helper_seconds=round(time.monotonic() - asked, 1), wait=wait)
+            facts.update(helper_ended=not any(alive(pid) for pid in helpers),
+                         helper_seconds=round(time.monotonic() - state["asked"], 1), wait=wait)
     except Exception as error:  # noqa: BLE001 - the stop below must run, and the verdict is not of this
-        helpers = {}
         facts["error"] = f"{type(error).__name__}: {error}"[:300]
     if helpers or "error" in facts:
         stop(own_pids(root))
@@ -915,17 +921,22 @@ def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> di
             facts["clones"] = {suffix: remove_own_clone(bundle_id or "", suffix) for suffix in suffixes}
             if not suffixes:
                 facts["clones_not_known"] = "the helper's command line named no suffix; no clone is removed here"
-            if not facts.get("helper_ended") or not suffixes:
+            if not (facts.get("helper_ended") and suffixes and set(facts["clones"].values()) == {"gone"}):
                 log(f"note: code-sign clone cleanup: {json.dumps(facts, sort_keys=True)}")
     except Exception as error:  # noqa: BLE001 - as above
         facts["error"] = f"{type(error).__name__}: {error}"[:300]
     return facts
 
 
-def end_launch(process: subprocess.Popen, root: Path, bundle_id: str | None) -> dict:
-    """The end of one launch: the app, then the rest of the run's processes (stop_own)."""
+def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> dict:
+    """Both parts at once: the end of a run, where no look for crash reports follows."""
+    return end_clones(root, bundle_id, stop_but_helpers(root), wait)
+
+
+def end_launch(process: subprocess.Popen, root: Path) -> dict:
+    """The end of one launch, first part: the app, then the run's other processes (stop_but_helpers)."""
     stop_child(process)
-    return stop_own(root, bundle_id)
+    return stop_but_helpers(root)
 
 
 def system_log_errors(pid: int, since: float, limit: int = 40) -> list[str]:
@@ -1151,7 +1162,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
                                   seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
             finally:
-                arm["clone_cleanup"] = end_launch(process, root, bundle_id)
+                ended = end_launch(process, root)
         finally:
             os.close(marks_read)
     seen["marks"] = read_marks(marks_path)
@@ -1165,6 +1176,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     asked, began = time.monotonic(), max(launch["earlier_stopped"], launched_wall)
     crashes, not_counted = launch_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None,
                                                 process.pid, app, launch["earlier"], began, sub)
+    arm["clone_cleanup"] = end_clones(root, bundle_id, ended)
     others = list(not_counted)
     for found in others:
         log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
@@ -1227,7 +1239,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
     the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
     arm: dict = {"verdict": NOT_RUN}
-    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures") if key in report}
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "clone_cleanup")
+             if key in report}
     report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
     if status != PASS:
         arm["reason"] = "the first arm did not pass"
@@ -1246,7 +1259,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
-        report.update(pid=arm["pid"], verdict="fail", arm=SEEDED,
+        report.update(pid=arm["pid"], verdict="fail", arm=SEEDED, clone_cleanup=arm.get("clone_cleanup"),
                       crash_reports_not_counted=arm.get("crash_reports_not_counted", []))
 
     try:
@@ -1315,7 +1328,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         journey_failures = []
         if AFTER_RENDER is not None and seen["exit"] is None and seen["rendered_at"] is not None:
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
-        report["clone_cleanup"] = end_launch(process, root, bundle_id)
+        ended = end_launch(process, root)
     # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
@@ -1323,6 +1336,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
     asked = time.monotonic()
     crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
                                                 process.pid, app, frozenset(), launched_wall, root)
+    report["clone_cleanup"] = end_clones(root, bundle_id, ended)
     for found, why in not_counted.items():
         log(f"note: crash report {found.name} is not counted for this launch: {why}")
     exceptions = sorted((root / "h").rglob("run.exception"))
@@ -1402,8 +1416,6 @@ def main(argv: list[str] | None = None) -> int:
     report: dict = {"root": str(root)}
 
     def interrupted(signum, _frame):
-        global CUT
-        CUT = True  # the launch's end then stops the processes with no wait for the clone cleanup helper
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGTERM, interrupted)
@@ -1424,9 +1436,11 @@ def main(argv: list[str] | None = None) -> int:
         for pid in (report.get("pid"), seeded_pid):
             if pid:
                 stop([pid])
-        # Nothing runs here after a launch that ended (end_launch). After a cut: no wait, and the launch's clone
-        # goes by its helper's suffix.
-        stop_own(root, report.get("bundle_id"), wait=0.0)
+        # Nothing runs here after a launch that ended (end_clones). After a cut or a fault between a launch's two
+        # parts: no wait, and the launch's clone goes by its helper's suffix.
+        at_end = stop_own(root, report.get("bundle_id"), wait=0.0)
+        if at_end != {"helpers": 0}:
+            report["clone_cleanup_at_end"] = at_end
         if args.out:
             # app.log is the launch the report describes; the other arm's is beside it under its arm's name.
             logs = {EMPTY: root / "app.log", SEEDED: root / SEEDED / "app.log"}
