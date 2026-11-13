@@ -161,6 +161,53 @@ async fn an_unchanged_second_start_appends_no_record_and_sends_no_op() {
 }
 
 #[tokio::test]
+async fn eleven_thousand_rows_reconcile_with_a_thousand_changes_between_pages() {
+    use std::future::Future as _;
+    let v1 = memory_hub();
+    let mut index = acpmux_book::index::SummaryIndex::new();
+    for n in 0..11_000 {
+        let id = format!("chat-{n:05}");
+        v1.insert_test_session(meta(&id));
+        let mut stale = Summary::new(id);
+        stale.last_activity = n;
+        index = index.apply(n + 1, stale);
+    }
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = Arc::new(V2::new(hub, writer));
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+    let mut walk = Box::pin(reconcile(&v1, &v2, &state));
+    std::future::poll_fn(|cx| {
+        assert!(walk.as_mut().poll(cx).is_pending(), "the walk yields between pages");
+        std::task::Poll::Ready(())
+    })
+    .await;
+    for n in 0..1000 {
+        // Include keys on both sides of the first page's continuation key.
+        let id = format!("chat-{:05}", n * 17 % 11_000);
+        let session = session_by_id(&v1, &id).unwrap();
+        v1.edit_test_meta(&session, |row| {
+            row.title = Some(format!("changed-{n}"));
+            row.unread = true;
+            row.unread_turns = n + 1;
+        });
+    }
+    let _expiries = walk.await;
+    assert_eq!(state.marks.load(Ordering::Relaxed), 1000);
+    assert!(!state.has_pending());
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+    let index = v2.hub.snapshot();
+    assert_eq!(index.len(), 11_000);
+    for n in 0..11_000 {
+        let id = format!("chat-{n:05}");
+        let session = session_by_id(&v1, &id).unwrap();
+        let expected = summary_from_session(&v1, &session).unwrap();
+        assert!(index.get(&id).unwrap().same_content(&expected), "{id}");
+    }
+}
+
+#[tokio::test]
 async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     use acpmux_core::hub::ListItem;
     let v1 = memory_hub();

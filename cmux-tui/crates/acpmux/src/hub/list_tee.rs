@@ -120,6 +120,53 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
     }
 }
 
+async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
+    v1.wait_store().await;
+    // Only ids survive a page. Each lookup uses the current session map,
+    // so a purge drained between pages cannot be undone by an old handle.
+    let mut unseen: HashSet<_> =
+        v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+    let mut expiries = Expiries::default();
+    let mut anchor: Option<SortKey> = None;
+    loop {
+        let page = match v2.hub.snapshot().read_page(
+            anchor.as_ref(),
+            ReadSide::After,
+            false,
+            BATCH,
+            256 * 1024,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(error) => {
+                tracing::warn!(%error, "v2 list reconciliation page failed");
+                break;
+            }
+        };
+        for row in &page.rows {
+            if row.origin == "local" {
+                unseen.remove(&row.chat_id);
+                submit_id(v1, v2, &mut expiries, &row.chat_id);
+            }
+        }
+        drain_marks(v1, v2, state, &mut expiries);
+        if !page.has_after {
+            break;
+        }
+        let Some(next) = page.after_key else { break };
+        anchor = Some(next);
+        tokio::task::yield_now().await;
+    }
+    for (n, id) in unseen.into_iter().enumerate() {
+        submit_id(v1, v2, &mut expiries, &id);
+        if (n + 1) % BATCH == 0 {
+            drain_marks(v1, v2, state, &mut expiries);
+            tokio::task::yield_now().await;
+        }
+    }
+    expiries
+}
+
 pub(crate) fn start_v2_tee(
     v1: Arc<Hub>,
     v2: Arc<V2>,
@@ -127,49 +174,7 @@ pub(crate) fn start_v2_tee(
     let state = Arc::new(TeeState::default());
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
-        v1.wait_store().await;
-        // Only ids survive a page. Each lookup uses the current session map,
-        // so a purge drained between pages cannot be undone by an old handle.
-        let mut unseen: HashSet<_> =
-            v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-        let mut expiries = Expiries::default();
-        let mut anchor: Option<SortKey> = None;
-        loop {
-            let page = match v2.hub.snapshot().read_page(
-                anchor.as_ref(),
-                ReadSide::After,
-                false,
-                BATCH,
-                256 * 1024,
-                None,
-            ) {
-                Ok(page) => page,
-                Err(error) => {
-                    tracing::warn!(%error, "v2 list reconciliation page failed");
-                    break;
-                }
-            };
-            for row in &page.rows {
-                if row.origin == "local" {
-                    unseen.remove(&row.chat_id);
-                    submit_id(&v1, &v2, &mut expiries, &row.chat_id);
-                }
-            }
-            drain_marks(&v1, &v2, &state, &mut expiries);
-            if !page.has_after {
-                break;
-            }
-            let Some(next) = page.after_key else { break };
-            anchor = Some(next);
-            tokio::task::yield_now().await;
-        }
-        for (n, id) in unseen.into_iter().enumerate() {
-            submit_id(&v1, &v2, &mut expiries, &id);
-            if (n + 1) % BATCH == 0 {
-                drain_marks(&v1, &v2, &state, &mut expiries);
-                tokio::task::yield_now().await;
-            }
-        }
+        let mut expiries = reconcile(&v1, &v2, &state).await;
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
