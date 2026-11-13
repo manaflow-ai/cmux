@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MacBookGlyph } from "./MacBookGlyph";
 import { Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { Popover } from "../../ui/Popover";
@@ -1003,10 +1004,7 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
       focusable="false"
     >
       {kind === "local" ? (
-        <>
-          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-          <path d="M1.75 12.5h12.5" />
-        </>
+        <MacBookGlyph />
       ) : kind === "ssh" ? (
         <>
           <rect x="2" y="3" width="12" height="10" rx="1.5" />

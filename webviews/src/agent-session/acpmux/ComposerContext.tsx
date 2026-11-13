@@ -58,6 +58,7 @@ import type { BrowseRequest } from "./AddProjectPanel";
 import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
+import { MacBookGlyph } from "./MacBookGlyph";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
@@ -1449,8 +1450,14 @@ function ComputerIcon({ name }: { name?: string }) {
       aria-hidden="true"
       focusable="false"
     >
-      <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-      <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+      {name ? (
+        <>
+          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
+          <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+        </>
+      ) : (
+        <MacBookGlyph />
+      )}
     </svg>
   );
 }
