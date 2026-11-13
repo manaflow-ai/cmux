@@ -27,9 +27,9 @@ TARGETS = {
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
     "fast-checks.yml": {"checks"},
     # 2026-10-31T23:57Z queue alarms: each sat 44-46 min on one Blacksmith size that started nothing
-    # (gallery health on 16 vCPU, web validation and PR checks' base-only on 32, the cloud backend check on
-    # the capability map's fixed 4 vCPU label).
-    "gallery-health.yml": {"health"},
+    # (gallery health on a fixed 16 vCPU label, web validation and PR checks' base-only on 32, the cloud
+    # backend check on the capability map's fixed 4 vCPU label). Gallery health now reads the 16 vCPU pool,
+    # which moves to 32 vCPU on a stall (POOL_16 below).
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
     "pr-body-checks.yml": {"body"},
@@ -102,6 +102,15 @@ class RunnerSetTests(unittest.TestCase):
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+
+    def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
+        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
+        # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
+        job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
+        runs_on = runs_on_text(job, "gallery-health.yml#health")
+        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 
     def test_cmux_next_pr_quiet_period_comes_before_every_mac_job(self) -> None:
         # A PR run sleeps until about 5 minutes after the PR's last push, so a newer push cancels a
