@@ -17,12 +17,17 @@ struct Underlay {
     sender: NetSender,
     input: channel::Receiver<Vec<u8>>,
 }
+
+fn expires_at_media_handoff(priority: Priority) -> bool {
+    priority == Priority::Media
+}
+
 impl cmux_wg::Underlay for Underlay {
     fn send(&mut self, packet: &[u8]) {
         self.sender.send_datagram(packet.to_vec());
     }
     fn send_classified(&mut self, packet: &[u8], priority: Priority) {
-        if priority == Priority::Media {
+        if expires_at_media_handoff(priority) {
             self.sender.send_media(packet.to_vec());
         } else {
             self.sender.send_datagram(packet.to_vec());
@@ -184,6 +189,13 @@ mod tests {
         assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
         let queued = QueuedMedia { queued_at: at, payload: vec![2] };
         assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
+    }
+
+    #[test]
+    fn only_media_uses_expiring_handoff() {
+        assert!(expires_at_media_handoff(Priority::Media));
+        assert!(!expires_at_media_handoff(Priority::Interactive));
+        assert!(!expires_at_media_handoff(Priority::Bulk));
     }
 }
 impl Drop for Session {
