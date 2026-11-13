@@ -97,6 +97,11 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ShellRead(_) => {
+            anyhow::bail!("shell-read requires the asynchronous request path")
+        }
+        Command::ShellRun(params) => shell_wire::run(mux, client, params),
+        Command::ShellStop(params) => shell_wire::stop(mux, client, params),
         Command::ChiefWork { chief } => {
             drop(chief);
             anyhow::bail!("chief-work requires the asynchronous request path")
@@ -285,6 +290,9 @@ fn dispatch_command(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
+        Command::CancelCreatingInput { terminal_id } => {
+            creating_input::cancel(mux, client, &terminal_id)
+        }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -417,8 +425,8 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
+        Command::CreateWorkspace { name, key, first_tab, mutation } => {
+            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
         }
         Command::CreateTerminal {
             workspace,
@@ -434,6 +442,8 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace,
+            workspace_name,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -452,6 +462,7 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace.then_some(workspace_name),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
@@ -502,6 +513,9 @@ fn dispatch_command(
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
             cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+        }
+        Command::SetDividerVisible { split, visible, transaction } => {
+            cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)

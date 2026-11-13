@@ -10,6 +10,7 @@ import {
   type OmnibarContext,
   type OmnibarProfile,
   type OmnibarRow,
+  stepSelection,
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
@@ -38,7 +39,8 @@ export type ScreenRow =
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
-  /// `strip`: drawn in the quiet strip under the rows, not as a row; still in the arrow keys' order.
+  /// `strip`: drawn in the quiet strip under the rows, not as a row. ↓ and ↑ reach the strip as one
+  /// line (at the action last selected there), ← and → step along it (``arrowStep``, ``stripStep``).
   | { type: "create"; kind: CreateKind; strip?: true }
   /// Open in Profile… (Lawrence 2026-11-05): the field becomes a search of every browser profile,
   /// for the address `url` that `text` resolved to (``profileRows``).
@@ -48,6 +50,17 @@ export type ScreenRow =
   | { type: "newProfile"; url: string; name?: string }
   /// Open `url` in the browser profile `id` (a row of the profile search).
   | { type: "profile"; url: string; id: string; name: string; color?: string };
+
+/// The web search row searches the draft's words, as `words` reads them: never an attachment's
+/// token, whose id is no text the person wrote, which a pasted image's search row showed and
+/// searched for (#41016). A draft of attachments alone searches nothing.
+export function searchWords(rows: readonly ScreenRow[], words: (text: string) => string): ScreenRow[] {
+  return rows.flatMap((row): ScreenRow[] => {
+    if (row.type !== "search") return [row];
+    const text = words(row.text).trim();
+    return text ? [{ ...row, text }] : [];
+  });
+}
 
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
@@ -182,6 +195,29 @@ function profileScore(needle: string, name: string): number {
 /// Whether `row` is drawn in the strip under the rows.
 export function inStrip(row: ScreenRow): boolean {
   return row.type === "create" && row.strip === true;
+}
+
+/// The row ↑ or ↓ selects from `current` (-1: the text): the rows one line each, then the create
+/// strip as one line under them (the strip ends the list, ``screenRows``). The strip is entered at
+/// action `column` (the one last selected there; 0, its first, by default), clamped to its length.
+/// Down never steps along the strip's actions one by one; ← and → do (``stripStep``).
+export function arrowStep(rows: readonly ScreenRow[], current: number, step: 1 | -1, column = 0): number {
+  const strip = rows.findIndex(inStrip);
+  const listed = strip < 0 ? rows.length : strip;
+  const lines = strip < 0 ? listed : listed + 1;
+  // The strip's line is index `listed`.
+  const line = stepSelection(current < 0 ? -1 : Math.min(current, listed), step, lines);
+  if (strip < 0 || line !== listed) return line;
+  return listed + Math.max(0, Math.min(column, rows.length - listed - 1));
+}
+
+/// The strip action ← or → selects from `current`, staying at the strip's ends; undefined when
+/// `current` is not a strip action, so the keys keep their meaning in the text.
+export function stripStep(rows: readonly ScreenRow[], current: number, step: 1 | -1): number | undefined {
+  const row = rows[current];
+  if (!row || !inStrip(row)) return undefined;
+  const next = rows[current + step];
+  return next && inStrip(next) ? current + step : current;
 }
 
 /// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
@@ -538,6 +574,9 @@ export type ChatCard = {
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
   state: "idle" | "input" | "running" | "failed" | "error" | "unread";
+  /// Its log is in acpmux's cold archive: the card is drawn from the preview alone (its last
+  /// message), badged Compressed; opening it brings the log back.
+  archived?: true;
   /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
   /// listed under it, never on their own.
   children?: ChatCard[];
@@ -621,14 +660,18 @@ function liveChatCards(
 }
 
 function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
+  // An archived chat's card reads its cold preview only: its last message.
+  const cold = session.coldArchive;
+  const message = cold ? (cold.last.at(-1)?.text ?? session.preview) : session.preview;
   return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(activityTime(session), now, t),
-    ...(session.preview ? { message: session.preview } : {}),
+    ...(message ? { message } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
+    ...(cold && { archived: true as const }),
   };
 }
 

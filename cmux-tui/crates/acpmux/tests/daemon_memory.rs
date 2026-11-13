@@ -274,13 +274,22 @@ fn websocket_token(home: &Path) -> String {
         .to_owned()
 }
 
+/// The ids of the whole list, sorted, as a client reads it: a list past one reply page comes in
+/// pages, each with the `nextCursor` of the rest (`server/list_reply.rs`).
 fn listed(rpc: &mut Rpc) -> Vec<String> {
-    let mut ids: Vec<String> = rpc.call("_acpmux/sessions", json!({}))["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["sessionId"].as_str().unwrap().to_owned())
-        .collect();
+    let (mut ids, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let params = if cursor.is_null() { json!({}) } else { json!({"cursor": cursor}) };
+        let page = rpc.call("_acpmux/sessions", params);
+        let rows = page["sessions"].as_array().unwrap();
+        ids.extend(rows.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()));
+        let next = page["nextCursor"].clone();
+        if next.is_null() {
+            break;
+        }
+        assert_ne!(next, cursor, "the list's cursor did not move past a page");
+        cursor = next;
+    }
     ids.sort();
     ids
 }
@@ -322,10 +331,9 @@ fn env_or(name: &str, default: u64) -> u64 {
 
 /// Budget guard: a daemon over a Chief home of 7,500 purged leftovers and 400 chats
 /// stays under `ACPMUX_MEMORY_BUDGET_MB` (default 166) resident after it lists them.
-/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). The list
-/// guard keeps the list it just sent, serialized, for its window (`hub/list_guard.rs`):
-/// about 1 MB of text, which reads as 160-164 MB here where the daemon held 158-160 MB
-/// without it (five runs each, one job).
+/// Before the fix the same home took 1,068 MB (rbx, 2026-10-20, 78aaa620aa5e). No list is
+/// kept after it is sent (`hub/list_guard.rs`); when one was, for its window, it read as
+/// 160-164 MB here where the daemon held 158-160 MB without it (five runs each, one job).
 #[test]
 fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let leftovers = env_or("ACPMUX_MEMORY_BENCH_LEFTOVERS", 7_500);
@@ -737,7 +745,7 @@ fn retained_session_list_allocation_benchmark() {
         for request in 0..3 {
             let tag_started = std::time::Instant::now();
             if request > 0 && chats > 0 {
-                // Invalidate the shared snapshot, without omitting any inventory fields.
+                // Change one row (its closed bytes rebuilt), without omitting any inventory fields.
                 rpc.call(
                     "_acpmux/tag",
                     json!({"sessionId": id(0), "set": {"bench": request.to_string()}}),

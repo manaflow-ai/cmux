@@ -14,7 +14,7 @@ extension SidebarListViewComponents {
     /// height for an open). Only where the fold's springs run (movement on, in a window that draws); else the rows land
     /// as they do, with no mask.
     func clipFold(_ rows: [SidebarRowView], under top: CGFloat, from start: CGFloat, to end: CGFloat) {
-        guard !rows.isEmpty, Motion.sidebar.animatesMovement, window != nil, Motion.canAnimate(in: self) else { return }
+        guard !rows.isEmpty, Motion.sidebar.animatesMovement(in: window), window != nil, Motion.canAnimate(in: self) else { return }
         // In the list's (flipped) coordinates: the slot starts at the header's bottom edge and grows down.
         func slot(_ height: CGFloat) -> NSRect { NSRect(x: bounds.minX, y: top, width: bounds.width, height: max(0, height)) }
         for view in rows {

@@ -17,7 +17,7 @@ Audit of feat-cmux-next at 186c74f9f54:
 |---|---|---|
 | MCP servers (`agent_tools.rs`) | every local session | `cmux` (`cmux mcp serve`, code mode), `cmux-cua`, `cmux-subsessions` (`start_session` and the rest), `cmux-sessions` (`offer_session`, `suggest_tasks`; only while the app shows offers), `cmux-forum`, `acpmux` (send, ls, last, info), `cmux-agent-memory` (opt-in), Cloud repo tools on Cloud machines |
 | MCP `instructions` | every session with `cmux` | `ASKING_RULE` (never ask permission for a harness tool call), `CUA_RULES` with each `cua_*` tool |
-| Skills plugin `cmux` (`--plugin-dir`) | Claude Code only | `cmux-browser`, `cmux-cua`, `cmux-customization`, `acpmux`; `cmux-live` comes with the Live Web Reload PR. Only descriptions reach the prompt |
+| Skills plugin `cmux` (`--plugin-dir`) | Claude Code only | `cmux-browser`, `cmux-cua`, `cmux-customization`, `acpmux`; `cmux-live` comes with the cmux Live PR. Only descriptions reach the prompt |
 | First-turn context (`context_inventory.rs`) | every harness, Codex included | `CONCURRENT_WORK_RULE` (list what you need, request every independent read in one response from the first step, background long work), replaced by the person's user or project override from the Context viewer |
 | Preset system prompt (`--system-prompt-file`) | presets that set one (the Chief) | the preset's text |
 | Tool descriptions | every session | each tool says when to use it (`start_session`, `offer_session`, `suggest_tasks`) |
@@ -37,7 +37,7 @@ One body of guidance, each piece tied to a tool cmux already has and saying when
 | Side sessions | the person asked for parallel or background work; offer otherwise; never for a step you need now | `start_session` (`worktree: true`), `offer_session`, `suggest_tasks`, `app_agent_open`; Claude Code's own Task tool for a subagent |
 | Session links | mentioning another session | `HOST/NAME` or `cmux://agent/<harness>/<id>` in inline code (`sessionRefs.ts` resolves it) |
 | Closing recap | a turn that changed files, ran commands or finished multi-step work | none: the reply's last lines |
-| Editing cmux live | asked to change how cmux looks or behaves | the `cmux-live` skill (Live Web Reload PR), `cmux-customization` |
+| Editing cmux live | asked to change how cmux looks or behaves | the `cmux-live` skill (cmux Live PR), `cmux-customization` |
 
 Each harness gets it through its own mechanism, not one custom format:
 

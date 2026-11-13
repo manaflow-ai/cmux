@@ -508,6 +508,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             record: dir.join("records").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (repo, gate)
@@ -1497,5 +1498,115 @@ async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_aski
         assert_eq!(r["error"]["data"]["policy"], policy, "{r}");
         assert!(r["error"]["data"]["hint"].as_str().is_some_and(|h| !h.is_empty()), "{r}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote chat records the launch of its config entry as the entry is written, not the
+/// canonical program path its remote start resolves (lead, 2026-11-09): a catalog reload that
+/// changes nothing never marks it for a respawn, as it never marks a local chat. `asker`'s
+/// program is the bare `python3`, which a remote start resolves to a path. The reload also
+/// changes the entry of a local control chat, `ctl`: once that one's agent started again, the
+/// sweep that judged every chat is done.
+#[tokio::test]
+async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
+    let ctl = |flag: &str| json!({"argv": ["python3", FAKE_AGENT], "env": {"CTL": flag}});
+    let dir = home("remote-respawn", json!({"webAskingModes": {"asker": ["normal"]}}));
+    let config_path = dir.join("config.json");
+    let write_ctl = |flag: &str| {
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        config["harnesses"]["ctl"] = ctl(flag);
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    write_ctl("1");
+    let daemon = hub(&dir);
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "asker").await;
+    let mut app = Client::app(&daemon).await;
+    let claims = app.records(&remote, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "the remote chat's claim: {claims:?}");
+    let (control, _) = app.chat(&dir, "ctl").await;
+
+    let mut events = daemon.subscribe();
+    write_ctl("2");
+    daemon.reload_catalog().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while app.records(&control, "asks_before_tools_claim").await.len() < 2 {
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                panic!("the hub ended");
+            }
+        }
+    })
+    .await
+    .expect("the control chat's agent started again on its changed entry");
+    let marked = app.records(&remote, "respawn_pending").await;
+    assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A switch onto another harness (`session/fork` with `_meta.acpmux.harness`, `hub/fork.rs`
+/// `Retarget`) starts in the mode a new chat of that harness would, and never over a profile that
+/// pins its mode: a profile pinned to `--permission-mode default` keeps asking, even under the full
+/// access default (review of cmux#41030, F1).
+#[tokio::test]
+async fn a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise() {
+    let dir = home("switch-pinned", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"], "kind": "claude-stdio"});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = |harness: &str| {
+        json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+               "_meta": {"acpmux": {"harness": harness}}})
+    };
+    let r = app.call("session/fork", switch("pinned")).await;
+    let pinned = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&pinned).await, "default", "a pinned profile keeps its mode");
+    let r = app.call("session/fork", switch("claude")).await;
+    let open = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&open).await, "bypassPermissions", "an unpinned one takes the start mode");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote device's switch of a chat this Mac started (`session/fork` with
+/// `_meta.acpmux.harness` from the Web) is that device's new chat: it starts in the target's
+/// reviewed asking mode, never in this Mac's full-access start mode, so its first remote send runs
+/// (review of cmux#41030 at eee5f8d9, F1: it started in `full-access` and the send was refused
+/// `remote.mode_not_asking`). The app's own switch onto the same harness keeps the start mode.
+#[tokio::test]
+async fn a_web_switch_of_a_mac_chat_starts_asking_and_its_send_runs() {
+    let dir = home(
+        "switch-web",
+        json!({"defaultPermissionMode": "fullAccess", "webAskingModes": {"loose": ["normal"]}}),
+    );
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["loose"] =
+        json!({"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1"}});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "loose"}}});
+    let r = app.call("session/fork", switch.clone()).await;
+    let local = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&local).await, "full-access", "the app's switch takes the start mode");
+
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let r = web.call("session/fork", switch).await;
+    let remote = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&remote).await, "normal", "a Web switch starts in the asking mode");
+    let r = web
+        .call(
+            "session/prompt",
+            json!({"sessionId": remote, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "the Web switch's first send runs: {r}");
     let _ = std::fs::remove_dir_all(&dir);
 }

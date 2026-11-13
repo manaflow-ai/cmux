@@ -82,7 +82,8 @@ impl Hub {
     }
 
     /// The daemon's one retention worker (module docs): a pass now, then one per wake once
-    /// [`SPACING`] passed since the last. Off when `store.closedLogDays` is 0.
+    /// [`SPACING`] passed since the last. Its rewrite is off when `store.closedLogDays` is 0; its
+    /// cold archive pass when `agents.chats.coldArchive` is (`cold_archive.rs`).
     pub fn retention_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let hub = Arc::downgrade(self);
         let wake = self.retention_wake.clone();
@@ -95,10 +96,18 @@ impl Hub {
                         return;
                     }
                     let on = hub.config.read().await.store.closed_log_retention().is_some();
-                    if on && last.is_none_or(|at| at.elapsed() >= SPACING) {
+                    if last.is_none_or(|at| at.elapsed() >= SPACING) {
                         last = Some(std::time::Instant::now());
-                        if let Err(e) = hub.retention_pass(RetentionRequest::default()).await {
+                        if on && let Err(e) = hub.retention_pass(RetentionRequest::default()).await
+                        {
                             tracing::warn!("log retention: {}", e.message);
+                        }
+                        // The cold archive of idle chats (`cold_archive.rs`), when its setting
+                        // is on: after the rewrite, which leaves archived chats alone.
+                        let cold = hub.clone();
+                        if let Err(e) = tokio::task::spawn_blocking(move || cold.cold_pass()).await
+                        {
+                            tracing::warn!("cold archive pass: {e}");
                         }
                     }
                 }
@@ -241,6 +250,10 @@ impl Hub {
         if meta.status != SessionStatus::Closed {
             return Err("open");
         }
+        // Its log is in its cold archive (`cold_archive.rs`): a rewrite would rehydrate it.
+        if meta.cold.is_some() || self.store.is_cold(&session.id) {
+            return Err("archived");
+        }
         if self.age(session, &meta) > cutoff {
             return Err("recent");
         }
@@ -277,7 +290,7 @@ impl Hub {
     /// When the chat last changed: its log's last write, or its `updatedAt` if earlier. A chat
     /// whose `session.json` was saved again (a stop that changed nothing, before #25863; a draft)
     /// is as old as its last record; with no log on disk, as old as its `updatedAt` says.
-    fn age(&self, session: &Session, meta: &SessionMeta) -> u64 {
+    pub(super) fn age(&self, session: &Session, meta: &SessionMeta) -> u64 {
         let written = self.store.log_written_at(&session.id).unwrap_or(meta.updated_at);
         written.min(meta.updated_at)
     }

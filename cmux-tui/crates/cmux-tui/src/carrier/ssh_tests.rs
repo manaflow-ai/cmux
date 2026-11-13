@@ -269,7 +269,11 @@ fn capabilities_and_the_dial_agree_on_every_setup() {
         ("no hub socket", no_listener),
         ("no hub", SshSetup { hub: None, ..full.clone() }),
         ("no exe", SshSetup { exe: None, ..full.clone() }),
-        ("no state", SshSetup { state: None, ..full }),
+        ("no state", SshSetup { state: None, ..full.clone() }),
+        (
+            "a state dir ssh would expand",
+            SshSetup { state: Some(dir.path().join("a${b}")), ..full.clone() },
+        ),
     ] {
         let dial =
             ssh_route(&setup, &with_ssh, MACHINE, source.clone(), far(), &SshRefusal::default())
@@ -288,6 +292,15 @@ fn capabilities_and_the_dial_agree_on_every_setup() {
             }
         }
     }
+    // A path ssh would expand (`${`) is no route on either side, and no key
+    // is made where ssh could not use it.
+    let expanding = SshSetup { state: Some(dir.path().join("a${b}")), ..full };
+    assert_eq!(super::ssh_ready(&expanding), Err(Absent::Key));
+    let caps = super::super::fault::capabilities(&super::super::fault::this_build(
+        super::ssh_ready(&expanding),
+    ));
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_key", "{caps}");
+    assert!(!dir.path().join("a${b}").join("id_ed25519").exists(), "no key in an unusable dir");
     assert_eq!(
         super::ssh_ready(&SshSetup::default()),
         Err(Absent::Tunnel),

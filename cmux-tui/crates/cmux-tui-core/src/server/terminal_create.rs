@@ -200,7 +200,8 @@ impl ConnectionSurfaceScheduler {
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
-            mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
+            mux.begin_creating_input(&terminal_id, client)
+                .map(|generation| (terminal_id, generation))
         });
         let groupable = matches!(pending.request.cmd, Command::Split(_) | Command::NewPane { .. });
         let mut queue = self.creations.state.lock().recover_poison();
@@ -531,6 +532,15 @@ impl MessageSink for OrderedReplySink {
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.wait_turn();
         self.inner.send_control(text)
+    }
+
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.wait_turn();
+        self.inner.send_control_backpressured(text, deadline)
     }
 
     fn send_terminal(

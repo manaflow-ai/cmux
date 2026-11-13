@@ -69,7 +69,7 @@ enum OnboardingHandlers {
                     _ = try await importClassic(services, in: window)
                     return nil
                 } catch {
-                    return ActionWorkFailure("import-classic: \(error)")
+                    return ActionWorkFailure(log: "import-classic: \(error)", reason: PlainErrorText.words(error))
                 }
             })
         })
