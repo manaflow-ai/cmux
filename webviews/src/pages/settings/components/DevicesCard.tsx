@@ -344,7 +344,6 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
             <Button
               type="button"
               className="button devices-screen-action"
-              icon
               size="sm"
               aria-label={device.screenAction.title}
               title={device.screenAction.title}
@@ -360,6 +359,7 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
               }
             >
               <Icon name={device.screenAction.kind === "share" ? "arrow.up.to.line" : "eye"} />
+              <span>{device.screenAction.title}</span>
             </Button>
           )}
           {!device.thisDevice && device.access !== null && (

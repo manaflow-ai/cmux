@@ -42,9 +42,11 @@ test("Mac rows expose Share or View screen without widening the name controls", 
   const self = card(page.container).querySelector<HTMLElement>('[data-device="dev-mac-studio"]')!;
   const share = self.querySelector<HTMLButtonElement>('[data-device-action="shareScreen"]')!;
   expect(share.getAttribute("aria-label")).toBe("Share");
+  expect(share.textContent).toContain("Share");
   await click(share);
   const remote = card(page.container).querySelector<HTMLElement>('[data-device="dev-macbook"]')!;
   const view = remote.querySelector<HTMLButtonElement>('[data-device-action="viewScreen"]')!;
+  expect(view.textContent).toContain("View screen");
   expect(view.disabled).toBe(true);
   expect(remote.querySelector('[data-device-action="shareScreen"]')).toBeNull();
   expect(remote.querySelector("[data-device-name]")!.textContent).toBe("MacBook Pro");
