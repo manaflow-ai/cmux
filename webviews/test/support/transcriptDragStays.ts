@@ -21,8 +21,9 @@
 //
 // Each case prints what it read (px), so a run gives the size of a move, not only pass or fail.
 //
-// Real Chromium and WebKit from Playwright: WebKit is the engine the app shows its chat in (a
-// WKWebView), Chromium the one the resize bench measures. CI fails the file when its engine cannot
+// Real Chromium and WebKit from Playwright: Chromium is the engine the Mac app shows its chat in
+// by default (and the one the resize bench measures), WebKit the one it shows it in when a person
+// picks WebKit in Settings or Chromium is not available. CI fails the file when its engine cannot
 // launch (each part waits on requireBrowserLane and passes the engine, so the runner puts it in its
 // browser pool). One file for each engine and shape (transcript-drag-stays-{fits,crossing,reader,
 // follows}-browser.test.ts in Chromium, transcript-drag-stays-webkit-* in WebKit): each has its own
