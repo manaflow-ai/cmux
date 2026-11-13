@@ -11,6 +11,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { broughtSentPrompt } from "../src/agent-session/acpmux/VirtualTranscript";
 import { installJsdomScroller } from "./support/jsdomScroller";
 import { settleReact } from "./support/domTeardown";
 
@@ -244,5 +245,47 @@ test("on the product's 0 send clock, a send's rows land at once: no send chase",
     await act(async () => root.unmount());
     container.remove();
     sendClock = "180ms";
+  }
+});
+
+test("the send detector treats an equal-length optimistic prompt replacement as a landing", () => {
+  const before = [...history, { ...row("local-prompt-21", "user", "A new question"), pending: true }];
+  const after = [...history, row("user-event-21", "user", "A new question")];
+  expect(broughtSentPrompt(before, after)).toBe(true);
+});
+
+test("a sent thinking row keeps its instant marker across finished activity rows", async () => {
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const render = (rows: AcpmuxRow[], sends: number) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sessionId="session-thinking-marker"
+          sends={sends}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await nextFrame();
+    });
+  try {
+    await render(history, 0);
+    const prompt = row("marker-prompt", "user", "A new question");
+    const rows = [
+      ...history,
+      prompt,
+      row("working-marker", "working", "Working for"),
+      row("finished-marker-1", "activity", "Ran a command"),
+      row("finished-marker-2", "activity", "Ran another command"),
+      { ...row("thinking-marker", "thinking", "Thinking"), verbKey: prompt.id, below: true },
+    ];
+    await render(rows, 1);
+    expect(container.querySelector('.acpmux-thinking[data-send-thinking="true"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
   }
 });
