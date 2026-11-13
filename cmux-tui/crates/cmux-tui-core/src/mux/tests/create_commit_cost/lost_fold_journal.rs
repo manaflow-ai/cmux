@@ -469,12 +469,14 @@ fn a_start_with_no_workspace_commits_no_part() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// THE FAIL PATH. The commit of a part fails (SQLite refuses its mutation row, as a full disk
-/// does): the start goes on and the daemon serves, no workspace is whole, the error names the
-/// cause, and the next create is scoped and right: the debug cross-check (on here) refuses a
-/// scoped projection that writes other rows than the full one, and the journal states the rows.
+/// THE FAIL PATH. The commit of each part fails (SQLite refuses its mutation row, as a full disk
+/// does): the start goes on and the daemon serves, no part is committed, each workspace that
+/// the start itself did not state is counted as failed and stays not whole, and the next create
+/// is scoped and right: the debug cross-check (on here) refuses a scoped projection that writes
+/// other rows than the full one, and the journal states the rows. The bound of the fail path and
+/// the error that it returns: `the_restatement_stops_after_8_workspaces_that_an_error_kept_out`.
 #[test]
-fn a_part_that_fails_ends_the_restatement_and_the_next_create_is_right() {
+fn a_part_that_fails_keeps_its_workspace_out_and_the_next_create_is_right() {
     let session = "start-restate-fails";
     let root = new_root("start-restate-fails");
     let mux = open_persistent_test_mux(session, &root);
@@ -503,14 +505,20 @@ fn a_part_that_fails_ends_the_restatement_and_the_next_create_is_right() {
     .expect("a start whose restatement fails must go on");
     reopened.stop_journal_maintenance();
     assert_eq!(reopened.with_state(|state| state.workspaces.len()), 2);
-    // What the start logged: the same part again gives its error, and runs no full projection.
-    let full = full_projections(&reopened);
-    let error = reopened.restate_session_in_parts().unwrap_err();
-    assert_eq!(full_projections(&reopened), full, "the failed part ran a full projection");
-    assert!(
-        format!("{error:#}").contains("injected start restatement failure"),
-        "the error does not name the cause: {error:#}"
+    // What the start did: the same parts again commit nothing, and run no full projection.
+    let whole = |mux: &Mux| mux.workspace_registry.lock().unwrap().whole_workspaces_for_test();
+    let (whole_before, revision, full) = (
+        whole(&reopened),
+        reopened.with_state(|state| state.resource_revision),
+        full_projections(&reopened),
     );
+    let tally = reopened.restate_session_in_parts().expect("2 failed parts are below the bound");
+    assert_eq!(full_projections(&reopened), full, "the failed part ran a full projection");
+    assert!(tally.parts.is_empty(), "a part was committed: {tally:?}");
+    assert!(tally.failed >= 1, "no part failed: {tally:?}");
+    assert_eq!(whole_before + tally.failed, 2, "each workspace is whole or failed: {tally:?}");
+    assert_eq!(whole(&reopened), whole_before, "a failed part left a workspace whole");
+    assert_eq!(reopened.with_state(|state| state.resource_revision), revision);
 
     let (first, _, _) = workspace_at(&reopened, 0);
     let full = full_projections(&reopened);

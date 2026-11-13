@@ -9,7 +9,13 @@
 //! THE EQUIVALENCE. A part has no debug cross-check (its reference is one full projection for
 //! each part). So these tests assert what the one full projection of a start gave before: after
 //! the parts the journal, folded from revision 0, states the rows and the session, and a full
-//! projection after the parts states nothing that a second full projection does not.
+//! projection after the parts states nothing that a second full projection does not; and below
+//! the workspace, the parts state for each screen, pane, tab and terminal the value that a full
+//! projection states.
+//!
+//! WHAT KEEPS A PART OUT. A part that the registry refuses keeps only its own workspace out; the
+//! restatement stops after 8 workspaces that an error kept out; no part starts while the daemon
+//! ends terminals.
 //!
 //! A lost fold stands for a daemon start in the tests of an in-memory session: both leave the
 //! registry with an empty fold that holds no workspace whole.
@@ -25,7 +31,7 @@ use super::lost_fold_journal::{
 };
 use crate::mux::resource_content::without_crosscheck;
 use crate::mux::startup_restore::restate_parts::{
-    PartStep, RESTATE_MAX_DEFERS, RESTATE_PART_WORKSPACES, holding_the_parts,
+    PartStep, RESTATE_MAX_DEFERS, RESTATE_MAX_FAILURES, RESTATE_PART_WORKSPACES, holding_the_parts,
 };
 
 fn revision_of(mux: &Mux) -> u64 {
@@ -293,8 +299,10 @@ fn waiters_counts_a_locker_that_waits_and_no_locker_that_holds() {
 }
 
 /// The worker on its own thread, as a daemon runs it: it waits for ready, states the session in
-/// parts and records its laps. BAR (a3) by the laps: the worker stays away from the locks, in
-/// sum, at least as long as its parts held them.
+/// parts and records its laps. BAR (a3): the pause lap is the sum of the holds by the worker's
+/// own arithmetic (it sleeps for the hold that each step returned), so a compare of the two laps
+/// proves nothing. What a clock proves: the thread ran at least as long as its parts held the
+/// locks plus that pause, so it did stay away from the locks for it.
 #[test]
 fn the_worker_thread_states_the_session_and_records_its_laps() {
     let mux = without_crosscheck(|| session_in(test_mux(), 10));
@@ -302,8 +310,10 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
     assert!(mux.session_restate_laps_for_test().is_none());
     let full = full_projections(&mux);
     mux.startup_adoptions_released.store(true, Ordering::Release);
+    let started = Instant::now();
     let worker = mux.spawn_session_restate().expect("the worker thread did not start");
     worker.join().unwrap();
+    let ran = started.elapsed().as_secs_f64() * 1_000.0;
 
     assert_eq!(full_projections(&mux), full, "the worker ran a full projection");
     assert_eq!(whole_workspaces(&mux), 10);
@@ -326,14 +336,16 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
     let (pause, sum) = (&laps[3], &laps[4]);
     assert_eq!(sum["parts"], 2, "{sum}");
     assert_eq!(sum["skipped"], 0, "{sum}");
+    assert_eq!(sum["failed"], 0, "{sum}");
     assert_eq!(
         sum["values"].as_u64().unwrap(),
         laps[1]["values"].as_u64().unwrap() + laps[2]["values"].as_u64().unwrap(),
         "{laps:?}"
     );
+    // Each lap is rounded to 0.1 ms: 0.2 ms covers the rounding of the two.
     assert!(
-        pause["ms"].as_f64().unwrap() >= sum["ms"].as_f64().unwrap(),
-        "the worker paused less than its parts held the locks: {laps:?}"
+        ran + 0.2 >= pause["ms"].as_f64().unwrap() + sum["ms"].as_f64().unwrap(),
+        "the worker ran {ran} ms, less than its holds plus its pause: {laps:?}"
     );
     assert_journal_states_the_session(&mux);
     mux.shutdown();
@@ -400,6 +412,7 @@ fn a_part_that_the_registry_refuses_keeps_only_its_own_workspace_out() {
     assert_eq!(full_projections(&mux), full, "a part ran a full projection");
     let sizes = tally.parts.iter().map(|part| part.workspaces).collect::<Vec<_>>();
     assert_eq!(sizes, [1, 1, 1, 1, 1, 1, 1, 4], "the workspaces of each committed part");
+    assert_eq!((tally.failed, tally.skipped), (1, 0), "{tally:?}");
     let records = records_after(&mux, revision);
     for (index, workspace) in workspaces.iter().enumerate() {
         assert_eq!(
@@ -432,5 +445,139 @@ fn no_part_starts_while_the_daemon_ends_terminals() {
     drop(teardown);
     let step = mux.restate_step(&mut parts, 0).unwrap();
     assert!(matches!(step, PartStep::Stated(_)), "after the teardown the part runs: {step:?}");
+    mux.shutdown();
+}
+
+/// The bound of the fail path. A registry that refuses each part (here: the live name of each
+/// of 20 workspaces changed with no new name revision) does not get a part for each workspace:
+/// the restatement stops with the error of the workspace after the 8th that an error kept out.
+/// The steps: the first part of 8 goes back, 8 parts of one are refused, the next part of 8
+/// goes back, and the first part of one of those returns the error.
+#[test]
+fn the_restatement_stops_after_8_workspaces_that_an_error_kept_out() {
+    let mux = without_crosscheck(|| session_in(test_mux(), 20));
+    lose_the_fold(&mux);
+    {
+        let mut state = mux.state.lock().unwrap();
+        for (index, workspace) in state.workspaces.iter_mut().enumerate() {
+            workspace.name = format!("no-new-revision {index}");
+        }
+    }
+    let (revision, full) = (revision_of(&mux), full_projections(&mux));
+    let mut parts = mux.session_restate_parts();
+    let mut passed = 0;
+    let error = loop {
+        match mux.restate_step(&mut parts, 0) {
+            Ok(step) => {
+                assert_eq!(step, PartStep::Passed, "step {passed}: {:?}", parts.tally);
+                passed += 1;
+                assert!(passed <= 20, "the restatement did not stop: {:?}", parts.tally);
+            }
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(passed, RESTATE_MAX_FAILURES + 2, "steps before the error: {:?}", parts.tally);
+    assert_eq!(parts.tally.failed, RESTATE_MAX_FAILURES + 1, "{:?}", parts.tally);
+    assert!(parts.tally.parts.is_empty(), "{:?}", parts.tally);
+    assert!(
+        format!("{error:#}").contains("the resource revision changed"),
+        "the error does not name the cause: {error:#}"
+    );
+    assert_eq!(revision_of(&mux), revision, "a refused part committed a record");
+    assert_eq!(full_projections(&mux), full, "a refused part ran a full projection");
+    assert_eq!(whole_workspaces(&mux), 0);
+    mux.shutdown();
+}
+
+/// The last value that the records after `revision` state for each workspace, screen, pane, tab
+/// and terminal, by (resource, id), without the fields of a terminal that its own threads
+/// change (the ones that the debug cross-check leaves out: `projection_crosscheck.rs`).
+fn values_stated_after(
+    mux: &Mux,
+    mut revision: u64,
+) -> std::collections::BTreeMap<(String, String), Value> {
+    let mut stated = std::collections::BTreeMap::new();
+    loop {
+        let page = mux.resource_events_after(revision).unwrap();
+        if page.batches.is_empty() {
+            return stated;
+        }
+        for batch in page.batches {
+            revision = batch.revision;
+            for change in batch.changes.as_array().cloned().unwrap_or_default() {
+                let resource = change["resource"].as_str().unwrap_or_default().to_string();
+                if !["workspace", "screen", "pane", "tab", "terminal"].contains(&resource.as_str())
+                {
+                    continue;
+                }
+                assert_eq!(change["kind"], "upsert", "a restatement deletes nothing: {change}");
+                let mut value = change["value"].clone();
+                if resource == "terminal"
+                    && let Some(fields) = value.as_object_mut()
+                {
+                    for field in ["stream_revision", "title", "cols", "rows", "cwd", "extra"] {
+                        fields.remove(field);
+                    }
+                }
+                let id = change["id"].as_str().unwrap_or_default().to_string();
+                stated.insert((resource, id), value);
+            }
+        }
+    }
+}
+
+/// THE EQUIVALENCE below the workspace. 12 workspaces; one has 2 columns and a pane with 2
+/// tabs, one has a second screen. After a lost fold the parts state, for each workspace, screen,
+/// pane, tab and terminal, the same value that ONE full projection states after a second lost
+/// fold, and they state the same set of them.
+#[test]
+fn the_part_records_state_each_value_below_the_workspace_as_a_full_projection_does() {
+    let mux = without_crosscheck(|| {
+        let mux = session_in(test_mux(), 12);
+        let left = mux.with_state(|state| state.workspaces[2].screens[0].active_pane);
+        let created = mux.new_pane_right(left, 0.5, Some((38, 22))).unwrap();
+        let right = mux.with_state(|state| state.pane_of(created.id)).expect("the new pane");
+        mux.new_tab(Some(right), None, Some((38, 22))).unwrap();
+        let (with_two_screens, _, _) = workspace_at(&mux, 4);
+        mux.new_screen(Some(with_two_screens), Some((80, 22))).unwrap();
+        mux.select_workspace(Some(1), None);
+        mux
+    });
+    mux.with_state(|state| {
+        assert_eq!(state.workspaces[2].screens[0].layout_columns.len(), 2, "two columns");
+        assert_eq!(state.workspaces[4].screens.len(), 2, "two screens");
+    });
+
+    lose_the_fold(&mux);
+    let (revision, full) = (revision_of(&mux), full_projections(&mux));
+    let tally = mux.restate_session_in_parts().unwrap();
+    assert_eq!(full_projections(&mux), full, "a part ran a full projection");
+    assert_eq!((tally.workspaces(), tally.failed, tally.skipped), (12, 0, 0), "{tally:?}");
+    let by_parts = values_stated_after(&mux, revision);
+
+    lose_the_fold(&mux);
+    let revision = revision_of(&mux);
+    without_crosscheck(|| restate(&mux, "the-reference"));
+    let by_full = values_stated_after(&mux, revision);
+
+    let count = |resource: &str| by_full.keys().filter(|(kind, _)| kind == resource).count();
+    assert_eq!(count("workspace"), 12, "workspaces that the full projection states");
+    assert_eq!(count("screen"), 13, "screens that the full projection states");
+    assert!(count("pane") >= 14, "panes that the full projection states: {}", count("pane"));
+    assert!(count("tab") >= 15, "tabs that the full projection states: {}", count("tab"));
+    assert!(count("terminal") >= 15, "terminals of the full projection: {}", count("terminal"));
+    for (key, value) in &by_full {
+        assert_eq!(
+            by_parts.get(key),
+            Some(value),
+            "{key:?}: the parts state {:?}, the full projection {value}",
+            by_parts.get(key)
+        );
+    }
+    assert_eq!(
+        by_parts.keys().collect::<Vec<_>>(),
+        by_full.keys().collect::<Vec<_>>(),
+        "the parts state a value that the full projection does not"
+    );
     mux.shutdown();
 }

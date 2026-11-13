@@ -20,9 +20,16 @@
 //! the locks for the time that part held them, so it holds them at most half of the time.
 //!
 //! Until its part runs, the journal can state an old value of a workspace. The last step
-//! states each terminal that has no view (no workspace owns it). A part whose walk met a
-//! resource that crossed its scope is not committed; its workspaces stay not whole and the
-//! next commit in one of them states it.
+//! states each terminal that has no view (no workspace owns it).
+//!
+//! A part that is not committed (its walk met a resource that crossed its scope, or the
+//! registry refused a value of the live tree as it is) keeps only its own workspace out: its
+//! workspaces go back and each gets a part of its own. The workspace that is refused alone
+//! stays not whole, and the next commit in it states it. The restatement goes on with the
+//! others; it stops after [`RESTATE_MAX_FAILURES`] workspaces that an error kept out.
+//!
+//! The worker states no part while the daemon shuts down, hands off its hosts or ends
+//! terminals (`journal_maintenance_paused`, the rule of the journal's maintenance worker).
 
 use std::collections::VecDeque;
 use std::sync::Weak;
@@ -36,19 +43,32 @@ pub(crate) const RESTATE_PART: &str = "session.restate-part";
 pub(crate) const RESTATE_PART_WORKSPACES: usize = 8;
 /// The most times in a row that one part stands back for a locker that waits.
 pub(crate) const RESTATE_MAX_DEFERS: usize = 4;
+/// The most workspaces that an error keeps out before the restatement stops with that error.
+pub(crate) const RESTATE_MAX_FAILURES: usize = 8;
 /// How long the worker stands back for a locker that waits.
 const RESTATE_DEFER: Duration = Duration::from_millis(5);
 
 /// The work that the restatement has left.
 #[derive(Debug, Default)]
 pub(crate) struct RestateParts {
-    /// The workspaces that no part has looked at, the next one first.
-    pending: VecDeque<WorkspacePublicId>,
+    queue: PartQueue,
     /// How many times in a row the next part stood back.
     deferred: usize,
     /// Whether the step for the terminals with no view ran.
     terminals_done: bool,
     pub(crate) tally: RestateTally,
+}
+
+/// The workspaces that wait for a part.
+#[derive(Debug, Default)]
+struct PartQueue {
+    /// The workspaces that no part has looked at, the next one first.
+    pending: VecDeque<WorkspacePublicId>,
+    /// How many of the next workspaces get a part of their own: the ones of a part that was
+    /// not committed.
+    alone: usize,
+    /// The workspaces of the part that the last step walked.
+    walked: Vec<WorkspacePublicId>,
 }
 
 /// What the restatement did, for the laps of the start line and for tests.
@@ -63,8 +83,12 @@ pub(crate) struct RestateTally {
     pub(crate) pause: Duration,
     /// How many times a part stood back for a locker that waited.
     pub(crate) defers: usize,
-    /// Parts that were not committed: the walk met a resource that crossed its scope.
+    /// Workspaces that no part stated: the walk of the part of one met a resource that crossed
+    /// its scope.
     pub(crate) skipped: usize,
+    /// Workspaces (and the last step) that no part stated: the registry refused the commit of
+    /// the part of one.
+    pub(crate) failed: usize,
 }
 
 /// One committed part.
@@ -106,6 +130,7 @@ impl RestateTally {
             "values":self.parts.iter().map(|part| part.values).sum::<usize>(),
             "parts":self.parts.len(),
             "skipped":self.skipped,
+            "failed":self.failed,
         }));
         Value::Array(laps)
     }
@@ -116,10 +141,11 @@ impl RestateTally {
 pub(crate) enum PartStep {
     /// A part was committed; it held the locks this long.
     Stated(Duration),
-    /// A locker waited for the registry: no part started.
+    /// A locker waited for the registry, or the daemon shuts down, hands off its hosts or ends
+    /// terminals: no part started.
     Deferred,
-    /// No commit: the workspaces that the step looked at are whole or gone, or its walk met a
-    /// resource that crossed its scope.
+    /// No commit: the workspaces that the step looked at are whole or gone, or the part was
+    /// not committed (its workspaces went back, or its one workspace stays out).
     Passed,
     /// Nothing is left.
     Done,
@@ -208,21 +234,29 @@ impl Mux {
                 .map(|(_, workspace)| workspace);
             active.into_iter().chain(rest).map(|workspace| workspace.public_id.clone()).collect()
         });
-        RestateParts { pending, ..RestateParts::default() }
+        RestateParts {
+            queue: PartQueue { pending, ..PartQueue::default() },
+            ..RestateParts::default()
+        }
     }
 
-    /// One step of the restatement. `waiters` is the count of lockers that wait for the registry
+    /// One step of the restatement. No part starts while the daemon shuts down, hands off its
+    /// hosts or ends terminals. `waiters` is the count of lockers that wait for the registry
     /// now (`SignaledMutex::waiters`): with one or more, no part starts, at most
     /// [`RESTATE_MAX_DEFERS`] times in a row. Else ONE scoped commit of the next workspaces that
-    /// the fold does not hold whole, at most [`RESTATE_PART_WORKSPACES`]; after the last
-    /// workspace, one commit for the terminals that have no view.
+    /// the fold does not hold whole, at most [`RESTATE_PART_WORKSPACES`] (one, for a workspace
+    /// of a part that was not committed); after the last workspace, one commit for the
+    /// terminals that have no view.
     pub(crate) fn restate_step(
         &self,
         parts: &mut RestateParts,
         waiters: usize,
     ) -> anyhow::Result<PartStep> {
-        if parts.pending.is_empty() && parts.terminals_done {
+        if parts.queue.pending.is_empty() && parts.terminals_done {
             return Ok(PartStep::Done);
+        }
+        if self.journal_maintenance_paused() {
+            return Ok(PartStep::Deferred);
         }
         if waiters > 0 && parts.deferred < RESTATE_MAX_DEFERS {
             parts.deferred = parts.deferred.saturating_add(1);
@@ -230,8 +264,9 @@ impl Mux {
             return Ok(PartStep::Deferred);
         }
         parts.deferred = 0;
-        if parts.pending.is_empty() {
+        if parts.queue.pending.is_empty() {
             parts.terminals_done = true;
+            parts.queue.walked.clear();
             return self.commit_restate_part(parts, |mux, registry, state, _| {
                 let workspace = state
                     .workspaces
@@ -243,16 +278,19 @@ impl Mux {
                     .ok_or_else(|| anyhow::Error::new(NoPart::Nothing))
             });
         }
-        self.commit_restate_part(parts, |mux, registry, state, pending| {
-            let mut part = Vec::with_capacity(RESTATE_PART_WORKSPACES);
-            while part.len() < RESTATE_PART_WORKSPACES {
-                let Some(workspace) = pending.pop_front() else { break };
+        self.commit_restate_part(parts, |mux, registry, state, queue| {
+            let bound = if queue.alone > 0 { 1 } else { RESTATE_PART_WORKSPACES };
+            let mut part = Vec::with_capacity(bound);
+            while part.len() < bound {
+                let Some(workspace) = queue.pending.pop_front() else { break };
+                queue.alone = queue.alone.saturating_sub(1);
                 let live = state.workspaces.iter().any(|live| live.public_id == workspace);
                 if live && !registry.workspace_is_whole(&workspace) {
                     part.push(workspace);
                 }
             }
             loop {
+                queue.walked.clone_from(&part);
                 if part.is_empty() {
                     return Err(anyhow::Error::new(NoPart::Nothing));
                 }
@@ -267,7 +305,7 @@ impl Mux {
                 }
                 for _ in 0..excess {
                     if let Some(workspace) = part.pop() {
-                        pending.push_front(workspace);
+                        queue.pending.push_front(workspace);
                     }
                 }
             }
@@ -282,13 +320,13 @@ impl Mux {
             &Self,
             &WorkspaceRegistry,
             &mut State,
-            &mut VecDeque<WorkspacePublicId>,
+            &mut PartQueue,
         ) -> anyhow::Result<ResourceEffectProjection>,
     ) -> anyhow::Result<PartStep> {
         let mutation = WorkspaceMutation::local("cmux-tui", Actor::Daemon);
         let fingerprint =
             serde_json::json!({"operation":RESTATE_PART,"part":parts.tally.parts.len()});
-        let pending = &mut parts.pending;
+        let queue = &mut parts.queue;
         let mut stated = None;
         let committed = self.commit_resource_mutation_plan(
             &mutation,
@@ -298,7 +336,7 @@ impl Mux {
             None,
             |state, registry| {
                 let started = Instant::now();
-                let projection = walk(self, registry, state, pending)?;
+                let projection = walk(self, registry, state, queue)?;
                 let values = projection.changes.as_array().map_or(0, Vec::len);
                 stated = Some((started, projection.restated.len(), values));
                 // A part changes no value of the live tree: no dock rule can refuse it, and
@@ -316,29 +354,60 @@ impl Mux {
             }
             Err(error) => match error.downcast_ref::<NoPart>() {
                 Some(NoPart::Nothing) => Ok(PartStep::Passed),
-                Some(NoPart::Escaped) => {
-                    parts.tally.skipped = parts.tally.skipped.saturating_add(1);
-                    eprintln!("cmux-tui: session restate: a part was not stated: {error:#}");
-                    Ok(PartStep::Passed)
-                }
-                None => Err(error),
+                Some(NoPart::Escaped) => Self::part_not_committed(parts, error, true),
+                None => Self::part_not_committed(parts, error, false),
             },
         }
     }
 
+    /// A part that was not committed: `escaped` when its walk met a resource that crossed its
+    /// scope, else the registry refused it (a value of the live tree that the store does not
+    /// take as it is). The workspaces of a part of 2 or more go back to the front and each gets
+    /// a part of its own, so that only the workspace that the cause is about stays out. A part
+    /// of one is counted and its workspace stays not whole: the next commit in it states it.
+    /// The error comes back after [`RESTATE_MAX_FAILURES`] workspaces that an error kept out
+    /// (a registry that takes no commit refuses each part).
+    fn part_not_committed(
+        parts: &mut RestateParts,
+        error: anyhow::Error,
+        escaped: bool,
+    ) -> anyhow::Result<PartStep> {
+        let walked = std::mem::take(&mut parts.queue.walked);
+        if walked.len() > 1 {
+            parts.queue.alone = walked.len();
+            for workspace in walked.into_iter().rev() {
+                parts.queue.pending.push_front(workspace);
+            }
+            return Ok(PartStep::Passed);
+        }
+        if escaped {
+            parts.tally.skipped = parts.tally.skipped.saturating_add(1);
+        } else {
+            parts.tally.failed = parts.tally.failed.saturating_add(1);
+            if parts.tally.failed > RESTATE_MAX_FAILURES {
+                return Err(error);
+            }
+        }
+        eprintln!("cmux-tui: session restate: a part was not stated: {error:#}");
+        Ok(PartStep::Passed)
+    }
+
     /// Each step of the restatement at once, with no locker that waits and no pause: what the
-    /// worker does, for this crate's unit tests.
+    /// worker does, for this crate's unit tests. It ends early on a daemon that shuts down,
+    /// hands off its hosts or ends terminals (the worker waits there).
     #[cfg(test)]
     pub(crate) fn restate_session_in_parts(&self) -> anyhow::Result<RestateTally> {
         let mut parts = self.session_restate_parts();
-        while self.restate_step(&mut parts, 0)? != PartStep::Done {}
+        while !matches!(self.restate_step(&mut parts, 0)?, PartStep::Done | PartStep::Deferred) {}
         self.record_session_restate(&parts.tally);
         Ok(parts.tally)
     }
 }
 
-/// The worker: wait for ready as a start's adoptions do, take the turn after them, then one
-/// step at a time. It holds the mux only for a step, so a mux that its owner dropped ends it.
+/// The worker: wait for ready as a start's adoptions do (ready, or the release of the start's
+/// adoptions, or their wait limit with no ready), take the turn after them, then one step at a
+/// time. It holds the mux for a step and for its wait at the adoption gate (as each adoption of
+/// a start does), not while it sleeps, so a mux that its owner dropped ends it.
 fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
     let started = Instant::now();
     loop {

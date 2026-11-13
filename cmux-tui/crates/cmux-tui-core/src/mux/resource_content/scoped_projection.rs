@@ -259,6 +259,13 @@ impl Mux {
     /// pane with its tabs to another workspace (the stored workspace of its terminals is
     /// written through their rows, which a scoped walk leaves out when the tab rows are equal),
     /// or that differs in more than [`CHANGED_WORKSPACES_MAX`] workspaces.
+    ///
+    /// A move of a screen into a new last workspace is scoped, and it is right for one reason
+    /// only: the fold never holds a new workspace whole, so the walk states each value of it
+    /// and each terminal of the moved screen gets its row (the stored workspace of a terminal
+    /// follows that row: `retarget_terminal_workspace` in `mux/tab_drag.rs`). A change that
+    /// marks a new workspace whole before its first commit must send this move to the full
+    /// projection.
     pub(crate) fn changed_state_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
