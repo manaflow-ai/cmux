@@ -90,8 +90,18 @@ for (const page of pages) {
       queue.push(item.path);
     }
   }
-  const links = queue
-    .slice(1)
+  const staticLinks = queue.slice(1);
+  // The Settings schema is intentionally a dynamic import so it does not bloat the entry script.
+  // Preload that one Settings-only chunk alongside the entry, though: the module graph still
+  // awaits it before mounting, and leaving it out would turn the byte saving into one network
+  // round trip on every Settings open. Other dynamic chunks (Shiki, KaTeX, etc.) stay lazy.
+  const settingsSchemaLinks =
+    page === "settings"
+      ? (result.metafile.outputs[entry].imports ?? [])
+          .filter((item) => item.kind === "dynamic-import" && item.path.includes("settings-schema"))
+          .map((item) => item.path)
+      : [];
+  const links = [...new Set([...staticLinks, ...settingsSchemaLinks])]
     .map((file) => `<link rel="modulepreload" href="${path.relative(path.dirname(entry), file)}" />`)
     .join("\n");
   await writeFile(path.join(outdir, page, "preloads.html"), links + "\n");
