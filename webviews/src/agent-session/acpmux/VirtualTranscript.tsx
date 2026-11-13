@@ -2121,12 +2121,11 @@ function TranscriptView({
   /// The session a row frame's key names: the chat's own, except that a new chat keeps the
   /// sessionless key it drew its first prompt under once it takes its session, so those frames stay
   /// mounted (a remount would draw them again with no entrance). A later switch keys afresh.
-  const frameSession = useRef({ session: sessionKey, key: sessionKey });
-  if (frameSession.current.session !== sessionKey)
-    frameSession.current = {
-      session: sessionKey,
-      key: frameSession.current.session === "" ? frameSession.current.key : sessionKey,
-    };
+  /// Derived from the last render's (React's "storing information from previous renders"), not a ref
+  /// read in render.
+  const [frameSession, setFrameSession] = useState({ session: sessionKey, key: sessionKey });
+  const frameKey = frameSession.session === sessionKey || frameSession.session === "" ? frameSession.key : sessionKey;
+  if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
   const enteringRows = useRef(new Set<string>());
@@ -6004,7 +6003,7 @@ function TranscriptView({
                         // Session-list metadata can arrive after cached rows paint. It must not
                         // change their keys (nor a new chat taking its session: `frameSession`);
                         // reply bodies fence their own identity and timestamp.
-                        key={`${frameSession.current.key}:${rowFrameKey(row)}`}
+                        key={`${frameKey}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={

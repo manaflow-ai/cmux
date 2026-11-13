@@ -26,7 +26,7 @@ run() {
   done
 }
 run after "$here"
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$base"
+base="$(git rev-parse --verify -q "$base^{commit}" || { git fetch -q --depth=1 origin "$base" && git rev-parse "$base^{commit}"; })"
 tree="$(mktemp -d)/base"
 trap 'git -C "$here" worktree remove --force "$tree" 2>/dev/null || true' EXIT
 git worktree add -q --detach "$tree" "$base"
@@ -34,5 +34,7 @@ rel="$(git rev-parse --show-prefix)"
 rm -rf "$tree/$rel/bench"
 cp -R "$here/bench" "$tree/$rel/bench"
 ln -s "$here/node_modules" "$tree/$rel/node_modules"
+# The base's generated strings (gitignored, made by `bun install`'s postinstall), from its own sources.
+(cd "$tree/$rel" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null)
 run before "$tree/$rel"
 echo "send-status-ab: wrote $out"
