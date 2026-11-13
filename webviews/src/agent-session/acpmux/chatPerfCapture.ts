@@ -71,6 +71,13 @@ export function scriptSource(url: string | undefined): string {
   return cut < 0 ? url : url.slice(0, cut);
 }
 
+/** The part of a long task past the 50 ms budget. A long animation frame reports its own
+ * `blockingDuration`; a `longtask` entry has none, so it is what its duration exceeds the budget by. */
+const LONG_TASK_BUDGET_MS = 50;
+function blockingMs(entry: LongEntry) {
+  return entry.blockingDuration ?? Math.max(0, entry.duration - LONG_TASK_BUDGET_MS);
+}
+
 /** Long frames or tasks: how many, the longest, and the scripts that blocked longest in them. */
 export function longTaskSummary(
   entries: readonly LongEntry[],
@@ -99,7 +106,7 @@ export function longTaskSummary(
     count: entries.length,
     longest_ms: round2(entries.reduce((longest, entry) => Math.max(longest, entry.duration), 0)),
     total_ms: round2(entries.reduce((total, entry) => total + entry.duration, 0)),
-    blocking_ms: round2(entries.reduce((total, entry) => total + (entry.blockingDuration ?? 0), 0)),
+    blocking_ms: round2(entries.reduce((total, entry) => total + blockingMs(entry), 0)),
     top_scripts: [...scripts.values()]
       .sort((a, b) => b.total - a.total)
       .slice(0, top)

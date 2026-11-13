@@ -2,6 +2,16 @@
 # nightly.yml build-nightly-app: "Build nightly app (Release)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
+# The asset catalog compile leaves Xcode's ibtoold running, detached, with this job's environment, for about a
+# minute after xcodebuild returns; nightly-next-one's check before the signing secrets then counted two of them
+# (run 43431310245). This step ends the build daemons it started however it exits (refuse_stray_processes.py).
+end_build_daemons_script="$PWD/scripts/ci/refuse_stray_processes.py"
+end_build_daemons() {
+  if [[ -n "${RUNNER_TRACKING_ID:-}" && -f "$end_build_daemons_script" ]]; then
+    python3 "$end_build_daemons_script" --end-build-daemons || true
+  fi
+}
+trap end_build_daemons EXIT
 # cx-f58x: compile out browser-import code as `decide` chose (the
 # notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
@@ -45,7 +55,15 @@ if [[ -n "$swift_defines" ]]; then
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
 fi
-notary_test_flags=(${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
+# cmux NEXT Nightly's Release Swift for size, hot targets at -O (scripts/cmux-next/lib/swift-size-opt.sh).
+# The classic tracks keep their optimization, and the live code variant sets its own.
+size_opt_args=()
+if [[ "${BUILD_TRACK:-}" == nightly-next && "${CMUX_LIVE_CODE_BUILD:-0}" != 1 ]]; then
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source scripts/cmux-next/lib/swift-size-opt.sh
+  while IFS= read -r setting; do size_opt_args+=("$setting"); done < <(swift_size_opt_xcodebuild_args)
+fi
+notary_test_flags=(${size_opt_args[@]+"${size_opt_args[@]}"} ${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
   archs="arm64"
   only_active="YES"
@@ -109,6 +127,18 @@ echo "compilation cache limit: $cas_limit_bytes bytes (${cas_free_kib:-unknown} 
 # One build root per nightly Mac when this slot keeps build state (app-host-build-root.sh).
 # shellcheck source=scripts/ci/nightly-steps/app-host-build-root.sh
 source scripts/ci/nightly-steps/app-host-build-root.sh
+# Every binary artifact (Iroh, Sentry-Dynamic, WebRTC, CCmuxAppFFI) is in this tree's own SourcePackages before the
+# build: one missing or recorded in another tree drops the artifact state and resolves again
+# (spm_artifact_preflight.py). The project's local packages are read from cmux.xcodeproj, since the seeded tree
+# has no workspace-state.json to name them.
+(
+  cd "$build_root"
+  python3 scripts/ci/spm_artifact_preflight.py .spm-cache --xcodeproj cmux.xcodeproj \
+    --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
+    xcodebuild -resolvePackageDependencies -scheme cmux \
+    -clonedSourcePackagesDirPath .spm-cache \
+    -packageCachePath "$PWD/.spm-cache/.package-cache"
+) >&2
 run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()

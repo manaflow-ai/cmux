@@ -332,8 +332,9 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
           UIImageRespectsSafeAreaInsets: false
-        # Portrait, but a shared Mac screen turns with the phone (CmuxMobileAppDelegate,
-        # ScreenSharingOrientation): the delegate allows landscape only there.
+        # Portrait on a phone's screen, but a shared Mac screen and an unfolded foldable's
+        # screen turn (CmuxMobileAppDelegate, ScreenSharingOrientation): the delegate allows
+        # landscape only there.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

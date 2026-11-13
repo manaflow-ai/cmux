@@ -168,7 +168,7 @@ final class QuitCoordinator {
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
@@ -193,8 +193,6 @@ final class QuitCoordinator {
                     homeCache: { await services.home.flushCacheForQuit() },
                     cloud: { await services.cloud.prepareForTermination() }
                 ).run(steps)
-                // Restart to Update: acpmux goes to the new build with the relaunch, after the saves (AcpmuxUpdateHandoff).
-                if services.updater.relaunchesIntoUpdate, !choice.ends { _ = await steps.run("acpmux_update_handoff", limit: AcpmuxUpdateHandoff.quitLimit) { await AcpmuxUpdateHandoff(QuitAgents.environment(services)).handOffForQuit() } }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },

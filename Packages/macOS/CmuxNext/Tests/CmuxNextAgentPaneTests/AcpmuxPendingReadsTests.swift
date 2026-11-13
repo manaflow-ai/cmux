@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeupsTestSupport
 
 /// The prompts pending in each session are read with one `_acpmux/info` per session. Those reads
 /// are independent: a peer whose info handler stalls must not hold this Mac's own prompt, nor any
@@ -23,7 +24,7 @@ struct AcpmuxPendingReadsTests {
                     ["sessionId": "acp_peer_stalled", "peer": "peer-mac", "pendingPermissions": 1],
                     ["sessionId": "acp_own", "name": "own", "pendingPermissions": 1],
                 ]]
-            case "_acpmux/info" where params["sessionId"] as? String == "acp_peer_stalled":
+            case "_acpmux/info" where params["sessionId"] as? String == "peer-mac/acp_peer_stalled":
                 if released { return nil }
                 return await withCheckedContinuation { stalled.append($0) }
             case "_acpmux/info":
@@ -93,7 +94,7 @@ struct AcpmuxPendingReadsTests {
     /// The feed bridge's shape: a peer listed first whose read stalls and a ready peer after it.
     /// The second posts while the first is still stalled, not after its deadline.
     @Test func aReadyPeerPostsWhileAnEarlierPeerStalls() async {
-        let reads = Reads(stalls: ["acp_peer_stalled"])
+        let reads = Reads(stalls: ["peer-a/acp_peer_stalled"])
         let rows: [[String: Any]] = [
             ["sessionId": "acp_peer_stalled", "peer": "peer-a"],
             ["sessionId": "acp_peer_ready", "peer": "peer-b"],
@@ -119,7 +120,7 @@ struct AcpmuxPendingReadsTests {
             ["sessionId": "own-2", "peer": ""],
         ]
         let found = await AcpmuxPendingReads(width: 1, deadline: .seconds(600)).pending(of: rows) { await reads.read($0) }
-        #expect(reads.asked == ["own-1", "own-2", "peer-1", "peer-2"])
+        #expect(reads.asked == ["own-1", "own-2", "peer-a/peer-1", "peer-b/peer-2"])
         #expect(found.map { $0.row["sessionId"] as? String ?? "" } == ["own-1", "own-2", "peer-1", "peer-2"])
         #expect(found.allSatisfy { $0.pending.count == 1 })
     }
@@ -127,14 +128,169 @@ struct AcpmuxPendingReadsTests {
     /// One slot and a read that never answers: its own deadline frees the slot, it counts as no
     /// prompts, and the next session is still read.
     @Test func aStalledReadEndsAtItsOwnDeadline() async {
-        let reads = Reads(stalls: ["peer-stalled"])
+        let reads = Reads(stalls: ["peer-a/peer-stalled"])
         let rows: [[String: Any]] = [
             ["sessionId": "peer-stalled", "peer": "peer-a"],
             ["sessionId": "peer-ready", "peer": "peer-b"],
         ]
         let found = await AcpmuxPendingReads(width: 1, deadline: .milliseconds(100)).pending(of: rows) { await reads.read($0) }
         reads.release()
-        #expect(reads.asked == ["peer-stalled", "peer-ready"])
+        #expect(reads.asked == ["peer-a/peer-stalled", "peer-b/peer-ready"])
         #expect(found.map(\.pending.count) == [0, 1])
+    }
+
+    /// One peer session whose info read answers only when the test says so, with one prompt.
+    @MainActor final class SlowPeer {
+        private var waiting: [CheckedContinuation<[String: Any]?, Never>] = []
+        private(set) var asked = 0
+        /// Reads asked and not answered yet.
+        var outstanding: Int { waiting.count }
+
+        func read(_ session: String) async -> [String: Any]? {
+            asked += 1
+            return await withCheckedContinuation { waiting.append($0) }
+        }
+
+        /// Answers every waiting read with its session's one prompt.
+        func answer() {
+            let waiters = waiting
+            waiting = []
+            // One dictionary per waiter: a resumed value is sent to its waiter, never shared.
+            for waiter in waiters {
+                waiter.resume(returning: ["pending": [["permissionId": "perm-late", "request": ["toolCall": ["title": "Run make"]]]]])
+            }
+        }
+
+        func close() {
+            let waiters = waiting
+            waiting = []
+            for waiter in waiters { waiter.resume(returning: nil) }
+        }
+    }
+
+    /// The prompts posted, and a bounded wait for the first.
+    @MainActor final class Posts {
+        private(set) var all: [String] = []
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func add(_ permission: String) {
+            all.append(permission)
+            waiter?.resume()
+            waiter = nil
+        }
+
+        /// Returns once a prompt is posted, or after `limit` on the wall clock.
+        func first(within limit: Duration) async {
+            guard all.isEmpty else { return }
+            let timer = Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                self.waiter?.resume()
+                self.waiter = nil
+            }
+            await withCheckedContinuation { waiter = $0 }
+            timer.cancel()
+        }
+    }
+
+    /// A peer whose info answers 15 s after a feed recovery asked, 5 s past the read's 10 s
+    /// deadline: the recovery has ended (its slot freed, the read counted as no prompts), and
+    /// no reconnect or new notification comes. The late answer's prompt is posted when it comes.
+    /// Dropped, it reached the phone only after another reconnect.
+    @Test func aPromptWhosePeerAnswersLateIsPostedWhenTheAnswerComes() async throws {
+        let clock = ManualClock()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .seconds(10), clock: clock)
+        let peer = SlowPeer()
+        let posts = Posts()
+        let rows: [[String: Any]] = [["sessionId": "acp_peer_late", "peer": "peer-a"]]
+        let recovery = Task { @MainActor in
+            await reads.forEachPrompt(rows, read: { await peer.read($0) }) { _, permission, _ in posts.add(permission) }
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        await recovery.value
+        #expect(posts.all.isEmpty, "nothing is posted before the answer")
+        clock.advance(by: .seconds(5))
+        peer.answer()
+        await posts.first(within: .seconds(5))
+        peer.close()
+        #expect(posts.all == ["perm-late"], "the late answer's prompt was not posted")
+    }
+
+    /// A peer that never answers its info read, asked on every recovery (the feed bridge after
+    /// each watch reply): a recovery that finds the session's read outstanding joins it rather
+    /// than asking again, so 100 recoveries leave one read, not one more each.
+    @Test func aSilentPeerLeavesOneOutstandingReadAfter100Recoveries() async {
+        let peer = SlowPeer()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .milliseconds(5))
+        let rows: [[String: Any]] = [["sessionId": "acp_peer_silent", "peer": "peer-a"]]
+        for _ in 0..<100 {
+            let found = await reads.pending(of: rows) { await peer.read($0) }
+            #expect(found.map(\.pending.count) == [0])
+        }
+        let (asked, outstanding) = (peer.asked, peer.outstanding)
+        peer.close()
+        #expect(asked == 1, "\(asked) info reads of one silent session after 100 recoveries")
+        #expect(outstanding <= 1, "\(outstanding) info reads of one silent session still wait")
+    }
+
+    /// An acpmux that lists two peers' sessions with the same raw `sessionId`, each with its own
+    /// prompt. Its `_acpmux/info` answers a qualified id (`peer/id`) with that peer's prompt; the
+    /// raw id names two sessions, which acpmux refuses (`session_ambiguous`): no answer.
+    final class SharedIdLine: AgentDialogLine {
+        var isPerson = true
+        var capabilities: Set<String> = [AcpmuxSessionListGate.pendingCapability]
+        private(set) var asked: [String] = []
+
+        static let rows: [[String: Any]] = [
+            ["sessionId": "acp_shared", "qualifiedSessionId": "peer-a/acp_shared", "peer": "peer-a", "pendingPermissions": 1],
+            ["sessionId": "acp_shared", "qualifiedSessionId": "peer-b/acp_shared", "peer": "peer-b", "pendingPermissions": 1],
+        ]
+
+        func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+            switch method {
+            case "_acpmux/sessions":
+                return ["sessions": Self.rows]
+            case "_acpmux/info":
+                let key = params["sessionId"] as? String ?? ""
+                asked.append(key)
+                return info(key)
+            default:
+                return nil
+            }
+        }
+
+        func info(_ key: String) -> [String: Any]? {
+            let parts = key.split(separator: "/").map(String.init)
+            guard parts.count == 2, parts[1] == "acp_shared" else { return nil }
+            let peer = parts[0]
+            return ["pending": [["permissionId": "perm-\(peer)", "request": ["toolCall": ["title": "Run make on \(peer)"]]]]]
+        }
+
+        func close() {}
+    }
+
+    /// Two peers' sessions that share a raw `sessionId` are two sessions: each is read by its
+    /// qualified id, on its own read (one never joins the other's), and each prompt comes back
+    /// under its own session. Keyed by the raw id, the second joined the first's read, the read
+    /// asked for a raw id acpmux cannot place, and a prompt could be posted under the other peer.
+    @Test func twoPeersSharingARawSessionIdEachGetTheirOwnAnswer() async {
+        let line = SharedIdLine()
+        let reads = AcpmuxPendingReads(width: 4, deadline: .seconds(10))
+        let posts = Posts()
+        await reads.forEachPrompt(SharedIdLine.rows, read: { await line.call("_acpmux/info", ["sessionId": $0]) }) { session, permission, _ in
+            posts.add("\(session) \(permission)")
+        }
+        let posted = posts.all
+        #expect(line.asked.sorted() == ["peer-a/acp_shared", "peer-b/acp_shared"], "info reads: \(line.asked)")
+        #expect(posted.sorted() == ["peer-a/acp_shared perm-peer-a", "peer-b/acp_shared perm-peer-b"], "posted: \(posted)")
+    }
+
+    /// The dialog desk's list reads the same way: each prompt names the session it came from.
+    @Test func theDialogListNamesEachSharedIdPromptsOwnSession() async {
+        let line = SharedIdLine()
+        let prompts = await line.pendingPrompts()
+        #expect(line.asked.sorted() == ["peer-a/acp_shared", "peer-b/acp_shared"], "info reads: \(line.asked)")
+        let found = prompts.map { "\($0.session) \($0.permission)" }.sorted()
+        #expect(found == ["peer-a/acp_shared perm-peer-a", "peer-b/acp_shared perm-peer-b"], "prompts: \(found)")
     }
 }
