@@ -31249,9 +31249,9 @@
     },
     {
       "accepts" : [
-        0.85,
-        1.5,
-        1.175
+        0.25,
+        5,
+        2.625
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -31288,15 +31288,15 @@
       ],
       "placeholder" : null,
       "range" : {
-        "max" : 1.5,
-        "min" : 0.85,
+        "max" : 5,
+        "min" : 0.25,
         "placeholder" : 1,
         "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.15000000000000002,
-        2.5,
+        -4.5,
+        9.75,
         "1"
       ],
       "section" : "appearance",
