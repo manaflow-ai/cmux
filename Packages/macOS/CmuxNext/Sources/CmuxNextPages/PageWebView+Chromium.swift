@@ -438,6 +438,12 @@ extension PageWebView {
     /// server, then the overlay, then a web update, then the bundle, with the policy that source
     /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
+        // The shim routes the app-level React runtime as a generated resource so every page origin
+        // can use the same physical file. It follows the active web update like other page files.
+        if url.path.split(separator: "/", omittingEmptySubsequences: true).first == "__runtime" {
+            return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: nil)
+        }
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
                                                                 root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
@@ -456,10 +462,19 @@ extension PageWebView {
         return PageSchemeHandler.readyResponse(to: request, source: ready)
     }
 
-    /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has
-    /// no page host (a browser tab at a `cmux-page://` address). A dynamic path is a 404 there.
-    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL) async -> PageChromiumResponse {
+    /// `url`'s file of `page` at `root` for a Chromium page, including a browser tab without a
+    /// page host. A dynamic path is a 404 here.
+    /// `bundledOnly` keeps imports beside a document served directly by the shim, outside the live loop.
+    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL,
+                                           runtimeRoot: URL? = Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:)),
+                                           bundledOnly: Bool = false) async -> PageChromiumResponse {
         guard PageSchemeHandler.dynamicRequest(for: url, page: page) == nil else { return .notFound }
+        if bundledOnly {
+            guard case .file(let file) = PageSchemeHandler.route(for: url, page: page, root: root, runtimeRoot: runtimeRoot),
+                  let body = await PageSchemeHandler.read(file) else { return .notFound }
+            return PageSchemeHandler.chromiumResponse(PageSchemeHandler.reply(url: url, csp: page.csp,
+                status: 200, mimeType: PageSchemeHandler.mimeType(forExtension: file.pathExtension), body: body))
+        }
         return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: page, root: root, dynamicSource: nil)
     }
 

@@ -84,6 +84,12 @@ public nonisolated struct MarkdownPageCommand {
 }
 
 public extension PageDescriptor {
+    /// The one React runtime mounted by every first-party web origin. It lives beside the
+    /// webviews-app output so OTA updates replace it atomically with the pages that import it.
+    static func sharedRuntimeRoot(inAppResources resources: URL) -> URL {
+        diffRoot(inAppResources: resources).appending(path: "__runtime", directoryHint: .isDirectory)
+    }
+
     /// The diff page's root: the one webviews-app build (`markdown-viewer/webviews-app` in the
     /// app bundle's resources, built by scripts/build-webviews-app.sh), not a copy under this
     /// module's `Resources/pages/`. Its files live outside this module, so the app registers the

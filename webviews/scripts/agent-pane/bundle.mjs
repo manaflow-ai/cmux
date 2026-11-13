@@ -28,6 +28,7 @@ import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
+import { sharedReactExternalPlugin } from "../shared-react-runtime.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -87,8 +88,21 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
+    ? [
+        sharedReactExternalPlugin(),
+        artifactRuntimePlugin(),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ]
+    : [
+        sharedReactExternalPlugin(),
+        reactCompiler,
+        artifactRuntimePlugin(),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ],
   metafile: Boolean(cssInputsFile || metafileOut || preloadFile),
 });
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));

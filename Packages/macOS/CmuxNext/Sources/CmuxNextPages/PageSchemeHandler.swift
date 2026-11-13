@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import UniformTypeIdentifiers
 import WebKit
 
@@ -36,6 +37,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private let resolve: (String) -> Served?
+    /// The app-level runtime tree mounted at `/__runtime` for every page origin.
+    private let sharedRuntimeRoot: URL?
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
@@ -48,17 +51,21 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     private var active: Set<ObjectIdentifier> = []
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
-         devServer: PageDevServer? = PageDevServer.current) {
+         devServer: PageDevServer? = PageDevServer.current,
+         sharedRuntimeRoot: URL? = Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:))) {
         self.devServer = devServer
+        self.sharedRuntimeRoot = sharedRuntimeRoot?.standardizedFileURL.resolvingSymlinksInPath()
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current,
+         sharedRuntimeRoot: URL? = Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:))) {
         self.resolve = resolve
         self.devServer = devServer
+        self.sharedRuntimeRoot = sharedRuntimeRoot?.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func served(_ url: URL) -> Served? {
@@ -83,7 +90,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
-              Self.route(for: url, page: served.page, root: served.root) != nil
+              Self.route(for: url, page: served.page, root: served.root, runtimeRoot: sharedRuntimeRoot) != nil
         else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
@@ -146,8 +153,16 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         } else {
             await WebBundleOverlay.shared.root(for: served.root)
         }
+        let runtimeUpdate = if let bundled = sharedRuntimeRoot {
+            if let webView { await WebBundleServedViews.shared.root(for: bundled, in: webView) }
+            else { await WebBundleOverlay.shared.root(for: bundled) }
+        } else { nil }
         let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
-        switch Self.route(for: url, page: served.page, root: root) {
+        let runtime = if sharedRuntimeRoot != nil,
+                            let overlay = live.overlayRoot("webviews-app", entry: "__runtime/react-runtime.js") {
+            overlay.appending(path: "__runtime", directoryHint: .isDirectory)
+        } else { runtimeUpdate }
+        switch Self.route(for: url, page: served.page, root: root, runtimeRoot: runtime) {
         case nil:
             return nil
         case .artifact:
@@ -281,7 +296,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Where `url` goes: a dynamic prefix of the page, else the file it names inside `root`. Nil
     /// for another scheme or page, a path with `.` or `..` components, or a path that leaves
     /// `root`. An empty path is the page's ``PageDescriptor/entry``.
-    nonisolated static func route(for url: URL, page: PageDescriptor, root: URL) -> Route? {
+    nonisolated static func route(for url: URL, page: PageDescriptor, root: URL, runtimeRoot: URL? = nil) -> Route? {
         if PageArtifactFrame.isArtifactURL(url) {
             return PageArtifactFrame.parentIDs.contains(page.id.lowercased()) && PageArtifactFrame.isFrame(url) ? .artifact : nil
         }
@@ -291,6 +306,23 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if let prefix = components.first, page.dynamicPrefixes.contains(prefix) {
             return .dynamic(PageResourceRequest(prefix: prefix, path: Array(components.dropFirst()), url: url))
+        }
+        // Build-owned JavaScript shared by the first-party pages. Keep the page's origin and
+        // CSP; only this sibling asset directory is mounted, never another page's resources.
+        // `root` is already the page's pinned bundle/update/overlay, so chunks follow that tree.
+        if components.first == "__shared", FirstPartyPages.shippedIDs.contains(page.id.lowercased()),
+           root.lastPathComponent == page.resource, root.deletingLastPathComponent().lastPathComponent == "pages" {
+            guard components.count == 2, components[1].hasSuffix(".js") else { return nil }
+            let shared = root.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent()
+                .appendingPathComponent("__shared", isDirectory: true)
+            guard shared.standardizedFileURL == shared.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
+            return fileURL(components: Array(components.dropFirst()), root: shared).map(Route.file)
+        }
+        // React's runtime is mounted by every first-party scheme handler from the one app-level
+        // resource tree. Keep this path exact and contained; runtimeRoot follows the pinned OTA tree.
+        if components.first == "__runtime" {
+            guard let runtimeRoot, components.count == 2, components[1].hasSuffix(".js") else { return nil }
+            return fileURL(components: Array(components.dropFirst()), root: runtimeRoot).map(Route.file)
         }
         return fileURL(components: components, root: root).map(Route.file)
     }

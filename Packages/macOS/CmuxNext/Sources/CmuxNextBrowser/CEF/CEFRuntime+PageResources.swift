@@ -2,22 +2,29 @@ import Foundation
 
 extension CEFRuntime {
     /// Answers a cmux page's request for one of its dynamic paths (PAGE_RESOURCE): the tab's
-    /// ``CEFTab/pageResources``, else a 404. Chromium waits for the answer, so every request gets one.
+    /// ``CEFTab/pageResources``, else the registered first-party fallback or a 404. Chromium waits for the answer, so every request gets one.
     /// `range` is the request's `Range` header (a video's byte range).
     func answerPageResource(token: Int32, url: String, range: String?, tab: CEFTab?) {
-        guard let answer = tab?.pageResources ?? (livePages ? liveFallback : nil),
-              let parsed = URL(string: url) else {
+        guard let parsed = URL(string: url) else {
             respond(token: token, with: .notFound)
             return
         }
+        let live = livePages
+        let firstPath = parsed.path.split(separator: "/").first
+        let bundledShared = !live && (firstPath == "__shared" || firstPath == "__runtime")
+        let answer = bundledShared ? nil : tab?.pageResources
+        let fallback = liveFallback
+        // Outside the live loop, the shim's document and imports must use its bundled tree.
         // What the tab holds ready answers in this turn: no main-actor task queued behind a busy launch.
-        if let ready = tab?.readyPageResource?(parsed) {
+        if !bundledShared, let ready = tab?.readyPageResource?(parsed) {
             respond(token: token, with: ready)
             return
         }
         // task-owner: one generated file per request; a request the page cancelled is answered into nothing
         Task { @MainActor [weak self] in
-            let response = await answer(parsed, range)
+            let response: CEFPageResponse
+            if let answer { response = await answer(parsed, range) }
+            else { response = await fallback?(parsed, range, live) ?? .notFound }
             self?.respond(token: token, with: response)
         }
     }

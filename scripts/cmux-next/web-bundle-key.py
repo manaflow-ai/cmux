@@ -43,6 +43,8 @@ INPUTS = [
     "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
+    "webviews/scripts/agent-activity/bundle.mjs",
+    "webviews/scripts/shared-react-runtime.mjs",
     "scripts/cmux-next/build-pages-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
