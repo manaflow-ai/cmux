@@ -7001,6 +7001,9 @@ export class AcpmuxDirectClient {
       // So were the rail's indexed placeholders and the gaps still being filled under them.
       this.clearIndexedHistory();
     }
+    // A reconnect that kept the held events keeps their indexed gaps too: a fill that gave up while
+    // the socket was down (past its last LAG_RETRY_MS step) reads them now.
+    if (this.indexedGaps.length > 0) this.startIndexedGapFill();
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
     // whatever live events landed before this reply) holds the page only.
@@ -14580,7 +14583,8 @@ export class AcpmuxDirectClient {
           if (stale()) return undefined;
           if (!take(result)) more = false;
         }
-        if (more) takeSlot(results[slot]);
+        // A slot read at `before` itself is the read that ends the window when it comes back empty.
+        if (more) (slots[slot] === before ? take : takeSlot)(results[slot]);
       }
     }
     return { pages, before, more };
