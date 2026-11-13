@@ -431,6 +431,7 @@ const retainVisibleReplies = (
   rows: readonly AcpmuxRow[],
   previous: readonly AcpmuxRow[] | undefined,
   previousVisibleIds: ReadonlySet<string> | undefined,
+  supersededReplyIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
   if (!previous || !previousVisibleIds) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
@@ -440,7 +441,12 @@ const retainVisibleReplies = (
   const missingReplyIds = new Set<string>();
   for (let index = changedAt; index < previous.length; index += 1) {
     const row = previous[index]!;
-    if (row.kind === "assistant" && previousVisibleIds.has(row.id) && !isVisiblyEmptyMessage(row))
+    if (
+      row.kind === "assistant" &&
+      previousVisibleIds.has(row.id) &&
+      !supersededReplyIds?.has(row.id) &&
+      !isVisiblyEmptyMessage(row)
+    )
       missingReplyIds.add(row.id);
   }
   for (const row of changedRows)
@@ -472,7 +478,7 @@ const retainVisibleReplies = (
   const finishSegment = (end: number) => {
     if (anchored)
       for (let index = segmentStart; index < end; index += 1) {
-        const row = previous[index]!;
+        const row = relevant[index]!;
         if (row.kind === "assistant" && missingReplyIds.has(row.id)) {
           retainIds.add(row.id);
           retainedOrder.set(row.id, index);
@@ -554,6 +560,7 @@ export function turnViewFrom(
     waitingSteers,
     messageBreaks = NO_MESSAGE_BREAKS,
     trayAgents = 0,
+    supersededReplyIds,
   }: {
     now?: number;
     working?: boolean;
@@ -569,6 +576,8 @@ export function turnViewFrom(
     /// running tray took their groups out of `rows` (runningTray.ts `withSubagentLines`), so the
     /// live line still reads "Waiting on 2 subagents" (``trayWaitAgents``).
     trayAgents?: number;
+    /// Reply row ids explicitly removed by a message_superseded event; refresh retention must not resurrect them.
+    supersededReplyIds?: ReadonlySet<string>;
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -587,7 +596,7 @@ export function turnViewFrom(
     firstDateUnchanged(previous, now)
   )
     return previous;
-  const retainedRows = retainVisibleReplies(rows, previous?.source, previous?.visibleReplyIds);
+  const retainedRows = retainVisibleReplies(rows, previous?.source, previous?.visibleReplyIds, supersededReplyIds);
   if (retainedRows !== rows)
     return turnViewFrom(
       retainedRows,
@@ -602,6 +611,7 @@ export function turnViewFrom(
         waitingSteers,
         messageBreaks,
         trayAgents,
+        supersededReplyIds,
       },
       previous,
     );

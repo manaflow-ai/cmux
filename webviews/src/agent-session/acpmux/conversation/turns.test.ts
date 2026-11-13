@@ -122,6 +122,25 @@ test("an activity-only update does not duplicate an unchanged reply", () => {
   expect(refreshed.rows.filter((row) => row.kind === "assistant")).toHaveLength(1);
 });
 
+test("a superseded reply is not resurrected by a partial refresh", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "old-answer", version: 1, at: 2_000, kind: "assistant", text: "Abandoned retry." },
+      { id: "old-tool", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  const refreshed = turnViewFrom(
+    [user(1_000), { id: "retry-tool", version: 1, at: 4_000, kind: "activity", items: [], toolCount: 1 }],
+    folds,
+    { supersededReplyIds: new Set(["old-answer"]) },
+    previous,
+  );
+  expect(refreshed.rows.some((row) => row.id === "old-answer")).toBe(false);
+});
+
 test("the line under a streaming answer keeps the live turn start", () => {
   const shown = turnView(
     [
