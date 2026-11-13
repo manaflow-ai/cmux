@@ -7225,14 +7225,21 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   padding-inline: var(--cv-action-inset);
 }
 /* A steer the agent has not read (PendingSteer.tsx `SteerUnread`): "Not read yet · Running bun test",
-   muted at rest before Send now, cut at the row's edge so a long command never widens the row. */
+   muted at rest, left of the controls and out of the row's flow: it never widens the row, so the
+   bubble and every control keep their places, and its leaving moves nothing. A long step is cut. */
+.cv-user__pending {
+  position: relative;
+}
 .cv-user__unread {
-  min-width: 0;
+  position: absolute;
+  inset-block: 0;
+  right: 100%;
   max-width: 40ch;
   overflow: hidden;
   text-overflow: ellipsis;
   padding-inline: var(--cv-action-inset);
   color: var(--cv-text-muted);
+  pointer-events: none;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */

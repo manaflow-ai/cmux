@@ -75,7 +75,7 @@ test("another session's waiting message keeps its row, for the waiting card's gr
     text: "From the lane",
     steer: "waiting",
     steerPromptId: "p-3",
-    incoming: { kind: "message", message: { from: "lane", text: "From the lane" } } as AcpmuxRow["incoming"],
+    incoming: { kind: "message", message: { name: "lane", text: "From the lane", raw: "From the lane" } },
   });
   const source = [
     row("prompt", "user", 0, { text: "Land the three fixes" }),

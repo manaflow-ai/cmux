@@ -53,6 +53,9 @@ export function PendingSteer({
   const offersSendNow = newest === undefined || newest === row.id;
   return (
     <div className="cv-user__pending">
+      {/* Out of the row's flow, at its left: the controls keep their places, and its leaving on a
+          read or a Send now moves nothing. */}
+      {!kept && <SteerUnread behind={row.steerBehind} />}
       <MessageFooterRow>
         {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
             (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
@@ -79,11 +82,7 @@ export function PendingSteer({
             </button>
           )}
         </span>
-        {kept ? (
-          <span className="cv-user__kept">{t("message.readAfterStep")}</span>
-        ) : (
-          <SteerUnread behind={row.steerBehind} />
-        )}
+        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
         {promptId && offersSendNow && (
           <button
             type="button"
@@ -113,7 +112,8 @@ export function PendingSteer({
 /// live line's words (turns.ts `withSteerBehind`), so a message held behind a long command or
 /// subagents never reads as ignored (Leo, 2026-11-12: "they're not really responding to my messages.
 /// I'm not sure if they're reading them at all."). It goes with the row's controls when the agent
-/// reads the steer. The step is cut at the row's edge by CSS, never by a count.
+/// reads the steer. It stands left of the controls, out of the row's flow, so it never widens the
+/// row nor moves a control; a long step is cut by CSS, never by a count.
 function SteerUnread({ behind }: { behind: SteerBehind | undefined }) {
   const t = useT();
   const step =
