@@ -660,6 +660,43 @@ class UnderPython39(unittest.TestCase):
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_import_call_fromlist_keeps_the_imported_module(self):
+        """cmux#42289 F1: __import__ returns the requested submodule when fromlist is nonempty."""
+        tree = ast.parse("load = __import__('xml.etree.ElementTree', fromlist=['ElementTree'])\n"
+                         "value = load\n")
+        resolver = scope_resolver.Resolver(tree)
+        read = tree.body[1].value
+        values, complete = resolver.values(read, read.id)
+        self.assertEqual(values, {"xml.etree.ElementTree"})
+        self.assertTrue(complete)
+
+    def test_multiple_callee_bindings_are_not_complete(self):
+        """cmux#42289 F2: a name with several known callable bindings remains uncertain."""
+        tree = ast.parse("from pathlib import Path\n"
+                         "load = __import__\n"
+                         "load = Path\n"
+                         "value = load\n")
+        resolver = scope_resolver.Resolver(tree)
+        read = tree.body[3].value
+        values, complete = resolver.values(read, read.id)
+        self.assertEqual(values, {"builtins.__import__", "pathlib.Path"})
+        self.assertFalse(complete)
+
+    def test_scope_build_failure_refuses_the_file(self):
+        """cmux#42289 F3: a deeply nested expression that cannot be unparsed is a named refusal."""
+        import tempfile
+        global ROOT
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "probe.py"
+            p.write_text("value = " + "x + " * 399 + "x\n")
+            old = ROOT
+            ROOT = Path(d)
+            try:
+                with self.assertRaisesRegex(AssertionError, r"scope resolution refused"):
+                    sites(p)
+            finally:
+                ROOT = old
+
     def test_import_as_shadowing_is_lexical(self):
         self.scan("import ast as parser\n"
                   "def shadow(parser):\n    return parser.match_case\n"
