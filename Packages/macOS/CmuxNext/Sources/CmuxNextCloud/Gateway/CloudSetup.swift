@@ -124,6 +124,9 @@ public final class CloudSetup {
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).
     public var run: (@MainActor (Action) async -> Void)?
+    /// Told true when a wait begins and false when the last one ends: the reader watches the
+    /// connections (acpmux's `_acpmux/connections.changed`) only while someone waits.
+    public var watching: (@MainActor (Bool) -> Void)?
 
     /// One wait's wake: fired once, by a change or by its task's cancel, whichever comes first.
     private final class Wake: Sendable {
@@ -151,6 +154,8 @@ public final class CloudSetup {
     private var waiters: [UUID: Wake] = [:]
     /// Bumped by every ``connectionsChanged()``: a wait whose read began before one reads again.
     private var changes = 0
+    /// The waits in progress (``watching``).
+    private var waits = 0
 
     public init(read: (@MainActor () async -> Snapshot)? = nil, run: (@MainActor (Action) async -> Void)? = nil) {
         (self.read, self.run) = (read, run)
@@ -181,12 +186,24 @@ public final class CloudSetup {
     /// Waits until a connection serves `family`, checking at each ``connectionsChanged()``; false
     /// when the waiting task is cancelled (the page withdrew, the pane closed).
     public func waitUntilServed(family: String) async -> Bool {
-        guard let read else { return true } // nothing to read: every start goes as before
+        guard read != nil else { return true } // nothing to read: every start goes as before
+        waits += 1
+        if waits == 1 { watching?(true) }
+        defer {
+            waits -= 1
+            if waits == 0 { watching?(false) }
+        }
+        return await served(family)
+    }
+
+    /// One read, then (nothing serving yet) the next change and another read.
+    private func served(_ family: String) async -> Bool {
+        guard let read else { return true }
         guard !Task.isCancelled else { return false }
         let seen = changes
         if await read().serves(family) != false { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
-        return await waitUntilServed(family: family)
+        return await served(family)
     }
 
     /// Parks until the next ``connectionsChanged()`` or the waiting task's cancel.

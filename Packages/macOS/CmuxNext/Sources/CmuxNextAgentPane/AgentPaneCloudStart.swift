@@ -457,3 +457,14 @@ extension AgentPaneModel {
         return grant.key == key && grant.generation == cloudSignInGeneration && ContinuousClock.now < grant.until
     }
 }
+
+extension CloudSetup {
+    /// A Cloud start's Cloud first use answer (``choose(harness:model:account:)``): nil when a connection
+    /// serves the picker's model (or nothing could be read), else `cloud_setup_required` naming its family
+    /// and model, which the page shows as Set up Cloud.
+    public func refusal(harness: String?, model: String?, account: String?) async -> [String: Any]? {
+        guard case .setup(let family, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""],
+                                      retryable: false, origin: "native")
+    }
+}

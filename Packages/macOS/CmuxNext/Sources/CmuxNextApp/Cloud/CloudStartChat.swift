@@ -1,4 +1,3 @@
-import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
@@ -8,7 +7,6 @@ import CmuxNextCloudCredentials
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextRemote
-import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
 
@@ -53,12 +51,8 @@ struct CloudStartChat {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
-        // Cloud first use: the connection the chat runs on (lane F sends its credential with the launch);
-        // nothing serving the picker's model shows Set up Cloud and starts nothing.
-        let connection = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
-        if case .setup(let family, let model) = connection {
-            return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
-        }
+        // Cloud first use: nothing serving the picker's model shows Set up Cloud (CloudSetup.refusal) and starts nothing.
+        if let setup = await services.cloud.setup.refusal(harness: start.harness, model: start.model, account: start.account) { return setup }
         do {
             if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
@@ -276,25 +270,6 @@ struct CloudStartChat {
 /// `cmux cloud start-session --from-folder`: the folder on this Mac a session starts in a copy of, checked before any
 /// machine, copied to an owned machine as the composer's Cloud start copies one, and trusted there when this Mac trusts it.
 extension CloudStartChat {
-    /// Cloud first use's reads and ways in (``CloudSetup``): this Mac's `_acpmux/connections`, the team's
-    /// shared keys, and Settings > Models for the card's buttons. Lane D's `cmux.settings.models.run` takes
-    /// over ``CloudSetup/run`` for Continue with ChatGPT and Set up Claude (`claudeSetupToken`), and calls
-    /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
-    @MainActor static func wireSetup(_ services: AppServices) {
-        services.cloud.setup.read = { [weak services] in
-            guard let services else { return .init(personal: nil, organization: nil) }
-            let personal = await QuitAgents.environment(services)?.cloudConnections()
-            let keys = services.accounts.agentKeys
-            guard !keys.scopeIsSignedOut else { return .init(personal: personal, organization: nil) }
-            if !keys.loaded { await keys.refresh() }
-            let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
-            return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
-        }
-        services.cloud.setup.run = { [weak services] action in
-            try? services?.settingsWindow.show(section: nil, route: action == .addKey || action == .connectChatGPT || action == .setUpClaude ? "#/settings/models/add" : "#/settings/models")
-        }
-    }
-
     /// Warms the person's spare (``CloudSpareWarm``, no login copied), never awaited by the caller.
     @MainActor static func warmSpare(_ services: AppServices) {
         let cloud = services.cloud
