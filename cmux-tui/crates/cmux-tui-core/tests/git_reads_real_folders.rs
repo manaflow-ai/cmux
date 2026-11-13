@@ -955,3 +955,38 @@ fn git_files_search_gives_no_path_of_an_empty_folder_that_was_a_link_at_the_list
         assert_eq!(result["results"], json!([]), "{outside_file} was behind the link: {result}");
     }
 }
+
+/// The work tree's TOP folder has a name that ends with a line break. Beside it, a link to a
+/// folder outside the repository has the same name less the line break. The names of the
+/// search and of the list are the names of the work tree: they are the same whatever is
+/// behind that link, and the reply's `root` is the work tree's top folder, not the link.
+#[test]
+fn git_files_search_gives_the_names_of_a_work_tree_whose_top_folder_name_ends_with_a_line_break() {
+    let mut client = Client::of_a_new_daemon();
+    let mut totals = Vec::new();
+    let mut names = Vec::new();
+    let mut roots = Vec::new();
+    for outside_file in ["guess.txt", "other.txt"] {
+        let host = fixture().dir.join(unique("h"));
+        let repo = host.join("x\n");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::write(repo.join("guess.txt"), "inside\n").unwrap();
+        git(&repo, &["add", "guess.txt"]);
+        git(&repo, &["commit", "--quiet", "-m", "guess"]);
+        let outside = outside_folder(outside_file, b"outside\n");
+        std::os::unix::fs::symlink(&outside, host.join("x")).unwrap();
+
+        let result = client.search(&repo, "guess");
+        totals.push(result["total_matches"].clone());
+        roots.push(result["root"].as_str().unwrap_or_default().to_owned());
+        names.push(client.listed_names(&repo));
+    }
+    // First `guess.txt` is behind the link beside the work tree, then it is not.
+    assert_eq!(totals, [1, 1], "the count is of the work tree, not of the folder behind the link");
+    assert_eq!(names, [["guess.txt"], ["guess.txt"]], "the list is of the work tree");
+    assert!(
+        roots.iter().all(|root| root.ends_with("/x\n")),
+        "the root is the work tree: {roots:?}"
+    );
+}
