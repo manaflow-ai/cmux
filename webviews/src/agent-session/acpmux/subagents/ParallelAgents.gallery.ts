@@ -92,7 +92,7 @@ export default agentPaneEntry({
   },
   variants: {
     "four-agents": {
-      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed line leads, so the list's cap never hides it; the ended ones leave their quiet lines in the transcript.",
+      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed one leaves the hat at once (its failed line stays in the transcript); the ended ones leave their quiet lines in the transcript.",
       play: expanded,
       snapshot: scene(FOUR),
     },

@@ -348,4 +348,44 @@ import Testing
         commit()
         #expect(grants == 0 && hosting.firstFrameHold == .none, "no grant into a closed window")
     }
+
+    /// A hidden tab an agent drove shows in the agent render window, and its hold waits for that window's frame. A
+    /// click on the tab moves its view to its pane's window, and the agent render window closes: the page shows in
+    /// the pane's window, so the hold ends at that window's next frame and grants the kept ask. With the drop taken as
+    /// the frame, the hold ended with no grant: the tab kept its ask, and no key reached the page (fleet, real
+    /// Chromium: 0 of 20 clicks then "abc" reached the page's field).
+    @Test func aHoldWhoseViewMovedToAnotherWindowBeforeItsWindowClosedGrantsAtThatWindowsFrame() {
+        func window() -> NSWindow {
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        }
+        let parked = window(), pane = window()
+        defer { parked.closeAfterTest(); pane.closeAfterTest() }
+        parked.contentView?.addSubview(view)
+        var blocks: [@MainActor @Sendable () -> Void] = []
+        var committed: [@MainActor @Sendable () -> Void] = []
+        let commit = {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        }
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      holdsFocus: { false }, afterCommit: { committed.append($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        for block in blocks { block() }
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(calls == ["4:detach"])
+        pane.contentView?.addSubview(view)
+        hosting.windowDidChange()
+        FrameScheduler.forWindow(parked).invalidate()
+        commit()
+        #expect(grants == 0 && hosting.holdsFirstFrame(), "the hold waits for the frame of the window the page shows in")
+        FrameScheduler.forWindow(pane).frameDidFire()
+        commit()
+        commit()
+        #expect(grants == 1, "the kept focus ask was never granted: no key reaches the page")
+        #expect(!hosting.holdsFirstFrame() && !hosting.isDetached)
+    }
 }

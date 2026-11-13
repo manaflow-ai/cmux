@@ -323,13 +323,12 @@ export function FolderPopover({
         aria-label={label}
         // tooltip-allow: the fixed footer column may truncate a long folder name.
         title={current}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
       >
         {face}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next, details) => {
           if (!next && details?.escape) {

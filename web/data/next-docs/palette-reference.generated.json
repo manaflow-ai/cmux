@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1389,
+    "entries": 1399,
     "shortcuts": 190
   },
   "sections": [
@@ -3196,6 +3196,12 @@
           "command": "cmux tab duplicate"
         },
         {
+          "id": "tab.duplicateToNewSplit",
+          "title": "Duplicate Tab to New Split",
+          "shortcut": null,
+          "command": "cmux tab duplicate-to-new-split"
+        },
+        {
           "id": "tabGroup.expand",
           "title": "Expand Tab Group",
           "shortcut": null,
@@ -3344,6 +3350,12 @@
           "title": "Move Tab to Space…",
           "shortcut": null,
           "command": "cmux tab move-to-space"
+        },
+        {
+          "id": "tab.moveToWindow",
+          "title": "Move Tab to Window…",
+          "shortcut": null,
+          "command": "cmux tab move-to-window"
         },
         {
           "id": "tab.moveToWorkspace",
@@ -4672,6 +4684,12 @@
           "command": "cmux bookmark move"
         },
         {
+          "id": "browserProfile.move",
+          "title": "Move Browser Profile to Position…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.move",
           "title": "Move Pinned Extension",
           "shortcut": null,
@@ -5002,6 +5020,12 @@
           "command": "cmux browser-profile clear-icon"
         },
         {
+          "id": "browserProfile.clearProxy",
+          "title": "Remove Browser Profile Proxy",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.remove",
           "title": "Remove Extension",
           "shortcut": null,
@@ -5180,6 +5204,12 @@
           "title": "Set Browser Profile Icon…",
           "shortcut": null,
           "command": "cmux browser-profile set-icon"
+        },
+        {
+          "id": "browserProfile.setProxy",
+          "title": "Set Browser Profile Proxy…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "phone.appearance",
@@ -5949,6 +5979,12 @@
       "id": "category.notifications",
       "title": "Notifications",
       "entries": [
+        {
+          "id": "notifications.allowDesktop",
+          "title": "Allow cmux Notifications",
+          "shortcut": null,
+          "command": null
+        },
         {
           "id": "clearAllNotifications",
           "title": "Clear All Notifications",
@@ -6850,6 +6886,12 @@
           "command": "cmux agent toggle-side-tabs"
         },
         {
+          "id": "palette.toggleTerminalChat",
+          "title": "Toggle Terminal and Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.toggleDisplaySettings",
           "title": "Toggle Text & Width",
           "shortcut": null,
@@ -7306,6 +7348,12 @@
           "command": "cmux cloud start-session"
         },
         {
+          "id": "cloudSetupDesktop",
+          "title": "Start Desktop…",
+          "shortcut": null,
+          "command": "cmux cloud setup-desktop"
+        },
+        {
           "id": "openTeamPicker",
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
@@ -7350,6 +7398,12 @@
         {
           "id": "remote.allowScreenRecording",
           "title": "cmux Remote: Allow Screen Recording",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "remote.stopScreenSession",
+          "title": "cmux Remote: End Screen Sharing Session",
           "shortcut": null,
           "command": null
         },
@@ -7842,6 +7896,12 @@
         {
           "id": "server.makeThisMacAServer",
           "title": "Make This Mac a Server",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "billing.openPortal",
+          "title": "Manage Billing",
           "shortcut": null,
           "command": null
         },

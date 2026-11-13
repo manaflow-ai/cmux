@@ -203,6 +203,7 @@ pub(crate) mod adopt_launch {
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
+        command.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
             command.env_remove(key);
         }
