@@ -19,6 +19,46 @@ import QuartzCore
 /// One exception, which a kind states (``PaneKeyResizeHeld``; today the Home): its view keeps the size it had when the
 /// hold began, on the hold's edges, and takes the area's size once, when the hold ends.
 public final class PaneContentAreaView: NSView {
+    /// The Chromium hosts inside this area that read its clip.
+    public let chromeClipReaders = FrameNoticeReaders()
+    private weak var chromeClipRoot: NSView?
+    private var chromeClipCard: CGRect?
+    private var chromeClipRadius: CGFloat = 0
+
+    /// Clips content below the tab row to the window's card, so its own fills cannot paint under the corner wedges.
+    public func setChromeClip(card: CGRect?, radius: CGFloat, in root: NSView) {
+        chromeClipRoot = root
+        chromeClipCard = card
+        chromeClipRadius = radius
+        updateChromeClip()
+    }
+
+    private func updateChromeClip() {
+        guard let layer, chromeClipCard != nil || layer.mask?.name == CALayer.cmuxCardClipName else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let rect = chromeClipCard.flatMap { card in chromeClipRoot.map { convert(card, from: $0) } }
+        // A chat sharing the row extends above the card; its tools must stay visible there.
+        guard let rect, rect.maxY >= bounds.maxY - 0.5 else {
+            if layer.mask?.name == CALayer.cmuxCardClipName {
+                layer.mask = nil
+                chromeClipReaders.notifyGeometryChange()
+            }
+            return
+        }
+        let radius = min(chromeClipRadius, rect.width / 2, rect.height / 2)
+        let mask = layer.mask ?? CALayer()
+        guard layer.mask == nil || mask.frame != rect || mask.cornerRadius != radius else { return }
+        mask.name = CALayer.cmuxCardClipName
+        mask.frame = rect
+        mask.cornerRadius = radius
+        mask.cornerCurve = .circular
+        mask.backgroundColor = CGColor(gray: 0, alpha: 1) // colour-allow: alpha-only clip coverage; this colour is never displayed
+        layer.mask = mask
+        chromeClipReaders.notifyGeometryChange()
+    }
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -98,7 +138,13 @@ public final class PaneContentAreaView: NSView {
 
     public override func setFrameSize(_ newSize: NSSize) { // perf-hot: 4ms motion-frame
         super.setFrameSize(newSize)
+        updateChromeClip()
         follow(handing: false)
+    }
+
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateChromeClip()
     }
 
     /// In a hold every shown view resizes as at rest and lays out in this frame's pass. Not the containers handed the

@@ -227,7 +227,7 @@ FIXED_PAIR: dict[str, int] = {
     "sdk-publish-java.yml": 0,
     "sdk-publish-npm.yml": 0,
     "sdk-publish-python.yml": 0,
-    "swift-packages-linux.yml": 0,
+    "swift-linux-packages.yml": 0,
 }
 
 
