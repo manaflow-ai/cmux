@@ -1181,24 +1181,29 @@ where
             match serde_json::from_value::<DeltaOp<T>>(raw.clone()) {
                 Ok(DeltaOp::Summary { seq, summary }) => {
                     self.advance(&sid, seq);
-                    let charge = !charged;
-                    charged = true;
-                    emitted = true;
                     self.note_page_summary(&sid, &summary);
                     let value = serde_json::to_value(&summary).ok();
                     let key = value.as_ref().and_then(Self::row_key);
                     let live = value.as_ref().is_some_and(Self::summary_is_live);
-                    let left = self.subscriptions.get(&sid).is_some_and(|sub| {
-                        Self::sub_view_is_live(sub)
-                            && !live
-                            && sub.mirror.as_ref().is_some_and(|mirror| {
-                                key.as_ref().is_some_and(|key| {
-                                    let id = Self::row_identity(key);
-                                    mirror.held.contains_key(&id)
-                                        && !mirror.wanted.contains_key(&id)
-                                })
-                            })
-                    });
+                    let (live_view, held, wanted) = self
+                        .subscriptions
+                        .get(&sid)
+                        .map(|sub| {
+                            let id = key.as_ref().map(Self::row_identity);
+                            let mirror = sub.mirror.as_ref();
+                            (
+                                Self::sub_view_is_live(sub),
+                                id.as_ref().is_some_and(|id| {
+                                    mirror.is_some_and(|mirror| mirror.held.contains_key(id))
+                                }),
+                                id.as_ref().is_some_and(|id| {
+                                    mirror.is_some_and(|mirror| mirror.wanted.contains_key(id))
+                                }),
+                            )
+                        })
+                        .unwrap_or((false, false, false));
+                    let left = live_view && !live && held && !wanted;
+                    let deliver = !live_view || live || held || wanted;
                     if let Some(sub) = self.subscriptions.get_mut(&sid)
                         && let Some(mirror) = sub.mirror.as_mut()
                         && let Some(key) = key
@@ -1214,13 +1219,19 @@ where
                         }
                     }
                     if left {
+                        let charge = !charged;
+                        charged = true;
+                        emitted = true;
                         self.push_change(
                             Change::Left { sid: sid.clone(), seq, summary, replay },
                             Some(sid.clone()),
                             frame_bytes,
                             charge,
                         );
-                    } else {
+                    } else if deliver {
+                        let charge = !charged;
+                        charged = true;
+                        emitted = true;
                         self.push_change(
                             Change::Summary { sid: sid.clone(), seq, summary, replay },
                             Some(sid.clone()),
