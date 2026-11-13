@@ -85,6 +85,11 @@ pub fn marked(name: &str, value: &str) -> Vec<Started> {
 
 /// SIGKILL each of `procs` that still runs as the same process.
 pub fn kill_still_running(procs: &[Started]) {
+    signal_still_running(procs, libc::SIGKILL);
+}
+
+/// Send `signal` to each of `procs` that still runs as the same process (pid and start time).
+pub fn signal_still_running(procs: &[Started], signal: libc::c_int) {
     if procs.is_empty() {
         return;
     }
@@ -94,8 +99,8 @@ pub fn kill_still_running(procs: &[Started]) {
             continue;
         }
         let Ok(pid) = i32::try_from(p.pid) else { continue };
-        // SAFETY: the pid runs with the start time it had under the host.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        unsafe { libc::kill(pid, signal) };
     }
 }
 

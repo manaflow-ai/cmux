@@ -228,6 +228,7 @@ export const MessageRow = memo(
   },
   (previous, next) =>
     previous.row.id === next.row.id &&
+    previous.row.at === next.row.at &&
     previous.row.version === next.row.version &&
     previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,
