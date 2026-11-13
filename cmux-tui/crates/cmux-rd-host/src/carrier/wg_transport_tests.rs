@@ -399,3 +399,22 @@ fn wg_selected_session_never_decodes_legacy_media_on_negotiation_failure() {
         assert!(Instant::now() < deadline, "unacknowledged WG failure did not end");
     }
 }
+
+#[test]
+fn wg_and_legacy_invalidation_reject_media_and_queued_establishment() {
+    for mode in [LinkMode::Legacy, LinkMode::Wg] {
+        let (a, b) = net_pair(false);
+        a.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: b.local_addr() });
+        b.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: a.local_addr() });
+        b.send_control(b"establishment witness".to_vec());
+        // An acknowledged control proves A's driver established and queued its
+        // Established event; A's app has not consumed any events yet.
+        b.control_barrier().recv_timeout(Duration::from_secs(3)).unwrap();
+        let mut carrier = LinkCarrier::new(a, Role::Host, mode).unwrap();
+        carrier.invalidate();
+        assert!(carrier.send_datagram(b"must not send").is_err());
+        assert!(carrier.events().is_empty(), "queued establishment revived {mode:?}");
+        assert!(!carrier.media_ready() && !carrier.retry_ready());
+        assert_eq!(carrier.wire_name(), if mode == LinkMode::Wg { "rd_wg" } else { "link" });
+    }
+}

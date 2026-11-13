@@ -262,6 +262,7 @@ impl LinkCarrier {
         self.fallback.take()
     }
     pub fn invalidate(&mut self) {
+        self.terminal_emitted = true;
         if let Some(wg) = &mut self.wg {
             wg.invalidate();
         }
@@ -274,6 +275,9 @@ impl LinkCarrier {
         use crate::wg_carrier::State;
         use cmux_rd_link::net::NetEvent;
         use cmux_rd_link::{EndpointEvent, Event};
+        if self.terminal_emitted {
+            return Vec::new();
+        }
         if self.wg.is_none() {
             let events = self.net.events();
             for event in &events {
