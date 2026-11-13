@@ -635,6 +635,7 @@ impl Hub {
             // A referencing fork's own records follow the history it shows.
             last_seq: if referenced { fork_seq } else { 0 },
             transcript_seq: if referenced { fork_seq } else { 0 },
+            recovered_after: None,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
@@ -917,6 +918,7 @@ impl Hub {
                         e.msg,
                         None,
                         Some(e.at),
+                        false,
                         false,
                     );
                     if !stored {

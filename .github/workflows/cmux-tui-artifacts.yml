@@ -3266,7 +3266,20 @@ jobs:
             echo "::notice::a newer push superseded this one; it publishes nothing, and the newer push's run checks its own manifest."
             exit 0
           fi
+          # pending holds only while the tree is still unpublished. Once its
+          # completion.json answers, the owner may have looked while this run
+          # was still in progress, and GitHub refuses to re-run a live run
+          # (review of #42580, F1): red, so the gap shows. The next
+          # feat-cmux-next push's sweep-commit-manifests re-runs this run.
+          # The red's last word, cmux-tui-manifest-rerun-pending, keeps it out of
+          # cmuxterm-hq base_red_watch's base reds while that re-run is due.
           if [[ "$ADOPT_STATE" == pending ]]; then
+            completion="$(curl -sS --connect-timeout 5 --max-time 15 \
+              "https://files.cmux.com/cmux-tui/tree/$TREE_KEY/completion.json?verify=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null)" || completion=""
+            if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("key") == sys.argv[2] else 1)' "$completion" "$TREE_KEY" 2>/dev/null; then
+              echo "::error title=commit manifest missing::tree $TREE_KEY was published after this run deferred, and cmux-tui/$GITHUB_SHA/manifest.json was not written; the next feat-cmux-next push's sweep re-runs this run (or re-run this run by hand). cmux-tui-manifest-rerun-pending"
+              exit 1
+            fi
             echo "::notice title=commit manifest pending::this run deferred tree $TREE_KEY to its owner, which re-runs it once the tree is published; that attempt writes and checks cmux-tui/$GITHUB_SHA/manifest.json."
             exit 0
           fi
@@ -4179,6 +4192,52 @@ jobs:
         # --tip-branch: the script fetches the tip (the public repository needs
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
+
+  # The post-publish 404 detector (review of #42580, F1). A run that deferred
+  # to its key's owner and was still in progress when the owner published was
+  # not re-run (GitHub refuses a live run), so its commit kept no manifest.
+  # Every feat-cmux-next push looks at its 40-commit window once the markers
+  # are written: a commit whose tree is marked published and whose manifest
+  # answers 404 gets its completed run re-run, and that attempt writes the
+  # manifest (adopt-commit-manifest). A run still in progress waits for the
+  # next push; nothing here waits (scripts/ci/cmux_tui_manifest_sweep.py).
+  sweep-commit-manifests:
+    name: re-run the runs of commits whose manifest is missing
+    needs: [tree-preflight, mark-tree-commits]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.mark-tree-commits.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 41
+
+      # As notify-unpublished-tree's hand-off: a rate-limited workflow token
+      # moves to the cmux-bot App's (HANDOFF_NEVER_SILENT).
+      - name: Mint the sweep's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Re-run the runs of commits whose tree is published and manifest missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/cmux_tui_manifest_sweep.py --repo "$GITHUB_REPOSITORY" --window 40 --tip-branch feat-cmux-next
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
   # feat-cmux-next build by themselves (the updater role of `cmux host run`,

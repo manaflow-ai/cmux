@@ -26,6 +26,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
+pub(super) mod long_connection;
+
 #[derive(Clone)]
 pub(super) struct OutboundStream {
     pub(super) id: u64,
@@ -137,6 +139,9 @@ pub(super) struct MessageWriter {
     /// What the daemon knows about the client at the other end, for the request counters
     /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
     pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
+    /// The connection's way out of the terminals' short lane when it starts a stream, a wait or
+    /// a follow (server/message_writer/long_connection.rs).
+    pub(super) long: Arc<long_connection::LongGate>,
 }
 
 impl MessageWriter {
@@ -160,10 +165,15 @@ impl MessageWriter {
             api_revision: Arc::default(),
             input_lane: Arc::default(),
             kind: Arc::default(),
+            long: Arc::default(),
         }
     }
 
+    /// A stream outlives its request, so a terminal's connection becomes a long one first
+    /// (server/message_writer/long_connection.rs). At the bound of the long connections no stream starts: the
+    /// error holds a `LongConnectionsFull`.
     pub(super) fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        self.long.hold().map_err(std::io::Error::other)?;
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
