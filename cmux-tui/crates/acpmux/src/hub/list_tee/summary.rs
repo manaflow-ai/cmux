@@ -1,6 +1,6 @@
 //! The local row and its optional peer form share one bounded conversion.
 use super::super::{Hub, Session};
-use acpmux_book::index::{ForkOf, RowKey, Summary};
+use acpmux_book::index::{ForkOf, MAX_TITLE_BYTES, RowKey, Summary};
 use serde_json::{Map, Value};
 use std::io;
 
@@ -66,6 +66,18 @@ fn json(value: &impl serde::Serialize) -> io::Result<Box<serde_json::value::RawV
 fn cut(text: &mut String, chars: usize) {
     if text.chars().count() > chars {
         *text = text.chars().take(chars.saturating_sub(1)).collect();
+        text.push('…');
+    }
+}
+
+fn cut_title(text: &mut String) {
+    cut(text, TEXT_CHARS);
+    if text.len() > MAX_TITLE_BYTES {
+        let mut end = MAX_TITLE_BYTES.saturating_sub('…'.len_utf8());
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
         text.push('…');
     }
 }
@@ -213,7 +225,7 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     let meta = session.meta();
     let mut summary = Summary::new(session.id.clone());
     summary.title = row.get("title").and_then(Value::as_str).unwrap_or(&meta.name).to_owned();
-    cut(&mut summary.title, TEXT_CHARS);
+    cut_title(&mut summary.title);
     summary.harness = row
         .get("harness")
         .and_then(Value::as_str)
@@ -229,7 +241,8 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     let count = row.get("unreadTurns").and_then(Value::as_u64).unwrap_or(0);
     let unread = row.get("unread").and_then(Value::as_bool).unwrap_or(false);
     summary.unread = if count == 0 && unread { 1 } else { count.min(u32::MAX as u64) as u32 };
-    summary.workspace = row.get("workspaceId").and_then(Value::as_str).map(str::to_owned);
+    // v1 keeps this on metadata but does not serialize it in SessionSummary.
+    summary.workspace = meta.workspace_id.clone();
     summary.parent =
         super::super::views::activity_parent_id(&meta).map(|id| RowKey::new("local", id));
     summary.fork_of = meta.parent_id.as_ref().map(|id| ForkOf {
@@ -265,7 +278,7 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
             let mut summary = local.row.clone();
             summary.title =
                 masked.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
-            cut(&mut summary.title, TEXT_CHARS);
+            cut_title(&mut summary.title);
             summary = summary.prepare()?;
             let peer_extra = extra(&masked);
             if summary.title == local.row.title && peer_extra == local.extra {
@@ -381,5 +394,69 @@ mod tests {
             assert!(extra.get("preview").is_some());
             assert!(extra.get("cwd").is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn a_multibyte_title_keeps_its_cut_marker_inside_the_byte_bound() {
+        let (hub, session) = fixture(false).await;
+        hub.edit_test_meta(&session, |meta| meta.title = Some("雪".repeat(TEXT_CHARS)));
+        let row = summary_from_session(&hub, &session).unwrap();
+        assert!(row.title.len() <= MAX_TITLE_BYTES);
+        assert!(row.title.ends_with('…'));
+        assert!(row.title.trim_end_matches('…').chars().all(|ch| ch == '雪'));
+        assert!(!row.title.trim_end_matches('…').is_empty());
+    }
+
+    #[tokio::test]
+    async fn workspace_comes_from_own_metadata_when_the_v1_row_omits_it() {
+        let (hub, session) = fixture(false).await;
+        let workspace = "00000000-0000-4000-8000-000000000001";
+        hub.edit_test_meta(&session, |meta| meta.workspace_id = Some(workspace.into()));
+        assert!(hub.session_list_summary(&session).get("workspaceId").is_none());
+        let row = summary_from_session(&hub, &session).unwrap();
+        assert_eq!(row.workspace.as_deref(), Some(workspace));
+    }
+
+    #[tokio::test]
+    async fn parent_folding_matches_v1_without_rewriting_the_child() {
+        let (hub, parent) = fixture(false).await;
+        let mut child_meta = parent.meta();
+        child_meta.id = "child".into();
+        child_meta.subsession = Some(crate::store::SubsessionLink {
+            started_by: parent.id.clone(),
+            short_name: "child".into(),
+            depth: 1,
+            offered: false,
+        });
+        let child = hub.insert_test_session(child_meta);
+        let original = summary_from_session(&hub, &child).unwrap();
+        for case in ["root", "archived", "nested", "root-again"] {
+            hub.edit_test_meta(&parent, |meta| {
+                meta.tags.remove("archived");
+                meta.subsession = None;
+                if case == "archived" {
+                    meta.tags.insert(
+                        "archived".into(),
+                        crate::store::Tag { value: "true".into(), expires_at: None },
+                    );
+                } else if case == "nested" {
+                    meta.subsession = Some(crate::store::SubsessionLink {
+                        started_by: "grandparent".into(),
+                        short_name: "parent".into(),
+                        depth: 1,
+                        offered: false,
+                    });
+                }
+            });
+            let child_row = summary_from_session(&hub, &child).unwrap();
+            let parent_row = summary_from_session(&hub, &parent).unwrap();
+            assert!(child_row.same_content(&original), "parent case {case} changed the child");
+            assert_eq!(
+                Summary::listed_under(&child_row, Some(&parent_row)),
+                hub.spawned_by(&child.meta()).is_some(),
+                "parent case {case}",
+            );
+        }
+        assert!(!Summary::listed_under(&original, None));
     }
 }

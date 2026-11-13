@@ -173,6 +173,23 @@ async fn a_held_v1_load_submits_no_removal() {
 }
 
 #[tokio::test]
+async fn a_key_not_loaded_yet_is_not_reported_missing() {
+    use acpmux_core::hub::PageProvider as _;
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    store.save(&meta("not-loaded-yet")).unwrap();
+    let v1 = Hub::new_loading(config, store, crate::mailbox::Mailbox::memory());
+    let provider = V1PageProvider::new(v1.clone());
+    let key = RowKey::new("local", "not-loaded-yet");
+    assert_eq!(provider.row(&key).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert!(provider.row(&RowKey::new("peer", "unknown")).unwrap().is_none());
+    v1.load_store_async().await;
+    assert_eq!(provider.row(&key).unwrap().unwrap().chat_id, "not-loaded-yet");
+    assert!(provider.row(&RowKey::new("local", "missing")).unwrap().is_none());
+}
+
+#[tokio::test]
 async fn an_unchanged_second_start_appends_no_record_and_sends_no_op() {
     use std::future::Future as _;
     let v1 = memory_hub();
@@ -391,6 +408,96 @@ async fn repeated_slot_waits_mark_only_the_two_edges_without_records() {
     assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
     assert_eq!(child.meta().last_seq, last_record, "neither edge needed a record");
     assert!(subscribed.receiver.try_next().is_none());
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_queued_family_prompt_marks_once_per_wait_edge() {
+    use acpmux_core::hub::ListItem;
+    use std::future::Future;
+    use std::task::Poll;
+
+    let v1 = memory_hub();
+    let mut parent = meta("parent");
+    parent.subsession_limits.max_running = Some(1);
+    v1.insert_test_session(parent);
+    let child_meta = |id| {
+        let mut value = meta(id);
+        value.status = crate::store::SessionStatus::Idle;
+        value.subsession = Some(crate::store::SubsessionLink {
+            started_by: "parent".into(),
+            short_name: id.into(),
+            depth: 1,
+            offered: false,
+        });
+        value
+    };
+    let running = v1.insert_test_session(child_meta("running"));
+    let child = v1.insert_test_session(child_meta("queued"));
+    let provenance = json!({"kind": super::super::subsessions::PROVENANCE_KIND});
+    let occupied = v1.take_run_slot(&running, Some(&provenance)).unwrap().unwrap();
+    let mut initial = acpmux_book::index::SummaryIndex::new();
+    for (n, session) in v1.session_handles().iter().enumerate() {
+        initial = initial.apply(n as u64 + 1, summary_from_session(&v1, session).unwrap());
+    }
+    let (hub, writer) = acpmux_core::hub::Hub::new(initial);
+    let v2 = Arc::new(V2::new(hub, writer));
+    let subscribed = v2.hub.subscribe(&acpmux_core::wire::Sub::new("queued", "list")).unwrap();
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    let (handle, task) = start_v2_tee(v1.clone(), v2.clone());
+    v1.install_v2_tee(handle);
+    let tee = tokio::spawn(task);
+    let blocks = [json!({"type":"text", "text":"waiting"})];
+    let replaced = std::sync::OnceLock::new();
+    let slot = super::super::queue::Slot {
+        text: "waiting",
+        blocks: &blocks,
+        display_parts: None,
+        client: "tee-test",
+        prompt_id: "queued-prompt",
+        control: Control::Local,
+        cloud_mobile: false,
+        trust_gate: false,
+        interrupt: false,
+        interrupt_turn: None,
+        provenance: Some(&provenance),
+        agent: None,
+        class: None,
+        supersede: None,
+        full_access_device: None,
+        replaced: &replaced,
+        no_queue: false,
+        admitted: false,
+        after_turn: false,
+    };
+    let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
+    let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));
+    // This poll reaches both queue_slot's initial mark and queue_turn's second
+    // mark for the same prompt. Neither can obtain the occupied parent slot.
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(v1.waits_for_slot(&child.meta()));
+    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    assert_eq!(event.summary.chat_id, child.id);
+    let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
+    assert_eq!(extra.get("waitsForSlot"), Some(&json!(true)));
+    assert!(subscribed.receiver.try_next().is_none());
+    assert!(v1.remove_queued(&child, "queued-prompt"));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
+    );
+    assert!(!v1.waits_for_slot(&child.meta()));
+    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
+    assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
+    assert!(subscribed.receiver.try_next().is_none());
+    drop(occupied);
     tee.abort();
     let _ = tee.await;
     v2.hub.close();

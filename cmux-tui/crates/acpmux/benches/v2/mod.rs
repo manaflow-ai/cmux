@@ -333,7 +333,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "100,000 streamed text chunks produce zero tee marks and keep append p95 within 1.2x of v1 without the tee.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -370,7 +370,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
-        god_max: None,
+        god_max: Some((256 * 1024) as f64),
     },
     GateRow {
         pr: "5c",
@@ -378,7 +378,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         done_when: "Writer append p95 during a full ring replay stays within 1.2x of append with no replay.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -388,7 +388,7 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
-        god_max: None,
+        god_max: Some(1.0),
     },
     GateRow {
         pr: "6",
