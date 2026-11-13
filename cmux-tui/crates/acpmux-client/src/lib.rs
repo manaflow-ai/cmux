@@ -788,7 +788,7 @@ mod tests {
         .encode();
         assert_eq!(client.received(&frame), frame.len());
         assert_eq!(client.received(&frame), 0);
-        while client.next_change().is_some() {}
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
         assert_eq!(client.received(&frame), frame.len());
     }
 
