@@ -493,6 +493,31 @@ mod tests {
         assert_eq!(dirs.watched(), vec![folder]);
     }
 
+    /// A followed folder removed between `sync`'s look (which found it) and its watch: the add
+    /// fails, so that same sync watches its nearest existing ancestor instead, or nothing is
+    /// watched and the folder made again is never seen (#42594 F1).
+    #[test]
+    fn a_folder_removed_while_sync_looks_falls_back_to_its_ancestor() {
+        let base = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(base.path()).unwrap();
+        let folder = root.join("harnesses");
+        std::fs::create_dir_all(&folder).unwrap();
+        let removed = folder.clone();
+        AFTER_LOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || std::fs::remove_dir(&removed).unwrap()));
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        let dirs =
+            QuietDirs::follow(tx, "quiet-dirs-vanish", vec![Target::Dir(folder.clone())]).unwrap();
+        assert!(AFTER_LOOK.with(|hook| hook.borrow().is_none()), "the look never ran");
+        assert_eq!(dirs.watched(), vec![root.clone()]);
+        std::fs::create_dir(&folder).unwrap();
+        assert!(named(&rx, &folder), "the folder made again was not seen");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+        std::fs::write(folder.join("x.toml"), "x").unwrap();
+        assert!(named(&rx, &folder.join("x.toml")), "a write into the folder sent nothing");
+    }
+
     /// A followed folder replaced under its name (`mv` away, `mv` another in) is watched again:
     /// a write into the new folder is sent, and the kernel holds one watch, not two.
     #[test]
