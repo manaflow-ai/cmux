@@ -100,14 +100,20 @@ fn split_context(value: &str) -> (&str, bool) {
     }
 }
 
-/// The `--model` id: a family alias (`opus`) stays bare; a versioned value
-/// (`opus-5-5`) takes the `claude-` prefix, or the resolved model's id.
+/// The `--model` id: use the live resolved release when an alias names one,
+/// so an older catalog cannot map it to a previous release. Unresolved aliases stay bare.
 fn launch_id(value: &str, resolved: &str) -> String {
     let id = if value.is_empty() { resolved } else { value };
-    if id.is_empty() || id.starts_with("claude-") || !id.chars().any(|c| c.is_ascii_digit()) {
+    if id.is_empty() || id.starts_with("claude-") {
         return id.to_owned();
     }
-    if resolved.starts_with("claude-") { resolved.to_owned() } else { format!("claude-{id}") }
+    if resolved.starts_with("claude-") {
+        resolved.to_owned()
+    } else if !id.chars().any(|c| c.is_ascii_digit()) {
+        id.to_owned()
+    } else {
+        format!("claude-{id}")
+    }
 }
 
 fn row_model(row: &Value) -> Option<LiveModel> {
