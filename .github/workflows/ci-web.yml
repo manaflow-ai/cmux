@@ -701,10 +701,15 @@ jobs:
   # history's verdicts (known) answer only when a push with the merge parent's exact webview inputs already ran,
   # which most feat-cmux-next pushes are not: in run 43384458711 the head shards ended at 17.9 min, and the replay
   # of files the base's push already had red (up to 10 a shard, one a 600 s timeout) took the verdict to 30.8.
-  # This job runs those files (web-subarea-scope's base-reds.json, the change's affected files only) the same way
-  # that replay does, with the head's runner, so the base check takes their verdicts from here and replays only
-  # the head reds it does not cover. Best effort: a shard that fails, times out or uploads nothing leaves the base
-  # check replaying as before (continue-on-error keeps its result from skipping the check).
+  # This job runs those files (web-subarea-scope's base-reds.json, the change's affected files only) with the head's
+  # runner, so the base check takes their verdicts from here and replays only the head reds it does not cover. Best
+  # effort: a shard that fails, times out or uploads nothing leaves the base check replaying as before
+  # (continue-on-error keeps its result from skipping the check).
+  # 2 shards, each running its files at the head shards' widths (8 at a time, dev-server files 4 at a time, no
+  # retry): run 43409592440's 12 shards ran 54 such files one at a time, 2534 s of tests (the 600 s
+  # agent-pane-send-motion-contract timeout alone on shard 1, ended at 15.0 min; the rest 7.5-8.8 min), and 12
+  # setups for 21 more jobs than the step table's budget allows. The split puts the 600 s file first on shard 1
+  # and about as many seconds again on shard 2; 4 dev-server lanes take the rest beside it.
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
@@ -718,17 +723,9 @@ jobs:
       matrix:
         include:
           - shard: 1
+            shard_count: 2
           - shard: 2
-          - shard: 3
-          - shard: 4
-          - shard: 5
-          - shard: 6
-          - shard: 7
-          - shard: 8
-          - shard: 9
-          - shard: 10
-          - shard: 11
-          - shard: 12
+            shard_count: 2
     steps:
       - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -748,6 +745,7 @@ jobs:
         id: pick
         env:
           SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ matrix.shard_count }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
@@ -764,7 +762,7 @@ jobs:
           fi
           git checkout -q --detach HEAD^1
           python3 "$runner/webviews_test_history.py" early-files "$RUNNER_TEMP/webviews-durations/base-reds.json" \
-            --shard "$SHARD" --shard-count 12 --durations "$RUNNER_TEMP/webviews-durations/manifest.json" \
+            --shard "$SHARD" --shard-count "$SHARD_COUNT" --durations "$RUNNER_TEMP/webviews-durations/manifest.json" \
             --root webviews "${only[@]}" > "$RUNNER_TEMP/base-early/files" || : > "$RUNNER_TEMP/base-early/files"
           count="$(grep -c . "$RUNNER_TEMP/base-early/files" || true)"
           echo "base red files for this shard: $count"; sed 's/^/  /' "$RUNNER_TEMP/base-early/files"
@@ -814,13 +812,15 @@ jobs:
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
-      # The base check's replay, word for word: one file at a time, no retry, the head's runner.
+      # The base check's replay with the head's runner and no retry, at the head shards' widths (the base check
+      # replays one at a time; one at a time here, shard 1's 600 s file plus the others ran past the head shards).
       - name: Run the base reds
         if: ${{ steps.pick.outputs.files != '0' }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: warn
-          CMUX_WEB_TEST_JOBS: "1"
+          CMUX_WEB_TEST_JOBS: "8"
+          CMUX_WEB_TEST_DEV_JOBS: "4"
           CMUX_WEB_TEST_RETRIES: "0"
           SHARD: ${{ matrix.shard }}
         run: |
@@ -863,23 +863,10 @@ jobs:
     permissions:
       contents: read
       actions: read
-    name: react-apps-base-check (${{ matrix.shard }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: 1
-          - shard: 2
-          - shard: 3
-          - shard: 4
-          - shard: 5
-          - shard: 6
-          - shard: 7
-          - shard: 8
-          - shard: 9
-          - shard: 10
-          - shard: 11
-          - shard: 12
+    # One job for every head shard: it was one a head shard (12), and in run 43409592440, with the early base
+    # results, 11 of those 12 took 0.3-0.9 min (nothing left to replay) and one 3.0 (one file). Each head shard's
+    # results are joined first (webviews_test_history.py heads), then judged once.
+    name: react-apps-base-check
     steps:
       # The base is the merge commit's first parent, the commit the head shards
       # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
@@ -892,11 +879,19 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # Each head shard's artifact in a folder of its own name (no merge-multiple: every shard has the same file names).
       - name: Download head webview results
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          name: react-apps-head-results-shard${{ matrix.shard }}
-          path: ${{ runner.temp }}/head-results
+          pattern: react-apps-head-results-shard*
+          path: ${{ runner.temp }}/head-shards
+
+      # A shard that published no results fails the check here, as its missing download failed its own base check.
+      - name: Join the head shards' results
+        env:
+          # react-apps-check-shard's matrix size (tests/test_webviews_test_history.py holds them equal).
+          HEAD_SHARDS: "12"
+        run: python3 scripts/ci/webviews_test_history.py heads "$RUNNER_TEMP/head-shards" --count "$HEAD_SHARDS" --out "$RUNNER_TEMP/head-results"
 
       # Every early shard's verdicts (react-apps-base-early): any shard's head reds may be any early shard's files.
       - name: Download the early base results
@@ -1078,8 +1073,9 @@ jobs:
           python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
           python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" \
             > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
-          count="$(grep -c . "$RUNNER_TEMP/head-rerun-files" || true)"
-          echo "rerun=$([ "$status" -ne 0 ] && [ "$count" -ge 1 ] && [ "$count" -le 25 ] && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
+          # At most 25 from any one head shard, the cap each head shard's own base check held.
+          echo "rerun=$([ "$status" -ne 0 ] && python3 "$runner/webviews_test_history.py" rerun-fits "$RUNNER_TEMP/head-rerun-files" \
+            --shards "$RUNNER_TEMP/head-results/shards.json" --cap 25 && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
           exit "$status"
 
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the

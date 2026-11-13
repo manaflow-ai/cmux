@@ -278,6 +278,95 @@ class EarlyBase(unittest.TestCase):
             self.assertEqual((replay.read_text(), json.loads(known.read_text())), ("test/other.test.ts\n", {TEST: False}))
 
 
+class OneBaseCheck(unittest.TestCase):
+    """react-apps-base-check is one job for all head shards (it was one a head shard: in run 43409592440 11 of those 12
+    took 0.3-0.9 min with the early base results). It joins the shards' artifacts and keeps each shard's re-run cap."""
+
+    def shard(self, root, i, results, logs=None, runner=True):
+        here = root / history.HEAD_ARTIFACT.format(i)
+        here.mkdir(parents=True)
+        (here / history.HEAD_RESULTS).write_text(results if isinstance(results, str) else json.dumps(results))
+        if runner:
+            (here / "runner").mkdir()
+            (here / "runner/run-webviews-tests.sh").write_text(f"# shard {i}\n")
+        if logs:
+            (here / "raw-logs").mkdir()
+            for name, text in logs.items():
+                (here / "raw-logs" / name).write_text(text)
+
+    def test_the_shards_join_into_one_results_map_runner_and_raw_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False, "test/a.test.ts": True},
+                       {"summary": "FAIL x /r/test_agent.log\n", "test_agent.log": "one"})
+            self.shard(tmp / "in", 2, {"test/b.test.ts > y": False}, {"summary": "FAIL y /r/test_b.log\n", "test_b.log": "two"})
+            self.assertIsNone(history.join_heads(tmp / "in", 2, tmp / "out"))
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()),
+                             {TEST: False, "test/a.test.ts": True, "test/b.test.ts > y": False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()),
+                             {FILE: 1, "test/a.test.ts": 1, "test/b.test.ts": 2})
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\nFAIL y /r/test_b.log\n")
+            self.assertEqual(((tmp / "out/raw-logs/test_agent.log").read_text(), (tmp / "out/raw-logs/test_b.log").read_text()),
+                             ("one", "two"))
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+
+    def test_a_missing_shard_fails_and_an_unreadable_one_leaves_the_results_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False})
+            self.assertIn("shard2", history.join_heads(tmp / "in", 2, tmp / "out"))
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--count", "2", "--out",
+                                   str(tmp / "out2")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("::error", done.stdout)
+            self.shard(tmp / "in", 2, "{not json")
+            self.assertIsNone(history.join_heads(tmp / "in", 2, tmp / "out"))
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--failed-files",
+                                   str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
+            self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
+
+    def test_the_rerun_cap_holds_per_head_shard(self):
+        where = {f"test/s1-{i}.test.ts": 1 for i in range(25)} | {f"test/s2-{i}.test.ts": 2 for i in range(26)}
+        one = [f"test/s1-{i}.test.ts" for i in range(25)]
+        self.assertTrue(history.rerun_fits(one, where, 25))
+        self.assertTrue(history.rerun_fits(one + [f"test/s2-{i}.test.ts" for i in range(25)], where, 25))
+        self.assertFalse(history.rerun_fits([f"test/s2-{i}.test.ts" for i in range(26)], where, 25))
+        self.assertFalse(history.rerun_fits([], where, 25))
+        # No map: every file counts as one shard's.
+        self.assertFalse(history.rerun_fits(one + ["test/x.test.ts"], {}, 25))
+        with tempfile.TemporaryDirectory() as tmp:
+            files = Path(tmp, "files")
+            files.write_text("".join(f"{f}\n" for f in one))
+            def fits(*shards):
+                return subprocess.run([sys.executable, str(SCRIPT), "rerun-fits", str(files), "--shards",
+                                       *shards, "--cap", "25"]).returncode
+            Path(tmp, "shards.json").write_text(json.dumps(where))
+            self.assertEqual(fits(str(Path(tmp, "shards.json"))), 0)
+            self.assertEqual(fits(str(Path(tmp, "missing.json"))), 0)
+            files.write_text("")
+            self.assertEqual(fits(str(Path(tmp, "shards.json"))), 1)
+
+    def test_the_one_job_joins_every_head_shard_before_it_reads_them(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        check = jobs["react-apps-base-check"]
+        self.assertNotIn("strategy", check)
+        self.assertEqual(check["name"], "react-apps-base-check")
+        steps = {s["name"]: s for s in check["steps"]}
+        names = [s["name"] for s in check["steps"]]
+        download = steps["Download head webview results"]["with"]
+        self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
+        self.assertNotIn("merge-multiple", download)
+        join = steps["Join the head shards' results"]
+        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
+        self.assertNotIn("continue-on-error", join)
+        self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))
+        compare = steps["Run base reds and compare"]["run"]
+        self.assertIn("rerun-fits", compare)
+        self.assertIn("--cap 25", compare)
+
+
 class Inputs(unittest.TestCase):
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
@@ -696,14 +785,24 @@ class Workflow(unittest.TestCase):
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
         self.assertEqual(early["if"], check["if"])
-        self.assertEqual(early["runs-on"], check["runs-on"])
+        sys.path.insert(0, str(ROOT / "tests"))
+        import workflow_jobs  # noqa: PLC0415
+        self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
         self.assertLess(early["timeout-minutes"], jobs["react-apps-check-shard"]["timeout-minutes"])
-        self.assertEqual(len(early["strategy"]["matrix"]["include"]), 12)
+        # 2 shards (run 43409592440's 12 ran 54 files one at a time; shard 1's 600 s timeout alone ended at 15.0 min),
+        # each running its files at the head shards' widths, so the slowest file still ends before the head shards.
+        include = early["strategy"]["matrix"]["include"]
+        self.assertEqual(include, [{"shard": 1, "shard_count": 2}, {"shard": 2, "shard_count": 2}])
         steps = {s["name"]: s for s in early["steps"]}
         replay = next(s for s in check["steps"] if s["name"] == "Run base reds and compare")
+        head = next(s for s in jobs["react-apps-check-shard"]["steps"] if s["name"] == "Test webviews")
         run = steps["Run the base reds"]
-        for key in ("CMUX_NEXT_STYLE_GUARDS", "CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_RETRIES"):
+        for key in ("CMUX_NEXT_STYLE_GUARDS", "CMUX_WEB_TEST_RETRIES"):
             self.assertEqual(run["env"][key], replay["env"][key], key)
+        for key in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS"):
+            self.assertEqual(run["env"][key], head["env"][key], key)
+        self.assertEqual(steps["Pick this shard's base reds"]["env"]["SHARD_COUNT"], "${{ matrix.shard_count }}")
+        self.assertIn('--shard-count "$SHARD_COUNT"', steps["Pick this shard's base reds"]["run"])
         self.assertIn('env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES', run["run"])
         self.assertIn('bash "$early/runner/run-webviews-tests.sh"', run["run"])
         pick = steps["Pick this shard's base reds"]["run"]
