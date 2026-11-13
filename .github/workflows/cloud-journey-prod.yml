@@ -142,7 +142,7 @@ jobs:
   # matrix: the existing cmux-next-cloud-journey environment is the only environment that holds the agent account's
   # Claude setup-token secret, and this job never targets the production API or checks out a pull request head.
   preclaim:
-    if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.preclaim
+    if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 60
     environment:
