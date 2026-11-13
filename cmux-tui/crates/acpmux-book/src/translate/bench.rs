@@ -9,7 +9,7 @@
 )]
 use super::*;
 fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
-    super::translate(state, harness, 0, 1, bytes)
+    translate(state, harness, 0, 1, bytes)
 }
 use std::hint::black_box;
 use std::time::Instant;

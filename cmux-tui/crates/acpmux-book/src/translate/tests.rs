@@ -8,7 +8,7 @@
 use super::*;
 use serde::Deserialize;
 fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
-    super::translate(state, harness, 0, 1, bytes)
+    translate(state, harness, 0, 1, bytes)
 }
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
