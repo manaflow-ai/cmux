@@ -103,7 +103,7 @@ impl SummaryIndex {
             _ => Box::new(start..end),
         };
         for position in positions {
-            let item = &items[position];
+            let Some(item) = items.get(position) else { continue };
             let Some(row) = self.get_row(&item.key) else { continue };
             if !filter.matches(&row) {
                 continue;
@@ -202,7 +202,7 @@ impl SummaryIndex {
         };
         let mut selected_positions = Vec::new();
         for position in positions {
-            let row = &rows[position];
+            let Some(row) = rows.get(position) else { continue };
             let size = row.encoded_len() + 1;
             if selected_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
                 after = true;
@@ -213,7 +213,7 @@ impl SummaryIndex {
         }
         let mut selected_rows = selected_positions
             .into_iter()
-            .map(|position| rows[position].clone())
+            .filter_map(|position| rows.get(position).cloned())
             .collect::<Vec<_>>();
         if side == ReadSide::Before {
             selected_rows.reverse();
