@@ -1,7 +1,8 @@
 // Compile all first-party pages in one graph: React, the compiler runtime and shared UI ship
 // once. Each page keeps its own document, CSS, origin and bridge; chunks are immutable assets.
 import { build } from "esbuild";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import postcss from "postcss";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -10,6 +11,8 @@ import { artifactRuntimePlugin } from "../agent-pane/artifactRuntimePlugin.mjs";
 import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
 import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
+import { factorSharedCss } from "./factor-shared-css.mjs";
+import focusRingGate from "../postcss/focusRingGate.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
@@ -51,6 +54,7 @@ const result = await build({
 // esbuild's multi-entry CSS graph can reorder rules shared by different entries. Compile
 // each document's CSS with its original isolated import graph; only JavaScript is shared.
 // No React Compiler pass is needed to collect stylesheets, and the unused JS stays in memory.
+const pageStyles = new Map();
 for (const page of pages) {
   const styles = await build({
     entryPoints: [path.join(srcRoot, "pages", page, "main.tsx")],
@@ -69,8 +73,25 @@ for (const page of pages) {
     plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
-  await writeFile(path.join(outdir, page, "app.css"), css?.contents ?? "");
+  // Apply the focus-ring transform before factoring so the shared prefix and every remainder
+  // receive exactly one pass.
+  const gated = await postcss([focusRingGate()]).process(Buffer.from(css?.contents ?? "").toString("utf8"), {
+    from: path.join(outdir, page, "app.css"),
+    map: false,
+  });
+  pageStyles.set(page, gated.css);
 }
+// Every page imports the same first-party chrome layer before its page rules. Factor only an
+// exact common prefix ending at a complete rule: this preserves both import order and the
+// cascade, while keeping each page's remainder isolated as before.
+const styleValues = [...pageStyles.values()];
+const { shared: commonStyle, remainders } = factorSharedCss(styleValues);
+await mkdir(path.join(outdir, "__shared"), { recursive: true });
+await writeFile(path.join(outdir, "__shared", "page-base.css"), commonStyle);
+for (const [index, page] of pages.entries()) {
+  await writeFile(path.join(outdir, page, "app.css"), remainders[index]);
+}
+console.error(`pages CSS shared prefix: ${Buffer.byteLength(commonStyle)} bytes across ${pages.length} pages`);
 await writeFile(path.join(outdir, "metafile.json"), JSON.stringify(result.metafile));
 console.error(`pages React compiler (${mode}): ${compiled.size} compiled; ${bailouts.length} diagnostics`);
 for (const item of bailouts) console.error(`${item.file}:${item.line ?? "?"}: ${item.reason}`);

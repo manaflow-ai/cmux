@@ -100,6 +100,11 @@ final class SidebarIconView: NSView {
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(SidebarStyle.glyphConfig)
             inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false
+        case let .page(name)?:
+            // A cmux page's own pack icon (a Cloud desktop's cloud) in the same slot and ink as the site globe.
+            imageView.image = NSImage.icon(name, size: SidebarStyle.kindGlyphSize)
+            inkKey = "icon|\(name.rawValue)|\(pointSize)"
+            imageView.isHidden = false
         case .swatch?, nil:
             imageView.image = nil
             imageView.isHidden = true
@@ -114,6 +119,8 @@ final class SidebarIconView: NSView {
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
                 symbolInk ?? tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            } else if case .page? = icon {
+                symbolInk ?? Palette.textSecondary
             } else if icon == .pagePlaceholder {
                 symbolInk ?? Palette.textSecondary
             } else if icon == nil {

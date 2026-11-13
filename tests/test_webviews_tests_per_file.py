@@ -308,6 +308,84 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(json.loads(results_path.read_text())["test/timed-out-then-fail.test.ts > still broken alone"],
                          False, output)
 
+    def base_reds(self, red, inputs="base-key"):
+        path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "base-reds.json"
+        path.write_text(json.dumps({"sha": "b" * 40, "inputs": inputs, "red": red}), encoding="utf-8")
+        return str(path)
+
+    def test_a_file_red_on_the_base_skips_its_alone_retry_and_a_head_only_red_is_still_retried(self):
+        """Run 43374261361's shard 2 spent 10 of its 25 min retrying three files alone that its base push
+        had red too (agent-pane-send-motion-contract timed out at 600 s on its first run and again on its
+        retry), and react-apps-base-check then judged all three red on the base. A file whose every
+        first-run red is red on the base's push goes to that check with its first run; a red only the
+        head has is still retried alone."""
+        files = ["test/base-fail.test.ts", "test/base-hang.test.ts", "test/head-fail.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        reds = self.base_reds(["test/base-fail.test.ts > a broken test", "test/base-hang.test.ts",
+                               "test/other.test.ts > red on the base only"])
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                       "CMUX_WEB_TEST_RESULTS": str(results_path), "CMUX_WEB_TEST_BASE_REDS": reds},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls.count("./test/base-fail.test.ts"), 1, output)
+        self.assertEqual(calls.count("./test/base-hang.test.ts"), 1, output)
+        self.assertEqual(calls.count("./test/head-fail.test.ts"), 2, output)
+        self.assertIn("NO RETRY FAIL test/base-fail.test.ts", output)
+        self.assertIn("NO RETRY TIMEOUT test/base-hang.test.ts", output)
+        self.assertIn("RETRY test/head-fail.test.ts (remaining budget", output)
+        self.assertIn("(1 retried alone, 0 passed alone)", output)
+        self.assertIn("so not retried (react-apps-base-check judges them): 2", output)
+        # The base check judges the first run's reds, as it would have judged the retry's.
+        self.assertEqual(json.loads(results_path.read_text()), {
+            "test/base-fail.test.ts > a broken test": False, "test/base-hang.test.ts": False,
+            "test/head-fail.test.ts > a broken test": False}, output)
+
+    def test_a_file_with_one_red_the_base_lacks_is_still_retried(self):
+        """Only a file whose every first-run red is red on the base skips its retry: one more red the base has
+        green may be the change's own, and its alone retry is what passes a contention flake."""
+        files = ["test/a-fail.test.ts", "test/b-timed-out-once.test.ts"]
+        # a-fail's name, b's file-level timeout: neither is among these.
+        reds = self.base_reds(["test/a-fail.test.ts > another test", "test/b-timed-out-once.test.ts > a test"])
+        result, _, calls = self.run_runner(
+            files, extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                              "CMUX_WEB_TEST_BASE_REDS": reds})
+        output = result.stdout + result.stderr
+        for file in files:
+            self.assertEqual(calls.count(f"./{file}"), 2, output)
+        self.assertNotIn("NO RETRY", output)
+        self.assertIn("  test/b-timed-out-once.test.ts (first run: TIMEOUT)", output)
+
+    def test_unreadable_base_reds_retry_every_red_file(self):
+        """Fail safe: base reds that are missing, empty, unreadable or keyless skip no retry."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "garbage.json").write_text("{not json", encoding="utf-8")
+        (temp / "empty.json").write_text("", encoding="utf-8")
+        (temp / "keyless.json").write_text(json.dumps({"red": ["test/base-fail.test.ts > a broken test"]}),
+                                           encoding="utf-8")
+        for reds in [str(temp / "missing.json"), str(temp / "garbage.json"), str(temp / "empty.json"),
+                     str(temp / "keyless.json"), ""]:
+            result, _, calls = self.run_runner(
+                ["test/base-fail.test.ts"],
+                extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                           "CMUX_WEB_TEST_BASE_REDS": reds})
+            output = result.stdout + result.stderr
+            self.assertEqual(calls.count("./test/base-fail.test.ts"), 2, f"{reds}: {output}")
+            self.assertNotIn("NO RETRY", output)
+
+    def test_ci_hands_a_pull_request_shard_its_base_reds(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        step = text[text.index("      - name: Test webviews\n"):]
+        step = step[: step.index("\n      - name:", 10)]
+        self.assertIn("CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && "
+                      "format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}", step)
+        scope = text[text.index("  web-subarea-scope:\n"):text.index("\n  web-typecheck:\n")]
+        self.assertIn("actions: read", scope)
+        self.assertIn("webviews_test_history.py known-reds", scope)
+        self.assertIn("${{ runner.temp }}/webviews-durations/base-reds.json", scope)
+
     def test_a_retry_running_to_its_limit_costs_the_next_file_nothing(self):
         """A retry's kill grace and upkeep run past its limit; a budget summed from the limits then
         had too little left for the last file's retry. Each file's retry runs to its limit and 3 s
