@@ -396,8 +396,10 @@ function Columns({
   const widthOf = useCallback(
     (popup: HTMLElement | null | undefined) => {
       if (!popup || dragging.current) return;
-      const room = "var(--available-width, calc(100vw - 24px))";
-      popup.style.minWidth = "";
+      const available = "var(--available-width, calc(100vw - 24px))";
+      const column = popup.ownerDocument.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+      const room = column ? `min(${Math.max(0, column.width - 10)}px, ${available})` : available;
+      popup.style.minWidth = `min(var(--acpmux-cols-min-width), ${room})`;
       if (ownWidth) {
         // A width the person dragged to is theirs, from the drag's floor up to the window.
         popup.style.width = `min(${ownWidth}px, ${room})`;
@@ -408,7 +410,7 @@ function Columns({
       // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
       // still hold; a name longer than the cap wraps under it.
       popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
-      popup.style.maxWidth = "";
+      popup.style.maxWidth = `min(40em, ${room})`;
     },
     [ownWidth, natural],
   );
@@ -517,7 +519,14 @@ function Columns({
     return labels;
   }, [list, effort?.levels, fast, t]);
   const effortKey = effortLabels.map((label) => label.text).join("\u0000");
-  useLayoutEffect(() => widthOf(popupRef.current), [widthOf, popupNode]);
+  useLayoutEffect(() => {
+    widthOf(popupNode);
+    const column = popupNode?.ownerDocument.querySelector(CHAT_COLUMN);
+    if (!column || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => widthOf(popupNode));
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
@@ -838,7 +847,7 @@ function Columns({
       if (next === width && popup.style.width === `${width}px`) return;
       width = next;
       popup.style.width = `${width}px`;
-      popup.style.minWidth = "";
+      popup.style.minWidth = `min(var(--acpmux-cols-min-width), ${most}px)`;
       popup.style.maxWidth = `${most}px`;
       pin();
     };

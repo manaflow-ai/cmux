@@ -335,15 +335,21 @@ for (const [fontSize, room] of [
   [13, 900],
   [20, 900],
   [20, 300],
+  [13, 300],
 ] as const) {
   test(`a width drag keeps the scaled minimum within ${room}px of room at ${fontSize}px type`, async () => {
+    fakeLayout = (window) => {
+      const column = window.document.getElementById("root")!;
+      column.classList.add("acpmux-main");
+      column.getBoundingClientRect = () => ({ left: 0, right: room + 10, width: room + 10 }) as DOMRect;
+      Object.defineProperty(window, "innerWidth", { value: 1200 });
+    };
     await openMenu();
     const menu = popup();
     menu.style.fontSize = `${fontSize}px`;
     menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
     menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
     menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
-    Object.defineProperty(dom!.window, "innerWidth", { value: room + 10 });
     const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
     const direction = grip.dataset.edge === "start" ? -1 : 1;
     // The chip-aligned edge stays pinned; only the opposite edge moves.
@@ -357,12 +363,12 @@ for (const [fontSize, room] of [
     const minimum = Math.min(room, Math.ceil(28.5 * fontSize));
     expect(menu.style.width).toContain(`${minimum}px`);
     expect(modelMenuWidth()).toBe(minimum);
-    expect(menu.style.minWidth).toBe("");
+    expect(menu.style.minWidth).toContain(`${room}px`);
     await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
     await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
-    expect(popup().style.minWidth).toBe("");
+    expect(popup().style.minWidth).toContain(`${room}px`);
     await click(tab("Codex"));
-    expect(popup().style.minWidth).toBe("");
+    expect(popup().style.minWidth).toContain(`${room}px`);
   });
 }
 
