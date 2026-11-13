@@ -398,3 +398,4 @@ scripts/cmux-next/tests/lib/git-fixture.sh	exit-trap-reraise-order	debt: the fix
 scripts/cmux-next/tests/test_bundle_size_pr.py	git-temp-repo-maintenance	debt: a throwaway temp repo of a few commits; move it onto tests/git_fixture_env
 scripts/cmux-next/tests/test_ffi_caller_ratchet.py	git-write-without-fixture	debt: a throwaway temp repo that sets maintenance.auto and gc.auto off itself; move it onto tests/git_fixture_env
 scripts/cmux-next/tests/test_ffi_caller_ratchet.py	git-fixture-env-dropped	debt: it drops GIT_* so a hook's GIT_DIR cannot point git at the outer repo; move it onto tests/git_fixture_env
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UpdateReadyCardLayoutTests.swift	assert-on-duration	a constant check, not a timing: the card's notesOpenDelay must stay at least 400 ms so a pass over the card opens no popup
