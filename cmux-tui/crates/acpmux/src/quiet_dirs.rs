@@ -296,6 +296,9 @@ impl State {
                 self.unarm(path);
             }
             let mut added = false;
+            // A folder gone between the look and its watch: the next look watches its nearest
+            // existing ancestor in its place, or nothing would see it made again.
+            let mut vanished = false;
             for (path, kind, id) in wanted {
                 if self.armed.get(&path).is_some_and(|armed| armed.kind == kind) {
                     continue;
@@ -304,8 +307,10 @@ impl State {
                 let wd = match self.watches.add(&path, mask(kind)) {
                     Ok(wd) => wd,
                     Err(e) => {
-                        // Looked at again on the next event that may change it.
                         tracing::debug!("quiet dirs: cannot watch {}: {e}", path.display());
+                        // Gone since the look: look again now. Still there (a permission
+                        // error): looked at again on the next event that may change it.
+                        vanished |= !path.exists();
                         continue;
                     }
                 };
@@ -322,7 +327,7 @@ impl State {
                     fresh.push(path);
                 }
             }
-            if !added {
+            if !added && !vanished {
                 break;
             }
         }
