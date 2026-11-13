@@ -16,11 +16,11 @@ import Testing
     }
 
     static var examples: [SidebarSection] {
-        [section("local", name: "This Mac", kind: .local),
-         section("mac", name: "A very long Mac Studio device name", kind: .server, device: "device-mac"),
-         section("cloud", name: "Cloud development environment with a long name", kind: .cloud),
-         section("offline", name: "MacBook Pro offline", kind: .server, device: "device-offline", online: false),
-         section("linux", name: "Linux SSH build machine", kind: .ssh)]
+        [section("local", name: "This Mac", kind: SidebarMachine.Kind.local),
+         section("mac", name: "A very long Mac Studio device name", kind: SidebarMachine.Kind.server, device: "device-mac"),
+         section("cloud", name: "Cloud development environment with a long name", kind: SidebarMachine.Kind.cloud),
+         section("offline", name: "MacBook Pro offline", kind: SidebarMachine.Kind.server, device: "device-offline", online: false),
+         section("linux", name: "Linux SSH build machine", kind: SidebarMachine.Kind.ssh)]
     }
 
     @Test func defaultFlatListMountsShareWithoutAddingMachineHeaders() throws {
@@ -80,7 +80,7 @@ import Testing
             #expect(row.screenMachineID == nil)
             #expect(row.screenSlot.made == nil)
         }
-        model.sections = [Self.section("mac", name: "Now Linux", kind: .ssh)]
+        model.sections = [Self.section("mac", name: "Now Linux", kind: SidebarMachine.Kind.ssh)]
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let reused = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
@@ -146,21 +146,21 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         for (id, expected) in [("local", SidebarIntent.shareScreen(.local)), ("mac", .viewScreen(MachineID("mac"))), ("cloud", .viewScreen(MachineID("cloud")))] {
-            let row = try #require(list.rowViews[.section(.machine(MachineID(id)))] as? SectionHeaderRowView)
+            let row = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID(id)))] as? SectionHeaderRowView)
             #expect(row.showsScreenButton)
             #expect(row.screenButton.accessibilityPerformPress())
             #expect(intents.last == expected)
             #expect(!row.screenButtonFrame.intersects(row.chevronFrame))
         }
-        let offline = try #require(list.rowViews[.section(.machine(MachineID("offline")))] as? SectionHeaderRowView)
+        let offline = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("offline")))] as? SectionHeaderRowView)
         #expect(offline.showsScreenButton)
         #expect(!offline.screenButton.accessibilityPerformPress())
-        let linux = try #require(list.rowViews[.section(.machine(MachineID("linux")))] as? SectionHeaderRowView)
+        let linux = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("linux")))] as? SectionHeaderRowView)
         #expect(!linux.showsScreenButton)
-        model.sections = [Self.section("mac", name: "Now a Linux machine", kind: .ssh)]
+        model.sections = [Self.section("mac", name: "Now a Linux machine", kind: SidebarMachine.Kind.ssh)]
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
-        let reused = try #require(list.rowViews[.section(.machine(MachineID("mac")))] as? SectionHeaderRowView)
+        let reused = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("mac")))] as? SectionHeaderRowView)
         #expect(reused.screenAction == nil)
         #expect(!reused.screenButton.accessibilityPerformPress())
     }
@@ -176,9 +176,9 @@ import Testing
         #expect(aliases[meshID] == nil)
         let devices = [HubDevice(id: deviceID, name: "Renamed Mac", platform: .macos, macScreenShared: false, online: true),
                        HubDevice(id: "phone", name: "Phone", platform: .ios, online: true)]
-        let input = [Self.section(routeID, name: "Old name", kind: .ssh), Self.section("linux", name: "Renamed Mac", kind: .ssh),
-                     Self.section("phone", name: "Phone", kind: .server),
-                     Self.section(deviceID, name: "Renamed Mac", kind: .ssh)]
+        let input = [Self.section(routeID, name: "Old name", kind: SidebarMachine.Kind.ssh), Self.section("linux", name: "Renamed Mac", kind: SidebarMachine.Kind.ssh),
+                     Self.section("phone", name: "Phone", kind: SidebarMachine.Kind.server),
+                     Self.section(deviceID, name: "Renamed Mac", kind: SidebarMachine.Kind.ssh)]
         let actions = SidebarScreenActions(macs: HubDevice.macScreenAvailability(in: devices), aliases: aliases)
         let result = actions.applying(to: input)
         #expect(result[0].machine?.screenDeviceID == deviceID, "A Mac can open the guided sharing flow before sharing is enabled")
@@ -199,10 +199,10 @@ import Testing
         list.frame = NSRect(x: 0, y: 0, width: 300, height: 600)
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
-        let mac = try #require(list.rowViews[.section(.machine(MachineID(routeID)))] as? SectionHeaderRowView)
+        let mac = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID(routeID)))] as? SectionHeaderRowView)
         #expect(mac.screenButton.accessibilityPerformPress())
         #expect(intents == [.viewScreen(MachineID(routeID))])
-        let linux = try #require(list.rowViews[.section(.machine(MachineID("linux")))] as? SectionHeaderRowView)
+        let linux = try #require(list.rowViews[SidebarRowKey.section(SectionID.machine(MachineID("linux")))] as? SectionHeaderRowView)
         #expect(!linux.showsScreenButton)
     }
 }

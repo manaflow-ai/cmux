@@ -6,10 +6,10 @@ import Testing
 @MainActor struct SidebarScreenIntentActionsTests {
     @Test func dispatchPreservesDeviceIdentityAndRejectsUnavailableTargets() {
         let device = "a1111111-1111-4111-8111-111111111111"
-        let sections = [SidebarScreenActionTests.section("route", name: "Mac", kind: .ssh, device: device),
-                        SidebarScreenActionTests.section("offline", name: "Mac", kind: .server, device: device, online: false),
-                        SidebarScreenActionTests.section("linux", name: "Mac", kind: .ssh),
-                        SidebarScreenActionTests.section("cloud", name: "Cloud", kind: .cloud)]
+        let sections: [SidebarSection] = [SidebarScreenActionTests.section("route", name: "Mac", kind: SidebarMachine.Kind.ssh, device: device),
+                        SidebarScreenActionTests.section("offline", name: "Mac", kind: SidebarMachine.Kind.server, device: device, online: false),
+                        SidebarScreenActionTests.section("linux", name: "Mac", kind: SidebarMachine.Kind.ssh),
+                        SidebarScreenActionTests.section("cloud", name: "Cloud", kind: SidebarMachine.Kind.cloud)]
         var actions: [ActionID] = [], invocations: [ActionInvocation] = [], opened: [String] = []
         let handler = SidebarScreenIntentActions { actions.append($0); invocations.append($1) }
         for id in ["route", "offline", "linux", "missing", "cloud"] {
