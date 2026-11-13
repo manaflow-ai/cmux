@@ -5213,6 +5213,14 @@ function TranscriptView({
       readerAt.current = performance.now();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
+      // Native scrolling is delivered after this input callback. Prime one viewport of lead before
+      // that first paint so a fast upward wheel or drag cannot outrun the rows currently mounted.
+      // Later scroll events carry their measured delta and remain coalesced by the pacer.
+      if (movingUp && node.clientHeight > 0 && scrollRef.current.delta >= 0) {
+        scrollRef.current = { top: node.scrollTop, delta: -node.clientHeight };
+        scheduleScrollLeadReset();
+        flushSync(() => setScroll(scrollRef.current));
+      }
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
       // reader's input, not only its scroll events, keeps the right-hand card held
       // (summary/heldWhileScrolling.ts).
