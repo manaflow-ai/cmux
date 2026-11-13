@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43375588544",
+  "recorded_at": "2026-11-13T06:07:09Z",
+  "reason": "image inputs changed in e1457467e9279da493900488a140a8ba3253e5ca..e21d4f7653ef55137c3ea1fac87bd9e1ddd5d0e2",
+  "dry_run": false,
+  "cmux_tui": "63dd6b4723bbfd7b8e17436645d7b5e94ff95f22",
+  "fixes": [
+    {
+      "sha": "e21d4f7653ef55137c3ea1fac87bd9e1ddd5d0e2",
+      "mergedAt": "2026-11-12T21:59:23-08:00",
+      "subject": "Cloud install census: count the packages agents install; the image bake reads a measured npm list (#42151)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T06:07:09Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
