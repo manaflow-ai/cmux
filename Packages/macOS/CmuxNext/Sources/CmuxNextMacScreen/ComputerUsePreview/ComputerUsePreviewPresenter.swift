@@ -1,11 +1,19 @@
-import AppKit
-import CmuxNextAgentPane
-import CmuxNextComputerUse
+// SPDX-License-Identifier: GPL-3.0-or-later
+public import AppKit
+public import CmuxNextComputerUse
+public import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextFocus
-import CmuxNextMacScreen
 import CmuxNextWakeups
+
+/// What the live preview reads from the App: the setting and the surface the person looks at. The App conforms (AppServices); tests can stand in.
+@MainActor
+public protocol ComputerUsePreviewHost: AnyObject {
+    /// `computerUse.livePreview` now.
+    var computerUseLivePreviewEnabled: Bool { get }
+    /// The surface the person looks at (the focused tab of the key window's shown workspace, while
+    /// cmux is the active app), with the view the preview docks over; nil when it is no agent's.
+    func computerUsePreviewFocus() -> (surface: ComputerUsePreviewSurface, host: NSView)?
+}
 
 /// The live preview of an agent's Computer Use (`computerUse.livePreview`, on by default), as the
 /// ChatGPT app shows its Computer Use picture: a live video of the window the agent drives, docked
@@ -18,8 +26,10 @@ import CmuxNextWakeups
 /// effect, then it goes away). What the person chose (expanded, hidden here, hidden for every
 /// active agent, the corner and the size) is kept in memory for this run.
 @MainActor
-final class ComputerUsePreviewController {
-    private unowned let services: AppServices
+public final class ComputerUsePreviewPresenter {
+    private let remote: CmuxRemoteService
+    private let registry: ActionRegistry
+    private weak var host: (any ComputerUsePreviewHost)?
     let rules = ComputerUsePreviewRules()
     private var started = false
 
@@ -45,13 +55,19 @@ final class ComputerUsePreviewController {
     private var observers: [any NSObjectProtocol] = []
     private var observation: Task<Void, Never>?
 
-    init(services: AppServices) {
-        self.services = services
+    /// - Parameters:
+    ///   - remote: cmux Remote: the agents' sessions and the preview channel.
+    ///   - registry: The actions (Show Window runs `computerUseFocus`).
+    ///   - host: The App (held weakly).
+    public init(remote: CmuxRemoteService, registry: ActionRegistry, host: any ComputerUsePreviewHost) {
+        self.remote = remote
+        self.registry = registry
+        self.host = host
     }
 
     /// Follows the agents' activity, the setting, the app's activation and key window, and (through
     /// ``focusChanged()``) each window's focus.
-    func start() {
+    public func start() {
         guard !started else { return }
         started = true
         let center = NotificationCenter.default
@@ -61,10 +77,10 @@ final class ComputerUsePreviewController {
                 MainActor.assumeIsolated { self?.focusChanged() } // main-proof: observer on queue: .main
             })
         }
-        let state = services.cmuxRemote.computerUse
+        let state = remote.computerUse
         observation = Task { [weak self] in
             for await _ in ObservationStream({ [weak self] () -> String in
-                let enabled = self?.services.settings?.snapshot.computerUse.livePreview ?? true
+                let enabled = self?.host?.computerUseLivePreviewEnabled ?? true
                 let sessions = state.sessions.map { "\($0.id)#\($0.lastAction.timeIntervalSince1970)#\($0.stopped)" }
                 return "\(enabled)|" + sessions.joined(separator: ",")
             }) {
@@ -75,7 +91,7 @@ final class ComputerUsePreviewController {
 
     /// A window's focus moved (FocusEffectApplier), or the app or its key window changed: look again
     /// on the next turn, once for a burst.
-    func focusChanged() {
+    public func focusChanged() {
         guard started, !updateQueued else { return }
         updateQueued = true
         // task-owner: one coalesced look at the focus, on the main actor's next turn.
@@ -89,9 +105,9 @@ final class ComputerUsePreviewController {
 
     private func update() {
         let now = Date()
-        let enabled = services.settings?.snapshot.computerUse.livePreview ?? true
-        let focused = focusedSurface()
-        let candidates = services.cmuxRemote.computerUse.sessions.map {
+        let enabled = host?.computerUseLivePreviewEnabled ?? false
+        let focused = host?.computerUsePreviewFocus()
+        let candidates = remote.computerUse.sessions.map {
             ComputerUsePreviewCandidate(session: $0.id, agent: $0.agent, appName: $0.appName, lastAction: $0.lastAction, stopped: $0.stopped)
         }
         let pick = rules.session(for: focused?.surface, among: candidates, enabled: enabled, now: now)
@@ -111,25 +127,6 @@ final class ComputerUsePreviewController {
         show(pick, on: focused)
     }
 
-    /// The surface the person looks at: the focused tab of the key window's shown workspace, while
-    /// cmux is the active app; with the view the preview docks over.
-    private func focusedSurface() -> (surface: ComputerUsePreviewSurface, host: NSView)? {
-        guard services.appActiveSource(), let controller = services.windows.active, controller.window?.isKeyWindow == true,
-              let focus = NotificationCenterService.shownFocus(controller) else { return nil }
-        switch focus {
-        case .terminal(_, let tab):
-            guard let model = services.daemon.store.tab(id: tab), let resource = model.terminalResourceID?.rawValue,
-                  let view = services.cache.existingTerminal(tab)?.session.view else { return nil }
-            return (.terminal(resource: resource), view)
-        case .agentPage(_, let tab):
-            guard let session = services.agentTabs.session(of: tab), let key = services.agentTabs.views.onlyKey(ofTab: tab),
-                  let view = services.agentTabs.views[key] else { return nil }
-            return (.chat(session: session), view)
-        default:
-            return nil
-        }
-    }
-
     private func presentation(for surface: ComputerUsePreviewSurface) -> ComputerUsePreviewPresentation {
         choices[surface] ?? .card
     }
@@ -138,14 +135,14 @@ final class ComputerUsePreviewController {
 
     /// Whether session `session`'s preview may show (true) or the person hid it (false); nil when
     /// no preview applies: the setting is off, or the session names no terminal or chat.
-    func isShown(session: String) -> Bool? {
-        guard services.settings?.snapshot.computerUse.livePreview ?? true,
+    public func isShown(session: String) -> Bool? {
+        guard host?.computerUseLivePreviewEnabled ?? false,
               let surface = ComputerUsePreviewSurface(session: session) else { return nil }
         return presentation(for: surface) != .hidden
     }
 
     /// Live Preview: Show or Hide for session `session`, as the preview's own Hide and chip do.
-    func set(session: String, shown: Bool) {
+    public func set(session: String, shown: Bool) {
         guard let surface = ComputerUsePreviewSurface(session: session) else { return }
         choices[surface] = shown ? .card : .hidden
         update()
@@ -192,7 +189,7 @@ final class ComputerUsePreviewController {
             self?.streamEvent(event, session: session)
         }
         overlay.show(video: stream.displayLayer)
-        stream.start(remote: services.cmuxRemote)
+        stream.start(remote: remote)
         return stream
     }
 
@@ -238,7 +235,7 @@ final class ComputerUsePreviewController {
         case .hideEverywhere:
             // "Hide for All Active Chats": every surface with an agent session now; an agent that
             // starts later shows its preview again.
-            for session in services.cmuxRemote.computerUse.sessions where !session.stopped {
+            for session in remote.computerUse.sessions where !session.stopped {
                 if let surface = ComputerUsePreviewSurface(session: session.id) { choices[surface] = .hidden }
             }
             choices[current.surface] = .hidden
@@ -256,17 +253,10 @@ final class ComputerUsePreviewController {
         update()
     }
 
-    /// Show Window: the window comes forward in its app, then the app: the person asked for it, the
-    /// one time the preview moves focus (as ChatGPT's click on its picture does).
+    /// Show Window: the same `computerUseFocus` action as the menu bar's row (the window comes
+    /// forward in its app, then the app): the one time the preview moves focus, because the person asked.
     private func showWindow(of session: String) {
-        guard let live = services.cmuxRemote.computerUse.sessions.first(where: { $0.id == session })?.live else { return }
-        let remote = services.cmuxRemote
-        let focus = AppComputerUseFocus(services: services)
-        // task-owner: one Show Window for the person's click.
-        Task { @MainActor in
-            _ = try? await remote.computerUseSession(.raiseWindow, session: session)
-            _ = focus.raiseTarget(of: live)
-        }
+        registry.perform("computerUseFocus", invocation: ActionInvocation(arguments: ["session": .string(session)]))
     }
 
     /// Escape closes the expanded view in its window, without taking the keyboard from anything.

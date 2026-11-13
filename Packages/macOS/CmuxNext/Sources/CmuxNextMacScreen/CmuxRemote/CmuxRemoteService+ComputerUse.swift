@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CmuxNextCompat
+public import CmuxNextSettings
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -114,6 +115,15 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
         self.policy = policy
         self.cursorAnimates = cursorAnimates
         self.cursorSpeed = cursorSpeed
+    }
+
+    /// The policy of the person's settings now: Computer Use's PolicyConfig, and the cursor animates
+    /// unless animations, the cursor's category or ``ui.animationSpeed`` are off.
+    public init(_ snapshot: CmuxConfigSnapshot) {
+        let speed = snapshot.animationSpeed
+        let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
+        self.init(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
+                  cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
     }
 
     /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores

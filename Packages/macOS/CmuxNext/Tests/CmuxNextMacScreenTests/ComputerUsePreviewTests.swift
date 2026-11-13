@@ -5,6 +5,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
+import os
 @testable import CmuxNextMacScreen
 import Testing
 import VideoToolbox
@@ -128,9 +129,7 @@ import VideoToolbox
 
     /// The reader turns the channel's messages into events in order, skips a kind it does not know
     /// (a newer cmux Remote's) and an unknown state, and says when the channel closes.
-    @Test func theReaderDeliversStatusesStillsAndTheClose() async throws {
-        let (events, continuation) = AsyncStream.makeStream(of: ComputerUsePreviewStream.Event.self)
-        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { continuation.yield($0) }
+    @Test func theReaderDeliversStatusesStillsAndTheClose() throws {
         let (ours, theirs) = try socketPair()
         let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
         var bytes = message(0x53, Data(#"{"state":"streaming","width":640,"height":400}"#.utf8))
@@ -140,32 +139,50 @@ import VideoToolbox
         bytes += message(0x53, Data(#"{"state":"blocked"}"#.utf8))
         #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
         close(theirs)
-        let reader = Thread { stream.read(ours) }
-        reader.start()
-        var seen: [ComputerUsePreviewStream.Event] = []
-        for await event in events {
-            seen.append(event)
-            if event == .closed { break }
-        }
+        let seen = Collected()
+        ComputerUsePreviewStream.read(ours) { seen.add($0) }
         close(ours)
-        #expect(seen == [.status(ComputerUsePreviewStatus(state: .streaming, width: 640, height: 400)), .still(jpeg),
-                         .status(ComputerUsePreviewStatus(state: .blocked)), .closed])
+        #expect(seen.events == [.status(ComputerUsePreviewStatus(state: .streaming, width: 640, height: 400)), .still(jpeg),
+                                .status(ComputerUsePreviewStatus(state: .blocked)), .closed])
     }
 
     /// A payload past the wire's limit ends the stream instead of allocating it.
-    @Test func anOversizedMessageClosesTheStream() async throws {
-        let (events, continuation) = AsyncStream.makeStream(of: ComputerUsePreviewStream.Event.self)
-        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { continuation.yield($0) }
+    @Test func anOversizedMessageClosesTheStream() throws {
         let (ours, theirs) = try socketPair()
         let header: [UInt8] = [0x4A, 0x7F, 0xFF, 0xFF, 0xFF]
         #expect(write(theirs, header, header.count) == header.count)
-        let reader = Thread { stream.read(ours) }
-        reader.start()
-        var first: ComputerUsePreviewStream.Event?
-        for await event in events { first = event; break }
+        let seen = Collected()
+        ComputerUsePreviewStream.read(ours) { seen.add($0) }
         close(theirs)
         close(ours)
-        #expect(first == .closed)
+        #expect(seen.events == [.closed])
+    }
+
+    /// Parameter sets and a frame on the wire become one ready sample, delivered after the status
+    /// that came before it; the main side enqueues it into the display layer.
+    @Test func framesOnTheWireBecomeSamplesForTheLayer() throws {
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let (ours, theirs) = try socketPair()
+        var parameters = Data()
+        for set in [encoded.sps, encoded.pps] { parameters += Data([UInt8(set.count >> 8), UInt8(set.count & 0xFF)]) + set }
+        var bytes = message(0x53, Data(#"{"state":"streaming","width":320,"height":200}"#.utf8))
+        bytes += message(0x46, Data([1, 0, 0, 0, 0, 0, 0, 0, 1]) + encoded.avcc) // a frame before the format: skipped
+        bytes += message(0x50, parameters)
+        bytes += message(0x46, Data([1, 0, 0, 0, 0, 0, 0, 0x82, 0x35]) + encoded.avcc)
+        #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
+        close(theirs)
+        let seen = Collected()
+        ComputerUsePreviewStream.read(ours) { seen.add($0) }
+        close(ours)
+        #expect(seen.kinds == ["status", "sample", "closed"])
+        let sample = try #require(seen.samples.first)
+        #expect(CMSampleBufferGetPresentationTimeStamp(sample) == CMTime(value: 33_333, timescale: 1_000_000))
+        var events: [ComputerUsePreviewStream.Event] = []
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        stream.receive(.sample(sample))
+        #expect(stream.displayLayer.sampleBufferRenderer.status != .failed)
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
+        #expect(events == [.status(ComputerUsePreviewStatus(state: .blocked))])
     }
 
     /// Real hardware H.264 from VideoToolbox (as cmux Remote encodes it) crosses the wire's `P` and
@@ -198,6 +215,29 @@ import VideoToolbox
 
     // MARK: Helpers
 
+    /// What the reader delivered, in order (the reader runs on the test's thread here).
+    private nonisolated final class Collected: Sendable {
+        private let lock = OSAllocatedUnfairLock<[ComputerUsePreviewStream.Output]>(initialState: [])
+        var outputs: [ComputerUsePreviewStream.Output] { lock.withLock { $0 } }
+        func add(_ output: ComputerUsePreviewStream.Output) { lock.withLock { $0.append(output) } }
+        var events: [ComputerUsePreviewStream.Event] {
+            outputs.compactMap { if case .event(let event) = $0 { event } else { nil } }
+        }
+        var samples: [CMSampleBuffer] {
+            outputs.compactMap { if case .sample(let sample) = $0 { sample } else { nil } }
+        }
+        var kinds: [String] {
+            outputs.map {
+                switch $0 {
+                case .sample: "sample"
+                case .event(.closed): "closed"
+                case .event(.still): "still"
+                case .event(.status): "status"
+                }
+            }
+        }
+    }
+
     private func message(_ kind: UInt8, _ payload: Data) -> Data {
         let n = UInt32(payload.count)
         return Data([kind, UInt8(n >> 24), UInt8(n >> 16 & 0xFF), UInt8(n >> 8 & 0xFF), UInt8(n & 0xFF)]) + payload
@@ -209,7 +249,7 @@ import VideoToolbox
         return (fds[0], fds[1])
     }
 
-    private struct Encoded {
+    private nonisolated struct Encoded: Sendable {
         var sps: Data
         var pps: Data
         var avcc: Data
@@ -236,29 +276,36 @@ import VideoToolbox
         let properties = [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
         #expect(VTCompressionSessionEncodeFrame(compressor, imageBuffer: buffer, presentationTimeStamp: .zero, duration: .invalid,
                                                 frameProperties: properties, infoFlagsOut: nil) { status, _, sample in
-            if status == noErr { output.sample = sample }
+            if status == noErr, let sample { output.take(sample) }
         } == noErr)
         #expect(VTCompressionSessionCompleteFrames(compressor, untilPresentationTimeStamp: .invalid) == noErr)
-        let sample = try #require(output.sample)
-        let format = try #require(CMSampleBufferGetFormatDescription(sample))
-        func parameterSet(_ index: Int) throws -> Data {
-            var pointer: UnsafePointer<UInt8>?
-            var size = 0
-            #expect(CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
-                                                                       parameterSetSizeOut: &size, parameterSetCountOut: nil,
-                                                                       nalUnitHeaderLengthOut: nil) == noErr)
-            return Data(bytes: try #require(pointer), count: size)
-        }
-        let block = try #require(CMSampleBufferGetDataBuffer(sample))
-        var avcc = Data(count: CMBlockBufferGetDataLength(block))
-        let copied = avcc.withUnsafeMutableBytes { bytes in
-            bytes.baseAddress.map { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: $0) } ?? kCMBlockBufferBadPointerParameterErr
-        }
-        #expect(copied == noErr)
-        return Encoded(sps: try parameterSet(0), pps: try parameterSet(1), avcc: avcc)
+        return try #require(output.encoded)
     }
 
-    private final class OutputBox: @unchecked Sendable { // crash-allow: written once by VideoToolbox before CompleteFrames returns, read after
-        var sample: CMSampleBuffer?
+    /// The encoder's one output, taken apart in its callback (CMSampleBuffer is not Sendable).
+    private nonisolated final class OutputBox: Sendable {
+        private let lock = OSAllocatedUnfairLock<Encoded?>(initialState: nil)
+        var encoded: Encoded? { lock.withLock { $0 } }
+        func take(_ sample: CMSampleBuffer) {
+            guard let format = CMSampleBufferGetFormatDescription(sample), let block = CMSampleBufferGetDataBuffer(sample),
+                  let sps = Self.parameterSet(format, 0), let pps = Self.parameterSet(format, 1) else { return }
+            var avcc = Data(count: CMBlockBufferGetDataLength(block))
+            let copied = avcc.withUnsafeMutableBytes { bytes in
+                bytes.baseAddress.map { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: $0) }
+                    ?? kCMBlockBufferBadPointerParameterErr
+            }
+            guard copied == noErr else { return }
+            let encoded = Encoded(sps: sps, pps: pps, avcc: avcc)
+            lock.withLock { $0 = encoded }
+        }
+
+        private static func parameterSet(_ format: CMFormatDescription, _ index: Int) -> Data? {
+            var pointer: UnsafePointer<UInt8>?
+            var size = 0
+            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
+                                                                     parameterSetSizeOut: &size, parameterSetCountOut: nil,
+                                                                     nalUnitHeaderLengthOut: nil) == noErr, let pointer else { return nil }
+            return Data(bytes: pointer, count: size)
+        }
     }
 }

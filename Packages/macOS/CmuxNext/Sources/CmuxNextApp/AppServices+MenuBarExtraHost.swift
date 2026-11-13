@@ -13,13 +13,7 @@ extension AppServices: MenuBarExtraHost {
     var menuBarShowsGlobalKey: Bool { settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyDefault }
 
     var menuBarComputerUseAvailable: Bool { onboarding.computerUseSetup.phase == .ready }
-    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] {
-        cmuxRemote.computerUse.menuBarSessions().map {
-            var session = $0
-            session.livePreview = computerUsePreview.isShown(session: session.id)
-            return session
-        }
-    }
+    var menuBarComputerUseSessions: [MenuBarMenuState.ComputerUse.Session] { cmuxRemote.computerUse.menuBarSessions(livePreview: computerUsePreview.isShown) }
     var menuBarUnread: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: false) }
     var menuBarRunning: [MenuBarMenuState.Chat] { AgentPriorityChats.app.menuBarChats(running: true) }
     func menuBarChatImage(_ chat: MenuBarMenuState.Chat) -> NSImage? { AgentPriorityChats.menuBarImage(harness: chat.harness) }

@@ -2,6 +2,7 @@
 public import AppKit
 public import AVFoundation
 import CmuxNextDesign
+import CoreImage
 import QuartzCore
 
 /// The geometry of the live preview's thumbnail, as the ChatGPT app docks its Computer Use
@@ -118,7 +119,9 @@ public final class ComputerUsePreviewThumbnail: NSView {
     private let picture = NSView()
     private let still = CALayer()
     private weak var video: AVSampleBufferDisplayLayer?
-    private let controls = NSVisualEffectView()
+    /// The hover controls over the picture blurred and dimmed under them (the video itself, not a
+    /// glass material: it is part of the picture, as the reference shows).
+    private let controls = NSView()
     private let grip = NSView()
     private var tracking: NSTrackingArea?
     private var dragStart: (mouse: CGPoint, origin: CGPoint)?
@@ -222,10 +225,10 @@ public final class ComputerUsePreviewThumbnail: NSView {
     // MARK: Controls
 
     private func setUpControls() {
-        controls.material = .hudWindow
-        controls.blendingMode = .withinWindow
-        controls.state = .active
         controls.wantsLayer = true
+        controls.layerUsesCoreImageFilters = true
+        controls.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.32).cgColor
+        controls.layer?.backgroundFilters = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 6]).map { [$0] }
         controls.layer?.cornerRadius = ComputerUsePreviewLayout.cornerRadius
         controls.layer?.cornerCurve = .continuous
         controls.layer?.masksToBounds = true
@@ -255,7 +258,7 @@ public final class ComputerUsePreviewThumbnail: NSView {
     private func button(symbol: String, label: String, action: @escaping @MainActor () -> Void) -> NSButton {
         let button = PreviewControlButton(action: action)
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .semibold)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: TypeScale.emphasis)
         button.contentTintColor = .white
         button.isBordered = false
         button.toolTip = label
@@ -340,7 +343,7 @@ public final class ComputerUsePreviewChip: NSButton {
         title = ComputerUsePreviewText.chip
         image = NSImage(systemSymbolName: "pip", accessibilityDescription: nil)
         imagePosition = .imageLeading
-        font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+        font = NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         bezelStyle = .inline
         controlSize = .small
         refusesFirstResponder = true

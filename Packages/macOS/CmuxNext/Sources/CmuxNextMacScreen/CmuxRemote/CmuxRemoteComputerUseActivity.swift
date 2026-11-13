@@ -118,8 +118,13 @@ extension CmuxRemoteComputerUseState {
     }
 
     /// The menu bar's Computer Use rows for the sessions now.
-    public func menuBarSessions(now: Date = Date()) -> [MenuBarMenuState.ComputerUse.Session] {
-        sessions.map { $0.menuBar(now: now) }
+    /// - Parameter livePreview: Each session's live preview state (``ComputerUsePreviewPresenter/isShown(session:)``).
+    public func menuBarSessions(now: Date = Date(), livePreview: (String) -> Bool? = { _ in nil }) -> [MenuBarMenuState.ComputerUse.Session] {
+        sessions.map {
+            var session = $0.menuBar(now: now)
+            session.livePreview = livePreview($0.id)
+            return session
+        }
     }
 }
 

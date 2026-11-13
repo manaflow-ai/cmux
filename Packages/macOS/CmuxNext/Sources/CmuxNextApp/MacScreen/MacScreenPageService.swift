@@ -241,19 +241,14 @@ extension AppServices {
         cmuxRemote.followComputerUse { [weak self, weak settings] in
             guard let self, let settings else { return nil }
             _ = daemon.identity?.capabilities.count // a reconnected daemon gets the policy again
-            let snapshot = settings.snapshot
-            let speed = snapshot.animationSpeed
-            let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
-            return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
-                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
+            return CmuxRemoteComputerUsePolicy(settings.snapshot)
         }
         // The worker's agent sessions: the menu bar icon's dot while one acts, and an open menu's row.
         cmuxRemote.followComputerUseActivity(daemon.store) { [weak self] acting in
             self?.menuBarExtra.computerUseActive = acting
             self?.menuBarExtra.computerUseSessionsChanged()
         }
-        // The agent's window, live in its own surface while the person looks at it.
-        computerUsePreview.start()
+        computerUsePreview.start() // the agent's window, live in its own surface while the person looks at it
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

@@ -1,5 +1,5 @@
 /// Brings forward what a Computer Use session drives or where it started:
-/// ``AppComputerUseFocus`` in the App, a fake in tests.
+/// ``ComputerUseAppFocus`` (CmuxNextMacScreen) in the App, a fake in tests.
 @MainActor
 public protocol ComputerUseFocusing: AnyObject {
     /// Activates the session's target app; false when it is not running.

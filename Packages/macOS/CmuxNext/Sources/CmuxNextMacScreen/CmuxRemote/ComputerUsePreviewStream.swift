@@ -9,10 +9,12 @@ private let previewLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 
 /// One live preview stream from cmux Remote: the window an agent's Computer Use session works in,
 /// as hardware H.264 video on cmux Remote's app socket (`computer-use-preview`; the wire is
-/// cmux Remote's `PreviewStreamWire`). The video decodes into ``displayLayer`` on the GPU, always
-/// the newest frame (each one is shown at once, none queued). Closing the stream stops cmux
-/// Remote's capture, so nothing is captured while nobody watches.
-public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { // crash-allow: the reader thread owns `format`; `socket` is set once before it starts
+/// cmux Remote's `PreviewStreamWire`). A reader thread parses the channel and builds each frame's
+/// sample; the main queue only enqueues it, in order, into ``displayLayer``, which decodes on the
+/// GPU and shows it at once (the newest frame, none queued). Closing the stream stops cmux Remote's
+/// capture, so nothing is captured while nobody watches.
+@MainActor
+public final class ComputerUsePreviewStream {
     /// What the stream says besides its frames.
     public enum Event: Sendable, Equatable {
         /// The worker's state: streaming (its picture size and app), a still stands in, the window
@@ -24,20 +26,24 @@ public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { /
         case closed
     }
 
-    /// The video, decoded on the GPU. Created on the main thread; frames reach it from the reader.
+    /// What the reader hands the main queue: an event, or a frame ready to enqueue.
+    enum Output: Sendable {
+        case event(Event)
+        case sample(CMSampleBuffer)
+    }
+
+    /// The video, decoded on the GPU.
     public let displayLayer: AVSampleBufferDisplayLayer
     private let session: String
     private let longSide: Int
-    private let onEvent: @MainActor @Sendable (Event) -> Void
+    private let onEvent: @MainActor (Event) -> Void
     private let state = OSAllocatedUnfairLock(initialState: (socket: Int32(-1), closed: false))
-    private var format: CMVideoFormatDescription?
 
     /// - Parameters:
     ///   - session: The agent session whose window to stream.
     ///   - longSide: The picture's longest side in pixels.
-    ///   - onEvent: Statuses, stills and the close, on the main actor.
-    @MainActor
-    public init(session: String, longSide: Int, onEvent: @escaping @MainActor @Sendable (Event) -> Void) {
+    ///   - onEvent: Statuses, stills and the close, in the order the channel sent them.
+    public init(session: String, longSide: Int, onEvent: @escaping @MainActor (Event) -> Void) {
         self.session = session
         self.longSide = longSide
         self.onEvent = onEvent
@@ -46,40 +52,36 @@ public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { /
     }
 
     /// Opens the channel through `remote` and starts reading; an error closes the stream at once.
-    @MainActor
     public func start(remote: CmuxRemoteService) {
-        let session = session, longSide = longSide
+        let session = session, longSide = longSide, state = state
         // task-owner: opens this stream's channel; the reader thread then owns it until `stop`.
         Task { [weak self] in
             do {
                 let (socket, _, _) = try await remote.openChannel("computer-use-preview")
                 let request = try JSONSerialization.data(withJSONObject: ["session": session, "long_side": longSide]) + Data([0x0A])
-                guard let self, RemoteSocket.writeAll(socket, request) else {
-                    close(socket)
-                    return
-                }
-                let keep = self.state.withLock { state -> Bool in
+                let keep = RemoteSocket.writeAll(socket, request) && state.withLock { state -> Bool in
                     guard !state.closed else { return false }
                     state.socket = socket
                     return true
                 }
-                guard keep else {
+                guard keep, let self else {
                     close(socket)
                     return
                 }
-                let reader = Thread { [weak self] in self?.read(socket) }
+                let deliver = self.deliverer()
+                let reader = Thread { Self.read(socket, deliver) }
                 reader.name = "cmux-cu-preview-read"
                 reader.qualityOfService = .userInteractive
                 reader.start()
             } catch {
                 previewLogger.notice("Computer Use preview: no channel: \(String(describing: error), privacy: .public)")
-                self?.deliver(.closed)
+                self?.receive(.event(.closed))
             }
         }
     }
 
     /// Stops the stream: the channel closes, and cmux Remote stops capturing.
-    public func stop() {
+    public nonisolated func stop() {
         let socket = state.withLock { state -> Int32 in
             state.closed = true
             let socket = state.socket
@@ -94,22 +96,62 @@ public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { /
 
     deinit { stop() }
 
+    /// The reader's outputs onto the main queue, in order (FIFO), for this stream while it lives.
+    func deliverer() -> @Sendable (Output) -> Void {
+        { [weak self] output in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.receive(output) } } // main-proof: DispatchQueue.main runs on the main thread
+        }
+    }
+
+    /// One output on the main actor: a frame goes to the layer (a failed renderer is flushed first),
+    /// a private window takes the picture off at once, every event goes on.
+    func receive(_ output: Output) {
+        let renderer = displayLayer.sampleBufferRenderer
+        switch output {
+        case .sample(let sample):
+            if renderer.status == .failed { renderer.flush() }
+            renderer.enqueue(sample)
+        case .event(let event):
+            if case .status(let status) = event, status.state == .blocked {
+                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+            }
+            onEvent(event)
+        }
+    }
+
     // MARK: Reading (the reader thread)
 
-    /// Reads the channel until it closes (internal: tests feed it a socket pair).
-    func read(_ socket: Int32) {
+    /// Reads the channel until it closes, then says so: statuses and stills as events, parameter
+    /// sets into the format, frames into ready samples. An unknown kind or state is skipped; a
+    /// payload past the wire's limit ends the stream.
+    nonisolated static func read(_ socket: Int32, _ deliver: @Sendable (Output) -> Void) {
         var header = [UInt8](repeating: 0, count: 5)
+        var format: CMVideoFormatDescription?
         while readExactly(socket, &header, count: 5) {
             let length = Int(UInt32(header[1]) << 24 | UInt32(header[2]) << 16 | UInt32(header[3]) << 8 | UInt32(header[4]))
             guard length <= ComputerUsePreviewWire.maximumPayload else { break }
             var payload = [UInt8](repeating: 0, count: length)
             guard length == 0 || readExactly(socket, &payload, count: length) else { break }
-            handle(kind: header[0], Data(payload))
+            let data = Data(payload)
+            switch header[0] {
+            case ComputerUsePreviewWire.status:
+                if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   let status = ComputerUsePreviewStatus(object) { deliver(.event(.status(status))) }
+            case ComputerUsePreviewWire.parameterSets:
+                if let sets = ComputerUsePreviewWire.parameterSets(data) { format = Self.format(sps: sets.sps, pps: sets.pps) }
+            case ComputerUsePreviewWire.frame:
+                if let format, let frame = ComputerUsePreviewWire.frame(data),
+                   let sample = Self.sample(frame.avcc, format: format, microseconds: frame.microseconds) { deliver(.sample(sample)) }
+            case ComputerUsePreviewWire.still:
+                deliver(.event(.still(data)))
+            default:
+                break
+            }
         }
-        deliver(.closed)
+        deliver(.event(.closed))
     }
 
-    private func readExactly(_ socket: Int32, _ buffer: inout [UInt8], count: Int) -> Bool {
+    private nonisolated static func readExactly(_ socket: Int32, _ buffer: inout [UInt8], count: Int) -> Bool {
         var offset = 0
         while offset < count {
             let got = buffer.withUnsafeMutableBytes { Darwin.read(socket, $0.baseAddress.map { $0 + offset }, count - offset) }
@@ -124,38 +166,9 @@ public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { /
         return true
     }
 
-    private func handle(kind: UInt8, _ payload: Data) {
-        switch kind {
-        case ComputerUsePreviewWire.status:
-            guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any],
-                  let status = ComputerUsePreviewStatus(object) else { return }
-            if status.state == .blocked { displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil) }
-            deliver(.status(status))
-        case ComputerUsePreviewWire.parameterSets:
-            guard let sets = ComputerUsePreviewWire.parameterSets(payload) else { return }
-            format = Self.format(sps: sets.sps, pps: sets.pps)
-        case ComputerUsePreviewWire.frame:
-            guard let format, let frame = ComputerUsePreviewWire.frame(payload),
-                  let sample = Self.sample(frame.avcc, format: format, microseconds: frame.microseconds) else { return }
-            let renderer = displayLayer.sampleBufferRenderer
-            if renderer.status == .failed { renderer.flush() }
-            renderer.enqueue(sample)
-        case ComputerUsePreviewWire.still:
-            deliver(.still(payload))
-        default:
-            return
-        }
-    }
-
-    /// Events reach the main actor in the order the channel sent them (a still after its status).
-    private func deliver(_ event: Event) {
-        let onEvent = onEvent
-        DispatchQueue.main.async { MainActor.assumeIsolated { onEvent(event) } } // main-proof: DispatchQueue.main runs on the main thread
-    }
-
     // MARK: CoreMedia
 
-    static func format(sps: Data, pps: Data) -> CMVideoFormatDescription? {
+    nonisolated static func format(sps: Data, pps: Data) -> CMVideoFormatDescription? {
         var description: CMVideoFormatDescription?
         let status = sps.withUnsafeBytes { spsBytes in
             pps.withUnsafeBytes { ppsBytes -> OSStatus in
@@ -172,7 +185,7 @@ public nonisolated final class ComputerUsePreviewStream: @unchecked Sendable { /
     }
 
     /// One access unit as a sample shown as soon as it decodes (the newest frame, never a queue).
-    static func sample(_ avcc: Data, format: CMVideoFormatDescription, microseconds: UInt64) -> CMSampleBuffer? {
+    nonisolated static func sample(_ avcc: Data, format: CMVideoFormatDescription, microseconds: UInt64) -> CMSampleBuffer? {
         var block: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: avcc.count,
                                                  blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,

@@ -300,8 +300,7 @@ final class AppServices {
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
     /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
-    /// The live preview of an agent's Computer Use in its own surface (`computerUse.livePreview`).
-    private(set) lazy var computerUsePreview = ComputerUsePreviewController(services: self)
+    private(set) lazy var computerUsePreview = ComputerUsePreviewPresenter(remote: cmuxRemote, registry: registry, host: self) // computerUse.livePreview
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.

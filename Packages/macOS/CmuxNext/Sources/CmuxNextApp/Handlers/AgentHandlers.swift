@@ -291,7 +291,8 @@ enum AgentHandlers {
                 let now = services?.onboarding.computerUseSetup.phase ?? .off
                 guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
             }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),
-            focus: AppComputerUseFocus(services: services))
+            focus: ComputerUseAppFocus(stores: { [weak services] in services?.machines.daemons.map(\.store) ?? [] },
+                                       reveal: { [weak services] in services?.revealTab($0) ?? false }))
     }
 
     /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
