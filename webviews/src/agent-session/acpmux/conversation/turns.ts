@@ -2408,7 +2408,12 @@ function shapeLiveTurn(
   const lineOnly = experimentArm(liveTurnWork) === "line";
   // A call still running before the latest run keeps its own row.
   const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
-  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried);
+  const rows = codexRuns(
+    lineOnly ? drawn : mergeShortNotes(drawn, steerDialogueIn(drawn)),
+    named?.tool.id,
+    lineOnly,
+    carried,
+  );
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2429,7 +2434,10 @@ function shapeLiveTurn(
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
   const line = shaped.at(-1);
-  if (line?.kind === THINKING) line.untimed = true;
+  // A completed tool is still part of the running turn. Keep its turn clock visible until the
+  // next reply has gone quiet; otherwise a peer chat loses the only elapsed-time element before
+  // its turn_result arrives (agent-pane-peer-chat.test.ts).
+  if (line?.kind === THINKING && line.liveState === "writing") line.untimed = true;
   return [{ id: workingHeaderId(user.id), version: 1, at, kind: WORKING }, ...shaped];
 }
 
