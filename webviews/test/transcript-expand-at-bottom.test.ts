@@ -228,21 +228,27 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// got no read, joins the moves of two or three frames into one step, which says nothing about
   /// one frame: an open of 48px whose frames moved 22.3px and 12.4px was read as one step of 34.8px
   /// (#42351). `largest` is the largest one-frame step, `judged` how many of them there were and
-  /// `joined` how many moves were not one frame's. `jumped` needs no read in time: a read that ran
-  /// within JUMP_MS of the click and holds the end place is all of the move at once, because a
-  /// fold is not at its end a third of its time in. A late read only makes that time longer, so it
-  /// cannot turn a fold that glides into a jump. `first` is when the first read after the click
-  /// ran: later than JUMP_MS, no read can say whether the fold jumped. With a rule on two
-  /// reads in a row (one at `from`, the next at `to`), 7 of 24 folds with the fold look "jump"
-  /// passed every assert in one CI run: their first read after the click held the end place
-  /// already, and it ran late.
+  /// `joined` how many moves were not one frame's. `jumped` needs no read in time, and has two
+  /// forms. Early: a read that ran within JUMP_MS of the click and holds the end place is all of
+  /// the move at once, because a fold is not at its end a third of its time in (the settle of
+  /// 180 ms is 4.7px of 48px short of it at 60 ms, and within 1px only from about 98 ms). A late
+  /// read only makes that time longer, so it cannot turn a fold that glides into a jump. `first`
+  /// is when the first read after the click ran: later than JUMP_MS, this form says nothing.
+  /// Start then end: a read at `from` and the next read at `to`, run within three frames of the
+  /// first one's frame, which also catches a jump that applies later than JUMP_MS. That form
+  /// alone let 7 of 24 folds with the fold look "jump" pass every assert in one CI run: their
+  /// first read after the click held the end place already, and it ran late.
+  /// JUMP_MS is a third of the settle: with a settle under about 110 ms a fold that glides is
+  /// within 1px of its end at 60 ms, and the bound must go down with it. The fold's own landing
+  /// at once on a page that fell behind (fold.ts FOLD_DROP_MS: the second gap of 50 ms or more in
+  /// a row) comes 100 ms or more after its first frame, so the early form does not see it.
   const JUMP_MS = 60;
   const steps = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
     let largest = 0;
     let judged = 0;
     let joined = 0;
     const first = frames.find((frame) => frame.since !== undefined)?.since;
-    const jumped = frames.some(
+    let jumped = frames.some(
       (frame) => frame.since !== undefined && frame.since <= JUMP_MS && Math.abs(frame[key] - to) <= 1,
     );
     let last: { top: number; at?: number; late: boolean } = { top: from, late: false };
@@ -254,6 +260,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         judged += 1;
         largest = Math.max(largest, step);
       } else if (step > 0.5) joined += 1;
+      if (
+        last.at !== undefined &&
+        Math.abs(last.top - from) <= 1 &&
+        Math.abs(top - to) <= 1 &&
+        frame.at + frame.lag - last.at <= FRAME_MS * 3
+      )
+        jumped = true;
       last = { top, at: frame.at, late };
     }
     return { largest, judged, joined, jumped, first };
@@ -390,7 +403,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         else expect({ direction, places, between: places >= 3 }).toEqual({ direction, places, between: true });
         // No frame moves most of the way: the largest one-frame step. A move read over a late read
         // or over a frame with no read is two or three frames' moves: it says so and is not judged,
-        // but a read at the end place within JUMP_MS of the click is a jump however it ran.
+        // but a read at the end place within JUMP_MS of the click, or all of the move between two
+        // reads next to each other, is a jump however the reads ran.
         const { largest, judged, joined, jumped, first } = steps(frames, moving, before[moving], after[moving]);
         if (first === undefined || first > JUMP_MS)
           console.log(
