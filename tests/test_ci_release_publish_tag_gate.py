@@ -370,6 +370,20 @@ class TagGate(unittest.TestCase):
         self.assertFalse(publishing_command(["gh", "api", "graphql", "-f",
                                              "query=query { repository { name } }"]))
 
+    def test_graphql_dynamic_query_anywhere_is_unreadable(self) -> None:
+        for query in ('query="$(cat x.graphql)"', 'query="  $Q"'):
+            with self.subTest(query=query):
+                self.assertTrue(publishing_command(["gh", "api", "graphql", "-f", query]))
+
+    def test_graphql_input_overrides_query_field(self) -> None:
+        self.assertTrue(publishing_command(["gh", "api", "graphql", "-f",
+                                            "query=query { repository { name } }",
+                                            "--input", "query.json"]))
+
+    def test_graphql_endpoint_path_with_leading_slash_is_classified(self) -> None:
+        self.assertTrue(publishing_command(["gh", "api", "/graphql", "-f",
+                                            "query=mutation { createRelease { id } }"]))
+
     def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
         policy = POLICIES["app-ffi-release.yml"]
         branch = "github.ref == 'refs/heads/feat-cmux-next'"
