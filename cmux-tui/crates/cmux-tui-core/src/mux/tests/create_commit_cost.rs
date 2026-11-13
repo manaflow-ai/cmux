@@ -710,3 +710,119 @@ fn a_plan_writes_a_workspace_row_as_the_projection_states_it() {
         let _ = mux.close_surface(surface.id);
     }
 }
+
+// NOT FOR MERGE (a measure branch). Wall-clock ms of 7 starts of one stored session at 60 and
+// at 826 workspaces (one terminal each, a file registry with the journal writer thread, the
+// debug cross-check off): the open with no part in it, a create before the parts, each part's
+// hold, a create after the parts, and the JSON bytes of the journal records of the parts. A
+// debug test build with placeholder terminals: a LOWER BOUND of a person's session.
+
+use crate::mux::startup_restore::restate_parts::holding_the_parts;
+
+fn measure_ms<T>(run: impl FnOnce() -> T) -> (f64, T) {
+    let start = std::time::Instant::now();
+    let value = without_crosscheck(run);
+    (start.elapsed().as_secs_f64() * 1000.0, value)
+}
+
+/// (median, p95, max) of `values`.
+fn measure_spread(values: &[f64]) -> (f64, f64, f64) {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let p95 = ((sorted.len() as f64) * 0.95).ceil() as usize;
+    (sorted[sorted.len() / 2], sorted[p95.clamp(1, sorted.len()) - 1], sorted[sorted.len() - 1])
+}
+
+fn measure_print(workspaces: usize, rows: BTreeMap<&'static str, Vec<f64>>) {
+    for (name, values) in rows {
+        let (median, p95, max) = measure_spread(&values);
+        eprintln!(
+            "MEASURE ms at {workspaces} workspaces, {name}: n {}, median {median:.2}, p95 {p95:.2}, max {max:.2}",
+            values.len()
+        );
+    }
+}
+
+/// The JSON bytes and the count of the changes of each journal record after `revision`.
+fn measure_records(mux: &Mux, revision: u64) -> Vec<(usize, usize)> {
+    let mut records = Vec::new();
+    let mut revision = revision;
+    loop {
+        let page = mux.resource_events_after(revision).unwrap();
+        let Some(last) = page.batches.last() else { break };
+        revision = last.revision;
+        records.extend(page.batches.iter().map(|batch| {
+            (
+                serde_json::to_string(&batch.changes).unwrap().len(),
+                batch.changes.as_array().map_or(0, Vec::len),
+            )
+        }));
+    }
+    records
+}
+
+fn measure_parts(workspaces: usize) {
+    let FileSession { mux, root, target } = file_session(workspaces);
+    target.kill();
+    drop(target);
+    mux.shutdown();
+    drop(mux);
+
+    let mut rows: BTreeMap<&'static str, Vec<f64>> = BTreeMap::new();
+    for rep in 0..7 {
+        let (open_ms, mux) = measure_ms(|| {
+            holding_the_parts(|| open_persistent_test_mux("create-commit-cost", &root))
+        });
+        mux.stop_journal_maintenance();
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
+        let stats = || mux.resource_projection_stats().full_projections;
+        let revision = || mux.with_state(|state| state.resource_revision);
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let create = || {
+            mux.create_terminal_in_workspace(workspace, None, None, None, Some((80, 24))).unwrap();
+        };
+        let (full, before) = (stats(), revision());
+        let (first_ms, ()) = measure_ms(create);
+        let first_records = measure_records(&mux, before);
+        let before = revision();
+        let (parts_ms, tally) = measure_ms(|| mux.restate_session_in_parts().unwrap());
+        let part_records = measure_records(&mux, before);
+        let full = stats() - full;
+        let (after_ms, ()) = measure_ms(create);
+        let (again_ms, ()) = measure_ms(create);
+
+        let holds =
+            tally.parts.iter().map(|part| part.hold.as_secs_f64() * 1000.0).collect::<Vec<_>>();
+        let (median, p95, max) = measure_spread(&holds);
+        rows.entry("1 the open of the session (no part in it)").or_default().push(open_ms);
+        rows.entry("2 a create before the parts").or_default().push(first_ms);
+        rows.entry("3 the parts, the sum of their holds").or_default().push(holds.iter().sum());
+        rows.entry("4 a create after the parts").or_default().push(after_ms);
+        rows.entry("5 the next create after the parts").or_default().push(again_ms);
+        rows.entry("6 the hold of ONE part (each part of each start)").or_default().extend(holds);
+        eprintln!(
+            "MEASURE start {rep} at {workspaces} workspaces: full projections from the first create to the end of the parts {full}; parts {}, workspaces {}, values {}, skipped {}; the hold of a part median {median:.2}, p95 {p95:.2}, max {max:.2} ms; the wall of all steps {parts_ms:.2} ms; the records of the parts: {} records, {} bytes in sum, {} bytes the largest; the records of the create before the parts (bytes, changes) {first_records:?}",
+            tally.parts.len(),
+            tally.parts.iter().map(|part| part.workspaces).sum::<usize>(),
+            tally.parts.iter().map(|part| part.values).sum::<usize>(),
+            tally.skipped,
+            part_records.len(),
+            part_records.iter().map(|(bytes, _)| bytes).sum::<usize>(),
+            part_records.iter().map(|(bytes, _)| *bytes).max().unwrap_or(0),
+        );
+        mux.shutdown();
+        drop(mux);
+    }
+    measure_print(workspaces, rows);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn measure_ms_of_the_parts_of_7_starts_at_60() {
+    measure_parts(60);
+}
+
+#[test]
+fn measure_ms_of_the_parts_of_7_starts_at_826() {
+    measure_parts(826);
+}
