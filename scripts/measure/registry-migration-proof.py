@@ -495,6 +495,18 @@ STACK_LINE = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
 STACK_FRAMES = ("begin_journal_segment_prune", "delete_pruned_segment_rows",
                 "finish_journal_segment_prune")
 STACK_OUTER = "retain_journal"
+# A release build puts the holds AND the pass into the maintenance loop: then the statements
+# of the loop with no step of its own between (a step that is a function of its own has a
+# cmux_tui frame there) are counted, and the wait for WAL room between two holds (no lock
+# held) is named apart. The 3 holds are among those statements; other steps that the compiler
+# put inside the loop are too, so the frame name in the result says which form was read.
+STACK_LOOP = "run_journal_maintenance"
+STACK_LOOP_NAME = re.compile(r"::run_journal_maintenance(::h[0-9a-f]{16})?$")
+STACK_WAL_ROOM = ("wal_room_for_retention", "after_retention_hold")
+# The pass's reads before a hold, on its own connection with no lock held
+# (`RetentionReadAhead`, whose 3 reads are never inlined so that a sample names them): they
+# are counted apart and are never a part of a hold.
+STACK_READ_AHEAD = ("read_ahead::RetentionReadAhead",)
 STACK_FOLD = ("fold_for_retention", "history_ops")
 STACK_LOCK_WAIT = ("psynch_mutexwait", "pthread_mutex_lock", "pthread_mutex_firstfit")
 # Where a sample is, by the names on its stack below the delete: the first group that matches.
@@ -520,6 +532,11 @@ STACK_MARKS = {
     "commit": ("sqlite3VdbeHalt", "sqlite3BtreeCommit", "sqlite3PagerCommitPhaseOne",
                "pagerWalFrames", "sqlite3WalFrames", "walFrames"),
     "checkpoint": ("sqlite3Checkpoint", "walCheckpoint", "sqlite3WalCheckpoint"),
+    # A seek into an index b-tree for a row that a DELETE takes, and a page read under it:
+    # the row holds of a large file are this (about 2.5 page reads for each subject row).
+    "index_seek": ("sqlite3BtreeIndexMoveto",),
+    "page_read_from_the_file": ("readDbPage",),
+    "page_cache_spill_to_the_wal": ("pagerStress",),
     "schema_read": ("sqlite3InitOne", "sqlite3ReadSchema", "sqlite3InitCallback"),
     "trigger_drop_or_create": ("sqlite3DropTrigger", "sqlite3BeginTrigger",
                                "sqlite3FinishTrigger", "sqlite3NestedParse"),
@@ -531,12 +548,14 @@ def stack_shares(texts):
     A sample is counted where its stack ends (a node's count less the counts of its callees).
     Symbol names only: no path, no address, no data."""
     groups, marks, tops, by_hold = {}, {}, {}, {}
-    inside_total = lock_wait = 0
+    inside_total = lock_wait = wal_room_wait = read_ahead = 0
+    read_ahead_groups = {}
     frames = set()
     # With a hold as a function of its own in one stack, only those stacks count; a stack of
     # the pass outside them is another lock hold (the floor read), the wait for the WAL
     # syncer's look (no lock held) or no hold.
     own_frame = any(frame in text for text in texts for frame in STACK_FRAMES)
+    outer_frame = own_frame or any(STACK_OUTER in text for text in texts)
     for text in texts:
         graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
         nodes, path = [], []
@@ -557,6 +576,13 @@ def stack_shares(texts):
             if own <= 0:
                 continue
             names = [nodes[index][2] for index in chain] + [symbol]
+            if any(word in name for name in names for word in STACK_READ_AHEAD):
+                read_ahead += own
+                group = next((key for key, words in STACK_GROUPS
+                              if any(word in name for name in names for word in words)),
+                             "runs_in_the_process")
+                read_ahead_groups[group] = read_ahead_groups.get(group, 0) + own
+                continue
             start = next((i for i, name in enumerate(names)
                           if any(frame in name for frame in STACK_FRAMES)), None)
             frame = None
@@ -566,6 +592,18 @@ def stack_shares(texts):
             else:
                 start = next((i for i, name in enumerate(names) if STACK_OUTER in name), None)
                 frame = STACK_OUTER + " (the delete is inside it: the fold is left out)"
+                if start is None and not outer_frame:
+                    start = next((i for i in range(len(names) - 1, -1, -1)
+                                  if STACK_LOOP_NAME.search(names[i])), None)
+                    frame = STACK_LOOP + (" (the pass and the holds are inside it: its statements"
+                                          " with no step of its own between)")
+                    if start is not None:
+                        below = names[start + 1:]
+                        if any(word in name for name in below for word in STACK_WAL_ROOM):
+                            wal_room_wait += own
+                            continue
+                        if not below or "cmux_tui" in below[0]:
+                            continue
                 if start is None:
                     continue
                 inside = names[start + 1:]
@@ -593,6 +631,9 @@ def stack_shares(texts):
             "samples_by_hold": by_hold,
             "by_group": groups, "share": share, "by_part_not_exclusive": marks,
             "pass_waits_for_a_lock_outside_the_delete": lock_wait,
+            "pass_waits_for_wal_room_between_two_holds": wal_room_wait,
+            "pass_reads_before_a_hold_with_no_lock": {"samples": read_ahead,
+                                                      "by_group": read_ahead_groups},
             "top_of_stack_first_12": sorted(tops.items(), key=lambda row: -row[1])[:12]}
 
 
