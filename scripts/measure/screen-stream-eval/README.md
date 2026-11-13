@@ -128,6 +128,17 @@ Today's targets:
   verifies the selected check mark, binds the observed PID/window, and records
   `apple-connection.json` with the chosen quality profile and host.
 
+The existing `rd` and `webrtc` targets use their passive bench viewers and end
+at decode; those rows are not presentation comparisons with Apple. A common
+comparison must drive the approved production Mac Screen pane through the hub,
+put its visible window on the same viewer display, and pass that pane's exact
+PID/window and capture-pixel marker geometry through the `presented-*` arguments.
+The same `cmux-rd observe` receipt then supplies presented p50/p95 for each
+contender. Hub connection identity, selected profile, scene/marker identity,
+window bounds and capture dimensions are required artifacts; Apple transport
+bytes and decoded FPS remain unavailable unless an approved counter exists.
+No hidden decoder or alternate renderer is evidence for the table.
+
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
 (hq#9837, fix 2).
