@@ -56,6 +56,7 @@ settings
 setup-card
 stash
 stats
+agent-board
 task-manager
 tasks
 "

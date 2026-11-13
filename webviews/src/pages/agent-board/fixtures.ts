@@ -1,16 +1,8 @@
-// l10n-allow-file: gallery fixtures, not shipped UI.
+// l10n-allow-file: gallery and mock fixtures, not shipped UI.
+import type { LedgerFile } from "./types";
+
 // Sample ledgers in the work-tracking format (skills/work-tracking/SKILL.md). Public-safe:
 // made-up branches, paths and SHAs, no real user content.
-
-export type AgentFixture = {
-  id: string;
-  name: string;
-  harness: "Claude Code" | "Codex";
-  workspace: string;
-  live: boolean;
-  updated: string;
-  ledger: string;
-};
 
 const jsonl = (records: object[]) => records.map((r) => JSON.stringify(r)).join("\n");
 const SHA = "4f2a9c1e";
@@ -20,6 +12,8 @@ const invites = jsonl([
   {
     kind: "task",
     id: "team-invites",
+    agent: "Claude Code",
+    workspace: "Team invites",
     title: "Invite teammates by link",
     goal: "Let a team admin share one link that adds people to the team, from Settings and from the phone.",
     branch: "feat-cmux-next-team-invite-link",
@@ -202,6 +196,8 @@ const sidebar = jsonl([
   {
     kind: "task",
     id: "sidebar-1000",
+    agent: "Codex",
+    workspace: "Sidebar perf",
     title: "Sidebar with 1,000 workspaces",
     goal: "Keep sidebar selection under 10 ms p95 with 1,000 workspaces.",
     branch: "feat-cmux-next-sidebar-virtual",
@@ -274,6 +270,8 @@ const paste = jsonl([
   {
     kind: "task",
     id: "ios-paste",
+    agent: "Claude Code",
+    workspace: "iOS paste",
     title: "Paste images into the iPhone composer",
     goal: "Pasting a photo attaches it instead of inserting a file path.",
   },
@@ -309,6 +307,8 @@ const starting = jsonl([
   {
     kind: "task",
     id: "cli-board",
+    agent: "Codex",
+    workspace: "CLI board",
     title: "Show the board from the cmux CLI",
     goal: "`cmux board` prints the same ledger in a terminal.",
   },
@@ -321,65 +321,38 @@ const starting = jsonl([
   },
 ]);
 
-export const AGENTS: AgentFixture[] = [
-  {
-    id: "a1",
-    name: "team-invite-link",
-    harness: "Claude Code",
-    workspace: "Team invites",
-    live: true,
-    updated: "2m",
-    ledger: invites,
-  },
-  {
-    id: "a2",
-    name: "sidebar-virtual",
-    harness: "Codex",
-    workspace: "Sidebar perf",
-    live: false,
-    updated: "18m",
-    ledger: sidebar,
-  },
-  {
-    id: "a3",
-    name: "ios-paste-images",
-    harness: "Claude Code",
-    workspace: "iOS paste",
-    live: false,
-    updated: "1h",
-    ledger: paste,
-  },
-  {
-    id: "a4",
-    name: "cli-board",
-    harness: "Codex",
-    workspace: "CLI board",
-    live: true,
-    updated: "now",
-    ledger: starting,
-  },
+const LEDGERS = [
+  { file: "team-invite-link.jsonl", minutesAgo: 2, ledger: invites },
+  { file: "sidebar-virtual.jsonl", minutesAgo: 18, ledger: sidebar },
+  { file: "ios-paste-images.jsonl", minutesAgo: 64, ledger: paste },
+  { file: "cli-board.jsonl", minutesAgo: 0, ledger: starting },
 ];
 
-/** The same agents, with a malformed line in the first ledger (the error state). */
-export const AGENTS_WITH_ERROR: AgentFixture[] = AGENTS.map((agent, i) =>
-  i === 0
-    ? {
-        ...agent,
-        ledger: `${agent.ledger}\n{"kind":"permutation","id":"perm-card-ipad",for:"invite-card"}\n{"kind":"evidence","id":"Bad ID","type":"screenshot","path":"/tmp/x.png"}\n{"kind":"permutation","id":"perm-card-tablet","for":"invite-card","axes":{"theme":1},"status":"passed"}`,
-      }
-    : agent,
-);
+export type MockBoardKind = "off" | "empty" | "live" | "error" | "stress";
 
-/** Long names, many items: the worst case for layout. */
-export const AGENTS_STRESS: AgentFixture[] = [
-  ...AGENTS,
-  ...Array.from({ length: 14 }, (_, i) => ({
-    id: `s${i}`,
-    name: `agent-with-a-very-long-branch-name-number-${i + 1}-that-keeps-going`,
-    harness: (i % 2 ? "Codex" : "Claude Code") as AgentFixture["harness"],
-    workspace: `Workspace ${i + 1}`,
-    live: i % 3 === 0,
-    updated: `${i + 3}h`,
-    ledger: starting,
-  })),
-];
+/** The ledgers the mock host answers for `kind`, newest first, timed from `now`. */
+export function mockLedgers(kind: MockBoardKind, now: number): LedgerFile[] {
+  if (kind === "off" || kind === "empty") return [];
+  const at = (minutes: number) => now - minutes * 60_000;
+  const files = LEDGERS.map(({ file, minutesAgo, ledger }, index) => ({
+    file,
+    modifiedMs: at(minutesAgo),
+    truncated: false,
+    text:
+      kind === "error" && index === 0
+        ? `${ledger}\n{"kind":"permutation","id":"perm-card-ipad",for:"invite-card"}\n{"kind":"evidence","id":"Bad ID","type":"screenshot","path":"/tmp/x.png"}\n{"kind":"permutation","id":"perm-card-tablet","for":"invite-card","axes":{"theme":1},"status":"passed"}`
+        : ledger,
+  }));
+  if (kind === "stress")
+    for (let i = 0; i < 14; i++)
+      files.push({
+        file: `agent-with-a-very-long-session-name-${i + 1}.jsonl`,
+        modifiedMs: at(180 + i * 60),
+        truncated: i === 0,
+        text: starting.replace(
+          "Show the board from the cmux CLI",
+          `Long-running task number ${i + 1} with a title that keeps going past the column`,
+        ),
+      });
+  return files.sort((a, b) => b.modifiedMs - a.modifiedMs);
+}

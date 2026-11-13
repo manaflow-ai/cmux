@@ -1,4 +1,3 @@
-// l10n-allow-file: gallery prototype model, not shipped UI.
 // Agent Board ledger: the JSONL an agent appends under the work-tracking skill
 // (skills/work-tracking/SKILL.md), folded into what the board draws.
 
@@ -6,7 +5,18 @@ export type CapabilityStatus = "building" | "done" | "dropped";
 export type PermutationStatus = "verified" | "unverified" | "broken";
 export type EvidenceType = "screenshot" | "video" | "test" | "build" | "log" | "link";
 
-export type TaskRecord = { kind: "task"; id: string; title: string; goal?: string; branch?: string; pr?: string };
+export type TaskRecord = {
+  kind: "task";
+  id: string;
+  title: string;
+  goal?: string;
+  branch?: string;
+  pr?: string;
+  /** The agent that keeps the ledger (`Claude Code`, `Codex`). */
+  agent?: string;
+  /** The cmux workspace it works in. */
+  workspace?: string;
+};
 export type CapabilityRecord = {
   kind: "capability";
   id: string;
@@ -47,7 +57,8 @@ export type EvidenceRecord = {
 };
 export type LedgerRecord = TaskRecord | CapabilityRecord | DecisionRecord | PermutationRecord | EvidenceRecord;
 
-/** A line the board could not read: shown as an error row, never dropped silently. */
+/** A line the board could not read: shown as an error row, never dropped silently. `reason` is
+ * `json` (not JSON), `object` (not an object), or the name of the field that is missing or wrong. */
 export type LedgerProblem = { line: number; text: string; reason: string };
 
 export type Board = {
@@ -76,11 +87,11 @@ const stringMap = (v: unknown) =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).every(isString);
 const oneOf = (set: Set<string>) => (v: unknown) => isString(v) && set.has(v);
 
-/** Why a parsed line cannot be drawn, or null. Every field the board reads is type-checked, so a
+/** The field that keeps a parsed line from being drawn, or null. Every field the board reads is type-checked, so a
  * wrong type becomes an error row instead of breaking the page. */
 function problem(r: Record<string, unknown>): string | null {
-  if (!oneOf(KINDS)(r.kind)) return "unknown kind";
-  if (!isString(r.id) || !ID.test(r.id)) return "id must be lower kebab case";
+  if (!oneOf(KINDS)(r.kind)) return "kind";
+  if (!isString(r.id) || !ID.test(r.id)) return "id";
   for (const key of [
     "title",
     "summary",
@@ -88,6 +99,8 @@ function problem(r: Record<string, unknown>): string | null {
     "goal",
     "branch",
     "pr",
+    "agent",
+    "workspace",
     "chosen",
     "why",
     "note",
@@ -96,18 +109,18 @@ function problem(r: Record<string, unknown>): string | null {
     "caption",
     "sha",
   ])
-    if (!optional(r[key], isString)) return `${key} must be a string`;
+    if (!optional(r[key], isString)) return key;
   switch (r.kind) {
     case "task":
-      return isString(r.title) ? null : "missing title";
+      return isString(r.title) ? null : "title";
     case "capability":
-      if (!isString(r.title)) return "missing title";
-      if (!optional(r.status, oneOf(CAPABILITY_STATUS))) return "status must be building, done or dropped";
-      return optional(r.files, stringList) ? null : "files must be a list of strings";
+      if (!isString(r.title)) return "title";
+      if (!optional(r.status, oneOf(CAPABILITY_STATUS))) return "status";
+      return optional(r.files, stringList) ? null : "files";
     case "decision":
-      if (!isString(r.title) || !isString(r.chosen)) return "missing title or chosen";
-      if (!optional(r.for, stringList)) return "for must be a list of ids";
-      if (!optional(r.needsHuman, (v) => typeof v === "boolean")) return "needsHuman must be true or false";
+      if (!isString(r.title) || !isString(r.chosen)) return "chosen";
+      if (!optional(r.for, stringList)) return "for";
+      if (!optional(r.needsHuman, (v) => typeof v === "boolean")) return "needsHuman";
       return optional(
         r.rejected,
         (v) =>
@@ -115,16 +128,16 @@ function problem(r: Record<string, unknown>): string | null {
           v.every((o) => o && typeof o === "object" && isString(o.option) && optional(o.why, isString)),
       )
         ? null
-        : "rejected must be a list of { option, why }";
+        : "rejected";
     case "permutation":
-      if (!isString(r.for)) return "missing for";
-      if (!stringMap(r.axes)) return "axes must map names to strings";
-      if (!optional(r.status, oneOf(PERMUTATION_STATUS))) return "status must be verified, unverified or broken";
-      return optional(r.evidence, stringList) ? null : "evidence must be a list of ids";
+      if (!isString(r.for)) return "for";
+      if (!stringMap(r.axes)) return "axes";
+      if (!optional(r.status, oneOf(PERMUTATION_STATUS))) return "status";
+      return optional(r.evidence, stringList) ? null : "evidence";
     case "evidence":
-      if (!oneOf(EVIDENCE_TYPE)(r.type)) return "type must be screenshot, video, test, build, log or link";
-      if (!isString(r.path) && !isString(r.url)) return "missing path or url";
-      return optional(r.for, stringList) ? null : "for must be a list of ids";
+      if (!oneOf(EVIDENCE_TYPE)(r.type)) return "type";
+      if (!isString(r.path) && !isString(r.url)) return "path";
+      return optional(r.for, stringList) ? null : "for";
   }
   return null;
 }
@@ -146,11 +159,11 @@ export function foldLedger(text: string): Board {
     try {
       parsed = JSON.parse(line);
     } catch {
-      problems.push({ line: index + 1, text: line, reason: "not JSON" });
+      problems.push({ line: index + 1, text: line, reason: "json" });
       return;
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      problems.push({ line: index + 1, text: line, reason: "not an object" });
+      problems.push({ line: index + 1, text: line, reason: "object" });
       return;
     }
     const record = parsed as Record<string, unknown>;

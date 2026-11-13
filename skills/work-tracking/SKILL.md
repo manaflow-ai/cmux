@@ -38,7 +38,7 @@ unknown `status` or `type`, or a list that is not a list of strings, shows as an
 
 | kind | when | fields |
 | --- | --- | --- |
-| `task` | once, first | `title`, `goal` (the person's ask, one sentence), `branch`, `pr` (URL, when there is one) |
+| `task` | once, first | `title`, `goal` (the person's ask, one sentence), `agent` (your harness: `Claude Code`, `Codex`), `workspace` (the cmux workspace name, when you know it), `branch`, `pr` (URL, when there is one) |
 | `capability` | you finish (or drop) a thing the person can use | `title`, `summary`, `area`, `status` (`building`, `done`, `dropped`), `files` |
 | `decision` | you pick between real options a reviewer could question | `title`, `chosen`, `why`, `rejected` (`[{ "option", "why" }]`), `for` (capability ids), `needsHuman` (`true` when only the person should decide) |
 | `permutation` | each state you built: a mode, platform, size, empty, loading, error or edge case | `for` (capability id), `axes` (`{"theme":"dark","platform":"iOS","state":"empty"}`), `status` (`verified`, `unverified`, `broken`), `evidence` (evidence ids), `note` |

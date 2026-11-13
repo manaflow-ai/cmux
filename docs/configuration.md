@@ -978,8 +978,10 @@ every Claude Code session lists one more skill (`work-tracking`) and reads it on
 agent spends extra tool calls writing ledger lines and capturing evidence for each state it
 builds. With `enabled` set to `true`, sessions started after the change get the
 [work-tracking skill](../skills/work-tracking/SKILL.md) (Claude Code as a plugin skill, Codex in
-its first-turn skill list); running sessions are not changed. Experimental: the board that reads
-the ledgers is a gallery prototype (`prototype.agent-board`) and does not ship yet.
+its first-turn skill list); running sessions are not changed. Open the board with **Show Agent
+Board** in the command palette; while the setting is off the page explains the cost and has a
+**Turn On Agent Board** button. The switch is also in Settings > Agents > Guidance and Skills, and
+`cmux settings set agents.board.enabled true` works too. Agents cannot turn it on themselves.
 
 ```json
 { "agents": { "board": { "enabled": true } } }

@@ -58,6 +58,7 @@ const expectedPages = new Set([
   "site-settings",
   "stash",
   "stats",
+  "agent-board",
   "task-manager",
   "tasks",
 ]);
