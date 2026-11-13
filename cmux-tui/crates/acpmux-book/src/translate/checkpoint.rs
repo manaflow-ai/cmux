@@ -1,9 +1,26 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
-use super::{Error, MAX_STATE_BYTES, State, VERSION};
+use super::{
+    Error, MAX_QUEUE_ENTRIES, MAX_STATE_BYTES, MAX_TRANSLATOR_BYTES, QueueEntry, State, VERSION,
+};
 use bincode::Options;
+use std::io::Cursor;
 impl State {
     pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
-        let bytes = codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
+        let mut translator = self.clone();
+        let queue = std::mem::take(&mut translator.queue);
+        let mut bytes =
+            codec().serialize(&(VERSION, &translator)).map_err(|_| Error::CheckpointInvalid)?;
+        if bytes.len() + 4 > MAX_TRANSLATOR_BYTES {
+            return Err(Error::StateTooLarge { bytes: bytes.len() });
+        }
+        bytes.extend_from_slice(&(queue.len() as u32).to_le_bytes());
+        for entry in queue.values() {
+            bytes.extend_from_slice(&entry.id_hash.to_le_bytes());
+            bytes.extend_from_slice(&entry.at_state.to_le_bytes());
+            bytes.extend_from_slice(&entry.place.to_le_bytes());
+            bytes.extend_from_slice(&entry.span.to_le_bytes());
+            bytes.extend_from_slice(&entry.text_len.to_le_bytes());
+        }
         if bytes.len() > MAX_STATE_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
@@ -13,13 +30,50 @@ impl State {
         if bytes.len() > MAX_STATE_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
-        let (version, state): (u32, Self) =
-            codec().deserialize(bytes).map_err(|_| Error::CheckpointInvalid)?;
+        let mut cursor = Cursor::new(bytes);
+        let (version, mut state): (u32, Self) =
+            codec().deserialize_from(&mut cursor).map_err(|_| Error::CheckpointInvalid)?;
         if version != VERSION {
             return Err(Error::CheckpointVersion);
         }
+        let pos = cursor.position() as usize;
+        let count = u32::from_le_bytes(
+            bytes
+                .get(pos..pos + 4)
+                .ok_or(Error::CheckpointInvalid)?
+                .try_into()
+                .map_err(|_| Error::CheckpointInvalid)?,
+        ) as usize;
+        let start = pos + 4;
+        let end = start
+            .checked_add(count.checked_mul(32).ok_or(Error::CheckpointInvalid)?)
+            .ok_or(Error::CheckpointInvalid)?;
+        for chunk in bytes.get(start..end).ok_or(Error::CheckpointInvalid)?.chunks_exact(32) {
+            let id_hash = <[u8; 8]>::try_from(chunk.get(0..8).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let at_state = <[u8; 8]>::try_from(chunk.get(8..16).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let place = <[u8; 8]>::try_from(chunk.get(16..24).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let span = <[u8; 4]>::try_from(chunk.get(24..28).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let text_len = <[u8; 4]>::try_from(chunk.get(28..32).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let entry = QueueEntry {
+                id_hash: u64::from_le_bytes(id_hash),
+                at_state: u64::from_le_bytes(at_state),
+                place: u64::from_le_bytes(place),
+                span: u32::from_le_bytes(span),
+                text_len: u32::from_le_bytes(text_len),
+            };
+            state.queue.insert(entry.id_hash, entry);
+        }
+        if end != bytes.len() || state.queue.len() != count {
+            return Err(Error::CheckpointInvalid);
+        }
         let mut ids = std::collections::BTreeSet::new();
         if state.prompts.len() > 32
+            || state.queue.len() > MAX_QUEUE_ENTRIES
             || state.settled_prompts.len() > 32
             || state.forced_tools.len() > 64
             || state.forced_order.len() > 64
@@ -35,6 +89,9 @@ impl State {
                     || s.facts.runs.iter().any(|r| r.0 == 0 || r.0 > r.1 || r.1 > state.last_id)
             })
         {
+            return Err(Error::CheckpointInvalid);
+        }
+        if pos > MAX_TRANSLATOR_BYTES - 4 {
             return Err(Error::CheckpointInvalid);
         }
         if state.turn.is_some_and(|id| id == 0 || id > state.last_id)
