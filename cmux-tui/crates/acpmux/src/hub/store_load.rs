@@ -88,7 +88,7 @@ impl Hub {
                     plan.waiting.insert(id.clone());
                 }
             }
-            hub.install_stored_session(meta, true, hosted);
+            hub.install_stored_session(meta, true, hosted, true);
             true
         })
         .await

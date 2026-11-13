@@ -119,6 +119,30 @@ export default agentPaneEntry({
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
       ]),
     },
+    "details-placement-wide": {
+      note: "Rate-limit card at a wide width: Details reserves its own action row before and after opening.",
+      snapshot: failed(
+        "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.",
+      ),
+    },
+    "details-placement-narrow": {
+      note: "Rate-limit card before work at a narrow width: Retry, Switch model and Details keep stable rows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, {
+          status: "failed",
+          durationMs: 4_000,
+          error:
+            "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.",
+        }),
+      ]),
+    },
+    "details-placement-long": {
+      note: "Long rate-limit text: opening the raw error expands below the same Details disclosure slot.",
+      snapshot: failed(
+        "API Error: Request rejected (429). This request would exceed your account's rate limit. Please try again later.\nrequest-id: gallery-rate-limit\nretry-after: 60",
+      ),
+    },
     // Leo 2026-11-03, on a card that led with Switch model when the server could not be reached: "this
     // ui is pretty awkward looking". Retry leads a connection failure; Switch model only follows it.
     "server-unreachable": {

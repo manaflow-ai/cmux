@@ -260,6 +260,8 @@ struct SidebarUniformRowSpacingTests {
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
         let header = try #require(h.list.displayed.row(for: .group(Self.group)), "no group header")
+        // The row under the pins is the group's header: no list heading sits between them
+        // (https://github.com/manaflow-ai/cmux/issues/42373). The gap is the row spacing.
         #expect(abs(header.y - lastPin.maxY - spacing) < 0.5,
                 "under the pins: \(header.y - lastPin.maxY) pt, the row spacing is \(spacing) pt")
         let (w2, w3, w4) = try (h.inList(h.workspaceRow("w2")), h.inList(h.workspaceRow("w3")), h.inList(h.workspaceRow("w4")))
