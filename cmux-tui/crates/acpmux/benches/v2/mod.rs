@@ -27,12 +27,40 @@ pub struct GateRow {
     pub god_max: Option<f64>,
 }
 
-/// One placeholder for every done-when line in the current v2 design table.
+/// One row for every measure a gate writes, and one placeholder for each PR whose gates have not
+/// landed. A done-when line that a test holds (a kill at every byte, a wrong magic) has no row.
 pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "1",
-        name: "v2.pr01.book_append_window_recovery",
-        done_when: "Append is O(row): bytes written and time per append within 1.2x at 40 rows and 2M rows. First window read under 5 ms, 1.2x. Recovery after a kill at every byte of a record loses nothing settled.",
+        name: "v2.pr01.append_time",
+        done_when: "Append is O(row): time per append within 1.2x at 2M rows against 40.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "1",
+        name: "v2.pr01.append_bytes",
+        done_when: "Append is O(row): bytes written per append within 1.2x at 2M rows against 40.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "1",
+        name: "v2.pr01.first_window",
+        done_when: "First window read (open, window and fill): under 5 ms, 1.2x at 2M rows against 40.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: Some(5_000_000.0),
+    },
+    GateRow {
+        pr: "1b",
+        name: "v2.pr01b.cold_first_append",
+        done_when: "PR 1's gates still pass with the record layout: the first append to a book just opened within 1.2x at 2M rows against 40.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -40,8 +68,8 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "1b",
-        name: "v2.pr01b.record_layout",
-        done_when: "PR 1's gates still pass. An index entry with no record is cleared at open and its row settles once on replay. A kill at every byte around a raw.map line leaves no record naming a file the map lacks. A wrong magic or unknown version opens to the rebuild error. Work at open 1.2x, 2M rows against 40.",
+        name: "v2.pr01b.torn_open",
+        done_when: "Work at open 1.2x, 2M rows against 40: an open that cuts off a torn record.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -150,15 +178,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "4",
         name: "v2.pr04.chat_stopped_reader",
         done_when: "Chat stopped-reader resume is measured after PR 3c wires chat actors into the connection.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "5",
-        name: "v2.pr05.index_list_stream",
-        done_when: "First list window within 200 ms of listen with 11k sessions, 1.2x against 20. One summary change costs O(1): no work proportional to the list.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -572,35 +591,109 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
 mod tests {
     use super::*;
 
-    const EMITTED_GATE_NAMES: &[&str] = &[
-        "v2.pr02.translate_line",
-        "v2.pr02.translate_line_full_state",
-        "v2.pr02.jsonl_peak_rss",
-        "v2.pr02b.translate_line_queue_full",
-        "v2.pr03a.source_read_bounds",
-        "v2.pr05.first_list_window",
-        "v2.pr05.summary_change",
-        "v2.pr05b.start_first_window",
-        "v2.pr05b.start_rss",
-        "v2.pr05b.page_first",
-        "v2.pr05b.page_first_bytes",
-        "v2.pr05b.page_first_filter",
-        "v2.pr05b.page_middle",
-        "v2.pr05b.page_middle_bytes",
-        "v2.pr05b.page_middle_filter",
-        "v2.pr05b.page_last",
-        "v2.pr05b.page_last_bytes",
-        "v2.pr05b.page_last_filter",
-        "v2.pr05b.hot_rss",
-        "v2.pr05b.apply_during_compaction",
-    ];
+    /// A row of a PR whose other rows are written, held for a gate a later PR adds.
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04.chat_stopped_reader"];
+
+    /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
+    const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";
+
+    fn rust_sources(dir: &Path, found: &mut Vec<PathBuf>) {
+        let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir:?}: {e}"));
+        for entry in entries {
+            let path = entry.unwrap_or_else(|e| panic!("{dir:?}: {e}")).path();
+            if path.is_dir() {
+                rust_sources(&path, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+    }
+
+    /// Every gate name the acpmux crates' sources hold, with the file that holds it. This file is
+    /// left out: its rows are what the names are checked against. `v2.pr99` is the made-up PR
+    /// the report's own tests use.
+    fn names_in_sources() -> Vec<(String, PathBuf)> {
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/mod.rs");
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&crates).unwrap() {
+            let path = entry.unwrap().path();
+            let is_ours = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("acpmux"));
+            for part in ["src", "tests", "benches"] {
+                if is_ours && path.join(part).is_dir() {
+                    rust_sources(&path.join(part), &mut files);
+                }
+            }
+        }
+        let pattern = regex::Regex::new(NAME_IN_SOURCE).unwrap();
+        let mut names = Vec::new();
+        for file in files {
+            if file == registry {
+                continue;
+            }
+            let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            for found in pattern.find_iter(&text) {
+                if !found.as_str().starts_with("v2.pr99.") {
+                    names.push((found.as_str().to_owned(), file.clone()));
+                }
+            }
+        }
+        names
+    }
+
+    /// Whether a source's name is this row's: equal, or a `format!` whose holes fit.
+    fn spells(in_source: &str, row: &str) -> bool {
+        if !in_source.contains('{') {
+            return in_source == row;
+        }
+        let hole = regex::Regex::new(r"\\\{[^{}]*\\\}").unwrap();
+        let escaped = regex::escape(in_source);
+        regex::Regex::new(&format!("^{}$", hole.replace_all(&escaped, "[a-z0-9_]+")))
+            .unwrap()
+            .is_match(row)
+    }
 
     #[test]
-    fn every_emitted_gate_has_a_registry_row() {
-        let registered = registered_names();
-        for name in EMITTED_GATE_NAMES {
-            assert!(registered.contains(name), "missing registry row for emitted gate {name}");
+    fn every_gate_name_in_a_source_has_a_registry_row() {
+        let names = names_in_sources();
+        assert!(names.len() >= 20, "the scan read too few gate names: {names:?}");
+        for (name, file) in &names {
+            assert!(
+                GATE_ROWS.iter().any(|row| spells(name, row.name)),
+                "{file:?} names the gate {name}, and the registry has no row for it"
+            );
         }
+    }
+
+    #[test]
+    fn a_pr_that_writes_a_row_has_no_placeholder_left() {
+        let names = names_in_sources();
+        let written = |row: &GateRow| names.iter().any(|(name, _)| spells(name, row.name));
+        for row in GATE_ROWS {
+            if written(row) {
+                continue;
+            }
+            assert!(!row.measured, "{} is marked measured and no source writes it", row.name);
+            let pr_writes = GATE_ROWS.iter().any(|other| other.pr == row.pr && written(other));
+            assert!(
+                !pr_writes || WAITS_ON_ANOTHER_PR.contains(&row.name),
+                "PR {} writes its rows and no source writes {}: remove the placeholder",
+                row.pr,
+                row.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_format_built_name_fits_only_its_own_rows() {
+        assert!(spells("v2.pr05b.page_{label}_bytes", "v2.pr05b.page_first_bytes"));
+        assert!(!spells("v2.pr05b.page_{label}_bytes", "v2.pr05b.page_first"));
+        assert!(!spells("v2.pr05b.page_{label}", "v2.pr05b.hot_rss"));
+        assert!(spells("v2.pr01.append_time", "v2.pr01.append_time"));
+        assert!(!spells("v2.pr01.append", "v2.pr01.append_time"));
     }
 
     fn change_row() -> &'static GateRow {

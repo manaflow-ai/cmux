@@ -70,7 +70,7 @@ impl History {
         self.len
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn is_empty(&self) -> bool {
         self.len == 0
     }

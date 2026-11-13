@@ -278,7 +278,9 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           );
           const { port } = vite!.httpServer!.address() as { port: number };
           await page.goto(`http://127.0.0.1:${port}/`);
-          await page.getByText(failure, { exact: true }).first().waitFor();
+          // The pane says it plainly; the peer's own words (`failure`) go to the log, never the chat.
+          await page.getByText("Couldn't start the chat. Try again.", { exact: true }).first().waitFor();
+          expect(await page.getByText(failure, { exact: true }).count()).toBe(0);
           await page.evaluate(() => {
             const w = window as unknown as Pane;
             w.seededPeerAction = w.cmuxAcpmuxActions["chat.new"];

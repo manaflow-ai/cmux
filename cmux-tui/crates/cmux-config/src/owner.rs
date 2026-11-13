@@ -92,7 +92,8 @@ impl ConfigStore {
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes = matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. });
+        let writes =
+            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };

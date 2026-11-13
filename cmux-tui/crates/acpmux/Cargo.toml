@@ -168,8 +168,8 @@ url = { workspace = true, optional = true }
 # same-user checks); the detached start (CreateProcess with a handle list),
 # owner-only ACLs and agent job objects use windows-sys.
 [target.'cfg(target_os = "linux")'.dependencies]
-# The login-env watcher's change-only inotify (`login_env/watch.rs` `quiet`); `notify` asks for
-# every open. Already in the tree through `notify`, with its features.
+# The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
+# login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
