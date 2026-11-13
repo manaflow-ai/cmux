@@ -66,6 +66,7 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
+mod ephemeral;
 mod fork;
 pub use fork::Retarget;
 #[cfg(test)]

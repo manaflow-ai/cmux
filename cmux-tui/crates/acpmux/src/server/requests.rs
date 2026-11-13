@@ -1667,6 +1667,11 @@ async fn dispatch_request_with_identity(
                 additional_directories,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
+                // Purged by its creator after its work: its prompts' bodies are not kept.
+                throwaway: !adopting
+                    && (super::ephemeral::requested(&params)
+                        || mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
+                            == Some(true)),
                 require_asking: crate::hub::require_asking::asked(meta),
             };
             let s = match &admitted {
@@ -3180,6 +3185,9 @@ async fn dispatch_request_with_identity(
             let id = str_param(&params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             super::ephemeral::keep(conn, id)?;
+            if let Ok(s) = hub.resolve(id) {
+                hub.keep_prompt_bodies(&s);
+            }
             Ok(json!({"sessionId": id, "ephemeral": false}))
         }
         method::MUX_KILL => {

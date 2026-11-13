@@ -121,6 +121,9 @@ pub struct NewRequest {
     /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
     /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
     pub wait_start: bool,
+    /// `_meta.acpmux.throwaway` or `ephemeral` (`SessionMeta::throwaway`): its creator purges it
+    /// after its work.
+    pub throwaway: bool,
     /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
     /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
     pub require_asking: bool,

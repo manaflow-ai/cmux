@@ -381,6 +381,12 @@ pub struct SessionMeta {
     /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait_start: bool,
+    /// Its creator purges it right after its work (`_meta.acpmux.throwaway`, the Chief
+    /// compactor's nodes; or `_meta.acpmux.ephemeral`, purged with its connection): its prompts'
+    /// `user_message` keeps no long body (`hub/ephemeral.rs`), and a retry or restart never runs
+    /// such a prompt again. Kept on disk with the rest of its meta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
