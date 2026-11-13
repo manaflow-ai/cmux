@@ -941,18 +941,19 @@ impl HostReadyGate {
         Self { path }
     }
 
-    /// Lets each host that waits go on, and each later host pass.
-    fn open(self) {
+    /// Lets each host that waits go on. The gate stays open while the value
+    /// that this returns lives.
+    fn open(self) -> Option<fs::File> {
         // An open for reading and writing does not wait for a host. The gate
         // is removed while it is open: a host that saw it gets through.
-        let open = fs::OpenOptions::new().read(true).write(true).open(&self.path);
+        let open = fs::OpenOptions::new().read(true).write(true).open(&self.path).ok();
         let _ = fs::remove_file(&self.path);
-        drop(open);
+        open
     }
 }
 
-/// The new terminals whose hosts wait at the gate at one time: below the
-/// daemon's 8 terminal workers.
+/// The new terminals of the test. The daemon starts them one after the
+/// other: each one's host waits at the gate when its terminal connects.
 const AT_THE_GATE: usize = 6;
 
 /// The first connection of a new terminal comes while the daemon still
@@ -970,55 +971,62 @@ fn agent_start_first_connection_of_a_new_terminal_is_its_terminal_while_its_host
     let daemon = Daemon::start_with_host_gate("first-connection", true);
     let mut control = Control::open(&daemon.socket);
     fs::create_dir_all(daemon.dir.join("held")).unwrap();
-    // The connections of the test that ask for the terminals. Each one is
-    // admitted (and counted) before the count starts.
-    let mut askers: Vec<Control> = (0..AT_THE_GATE)
-        .map(|_| Control::admitted(&daemon.socket).expect("setup: the daemon refused the test"))
-        .collect();
-    let gate = HostReadyGate::close(&daemon);
+    // The connection of the test that asks for the terminals. It is admitted
+    // (and counted) before the count starts.
+    let mut asker = Control::admitted(&daemon.socket).expect("setup: the daemon refused the test");
     let wanted = u64::try_from(AT_THE_GATE).unwrap();
     let outside_before = control.admitted_as("local");
     let terminal_before = control.admitted_as("terminal");
+    let streams_before = control.handled("session.events");
     let run_before = control.handled("run");
 
-    let asked: Vec<Value> = askers
-        .iter_mut()
-        .enumerate()
-        .map(|(index, asker)| {
-            asker.start_request(json!({
-                "cmd": "run",
-                "argv": ["/bin/sh", "-c", burst_holder_script(&daemon.dir, index)],
-                "new_workspace": true,
-                "name": format!("g{index}"),
-            }))
-        })
-        .collect();
-    wait_until(test_timeout(Duration::from_secs(25)), || {
-        control.handled("session.events") >= wanted
-            || Holders::first_error(&daemon, 0, AT_THE_GATE).is_some()
-    });
-    let streams = control.handled("session.events");
+    let mut at_the_gate = 0;
+    for index in 0..AT_THE_GATE {
+        let gate = HostReadyGate::close(&daemon);
+        let asked = asker.start_request(json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", burst_holder_script(&daemon.dir, index)],
+            "new_workspace": true,
+            "name": format!("g{index}"),
+        }));
+        let streams = streams_before + u64::try_from(index).unwrap() + 1;
+        wait_until(test_timeout(Duration::from_secs(25)), || {
+            control.handled("session.events") >= streams
+                || Holders::first_error(&daemon, 0, AT_THE_GATE).is_some()
+        });
+        // The start has no reply yet: its host waits at the gate, so the
+        // daemon does not have the terminal's process id.
+        let run_ended = control.handled("run") - run_before;
+        if control.handled("session.events") >= streams
+            && run_ended == u64::try_from(index).unwrap()
+        {
+            at_the_gate += 1;
+        }
+        let open = gate.open();
+        asker.reply(&asked);
+        drop(open);
+    }
     let outside = control.admitted_as("local") - outside_before;
     let as_terminal = control.admitted_as("terminal") - terminal_before;
-    let run_ended = control.handled("run") - run_before;
     let first_error = Holders::first_error(&daemon, 0, AT_THE_GATE).unwrap_or_default();
     eprintln!(
-        "agent start first connection: {AT_THE_GATE} new terminals whose hosts wait at the gate:          {streams} event streams are open; the daemon counts {as_terminal} of these connections          as a terminal's and {outside} as an outside process's; {run_ended} of the {AT_THE_GATE}          starts ended; by kind {}; a terminal said {first_error:?}",
+        "agent start first connection: {AT_THE_GATE} new terminals, each one's host at the gate \
+         when the terminal connects: {at_the_gate} terminals opened their event stream while \
+         their host waited; the daemon counts {as_terminal} of these connections as a \
+         terminal's and {outside} as an outside process's; by kind {}; a terminal said \
+         {first_error:?}",
         control.kinds()
     );
     assert_eq!(
-        streams, wanted,
-        "setup: {streams} of the {wanted} terminals opened their event stream while their hosts          wait at the gate: {first_error:?}"
+        at_the_gate, AT_THE_GATE,
+        "setup: {at_the_gate} of the {AT_THE_GATE} terminals opened their event stream while \
+         their host waited at the gate: {first_error:?}"
     );
-    assert_eq!(run_ended, 0, "setup: {run_ended} hosts did not wait at the gate");
-
-    gate.open();
-    for (asker, value) in askers.iter_mut().zip(&asked) {
-        asker.reply(value);
-    }
     assert_eq!(
         (as_terminal, outside),
         (wanted, 0),
-        "the daemon counted {outside} of the {wanted} first connections of new terminals as          connections of a process outside the terminals, and {as_terminal} as a terminal's: each          one came from the terminal's own process while the terminal's host started"
+        "the daemon counted {outside} of the {wanted} first connections of new terminals as \
+         connections of a process outside the terminals, and {as_terminal} as a terminal's: \
+         each one came from the terminal's own process while the terminal's host started"
     );
 }
