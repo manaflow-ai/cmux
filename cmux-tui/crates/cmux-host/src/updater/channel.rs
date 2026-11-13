@@ -123,7 +123,7 @@ pub fn allowed_urls(commit: &str, published_name: &str) -> [String; 2] {
 
 fn check_binary(binary: &Binary, commit: &str, published_name: &str) -> Result<(), String> {
     let urls = allowed_urls(commit, published_name);
-    if !urls.iter().any(|url| binary.url == *url) {
+    if !urls.contains(&binary.url) {
         return Err(format!("{published_name}: the url is neither {} nor {}", urls[0], urls[1]));
     }
     if !lower_hex(&binary.sha256, 64) {
