@@ -32,12 +32,20 @@ public final class TabFaviconStore {
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
     @ObservationIgnored private var failed = LRUCache<Key, Bool>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
+    /// Times the failure memory (a test moves its own).
+    @ObservationIgnored private let clock: any Clock<Duration>
+
+    /// How long a failed icon is not fetched again (#42435).
+    public static let failureMemory: Duration = .seconds(60)
 
     /// Creates a favicon store over the supplied loader.
     ///
-    /// - Parameter loader: the browser favicon loader used for pages without a live tab.
-    public init(loader: any BrowserFaviconLoading) {
+    /// - Parameters:
+    ///   - loader: the browser favicon loader used for pages without a live tab.
+    ///   - clock: times the failure memory.
+    public init(loader: any BrowserFaviconLoading, clock: any Clock<Duration> = ContinuousClock()) {
         self.loader = loader
+        self.clock = clock
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads
