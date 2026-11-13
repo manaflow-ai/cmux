@@ -19,7 +19,7 @@ pub fn verify_launchers(cfg: &mut Config) {
         std::env::var("SUBROUTER_URL").ok().or_else(|| crate::login_env::var("SUBROUTER_URL"));
     let route = subrouter_route(env_route.as_deref(), &servers);
     let cache = home().join(CHECKS_FILE);
-    verify_launchers_checked(cfg, route, &|argv| cached_launcher_ok(&cache, argv));
+    verify_launchers_cached(cfg, route, &cache, &launcher_ok);
 }
 
 /// The launchers whose `--version` passed, by argv and binary (`cached_launcher_ok`).
@@ -29,7 +29,20 @@ const CHECKS_FILE: &str = "launcher-checks.json";
 /// changed since (its size and modification time). A daemon start ran `sr --version` and its
 /// kin every time, up to 20 s each, before any chat could start; now only a new or changed
 /// binary is run. A failure is never kept: it may have been a loaded machine's slow start.
-fn cached_launcher_ok(cache: &std::path::Path, argv: &[String]) -> std::result::Result<(), String> {
+fn verify_launchers_cached(
+    cfg: &mut Config,
+    route: Option<String>,
+    cache: &std::path::Path,
+    probe: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
+) {
+    verify_launchers_checked(cfg, route, &|argv| cached_launcher_ok(cache, argv, probe));
+}
+
+fn cached_launcher_ok(
+    cache: &std::path::Path,
+    argv: &[String],
+    probe: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
+) -> std::result::Result<(), String> {
     let key = launcher_key(argv);
     let read = || -> Option<std::collections::BTreeSet<String>> {
         serde_json::from_slice(&std::fs::read(cache).ok()?).ok()
@@ -39,7 +52,7 @@ fn cached_launcher_ok(cache: &std::path::Path, argv: &[String]) -> std::result::
     {
         return Ok(());
     }
-    launcher_ok(argv)?;
+    probe(argv)?;
     if let Some(key) = key {
         let mut passed = read().unwrap_or_default();
         passed.insert(key);
@@ -264,5 +277,46 @@ mod tests {
         let path = std::env::join_paths([first.path(), second.path()]).unwrap();
         assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
         assert_eq!(which_in(&path, "codex"), None);
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn launcher_cache_keeps_parallel_successes_and_only_current_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("checks.json");
+        let mut cfg = Config::default();
+        cfg.harnesses.clear();
+        for name in ["first", "second"] {
+            let binary = dir.path().join(name);
+            std::fs::write(&binary, "version one").unwrap();
+            let profile = serde_json::from_value(serde_json::json!({
+                "argv": [binary, "claude", "proxy"]
+            }))
+            .unwrap();
+            cfg.harnesses.insert(name.into(), profile);
+        }
+        let calls = AtomicUsize::new(0);
+        let probe = |_: &[String]| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        };
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2, "warm launch reran a successful probe");
+        std::fs::write(dir.path().join("first"), "version two is a different size").unwrap();
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 3, "only the changed binary is reprobed");
+        cfg.harnesses.remove("second");
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        let keys: std::collections::BTreeSet<String> =
+            serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
+        assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
 }

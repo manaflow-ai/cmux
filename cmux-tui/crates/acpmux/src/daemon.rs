@@ -863,6 +863,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let metadata = {
         let loading = hub.clone();
         crate::supervise::once("store load", &hub.fatal, async move {
+            let _phase = gauges.phase("store load");
             loading.load_store_async().await;
         })
     };
@@ -871,7 +872,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let (hub, fatal) = (hub.clone(), hub.fatal.clone());
         // A startup that panicked can never finish: the daemon stops for a restart.
         crate::supervise::once("startup", &fatal, async move {
-            hub.wait_store().await;
+            {
+                let _phase = gauges.phase("wait for store");
+                hub.wait_store().await;
+            }
             #[cfg(debug_assertions)]
             test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
@@ -930,10 +934,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 // A chat a machine's Full-access setting moved out of its policy's mode goes back:
                 // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
                 // A chat started before this runs in its policy's mode already (`hold_policy_mode`).
+                let _phase = gauges.phase("hold policies");
                 hub.hold_policies_again().await;
             };
             let (reloaded, ()) = tokio::join!(hub.prepare_spawns(), chats);
-            hub.finish_startup_after_prepare(reloaded).await;
+            {
+                let _phase = gauges.phase("finish startup");
+                hub.finish_startup_after_prepare(reloaded).await;
+            }
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
