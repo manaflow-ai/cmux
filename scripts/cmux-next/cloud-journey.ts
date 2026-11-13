@@ -75,6 +75,15 @@
  * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
  * made) and set back to its earlier mode at the end.
  *
+ * Clean room: after the chat, the journey runs cloud-key-probe.py on the chat machine (as root when sudo asks no
+ * password): every process's environment and command line, and the files under the homes, /etc, /opt, /srv and the
+ * temp folders, searched for a model provider's key. The step names each finding by place and kind, never a value;
+ * a run that could not read everything (not root, an unreadable file or process, the walk past its budget) is unknown.
+ * With --gateway, --gateway-local or --keys-clean a finding or an unknown fails the step; otherwise it is report-only,
+ * a skip that lists the findings (the login copy puts the person's login on the machine by design).
+ * --keys-probe-out FILE appends the probe's whole answer with the run's tag and mode, one JSON line a run (back-to-back
+ * runs keep every record); --skip keys leaves it out.
+ *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
  * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
  * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
@@ -97,7 +106,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,10 +121,17 @@ type StackName = keyof typeof STACK;
 
 export type Backend = { name: string; api: string; stack: StackName };
 
+/** Preserve custom API names; canonicalize environment aliases only for the built-in routes. */
+function normalizeBackendName(name: string, apiOverride?: string): string {
+  if (apiOverride) return name || "custom";
+  return name === "production" ? "prod" : name === "development" ? "dev" : name;
+}
+
 /** The backend names this journey knows (CloudConfiguration.swift, backend/scripts/deploy-worker.sh). */
 export function resolveBackend(name: string, apiOverride?: string, stackOverride?: string, localPort = 8787): Backend {
+  name = normalizeBackendName(name, apiOverride);
   const stack = (s: StackName): StackName => (stackOverride === "dev" || stackOverride === "prod" ? stackOverride : s);
-  if (apiOverride) return { name: name || "custom", api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
+  if (apiOverride) return { name, api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
   // preview-<PR> (backend.yml) or preview-<tag> (a personal dev Worker, cloud-dev-loop.sh).
   const preview = /^preview-([a-z0-9][a-z0-9-]{0,40})$/.exec(name);
   if (preview) return { name, api: `https://cmux-api-preview-${preview[1]}.debussy.workers.dev`, stack: stack("dev") };
@@ -123,12 +139,10 @@ export function resolveBackend(name: string, apiOverride?: string, stackOverride
     case "local":
       return { name, api: `http://127.0.0.1:${localPort}`, stack: stack("dev") };
     case "dev":
-    case "development":
       return { name: "dev", api: "https://cmux-api-development.debussy.workers.dev", stack: stack("dev") };
     case "staging":
       return { name, api: "https://cloud-api-staging.cmux.dev", stack: stack("dev") };
     case "prod":
-    case "production":
       return { name: "prod", api: "https://cloud-api.cmux.dev", stack: stack("prod") };
     default:
       throw new Error(`--backend ${name}: one of local, dev, preview-N (or preview-TAG), staging, prod (or --api URL)`);
@@ -146,14 +160,41 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type Step = { step: string; status: Status; ms: number; detail: string };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
+export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
+
+/** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
+export class FirstTextTiming {
+  private start: number | undefined;
+  private marks: Record<string, number> = {};
+  constructor(private readonly clock = () => performance.now()) {}
+  mark(phase: string): void {
+    if (phase === "create" && this.start === undefined) {
+      this.start = this.clock();
+      this.marks.create = 0;
+      return;
+    }
+    if (this.start === undefined || phase in this.marks) return;
+    this.marks[phase] = Math.round(this.clock() - this.start);
+  }
+  fields(): FirstTextFields {
+    if (this.start === undefined) return {};
+    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+  }
+}
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /\b(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g];
+// No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+  // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
+  // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
+  /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
+  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g,
+  /(?:AKIA|ASIA)[0-9A-Z]{16}/g, /("refresh_token"\s*:\s*")[^"\s]{20,}"/g];
 export function scrub(text: string, secrets: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join("[secret]");
-  for (const re of SECRET_SHAPES) out = out.replace(re, "[secret]");
+  for (const re of SECRET_SHAPES) out = out.replace(re, (whole, field?: string) => (typeof field === "string" ? `${field}[secret]"` : "[secret]"));
   return out;
 }
 
@@ -172,6 +213,7 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
 class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
+  readonly firstText = new FirstTextTiming();
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -188,6 +230,8 @@ class Journey {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
   }
   record(s: Step): void {
+    const fields = this.firstText.fields();
+    if (fields.create_marks_ms) s.fields = { ...fields, ...s.fields };
     s.detail = scrub(s.detail, this.secrets);
     this.steps.push(s);
     console.log(`${s.status.toUpperCase().padEnd(4)} ${s.step} ${s.ms} ms :: ${s.detail}`);
@@ -286,6 +330,235 @@ class Api {
   }
 }
 
+export type PreclaimClaimSplit = {
+  claim_answer_ms: number | null;
+  join_ms: number | null;
+  guest_bind_ms: number | null;
+  connect_info_ms: number | null;
+  bound_ms: number | null;
+};
+
+export type PreclaimClaimRecord = {
+  claim: number;
+  machine: string | null;
+  spare: string | null;
+  lease_hit: boolean | null;
+  claim_to_bound: PreclaimClaimSplit;
+  post_bind_login: "receipt" | "missing" | "not_checked";
+};
+
+type WireEvent = { t?: string; event?: string; stream?: string; data?: Record<string, unknown>; spares_needing_login?: unknown };
+
+/** The claim answer's explicit lease evidence. Text is accepted only for the broker's named lease field. */
+export function classifyLeaseHit(answer: unknown, brokerLog = ""): boolean | null {
+  const row = answer && typeof answer === "object" ? answer as Record<string, unknown> : {};
+  for (const key of ["lease_hit", "leaseHit", "spare_hit", "spareHit"]) {
+    if (typeof row[key] === "boolean") return row[key] as boolean;
+  }
+  for (const key of ["source", "claim_source", "claimSource", "allocation_source"]) {
+    if (typeof row[key] === "string" && /^(spare|warm|lease)$/i.test(row[key] as string)) return true;
+    if (typeof row[key] === "string" && /^(cold|create)$/i.test(row[key] as string)) return false;
+  }
+  const explicit = /(?:^|\s)lease[_-]?hit=(yes|no)\b/i.exec(brokerLog);
+  return explicit ? explicit[1].toLowerCase() === "yes" : null;
+}
+
+/** Convert the broker's ordered stage timings into the named claim-to-bound split. */
+export function claimToBoundSplit(stages: unknown): PreclaimClaimSplit {
+  const out: PreclaimClaimSplit = { claim_answer_ms: null, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: null };
+  const entries: unknown[] = Array.isArray(stages)
+    ? stages
+    : stages && typeof stages === "object" && Array.isArray((stages as Record<string, unknown>).steps)
+      ? (stages as Record<string, unknown>).steps as unknown[]
+      : [];
+  let total = 0;
+  for (const stage of entries) {
+    if (!stage || typeof stage !== "object" || typeof (stage as any).ms !== "number") continue;
+    total += Number((stage as any).ms);
+    const name = String((stage as any).step ?? (stage as any).name ?? "");
+    const key = name === "machine" || name === "claim" || name === "claim_answer" ? "claim_answer_ms"
+      : name === "join" ? "join_ms"
+      : name === "guest_bind" || name === "bind" ? "guest_bind_ms"
+      : name === "connect_info" || name === "connect" ? "connect_info_ms"
+      : name === "bound" ? "bound_ms" : null;
+    if (key) out[key] = Math.round(total);
+  }
+  return out;
+}
+
+export function preclaimClaimRecord(input: {
+  claim: number;
+  machine?: unknown;
+  spare?: unknown;
+  answer?: unknown;
+  brokerLog?: string;
+  leaseHit?: boolean | null;
+  postBindLogin?: "receipt" | "missing" | "not_checked";
+}): PreclaimClaimRecord {
+  const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
+  const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
+  const spare = typeof input.spare === "string" ? input.spare : null;
+  return {
+    claim: input.claim,
+    machine,
+    spare,
+    lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
+    claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
+    post_bind_login: input.postBindLogin ?? "not_checked",
+  };
+}
+
+function normalizedWireValue(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const row = value as Record<string, unknown>;
+  const nested = row.data;
+  if (nested && typeof nested === "object" && (nested as Record<string, unknown>).event === "cloud.spare.ready") return nested as Record<string, unknown>;
+  return row;
+}
+
+/** Accept only the owner's cloud stream and the named spare; snapshots are replayed on subscribe. */
+export function cloudSpareReadyFrame(value: unknown, machine: string, team?: string): boolean {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  if (row.t === "snapshot") {
+    const stream = typeof row.stream === "string" ? row.stream : "";
+    const wanted = team ? `cloud:${team}` : "cloud";
+    const ids = Array.isArray(row.spares_needing_login) ? row.spares_needing_login : [];
+    return stream === wanted && ids.includes(machine);
+  }
+  const event = normalizedWireValue(value);
+  const stream = typeof event.stream === "string" ? event.stream : "";
+  const wanted = team ? `cloud:${team}` : "cloud";
+  const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : event;
+  return event.event === "cloud.spare.ready"
+    && (stream === wanted || (!team && stream === "cloud"))
+    && data.machine === machine
+    && (!team || data.team === undefined || data.team === team);
+}
+
+/** Wait for the creator's cloud.spare.ready push; the wire replays committed events from sequence zero. */
+export function waitForCloudSpareReady(api: Pick<Api, "origin" | "bearer" | "team">, machine: string, budgetMs = 120_000): Promise<WireEvent> {
+  const url = `${api.origin.replace(/^http/, "ws")}/v1/wire/cloud`;
+  return new Promise((resolve, reject) => {
+    const protocols = ["cmux.wire.v1", ...(api.team ? [`team.${api.team}`] : [])];
+    const ws = new (globalThis as any).WebSocket(url, { protocols, headers: { authorization: `Bearer ${api.bearer}` } });
+    const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error(`cloud.spare.ready did not arrive for ${machine} within ${budgetMs} ms`)); }, budgetMs);
+    const done = (error?: Error, event?: WireEvent) => { clearTimeout(timer); try { ws.close(); } catch {} error ? reject(error) : resolve(event!); };
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "subscribe", after_seq: 0, pending: [] })));
+    ws.addEventListener("error", () => done(new Error("cloud wire did not open")), { once: true });
+    ws.addEventListener("message", (message: any) => {
+      let value: any;
+      try { value = JSON.parse(String(message.data)); } catch { return; }
+      if (!cloudSpareReadyFrame(value, machine, api.team)) return;
+      done(undefined, value as WireEvent);
+    });
+  });
+}
+
+async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, stateDir: string, installToken: string, request: Record<string, unknown>): Promise<Record<string, any>> {
+  const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
+  const args = ["link", "start-chat", "warm-spare", "--request", JSON.stringify(request), ...(api.team ? ["--team", api.team] : [])];
+  const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => stdout += chunk);
+    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => stderr += chunk);
+    const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error("warm-spare timed out")); }, 120_000);
+    child.on("error", reject);
+    child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+    child.stdin!.end(`${api.bearer}\n${installToken}\n`);
+  });
+  if (result.code !== 0) throw new Error(`warm-spare refused (exit ${result.code})`);
+  for (const line of [result.stdout, ...result.stdout.split("\n").reverse()]) {
+    try { const value = JSON.parse(line); if (value && typeof value === "object") return value.value ?? value; } catch {}
+  }
+  throw new Error("warm-spare returned no JSON answer");
+}
+
+async function runPreclaimBurst(args: {
+  backend: Backend;
+  api: Api;
+  cmux: string;
+  install: { id: string; token: string; team?: string };
+  account: string;
+  login: string;
+  claims: number;
+  tag: string;
+  journey: Journey;
+  outDir: string | null;
+  team?: string;
+  user: any;
+}): Promise<number> {
+  if (!args.cmux) throw new Error("--preclaim needs --cmux PATH so the shipped Rust warm/ready path is exercised");
+  if (!validLogin("claude", args.login)) throw new Error("--preclaim needs a valid Claude setup-token login (or --model stub)");
+  if (!Number.isInteger(args.claims) || args.claims < 1 || args.claims > 20) throw new Error("--claims must be 1..20");
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-"));
+  const rows: PreclaimClaimRecord[] = [];
+  const scopeTeam = args.team ?? args.install.team ?? String(args.user?.personal_team ?? args.user?.team ?? "");
+  const wireTeam = scopeTeam || args.api.team;
+  const scope = { platform: args.backend.api, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
+  const account = args.account;
+  const writeOutput = () => {
+    if (!args.outDir) return;
+    mkdirSync(args.outDir, { recursive: true });
+    const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+    const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, claim_to_bound_p90_ms: p90 };
+    writeFileSync(path.join(args.outDir, "preclaim.json"), `${JSON.stringify({ backend: args.backend.name, summary, claims: rows }, null, 2)}\n`);
+    writeFileSync(path.join(args.outDir, "summary.md"), ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease hit | spare | machine | claim answer | join | guest bind | connect_info | bound | receipt |", "|---:|:---:|---|---|---:|---:|---:|---:|---:|:---|", ...rows.map((r) => `| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.spare ?? "-"} | ${r.machine ?? "-"} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} |`)].join("\n") + "\n");
+  };
+  try {
+    for (let index = 0; index < args.claims; index++) {
+      const request = { platform: args.backend.api, account, scope, currentScope: scope };
+      const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
+      const spare = typeof warm.machine === "string" ? warm.machine : null;
+      let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
+      if (spare) {
+        await waitForCloudSpareReady({ ...args.api, team: wireTeam }, spare);
+        const ready = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
+        if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
+        const exec = directExec(args.api, spare, args.journey);
+        await waitMachine(args.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        await waitPreflight(exec, programs.preflight, args.team ? "owner or team" : "owner");
+        const folder = "/home/cmux/.cmux/credential-transfer";
+        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+        try {
+          const wrote = await args.api.raw("POST", `/v1/cloud/machines/${spare}/fs/write`, { path: file, dataBase64: Buffer.from(args.login).toString("base64"), mode: 0o644 });
+          if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
+          const installed = await exec(programs.install(file));
+          if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+        } finally {
+          await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+        }
+        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+        if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${index}: guest receipt missing before claim`);
+        if (copy.generation) await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, installed: spare, generation: copy.generation });
+      }
+      const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
+      const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+      const explicitLease = classifyLeaseHit(answer);
+      const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
+      if (typeof machine === "string") {
+        await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+      }
+      const receipt: Record<string, unknown> = copy.generation && typeof machine === "string"
+        ? await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({}))
+        : {};
+      const record = preclaimClaimRecord({ claim: index, machine, spare, answer, leaseHit, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
+      rows.push(record);
+      if (typeof machine === "string") {
+        await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
+      }
+      writeOutput();
+    }
+  } finally {
+    writeOutput();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+  return rows.some((r) => r.lease_hit === true && r.post_bind_login !== "receipt") ? 1 : 0;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
@@ -318,13 +591,115 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
 type ExecResult = { code: number; stdout: string; stderr: string };
 type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
+/** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
+ * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
+export function firstTextCommand(session: string, budgetMs: number): string {
+  return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
+import json, os, selectors, signal, subprocess, sys, time
+p = subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
+                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+sel = selectors.DefaultSelector()
+sel.register(p.stdout, selectors.EVENT_READ)
+end = time.monotonic() + float(sys.argv[3])
+buf = b''
+discarding = False
+started = False
+try:
+    while time.monotonic() < end:
+        if not sel.select(max(0, end - time.monotonic())):
+            break
+        data = os.read(p.stdout.fileno(), 65536)
+        if not data:
+            break
+        if discarding:
+            if b'\\n' not in data:
+                continue
+            data = data.split(b'\\n', 1)[1]
+            discarding = False
+        buf += data
+        while b'\\n' in buf:
+            line, buf = buf.split(b'\\n', 1)
+            if len(line) > 1048576:
+                continue
+            try:
+                event = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get('kind') == 'turn_started':
+                started = True
+            if event.get('kind') in ('turn_result', 'turn_error'):
+                sys.exit('first turn ended without assistant text')
+            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+                continue
+            msg = event.get('msg', event)
+            params = msg.get('params', {}) if isinstance(msg, dict) else {}
+            meta = params.get('_meta', {}) if isinstance(params, dict) else {}
+            acpmux = meta.get('acpmux', {}) if isinstance(meta, dict) else {}
+            if isinstance(acpmux, dict) and acpmux.get('subagent'):
+                continue
+            update = params.get('update', {}) if isinstance(params, dict) else {}
+            if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
+                continue
+            content = update.get('content', {})
+            if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
+                print('@@first-text', flush=True)
+                sys.exit(0)
+        if len(buf) > 1048576:
+            buf = b''
+            discarding = True
+    sys.exit('first-text stream ended or timed out without assistant text')
+finally:
+    sel.close()
+    if p.poll() is None:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    p.wait()
+CMUX_FIRST_TEXT`;
+}
+
+/** Start before send and record as soon as the observer answers. Never reject an unawaited background promise. */
+export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
+  try {
+    const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
+    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    timing.mark("first_text");
+    record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
+  } catch (error) {
+    record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
+  }
+}
+
+/** All callers, including a signal during delete, wait for the same cleanup to finish. */
+export function sharedCleanup(action: () => Promise<void>): () => Promise<void> {
+  let completion: Promise<void> | undefined;
+  return () => completion ??= Promise.resolve().then(action);
+}
+
+/** Keep cancellation cleanup installed throughout the observer wait, and delete before waiting. */
+export async function finishJourney(cleanup: () => Promise<void>, observer: Promise<void> | undefined, onSignal: (signal: string) => void): Promise<void> {
+  try {
+    await cleanup();
+    await observer;
+  } finally {
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+  }
+}
+
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-function directExec(api: Api, machine: string, journey: Journey): Exec {
+export function directExec(api: Api, machine: string, journey: Journey): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
-    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: Math.min(timeoutMs, 300_000) });
+    // The HTTP request waits as long as the command may run, plus room for the answer to travel.
+    const runMs = Math.min(timeoutMs, 300_000);
+    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
@@ -669,8 +1044,9 @@ export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
 /**
  * An empty viewer feedback datagram: the 16-byte header (cmux-rd-proto datagram.rs: version 1 in the high nibble, kind
  * 7 Feedback, the rest 0), then feedback.rs's payload with nothing acked, no recovery, no arrivals and no NACKs. The
- * host ends a session after 3 s without feedback (cmux-rd-host stream.rs LIVENESS_NS), sooner than a link through NAT
- * may come up.
+ * host keeps a session alive for a bounded 90 s without feedback
+ * (cmux-rd-host stream.rs REATTACH_GRACE_NS), so a viewer can reattach after
+ * a full network drop before the abandoned session is ended.
  */
 export const RD_FEEDBACK = Buffer.concat([Buffer.from([0x10, 7]), Buffer.alloc(14), Buffer.alloc(12)]);
 
@@ -848,13 +1224,15 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
 
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
- * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
+ * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
+ * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
  */
-export function probeRow(probe: string, steps: Step[], run?: string, at = new Date()): Record<string, unknown> {
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
 }
@@ -867,9 +1245,54 @@ export function swiftRawString(source: string, name: string): string {
   return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
 }
 
+/** The clean-room provider key probe the journey runs on the chat machine after the chat. */
+export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
+export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
+export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
+export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; shipped?: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
+
+/** The probe sent as one exec: as root when sudo asks no password, so it reads every process and home. */
+export function keyProbeCommand(source: string, args: string[] = []): string {
+  if (source.includes("CMUX_KEY_PROBE")) throw new Error("the probe's source holds its own heredoc delimiter");
+  const rest = args.map((a) => ` ${shq(a)}`).join("");
+  return `if sudo -n true 2>/dev/null; then p="sudo -n python3"; else p=python3; fi; $p -I -${rest} <<'CMUX_KEY_PROBE'\n${source}\nCMUX_KEY_PROBE`;
+}
+
+/** The probe's answer from its `@@keyprobe ` line; throws when the probe printed none. */
+export function parseKeyProbe(stdout: string): KeyProbe {
+  const line = stdout.split("\n").find((l) => l.startsWith("@@keyprobe "));
+  if (!line) throw new Error(`the probe printed no answer: ${stdout.slice(-300)}`);
+  const p = JSON.parse(line.slice("@@keyprobe ".length));
+  if (!Array.isArray(p?.findings) || typeof p?.complete !== "boolean" || !Array.isArray(p?.gaps)) throw new Error(`the probe's answer has no findings list or coverage: ${line.slice(0, 300)}`);
+  return p as KeyProbe;
+}
+
+/**
+ * The step's result: a finding fails a clean check and is reported otherwise; no finding passes only when the probe
+ * read everything (`complete`), since a gap in what it read is "unknown", never "no key".
+ */
+export function keyProbeStatus(p: KeyProbe, clean: boolean): Status {
+  if (p.findings.length || !p.complete) return clean ? "fail" : "skip";
+  return "pass";
+}
+
+/** The findings, one `place where: what` each, then what the probe could read. Names and places only. */
+export function keyProbeDetail(p: KeyProbe): string {
+  const s = p.scanned ?? {};
+  const cover =
+    `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes, ${s.files ?? 0} files in ${p.ms} ms; ` +
+    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`) +
+    (p.shipped?.length ? `; ${p.shipped.length} key shape${p.shipped.length > 1 ? "s" : ""} in installed software, not counted` : "");
+  if (!p.findings.length) return p.complete ? `no provider key (${cover})` : `no finding, but not everything was read, so unknown (${cover})`;
+  const list = p.findings.map((f) => `${f.place} ${f.where}: ${f.what}`);
+  return `${p.findings.length} finding${p.findings.length > 1 ? "s" : ""}: ${list.join("; ")} (${cover})`;
+}
+
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** GitHub on a Cloud machine through the team connection, run on the guest (the journey's GitHub steps). */
+export const GITHUB_E2E_SH = fileURLToPath(new URL("./cloud-github-e2e.sh", import.meta.url));
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
@@ -1066,6 +1489,26 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * The guest program that prints the `"model":"..."` of every message in Claude session `id`'s transcript. It
+ * searches each Claude directory an agent can run with: CLAUDE_CONFIG_DIR as every running process has it (the
+ * launcher's effective one, e.g. ~/.config/cmux/claude-team that agent-auth.sh's team and gateway modes set on a
+ * shared machine), then this shell's CLAUDE_CONFIG_DIR, ~/.claude and ~/.config/cmux/claude-team.
+ */
+export function claudeTranscriptModelsProgram(id: string): string {
+  return (
+    `id=${shq(id)}; { for e in /proc/[0-9]*/environ; do tr '\\0' '\\n' 2>/dev/null < "$e" | sed -n 's/^CLAUDE_CONFIG_DIR=//p'; done; ` +
+    `printf '%s\\n' "\${CLAUDE_CONFIG_DIR:-}" "$HOME/.claude" "$HOME/.config/cmux/claude-team"; } 2>/dev/null | sort -u | ` +
+    `while IFS= read -r d; do [ -n "$d" ] || continue; for f in "$d"/projects/*/"$id".jsonl; do ` +
+    `[ -f "$f" ] && grep -ho '"model":"[^"]*"' "$f"; done; done | sort -u`
+  );
+}
+
+/** The models a {@link claudeTranscriptModelsProgram} printout names, `<synthetic>` (Claude Code's own notices) left out. */
+export function transcriptModels(stdout: string): string[] {
+  return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
+}
 
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
@@ -1663,14 +2106,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
     return reds.length ? 3 : 0;
   }
-  const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
+  const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
+  const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
+  // Publish a failure envelope before credential/config reads or network work. A hard timeout or
+  // early exception still leaves an attributable real/stub row, replaced after a completed journey.
+  const probeOut = argValue("--probe-out", argv);
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backendName === "prod" ? "production" : backendName}`;
+  const probeModel: "stub" | "real" = argValue("--model", argv) === "stub" ||
+    (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" : "real";
+  const probeContext = { backend: backendName, model: probeModel, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+  const probeRun = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined;
+  if (probeOut) {
+    mkdirSync(path.dirname(probeOut), { recursive: true });
+    writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, [], probeRun, new Date(), probeContext))}\n`);
+  }
+  const backend = resolveBackend(backendArg, argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
   const outArg = argValue("--out", argv);
   const outDir = outArg ? path.resolve(outArg) : null;
   if (outDir) mkdirSync(outDir, { recursive: true });
   const credFile = argValue("--credentials", argv);
   const creds: Record<string, string> = { ...(credFile ? readEnvFile(readFileSync(credFile, "utf8")) : {}) };
-  const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
-  const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
+  const email = process.env.CMUX_STAGING_STACK_EMAIL ?? process.env.CMUX_DOGFOOD_STACK_EMAIL ??
+    creds.CMUX_STAGING_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
+  const password = process.env.CMUX_STAGING_STACK_PASSWORD ?? process.env.CMUX_DOGFOOD_STACK_PASSWORD ??
+    creds.CMUX_STAGING_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
@@ -1685,6 +2144,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
   const cmux = argValue("--cmux", argv);
+  const preclaim = argv.includes("--preclaim");
+  const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
@@ -1706,6 +2167,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (gatewayCmux && gatewayLocal) throw new Error("--gateway and --gateway-local: pick one");
   if (gatewayLocal && gatewayUpstream === "stub") throw new Error("--gateway-local needs --gateway-upstream URL (the person's proxy, reachable from this computer)");
   const gatewayAny = Boolean(gatewayCmux || gatewayLocal);
+  // The clean room fails on a finding when the chat machine is meant to hold no key; otherwise it reports.
+  const keysClean = gatewayAny || argv.includes("--keys-clean");
+  const keysProbeOut = argValue("--keys-probe-out", argv);
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
@@ -1720,8 +2184,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const probeOut = argValue("--probe-out", argv);
-  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
@@ -1755,10 +2217,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGateway: ReturnType<typeof spawn> | null = null;
   let localGatewayDir: string | null = null;
   let deleted = false;
-  let cleaned = false;
+  let firstTextObserver: Promise<void> | undefined;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
-  const cleanup = async () => {
+  const cleanup = sharedCleanup(async () => {
     if (localGateway?.pid) {
       // Only the process this run started, by its own pid.
       try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
@@ -1781,8 +2243,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
-    if (cleaned || keep || !api.bearer) return;
-    cleaned = true;
+    if (keep || !api.bearer) return;
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -1803,10 +2264,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await api.deleteMachine(target, `${tag}-cleanup-delete`);
       return { value: null, detail: target };
     }).catch(() => undefined);
-  };
+  });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
@@ -1856,10 +2317,32 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined }, detail: `install ${inst.id}` };
     });
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+
+    if (preclaim) {
+      const userId = String(user?.id ?? user?.user?.id ?? "");
+      const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
+      const account = `${userId}/${accountTeam}`;
+      if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      const status = await runPreclaimBurst({
+        backend,
+        api,
+        cmux: cmux!,
+        install,
+        account,
+        login: claudeLogin,
+        claims: preclaimClaims,
+        tag,
+        journey: J,
+        outDir,
+        team,
+        user,
+      });
+      return status;
+    }
 
     if (gatewayAny) {
       gatewayApi = installApi;
@@ -1905,14 +2388,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
+          J.firstText.mark("create");
           createSentAt = Date.now();
           const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
+          J.firstText.mark("created");
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     await J.step("listed", async () => {
@@ -1937,6 +2423,53 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+    // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
+    // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
+    // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
+    // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
+    const factsAt = Date.now();
+    try {
+      const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
+      const r = await exec([
+        `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
+        `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
+      ].join("; "));
+      const facts = r.stdout.trim().split("\n").join(" | ");
+      const imageFacts = JSON.stringify(image).slice(0, 300);
+      J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
+    } catch (e) {
+      J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+    }
+
+    // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+    // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
+    // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
+    // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
+    // connection. `--skip github` leaves both out.
+    if (!only.has("github")) {
+      const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+      const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
+      const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+        ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
+        : null;
+      if (!has || !/@@has 0/.test(has.stdout)) {
+        J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
+      } else {
+        await J.step("GitHub on the machine (stub)", async () => {
+          const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+        const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
+        if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
+        else await J.step("GitHub on the machine (live)", async () => {
+          if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
+          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+      }
+    }
 
     if (desktopLink) {
       // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
@@ -2098,6 +2631,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login");
     if (gatewayAny) {
       J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
     } else if (!provider || only.has("chat") || only.has("login")) {
@@ -2132,6 +2666,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login_ready");
     if (gatewayStub && provider === "codex" && !only.has("chat")) {
       // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
       // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
@@ -2247,13 +2782,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
+      J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+        J.firstText.mark("session_ready");
         return { value: null, detail: `session ${session}` };
       });
+      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
+        J.firstText.mark("send");
         await send(prompt);
+        J.firstText.mark("sent");
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
@@ -2298,15 +2838,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
-      // `--agent claude/MODEL`: the session must run the model asked for (the session record, not the reply's own
-      // words, which a model gets wrong about itself).
-      if (askedModel && !modelStub) {
+      await firstTextObserver;
+      // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
+      // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
+      // about itself) and never `acp session info`, whose record names the model asked for and lists every model
+      // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
+      // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
+      if (askedModel && !modelStub && harness === "claude") {
         await J.step("session model", async () => {
           const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const named = [...new Set(r.stdout.match(/claude-(?:opus|sonnet|haiku)[a-z0-9.-]*/g) ?? [])];
-          if (!named.length) return { value: null, detail: `asked ${askedModel}; the session record names no Claude model` };
-          if (!named.includes(askedModel)) throw new Error(`asked ${askedModel}; the session runs ${named.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the session runs ${named.join(", ")}` };
+          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+          const ran = transcriptModels(t.stdout);
+          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
+          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
+          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
         });
       }
       if (modelStub && provider) {
@@ -2415,6 +2962,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
+    // After the chat, while its processes still run: where a provider key sits on the chat machine.
+    if (only.has("keys")) {
+      J.skip(KEY_PROBE_STEP, "--skip keys");
+    } else {
+      const t0 = Date.now();
+      const mode = gatewayAny ? "gateway" : only.has("login") || !login || !provider ? "no login passed" : "login copy";
+      try {
+        // The walk gets 240 s of the exec route's 300 s; a walk cut short reads as incomplete, never clean.
+        const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--budget-s", "240"]), 290_000);
+        const probe = parseKeyProbe(r.stdout);
+        if (keysProbeOut) appendFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
+        const detail = keyProbeDetail(probe);
+        const status = keyProbeStatus(probe, keysClean);
+        J.record({ step: KEY_PROBE_STEP, status, ms: Date.now() - t0, detail: status === "skip" ? `report only (${mode}; --keys-clean fails it): ${detail}` : `${mode}: ${detail}` });
+      } catch (e) {
+        J.record({ step: KEY_PROBE_STEP, status: keysClean ? "fail" : "skip", ms: Date.now() - t0, detail: `the probe did not run: ${(e as Error).message}` });
+      }
+    }
+
     // The carrier is the only way into a Cloud machine (cmux-platform#1007 deletes the Native link_token and the relay
     // chat), so the journey connects with the carrier dial and nothing else.
     await J.step("connect (connect_info)", async () => {
@@ -2516,9 +3082,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded; cleanup below.
   } finally {
-    process.off("SIGTERM", onSignal);
-    process.off("SIGINT", onSignal);
-    await cleanup();
+    await finishJourney(cleanup, firstTextObserver, onSignal);
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();

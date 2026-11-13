@@ -4,6 +4,8 @@
 // with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
 // then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
+// A `data-tooltip-instant` element shows its tooltip with no hover delay (a cut name in a menu row), and a
+// `data-tooltip-force` one shows it even when its text is in full view (a name a control draws over).
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
 // Above by default; `data-tooltip-side="bottom"` prefers below, "left" the side of its popup.
@@ -14,16 +16,11 @@
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
 // which floats over the pane.
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
-// An element inside `[data-native-title]` keeps its `title` for the system's own tooltip: a page in
-// a strip shorter than its tooltips (the bookmarks bar) needs one that can leave the web view.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
-
-/// On an element whose subtree keeps the system's own `title` tooltips (see the header).
-export const NATIVE_TITLE_ATTRIBUTE = "data-native-title";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
 const SCROLL_QUIET = 150;
@@ -189,6 +186,7 @@ function anchorBox(element: Element): Box {
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
 /// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
 function repeatsLabel(element: Element, text: string): boolean {
+  if (element.hasAttribute("data-tooltip-force")) return false;
   const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
   return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
 }
@@ -384,8 +382,7 @@ export function installTooltips(
   let still: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
-    const found = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
-    const element = found?.closest(`[${NATIVE_TITLE_ATTRIBUTE}]`) ? undefined : found;
+    const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
     if (element && element !== target && !motion.arrived(event)) {
       still = element;
       return;
@@ -408,6 +405,15 @@ export function installTooltips(
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
     target = element;
+    if (element.hasAttribute("data-tooltip-instant")) {
+      // No hover delay: it shows on the next frame. The intent's own timer, if any, finds another target and ends.
+      cancelHide();
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show(true);
+      });
+      return;
+    }
     intent.hover(element);
   };
   const onMove = (event: PointerEvent) => {

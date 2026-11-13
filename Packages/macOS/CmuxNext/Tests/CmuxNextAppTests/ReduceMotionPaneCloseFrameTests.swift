@@ -13,100 +13,75 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// CLOSE MOTION fix 3 (film cm-b-split-reduce, 120 Hz): under Reduce Motion a pane close jumps to its final layout in
-/// one frame, and no frame may show a terminal off its pane's size. Before #37330 the jump's commit showed the terminal
-/// left of the closed pane still at its old width and the one right of it at its final x but its old width.
-///
-/// GI RENDERER SYNC 2 (#40174) port. The snap no longer waits a frame tick for sizes drawn ahead (the draw-ahead is
-/// gone): it shows in the close's own turn, as before #37330 (ghostty-integration.md 4.3: "Reduce Motion and 'no
-/// animation' snap in one frame"). Each kept terminal's surface layer takes its pane's area in that same commit; its
-/// frame is Ghostty's: on the primary screen the new size's frame shows when drawn, the last frame top-left until then
-/// (fork tests "resize sync: the primary screen shows a frame of a new host size at once" and "host present: a frame
-/// of a new host size on main is shown by default").
+/// CLOSE MOTION fix 3 (film cm-b-split-reduce, before build 07d733efa6af, 120 Hz): under Reduce Motion a pane close
+/// jumps to its final layout in one frame, but that frame (+24 ms) showed the terminal left of the closed pane still at
+/// its old width and the one right of it at its final x but its old width, the terminal ground in the rest; the final
+/// layout showed one refresh later (+33 ms). The jump laid the panes out in the close's own turn, so each terminal asked
+/// Ghostty for its new size there, and the pass just before that turn's commit found no frame drawn at it (FRAME OWNER
+/// S4 keeps the old bounds and frame until then). T-KEYS 3 (f801ff735f5) gave the first refresh of a key spring its size
+/// ahead; a jump had none. The Chromium model: the renderer gets the size before the compositor needs its frame.
 ///
 /// p1 | p2 | p3, each the app's `PaneContentView` with a terminal, in a window on screen, Reduce Motion on, the frames
 /// stepped by the test. Close p2 as `PaneController.showPaneClose` does (`LayoutModel.showPaneClose`, then the view
-/// syncs with the model in the close's turn). The close's commit and the first stepped frame are read, per terminal
-/// still shown: when its host's area is no longer the one it had before the close, its surface layer must be at that
-/// area's size (within 1 device px). Then each kept terminal shows its own frame and its PTY ends at its view's grid.
+/// syncs with the model in the close's turn). Each commit from the close's turn to the first stepped frame is read, per
+/// terminal still shown: when its host's area is no longer the one it had before the close, its surface layer must be at
+/// that area's size (within 1 device px) and its presenter must hold no request. The renderer gets the time the app
+/// gives it before the next refresh (here: until each size drawn ahead is drawn, at most 1 s). The close must show by
+/// the first stepped frame.
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
 struct ReduceMotionPaneCloseFrameTests {
-    @Test func aReduceMotionPaneCloseShowsEachTerminalAtItsPanesSizeInItsOwnCommit() async throws {
+    @Test func theFirstFrameAfterAReduceMotionPaneCloseShowsEachTerminalAtItsPanesSize() async throws {
         let screen = try await ThreePanes()
         defer { screen.close() }
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
         let kept = [0, 2]
         let start = kept.map { screen.sessions[$0].view.surfaceSize(forHostSize: screen.sessions[$0].view.bounds.size) }
 
-        let gridsBefore = kept.map { screen.ios[$0].resizes.count }
+        let reports = TerminalSurfaceView.gridReports
         try #require(screen.model.showPaneClose("p2") != nil, "the close of p2 was not shown")
         screen.root.syncWithModel()
         var off: [String] = []
-        var moved: [String: Int] = [:]
+        var moved = 0
         func read(_ label: String) {
             for (index, terminal) in kept.enumerated() {
                 let session = screen.sessions[terminal], view = session.surfaceView, host = session.view
                 let area = host.surfaceSize(forHostSize: host.bounds.size), layer = view.layer?.bounds.size ?? .zero
                 let scale = view.layer?.contentsScale ?? 2
-                let line = "\(label) p\(terminal + 1): area \(Self.text(area)) (before the close \(Self.text(start[index]))), layer \(Self.text(layer))"
+                let line = "\(label) p\(terminal + 1): area \(Self.text(area)) (before the close \(Self.text(start[index]))), "
+                    + "layer \(Self.text(layer)), presenter \(presenter.debugState(of: view)), "
+                    + "in flight \(view.frameOwnership.inFlight.map(Self.text) ?? "none"), ahead \(view.frameOwnership.ahead.map(Self.text) ?? "none")"
                 print("CLOSE MOTION 3 \(line)")
                 guard area != start[index] else { continue }
-                moved[label, default: 0] += 1
-                if abs(layer.width - area.width) * scale > 1 || abs(layer.height - area.height) * scale > 1 { off.append(line) }
+                moved += 1
+                if presenter.isWaiting(view) || abs(layer.width - area.width) * scale > 1 || abs(layer.height - area.height) * scale > 1 {
+                    off.append(line)
+                }
             }
         }
-        await TerminalKeyResizeFrameTests.commit() // the close's turn and its commit
+        await TerminalKeyResizeFrameTests.commit() // the close's turn: its presenter pass, then its commit
         read("the close's commit")
+        _ = await Self.commits(screen, seconds: 1) { screen in
+            kept.allSatisfy { terminal in
+                let view = screen.sessions[terminal].surfaceView, state = view.hostFrame(present: false)
+                return view.frameOwnership.ahead == nil || state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+            }
+        }
+        // A snap's size drawn ahead is render only: its grid goes when the snap shows (review of #38125, finding 1: the key
+        // press's rule, its grid with the size drawn ahead, reached the snap and sent each terminal's grid in the close's turn).
+        #expect(TerminalSurfaceView.gridReports == reports,
+                "a Reduce Motion close sent \(TerminalSurfaceView.gridReports - reports) grids before it showed: a snap's grid goes at its landing")
         _ = screen.root.advanceFrame(1.0 / 120)
         screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
         await TerminalKeyResizeFrameTests.commit()
         read("the first frame")
-        #expect((moved["the close's commit"] ?? 0) > 0, "no kept terminal's area changed in the close's own commit: the snap waited")
-        #expect(off.isEmpty, "\(off.count) committed frames showed a terminal layer not at its pane's size after a Reduce Motion close: \(off)")
-        let rested = await Self.commits(screen, seconds: 2) { screen in
-            kept.allSatisfy { TerminalKeyResizeFrameTests.showsItsOwnFrame(screen.sessions[$0]) }
-        }
-        #expect(rested, "a kept terminal does not show its own frame 2 s after the close")
-        let settled = await Self.commits(screen, seconds: 2) { screen in
-            kept.allSatisfy { terminal in
-                let view = screen.sessions[terminal].surfaceView
-                let last = screen.ios[terminal].resizes.last.map { TerminalGridSize(columns: $0.columns, rows: $0.rows) }
-                return view.fittedGrid != nil && last == view.fittedGrid
-            }
-        }
-        #expect(settled, "a kept terminal's PTY does not end at its view's grid after the close")
-        // At most one grid per kept terminal for the close (its landing is its first frame), counted at the kept
-        // terminals' own PTYs. `TerminalSurfaceView.gridReports` counts every terminal of the process, and the terminals
-        // of the suites that run beside this one report in the awaits above (red at 35f0e356de2d beside 10 other suites:
-        // 8 reports counted; green alone). A grid reaches its IO through the ordered input stream, so the count is read
-        // after a marker that goes through that stream behind every grid asked for so far (``gridsReachedTheirPTYs``):
-        // it is every grid of the close, the first frame's included, also one more that follows the final grid.
-        let reached = await Self.gridsReachedTheirPTYs(screen, kept)
-        try #require(reached, "a kept terminal's input stream did not reach its PTY in 2 s")
-        let sent = zip(kept, gridsBefore).map { screen.ios[$0].resizes.count - $1 }
-        #expect(sent.allSatisfy { $0 <= 1 }, "a Reduce Motion close sent \(sent) grids to the \(kept.count) resized terminals: at most one each")
+        try #require(moved > 0, "no terminal's area changed by the first frame: the close did not show")
+        #expect(off.isEmpty, "\(off.count) committed frames showed a terminal not at its pane's size after a Reduce Motion close: \(off)")
     }
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
-
-    /// Whether every grid that `terminals` asked their PTYs for so far is in their `ScriptedTerminalIO.resizes` (at most
-    /// 2 s). A grid goes to its IO through the session's ordered input stream, and the IO records it in the stream's
-    /// consumer task: a count read at the first moment the PTY has its view's grid can miss a grid that follows it
-    /// ("final, stale, final"). So each terminal sends its coalesced grid now (`gridReports.flush()`), then marker
-    /// bytes through the same stream; when the IO has the marker, it has every grid sent before it.
-    static func gridsReachedTheirPTYs(_ screen: ThreePanes, _ terminals: [Int]) async -> Bool {
-        let marker = Data("grids-read-\(UUID().uuidString)".utf8)
-        for terminal in terminals {
-            let view = screen.sessions[terminal].surfaceView
-            view.gridReports.flush()
-            view.bridge.takeUnretainedValue().input.send(marker)
-        }
-        return await commits(screen, seconds: 2) { screen in
-            terminals.allSatisfy { screen.ios[$0].writes.contains(marker) }
-        }
-    }
 
     /// Commits until `done` holds (checked before each commit, at most `seconds`), with no frame tick between.
     static func commits(_ screen: ThreePanes, seconds: Int, until done: (ThreePanes) -> Bool) async -> Bool {

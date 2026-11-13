@@ -54,9 +54,11 @@ extension LargeSessionObservationTests {
     /// (`WorkspaceModel.identity`, the model's constant `id`), and every workspace event finds its workspace by the
     /// entity's identity (`DaemonStore+Events.swift`, `workspacesByID[WorkspaceModel.identity(delta.entity)]`), so a
     /// `workspace-changed` event whose entity has another key names another workspace and changes none.
-    @Test(.timeLimit(.minutes(2)))
-    func o9TransferWaitMatchesAWorkspaceThatHasItsChatTabAlready() async throws {
-        let fixture = LargeSessionFixture()
+    ///
+    /// The ids of the workspace that comes (9 001, 9 999) are past the session's at both sizes (`real`: up to 8 262).
+    @Test(.timeLimit(.minutes(2)), arguments: SessionFixtureSize.arms)
+    func o9TransferWaitMatchesAWorkspaceThatHasItsChatTabAlready(size: SessionFixtureSize) async throws {
+        let fixture = LargeSessionFixture(size)
         let store = fixture.store
         func wait(_ key: String, into found: WaitHits) -> Task<Void, Never> {
             Task {

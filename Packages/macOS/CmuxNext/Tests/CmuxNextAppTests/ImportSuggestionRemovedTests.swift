@@ -14,6 +14,20 @@ import Testing
 /// and the Chief completely. The import suggestion is gone from the Chief's front page and the New
 /// Tab page; importing lives in Settings › Import and the palette's Import from Other Apps….
 @MainActor @Suite(.serialized) struct ImportSuggestionRemovedTests {
+    /// The empty Chief conversation's front page holds no import suggestion row and no import card,
+    /// shown or hidden.
+    @Test func theChiefFrontPageHasNoImportSuggestion() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let view = HomeHostView(services: services, conversation: ConversationID("conv_no_import_suggestion").rawValue)
+        view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        view.layoutSubtreeIfNeeded()
+        let page = view.transcript.firstRun.everyDescendant
+        #expect(!page.contains { $0.accessibilityIdentifier() == "cmux.home.importSuggestion" }, "the front page holds the import row")
+        #expect(!page.contains { String(describing: type(of: $0)).contains("Import") }, "the front page holds an import view")
+        #expect(!page.contains { $0.texts.contains { $0.localizedCaseInsensitiveContains("Bring your stuff") } })
+    }
+
     /// The New Tab page gets no import cards: the agent page has no `importCards.act` op, and a
     /// page that still posts one is refused like any unknown request.
     @Test func theNewTabHasNoImportCards() {
@@ -42,5 +56,19 @@ import Testing
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])
+    }
+}
+
+extension NSView {
+    /// This view and every view under it, hidden ones too.
+    fileprivate var everyDescendant: [NSView] {
+        [self] + subviews.flatMap(\.everyDescendant)
+    }
+
+    /// The view's own label or button text.
+    fileprivate var texts: [String] {
+        if let field = self as? NSTextField { return [field.stringValue] }
+        if let button = self as? NSButton { return [button.title] }
+        return []
     }
 }

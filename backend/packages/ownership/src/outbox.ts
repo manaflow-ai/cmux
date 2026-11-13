@@ -102,6 +102,11 @@ export class Outbox {
       }))
   }
 
+  /** Whether an item for `entity` is still pending on `channel`: one indexed lookup (`_pending_entity`), however long the queue. */
+  queued(channel: string, entity: string): boolean {
+    return this.sql.exec(`SELECT 1 FROM ${this.t.outbox} WHERE channel = ? AND entity = ? AND sent_at IS NULL AND dead_at IS NULL LIMIT 1`, channel, entity).length > 0
+  }
+
   /** Every pending item, oldest first (debug and tests). */
   allPending(limit = 100): Array<OutboxRow> {
     return this.sql

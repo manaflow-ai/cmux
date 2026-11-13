@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'; }
 
@@ -20,7 +21,7 @@ echo source > "$TMP/src/cmux-tui/source"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m source
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 git_q -C "$TMP/src" remote add origin "$TMP/origin.git"
 git_q -C "$TMP/src" fetch origin
 sha=$(git -C "$TMP/src" rev-parse HEAD)

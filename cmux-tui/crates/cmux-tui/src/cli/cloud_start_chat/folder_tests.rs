@@ -202,3 +202,32 @@ fn from_folder_refuses_home_above_it_and_credential_folders_before_any_step() {
     assert!(local_folder_in(&control, false, None).is_err());
     assert!(local_folder_in(&format!("/{}", "a".repeat(4096)), false, None).is_err());
 }
+
+/// A folder refused for what it is prints its reason and what to do, coded
+/// `cloud_start_chat.folder_refused`, never the whole start-chat help; other usage errors keep it.
+#[test]
+fn a_folder_refusal_is_its_reason_not_the_help() {
+    use super::super::folder::{REFUSED_CODE, local_folder_in, refusal};
+    let root = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(root.path()).unwrap();
+    let error = local_folder_in(&home.to_string_lossy(), false, Some(&home)).unwrap_err();
+    let reason = refusal(&error).expect("a folder refusal");
+    assert!(reason.contains("Pick the project folder inside it"), "{reason}");
+    assert!(!reason.contains("usage:") && !reason.contains('\u{1}'), "{reason}");
+    assert_eq!(REFUSED_CODE, "cloud_start_chat.folder_refused");
+    let both = local_folder_in(&home.to_string_lossy(), true, Some(&home)).unwrap_err();
+    assert_eq!(refusal(&both), None, "--cwd with --from-folder is a usage error");
+    let parsed = parse(&strings(&["--prompt", "x", "--bogus"]), || Ok(String::new()));
+    assert_eq!(parsed.map_err(|error| refusal(&error).is_none()), Err(true));
+}
+
+/// `--allow-large` is a flag of the start, never taken out of a prompt: `--prompt --allow-large`
+/// and `-- --allow-large` send that text.
+#[test]
+fn allow_large_is_a_flag_never_a_prompt() {
+    assert!(request(&["--prompt", "x", "--allow-large"]).allow_large);
+    let asked = request(&["--prompt", "--allow-large"]);
+    assert_eq!((asked.prompt.as_deref(), asked.allow_large), (Some("--allow-large"), false));
+    let literal = request(&["--", "--allow-large"]);
+    assert_eq!((literal.prompt.as_deref(), literal.allow_large), (Some("--allow-large"), false));
+}

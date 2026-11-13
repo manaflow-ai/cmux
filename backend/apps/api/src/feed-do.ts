@@ -151,7 +151,7 @@ export class FeedDO extends OwnerDO<FeedState> {
   private answerDelivered(a: { team: string; request: string }): boolean {
     const engine = this.boundEngine
     if (!engine) return true
-    return !engine.outbox.pending(`CloudDO:${a.team}`, 100).some((r) => r.entity === `approval:${a.request}`)
+    return !engine.outbox.queued(`CloudDO:${a.team}`, `approval:${a.request}`)
   }
 
   /** A Cloud approval's answer goes to CloudDO at commit, not at the next alarm (feed-approvals.ts approvalAnswerChannel). */

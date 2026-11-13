@@ -746,12 +746,9 @@ pub(crate) fn input_frame_header(
     ]
 }
 
+/// One frame: its header and payload in one vectored write ([`write_frames`]).
 pub fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<(), ProtocolError> {
-    let header = encode_header(frame, MAX_FRAME_PAYLOAD)?;
-    writer.write_all(&header)?;
-    writer.write_all(&frame.payload)?;
-    writer.flush()?;
-    Ok(())
+    write_frames(writer, std::slice::from_ref(frame))
 }
 
 pub fn encode_frame(frame: &Frame) -> Result<Vec<u8>, ProtocolError> {
@@ -916,6 +913,9 @@ impl FrameDecoder {
         self.buffer.len()
     }
 }
+
+mod frame_batch;
+pub(crate) use frame_batch::{MAX_BATCH_BYTES, MAX_BATCH_FRAMES, write_frames};
 
 #[cfg(test)]
 mod tests;
