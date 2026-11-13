@@ -2205,6 +2205,7 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
 BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
+MAIN_ACTOR_URL_ALLOW = re.compile(r"//\s*main-actor-url-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
@@ -2466,6 +2467,48 @@ def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> l
     return changed_debt(outside_seams(changes), judge)
 
 
+URL_APPEND = re.compile(r"\.(?:appendingPathComponent\s*\(|appending\s*\(\s*path\s*:)")
+URL_HINT = re.compile(r"(?:^|,)\s*(?:isDirectory\s*:|directoryHint\s*:\s*\.(?:isDirectory|notDirectory|inferFromPath)\b)")
+
+
+def main_actor_url_append(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Ratchet URL joins whose call spans changed, including a removed hint on a continuation line.
+
+    Mask literals/comments with the shared lexer, then judge each call separately. A hint in a nested
+    argument or a later chained call does not cover this call. Scan each version's isolation once.
+    Synchronous nonisolated helpers still need caller review: lexical isolation is not an executor hop.
+    """
+    def debt(version: Version, changed: list[Added]) -> list[Added]:
+        if not changed or not any("appending" in line for line in version.lines):
+            return []
+        text = observation_text(version)
+        main = main_actor_scope().main_actor_lines(version.lines, version.main_default)
+        touched = {line.number - 1 for line in changed}
+        out = []
+        for call in URL_APPEND.finditer(text.code):
+            start = text.line(call.start())
+            if not main[start] or escaped(version.lines, start, MAIN_ACTOR_URL_ALLOW):
+                continue
+            opening = text.code.index("(", call.start())
+            closing = matching(text.code, opening)
+            stop = text.line(min(closing, len(text.code) - 1))
+            if not any(line in touched for line in range(start, stop + 1)):
+                continue
+            # Keep only top-level arguments: a nested call's directory hint is not this call's hint.
+            arguments, at = [], opening + 1
+            while at < closing:
+                if text.code[at] in "([{":
+                    at = matching(text.code, at) + 1
+                    arguments.append("_")
+                else:
+                    arguments.append(text.code[at])
+                    at += 1
+            if not URL_HINT.search("".join(arguments)):
+                out.append(Added(version.path, start + 1, version.lines[start]))
+        return out
+    return resolve([(debt(*blocking_sides(c)[0]), debt(*blocking_sides(c)[1])) for c in changes])
+
+
 def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added blocking calls (raw or seam) that may run on main through a caller-isolated async function
     (may_run_on_main): warnings only."""
@@ -2620,6 +2663,13 @@ BLOCKING_RULES = (
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
+    Rule("main-actor-url-append", "A URL append without `directoryHint`/`isDirectory` in main-actor code",
+         "Foundation may stat the path to infer whether the appended component is a directory; on a slow or network "
+         "volume that synchronous lstat stalls the main actor",
+         "move the lookup off the main actor, and use `appending(path: ..., directoryHint: .isDirectory/.notDirectory)` "
+         "or `appendingPathComponent(_:isDirectory:)` when a main-actor URL must be built",
+         "// main-actor-url-allow: <why this is a non-file URL and cannot probe the filesystem>",
+         main_actor_url_append),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
          "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
          "checked seam",

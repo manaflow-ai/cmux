@@ -1903,3 +1903,9 @@
 .acpmux-location-button:has(> .acpmux-team-tag) > .acpmux-location-label { flex: none; overflow: visible; }
 .acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
 .acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
+
+/* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
+:is(.acpmux-location-button, .acpmux-location-readonly) > .acpmux-icon.acpmux-macbook-icon {
+  width: calc(var(--ui-ghost-icon-size) * 1.25);
+  height: var(--ui-ghost-icon-size);
+}

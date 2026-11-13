@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1397,
+    "entries": 1399,
     "shortcuts": 190
   },
   "sections": [
@@ -6886,6 +6886,12 @@
           "command": "cmux agent toggle-side-tabs"
         },
         {
+          "id": "palette.toggleTerminalChat",
+          "title": "Toggle Terminal and Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.toggleDisplaySettings",
           "title": "Toggle Text & Width",
           "shortcut": null,
@@ -7340,6 +7346,12 @@
           "title": "Start Agent Session on Cloud Machine…",
           "shortcut": null,
           "command": "cmux cloud start-session"
+        },
+        {
+          "id": "cloudSetupDesktop",
+          "title": "Start Desktop…",
+          "shortcut": null,
+          "command": "cmux cloud setup-desktop"
         },
         {
           "id": "openTeamPicker",

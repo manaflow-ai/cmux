@@ -112,6 +112,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            throwaway,
             require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -373,6 +374,7 @@ impl Hub {
                 },
             };
             meta.wait_start = wait_start;
+            meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =

@@ -19,7 +19,7 @@ extension AgentTabStore {
     /// An empty workspace's New action (and a person's new workspace) opens on
     /// the New Tab page, where the kind is picked; no temporary shell appears.
     func openFirstPage(in workspace: WorkspaceModel, on daemon: DaemonService, services: AppServices) async throws -> SurfaceID? {
-        try await openFirstPage(workspace: workspace.handle, cwd: daemon.defaultCwd, on: daemon)
+        try await openFirstPage(workspace: workspace.handle, cwd: NewTerminalStart.defaultFolder(on: daemon), on: daemon)
     }
 
     /// The same, for a workspace this app just created (not mirrored yet),

@@ -182,18 +182,21 @@ export function HostWaitingLine({
 export function HostRecoveringLine({
   relinkingSince,
   restoring,
+  failureShown,
   otherwise = null,
   now: fixedNow,
 }: {
   relinkingSince?: number;
   restoring?: HostRestoring;
+  /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
+  failureShown?: boolean;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
   now?: number;
 }) {
   const t = useT();
   const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, now: fixedNow ?? ticking });
+  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, now: fixedNow ?? ticking });
   if (!line) return otherwise;
   return (
     <output className="acpmux-host-line" data-host-recovering={line.kind}>

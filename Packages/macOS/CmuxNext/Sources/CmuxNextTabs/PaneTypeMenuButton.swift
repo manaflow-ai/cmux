@@ -127,7 +127,7 @@ final class PaneTypeMenuButton: NSView {
         CATransaction.setDisableActions(true)
         performWithTheme {
             chevronLayer.strokeColor = NewTabButtonView.glyphInk(hovering: hovering, pressed: pressed).cgColor
-            chevronLayer.lineWidth = NewTabButtonView.glyphLineWidth(pressed: pressed)
+            chevronLayer.lineWidth = Metrics.addGlyphLineWidth
             switch style {
             case .circles: fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
             case .split:

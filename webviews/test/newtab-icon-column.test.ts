@@ -23,6 +23,7 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
     (ALL ? Object.keys(newTabIconColumn.arms) : [newTabIconColumn.defaultArm]);
   const STATES = ["no-project", "project", "machine"];
   const WIDTHS = ALL ? [320, 430, 760, 1040] : [320, 760];
+  const SIZES = WIDTHS.flatMap((width) => [0.75, 1, 1.5].map((density) => ({ width, density })));
   const THEMES = ALL
     ? { light: "Apple System Colors Light", dark: "Apple System Colors" }
     : { dark: "Apple System Colors" };
@@ -53,9 +54,9 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
 
   for (const arm of ARMS)
     for (const state of STATES)
-      for (const width of WIDTHS)
+      for (const { width, density } of SIZES)
         for (const [look, theme] of Object.entries(THEMES))
-          test(`${arm} ${state} ${width}px ${look}: folder icon, + and shield share one center`, async () => {
+          test(`${arm} ${state} ${width}px ${look} density ${density}: folder icon, + and shield share one center`, async () => {
             const page = await browser!.newPage({ viewport: { width, height: 360 }, deviceScaleFactor: 2 });
             try {
               const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -65,6 +66,10 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
               await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
                 timeout: 60_000,
               });
+              await page.evaluate((density) => {
+                document.documentElement.style.setProperty("--cmux-density-scale", String(density));
+                document.documentElement.style.setProperty("--cmux-density-text-scale", String(density));
+              }, density);
               await page.evaluate(() => document.fonts.ready);
               await page.evaluate(
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
@@ -98,7 +103,7 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                   shieldButtonLeft: left(q(".nt-foot .acpmux-access-trigger")),
                 };
               });
-              const stem = `${arm}-${state}-${width}-${look}`;
+              const stem = `${arm}-${state}-${width}-${look}-${density}`;
               writeFileSync(path.join(outDir, `${stem}.json`), `${JSON.stringify(m, null, 2)}\n`);
               await page
                 .locator(".nt-composer")
@@ -110,7 +115,18 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                 ? Math.max(...(centers as number[])) - Math.min(...(centers as number[]))
                 : Number.NaN;
               rows.push(
-                [arm, state, width, look, m.folder, m.plus, m.shield, spread.toFixed(2), JSON.stringify(m)].join("\t"),
+                [
+                  arm,
+                  state,
+                  width,
+                  look,
+                  density,
+                  m.folder,
+                  m.plus,
+                  m.shield,
+                  spread.toFixed(2),
+                  JSON.stringify(m),
+                ].join("\t"),
               );
               expect(centers.every((value) => typeof value === "number")).toBe(true);
               if (arm === newTabIconColumn.defaultArm) expect(spread).toBeLessThanOrEqual(0.5);

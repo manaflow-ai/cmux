@@ -168,11 +168,10 @@
      2026-10-29: "stop making them take up so much space"). */
   --acpmux-strip-height: 24px;
   margin: 0;
-  /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
-     the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
-     project chip row starts at a different x than + and the text). */
+  /* Subtract the context and ghost button insets from the + center. The location slot scales
+     with density; the ghost button's 4.5 px leading inset does not. */
   padding: 0 var(--ds-space-1);
-  padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
+  padding-inline-start: calc(var(--nt-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-location-box)) / 2 - var(--acpmux-strip-pad, 4px) - 4.5px);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -416,7 +415,7 @@
   --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
   --acpmux-composer-trail-stroke: 1.5;
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  --acpmux-text-drop: calc(var(--text-content) / 14);
+  --acpmux-text-drop: 0px;
   --acpmux-composer-inset: var(--nt-composer-inset);
   --acpmux-chip-glyph: var(--acpmux-composer-glyph);
   --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
@@ -467,8 +466,10 @@
 .nt-foot :is(.acpmux-mode-text, .acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
   color: inherit;
 }
-/* The left column: the permission chip's shield overhangs its box as the folder's glyph does, so
-   both glyphs and both labels start on one edge each (the shield's center stays under +). */
+/* The permission chip's padding and shield slot scale with density, as the + control does. */
+.nt-foot .acpmux-composer-foot .acpmux-access {
+  margin-inline-start: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-control) / 2 - var(--acpmux-row-inset) - var(--acpmux-shield-box) / 2);
+}
 .nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
   margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
 }
@@ -505,8 +506,7 @@
   min-height: var(--acpmux-composer-control);
   margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
-/* The field's text drops by --acpmux-text-drop (composerLocation.css) so its ink, not its line box,
-   centers on the row's middle where the controls stand; the shell glyph drops with it. */
+/* Keep the prompt, placeholder and shell glyph on the same centered line. */
 .nt-input[data-split] .nt-field {
   padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
   padding-bottom: calc(var(--nt-input-pad-block) - var(--acpmux-text-drop));

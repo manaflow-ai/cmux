@@ -144,6 +144,14 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core::git_lane)'
 success-output = "final"
 
+# The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
+# process on stderr: its CPU time, context switches and wakeups in each of the 3 quiet
+# windows. A fleet step shows them only when a passing test's output is kept; a pass with no
+# numbers does not say how far from the bound the daemon is.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::idle_wakeups)'
+success-output = "final"
+
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
 # NETDROP lines on stdout; a fleet step shows them only when a passing test's
 # output is kept.

@@ -38,6 +38,7 @@ import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVe
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, WRITING_MS, liveLead } from "./thinkingModel";
+import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -387,7 +388,13 @@ export function Thinking({
   const label =
     doing === undefined
       ? compacting
-        ? t(liveCompaction?.reason === "account_switch" ? "compaction.runningAccountSwitch" : "turn.live.compacting")
+        ? t(
+            liveCompaction?.reason === "account_switch"
+              ? "compaction.runningAccountSwitch"
+              : liveCompaction?.reason === CACHE_EXPIRY_REASON
+                ? "compaction.runningCacheExpiry"
+                : "turn.live.compacting",
+          )
         : waitsOnAgents
           ? t("turn.live.waitingOnSubagents", { n: liveAgents })
           : writing

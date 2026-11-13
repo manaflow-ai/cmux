@@ -121,10 +121,17 @@ type StackName = keyof typeof STACK;
 
 export type Backend = { name: string; api: string; stack: StackName };
 
+/** Preserve custom API names; canonicalize environment aliases only for the built-in routes. */
+function normalizeBackendName(name: string, apiOverride?: string): string {
+  if (apiOverride) return name || "custom";
+  return name === "production" ? "prod" : name === "development" ? "dev" : name;
+}
+
 /** The backend names this journey knows (CloudConfiguration.swift, backend/scripts/deploy-worker.sh). */
 export function resolveBackend(name: string, apiOverride?: string, stackOverride?: string, localPort = 8787): Backend {
+  name = normalizeBackendName(name, apiOverride);
   const stack = (s: StackName): StackName => (stackOverride === "dev" || stackOverride === "prod" ? stackOverride : s);
-  if (apiOverride) return { name: name || "custom", api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
+  if (apiOverride) return { name, api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
   // preview-<PR> (backend.yml) or preview-<tag> (a personal dev Worker, cloud-dev-loop.sh).
   const preview = /^preview-([a-z0-9][a-z0-9-]{0,40})$/.exec(name);
   if (preview) return { name, api: `https://cmux-api-preview-${preview[1]}.debussy.workers.dev`, stack: stack("dev") };
@@ -132,12 +139,10 @@ export function resolveBackend(name: string, apiOverride?: string, stackOverride
     case "local":
       return { name, api: `http://127.0.0.1:${localPort}`, stack: stack("dev") };
     case "dev":
-    case "development":
       return { name: "dev", api: "https://cmux-api-development.debussy.workers.dev", stack: stack("dev") };
     case "staging":
       return { name, api: "https://cloud-api-staging.cmux.dev", stack: stack("dev") };
     case "prod":
-    case "production":
       return { name: "prod", api: "https://cloud-api.cmux.dev", stack: stack("prod") };
     default:
       throw new Error(`--backend ${name}: one of local, dev, preview-N (or preview-TAG), staging, prod (or --api URL)`);
@@ -1872,7 +1877,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return reds.length ? 3 : 0;
   }
   const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
-  const backendName = backendArg === "production" ? "prod" : backendArg === "development" ? "dev" : backendArg;
+  const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
   // Publish a failure envelope before credential/config reads or network work. A hard timeout or
   // early exception still leaves an attributable real/stub row, replaced after a completed journey.
   const probeOut = argValue("--probe-out", argv);

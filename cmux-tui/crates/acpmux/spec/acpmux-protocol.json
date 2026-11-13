@@ -2260,6 +2260,7 @@
         "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "throwaway": true,
         "topic": true,
         "via": true,
         "vmBoundary": true,

@@ -1198,7 +1198,7 @@ impl Spawner {
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
         );
-        let hold_id = goal.then(|| format!("{PROMPT_PREFIX}sub:{id}:task:{}", now_ms()));
+        let hold_id = goal.then(|| crate::goal::hold_prompt_id(id, now_ms()));
         if let Some(hold_id) = &hold_id {
             let mut blocks = crate::prompt::subagent_blocks(view, task);
             blocks.push(crate::goal::hold_block());

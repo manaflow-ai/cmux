@@ -112,7 +112,7 @@ enum TabLifecycle {
                 do {
                     _ = try await repair.fillFirstTab(key) {
                         if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
-                        return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+                        return try await connection.createTerminal(in: key, cwd: NewTerminalStart.defaultFolder(on: daemon)).surface
                     }
                     return nil
                 } catch {

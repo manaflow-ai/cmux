@@ -519,6 +519,15 @@ function promptOf(
     const notice = inboxNotice(text, provenance);
     return notice ? { kind: "inbox", notice } : { kind: "hidden" };
   }
+  // acpmux's own prompts that carry words for the agent (hub/inbox.rs `persons_prompt`: the turn
+  // cap's notice, an inbox digest) name no sender, yet are never the person's: they draw as
+  // acpmux's message (Leo, 2026-11-12, on a prompt acpmux sent in his chat: "i didnt send it myself").
+  if (
+    typeof provenance?.kind === "string" &&
+    ACPMUX_MESSAGE_KINDS.has(provenance.kind) &&
+    provenance.from === undefined
+  )
+    return { kind: "message", message: { name: ACPMUX_SENDER, ...remote, text: text.trim(), raw: text } };
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
@@ -824,6 +833,13 @@ const KNOWN_KINDS = new Set([
   "trigger",
   "workflow",
 ]);
+
+/// acpmux's own prompts with words for the agent and no sender of their own (hub/turn_cap.rs
+/// `NOTICE_KIND`, hub/inbox_digest.rs `KIND`). Its other own prompts draw nothing: a continuation
+/// (subagents/retryState.ts) and the cache timer's `/compact` (cacheCompaction.ts).
+const ACPMUX_MESSAGE_KINDS = new Set(["turn_cap", "inbox_digest"]);
+/// The name acpmux's own messages draw under.
+const ACPMUX_SENDER = "acpmux";
 
 /// The clients `acpmux send` records: at a shell here, and relayed from a peer machine.
 const CLI_CLIENT = /^acpmux-(?:cli|peer)#/;

@@ -57,12 +57,13 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// and default as the app's `NewWorkspacePlacement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewWorkspacePlacement {
-    /// First, below the home workspace's row, above every group.
+    /// First, below the home workspace's row, above every group. The default
+    /// (Lawrence 2026-11-12: "by default all new workspaces should go to the
+    /// top"), for every client and creator.
+    #[default]
     Top,
     /// Right after the session's active workspace, in its group (`Top`
-    /// when there is none, or it is the home workspace). The default: a new
-    /// workspace goes right next to the one it was made from (Leo 2026-11-06).
-    #[default]
+    /// when there is none, or it is the home workspace).
     AfterCurrent,
     /// After every row.
     Bottom,
@@ -346,8 +347,8 @@ mod tests {
 
     #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {
-        assert_eq!(Placement::from_config_text(""), Placement::AfterCurrent);
-        assert_eq!(Placement::from_config_text("{}"), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_text(""), Placement::Top);
+        assert_eq!(Placement::from_config_text("{}"), Placement::Top);
         assert_eq!(
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "top"}}"#),
             Placement::Top
@@ -364,20 +365,20 @@ mod tests {
         );
         assert_eq!(
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "sideways"}}"#),
-            Placement::AfterCurrent
+            Placement::Top
         );
-        assert_eq!(Placement::from_config_text("{not json"), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_text("{not json"), Placement::Top);
     }
 
     #[test]
     fn a_scoped_placement_wins_and_nests() {
-        assert_eq!(Placement::current(), Placement::AfterCurrent);
+        assert_eq!(Placement::current(), Placement::Top);
         let outer = Placement::Bottom.set_for_test();
         Placement::AfterCurrent
             .scoped(|| assert_eq!(Placement::current(), Placement::AfterCurrent));
         assert_eq!(Placement::current(), Placement::Bottom);
         drop(outer);
-        assert_eq!(Placement::current(), Placement::AfterCurrent);
+        assert_eq!(Placement::current(), Placement::Top);
     }
 
     #[test]
@@ -390,10 +391,10 @@ mod tests {
             .unwrap();
         assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
         std::fs::remove_file(&path).unwrap();
-        assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_file(&path), Placement::Top);
         assert_eq!(
             Placement::from_config_file(&std::env::temp_dir()),
-            Placement::AfterCurrent,
+            Placement::Top,
             "a directory is not read"
         );
     }

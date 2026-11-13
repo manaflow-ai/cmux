@@ -2823,8 +2823,7 @@ jobs:
         if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         run: bash scripts/ci/nightly-steps/app-bound-rust-targets.sh
 
-      - &x42
-        name: Save Xcode compilation cache
+      - name: Save Xcode compilation cache
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '') && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
@@ -2964,11 +2963,7 @@ jobs:
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
 
-      # A stalled upload once held the Mac 39 min (run 40460194731): 10 min,
-      # then one retry that replaces a partial upload. upload-artifact sends 8 MB
-      # blocks 5 at a time by default: the 413 MB app took 92-211 s (2-4.5 MB/s, a
-      # block every 3-17 s; runs 41430382728-41444184160) and the signers wait on
-      # this job's end. 32 at a time, as ci-macos.yml's product upload; same bytes.
+      # Why: docs/ci/nightly-workflow-notes.md#note-6
       - name: Upload unsigned nightly app
         id: upload-unsigned
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
@@ -4119,11 +4114,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run != ''
         run: s=scripts/ci/nightly-steps/sign-refuse-superseded-resume.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
-      # Provide node/npm explicitly. The build/sign/notarize job can land on a
-      # self-hosted macOS runner (the iOS-CI minis match the same label) that has
-      # no npm on PATH, so `npm install --global create-dmg` failed with
-      # "npm: command not found" and turned nightly red. setup-node makes the job
-      # self-sufficient on any runner instead of assuming a preinstalled npm.
+      # Why: docs/ci/nightly-workflow-notes.md#note-7
       - &set-up-node
         name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -6252,8 +6243,7 @@ jobs:
           retention-days: 1
           overwrite: true
 
-      - &x98
-        name: Record verified nightly publication
+      - name: Record verified nightly publication
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
@@ -6272,8 +6262,7 @@ jobs:
           DOWNLOADS: ${{ steps.notes.outputs.downloads }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-record-verified.sh
 
-      - &x99
-        name: Move channel release tag to built commit
+      - name: Move channel release tag to built commit
         id: move-channel-release-tag
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         continue-on-error: true
@@ -6284,8 +6273,7 @@ jobs:
           ALLOW_NON_DESCENDANT_FLAG: ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-move-release-tag.sh
 
-      - &x100
-        name: Record nightly publication marker outcome
+      - name: Record nightly publication marker outcome
         id: tag-outcome
         if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
@@ -7197,6 +7185,9 @@ jobs:
         run: bash scripts/ci/nightly-steps/helper-build.sh && strip -S -x nightly-helper/ghostty
       - *x4
       - *x5
+      - name: Compile this build (no product reuse)
+        id: nightly-product
+        run: echo hit=false >> "$GITHUB_OUTPUT"
       - *x14
       - *x15
       - *x16
@@ -7246,7 +7237,8 @@ jobs:
         env:
           CMUX_TUI_CLIENT_COMMIT: ${{ steps.install_client.outputs.commit || needs.resolve-nightly-cmux-tui-client.outputs.commit }}
         run: bash scripts/ci/nightly-steps/prepare-require-cmux-tui-client.sh
-      - *thin-bundle-to-the-variant-arch
+      - name: Thin bundle to the variant architecture
+        run: bash scripts/ci/nightly-steps/prepare-thin-bundle.sh
       - *verify-shipped-libintl-has-its
       - *verify-nightly-binary-archs
       - name: Finish the webview checks before any signing secret
@@ -7375,9 +7367,20 @@ jobs:
       - *x95
       - *x96
       - *x97
-      - *x98
-      - *x99
-      - *x100
+      - name: Record nightly publication marker outcome
+        id: tag-outcome
+        if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          HEAD_SHA: ${{ steps.source.outputs.build_sha }}
+          # publish-nightly-next-github's steps, after the feed.
+          ASSETS_OUTCOME: skipped
+          METADATA_OUTCOME: skipped
+          APPCASTS_OUTCOME: skipped
+          NEXT_APPCASTS_OUTCOME: ${{ steps.upload_next_appcasts.outcome }}
+          NEXT_FEED_CURRENT: ${{ steps.upload_next_appcasts.outputs.feed_current }}
+          TAG_MOVE_OUTCOME: ${{ steps.upload_next_appcasts.outcome }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-tag-outcome.sh
       - *x101
       - *release-the-nightly-next-publi
       - name: Upload nightly variant artifacts

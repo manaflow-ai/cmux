@@ -207,8 +207,16 @@ impl FilterParser<'_> {
                     arg = inner;
                 }
                 let value = arg.replace("\\)", ")").replace("\\,", ",");
+                // A regex that does not compile is a configuration error, as nextest says:
+                // read as a filter that matches nothing, it would let the scan come back clean.
                 let regex =
-                    (matcher == Matcher::Regex).then(|| regex::Regex::new(&value).ok()).flatten();
+                    if matcher == Matcher::Regex {
+                        Some(regex::Regex::new(&value).map_err(|e| {
+                            format!("{func}(/{value}/) is no regex in {text:?}: {e}")
+                        })?)
+                    } else {
+                        None
+                    };
                 Ok(Filter::Match { func, matcher, value, regex })
             }
             Tok::Op(op) => Err(format!("unexpected {op:?} in {text:?}")),

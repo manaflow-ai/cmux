@@ -170,6 +170,8 @@ fn w3h_launch_argv_keeps_each_argument_out_of_the_shell_and_resumes_per_harness(
     assert_eq!(launch::resume_args("codex", "s1"), Some(strings(&["resume", "s1"])));
     assert_eq!(launch::resume_args("opencode", "s1"), Some(strings(&["--session", "s1"])));
     assert_eq!(launch::resume_args("amp", "t1"), Some(strings(&["threads", "continue", "t1"])));
+    assert_eq!(launch::resume_args("agy", "c1"), Some(strings(&["--conversation", "c1"])));
+    assert_eq!(launch::harness_of("/opt/bin/agy --sandbox").as_deref(), Some("antigravity"));
     assert_eq!(launch::resume_args("muse", "s1"), None);
     assert!(launch::valid_session_id(SESSION));
     assert!(!launch::valid_session_id("--dangerously-skip-permissions"));

@@ -151,6 +151,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "tags",
     "teamMessage",
     "throughSeq",
+    "throwaway",
     "topic",
     "via",
     "vmBoundary",

@@ -119,6 +119,7 @@ RELEASE_JOBS_FORK_GATED = {
     "generate-nightly-deltas": "builds Sparkle deltas on the nightly mini; starts with the owner fork branch",
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
+    "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
 }
 
 

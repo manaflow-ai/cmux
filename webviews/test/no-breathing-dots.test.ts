@@ -19,6 +19,12 @@ type Loop = { file: string; keyframes: string; selector: string; props: string[]
  *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
+    file: "agent-session/acpmux/markdownField.css",
+    keyframes: "acpmux-md-caret-blink",
+    selector: ".acpmux-md-caret",
+    why: "the composer's text caret, drawn on a line that holds an attachment so it stays the text's height (#40941); it blinks as the native caret it stands in for, only while the field has focus",
+  },
+  {
     file: "agent-session/acpmux/conversation/conversation.css",
     keyframes: "cmux-breathe",
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',

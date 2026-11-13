@@ -125,7 +125,7 @@ pub(crate) fn created_workspaces(
 
 /// Give each created workspace its personal row, unless it already has one
 /// (a reopened workspace keeps its old place), at the place cmux.json
-/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default afterCurrent),
+/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default top),
 /// so a workspace made by any client (the app, iOS, the TUI, the CLI, an
 /// agent) lands in the same place. A caller that wants another place moves
 /// it after the creation (`workspace.place`, `set-personal-workspace`);
@@ -203,20 +203,25 @@ fn place_created_rows(
     }
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
-    // An agent or script workspace goes below its creator and the creator's
-    // earlier children, never next to the person's selection; with no live
-    // creator, last (ask-48544d7525).
+    // Every creator follows the setting (Lawrence 2026-11-12: "by default all
+    // new workspaces should go to the top"): `top` first, `bottom` last. Under
+    // `afterCurrent` an agent or script workspace goes below its creator and
+    // the creator's earlier children, never next to the person's selection;
+    // with no live creator, first, never the sidebar's end (ask-48544d7525).
     let by_creator = created.created_by.as_ref().is_some_and(CreatedBy::places_by_creator);
     let slot = match placement {
-        _ if by_creator => match created.creator.as_deref() {
-            Some(creator) => match after_row_slot(transaction, &local, &placed, creator, true)? {
-                Some(slot) => Some(slot),
-                None => Some(top_slot(transaction, &local, &placed)?),
-            },
-            None => None,
-        },
         NewWorkspacePlacement::Bottom => None,
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
+        NewWorkspacePlacement::AfterCurrent if by_creator => {
+            let below = match created.creator.as_deref() {
+                Some(creator) => after_row_slot(transaction, &local, &placed, creator, true)?,
+                None => None,
+            };
+            match below {
+                Some(slot) => Some(slot),
+                None => Some(top_slot(transaction, &local, &placed)?),
+            }
+        }
         NewWorkspacePlacement::AfterCurrent => {
             match after_current_slot(transaction, &local, &placed, created.current.as_deref())? {
                 Some(slot) => Some(slot),

@@ -28,15 +28,17 @@ public import os
     /// that exact machine unless one onto it is in flight or given, and a start onto it waits on that copy.
     /// On unless `cmux.cloud.copyLoginOnClaim` is NO (``CloudMoveCLI/copiesLoginOnClaim(_:)``). A claim's registration
     /// with Rust is pending in `claims` until Rust answers, so a start onto that machine never asks `wait-copy` first.
-    public func start(claimed: String? = nil) {
-        guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
+    /// `ready`: the platform said this spare became ready (``CloudMachineWire/onSpareReady``): the same as `claimed`
+    /// (same switch, same registration), but Rust marks nothing claimed. The copy stays behind ``CloudLoginCopyGate``.
+    public func start(claimed: String? = nil, ready: String? = nil) {
+        guard let userID = auth.user?.id, (claimed ?? ready) == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         let ask: @MainActor @Sendable () async -> Asked? = { [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed) else { return nil }
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed, ready: ready) else { return nil }
             return Asked(copy: copy, token: token, install: install)
         }
-        let answer = claimed.map { claims.register($0, ask) }
+        let answer = (claimed ?? ready).map { claims.register($0, ask) }
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
         Task { @MainActor [self] in
             let asked: Asked?

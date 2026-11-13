@@ -37,13 +37,13 @@ public final class SidebarSectionTargetSource: PaletteTargetSource {
     public func appTargets() -> [PaletteTargetOption] {
         let doc = document()
         return [ActionTargetKind.sidebarItem, .sidebarSection].flatMap { kind in
-            targets(of: kind).compactMap { option in
+            targets(of: kind).compactMap { option -> PaletteTargetOption? in
                 let target = ActionTargetRef(kind: kind, id: option.id)
                 let app = kind == .sidebarItem ? doc.item(LayoutItemID(option.id))?.owningAppID : doc.section(LayoutSectionID(option.id))?.owningAppID
                 guard app != nil else { return nil }
-                var row = option
-                row.id = target.description
-                return row
+                return PaletteTargetOption(id: target.description, title: option.title, subtitle: option.subtitle, symbol: option.symbol,
+                                           swatches: option.swatches, isEnabled: option.isEnabled, accessory: option.accessory,
+                                           recovery: option.recovery)
             }
         }
     }

@@ -326,6 +326,22 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
 });
 
+test("a refusal the pane says at once is never covered by the quiet Reconnecting line", () => {
+  // Another build's acpmux on the socket: said at once with its Restart, not after 25 s of "Reconnecting…".
+  expect(hostRecoveryLine({ relinkingSince: 0, failureShown: true, now: 2_000 })).toBeUndefined();
+  expect(
+    renderToStaticMarkup(
+      <HostRecoveringLine relinkingSince={0} failureShown now={2_000} otherwise={<p>the failure line</p>} />,
+    ),
+  ).toBe("<p>the failure line</p>");
+  // The host's own word that acpmux restores still shows: a refusal without it ends the restore.
+  const restoring = { waitedMs: 3_000, at: 0 };
+  expect(hostRecoveryLine({ restoring, failureShown: true, now: 1_000 })).toEqual({
+    kind: "restoring",
+    waitedMs: 4_000,
+  });
+});
+
 test("a tab shown again while its lag read still retries keeps its connection and draws the missed turn once", async () => {
   // Leo, 2026-11-12: "BUT IF I ALREADY TOLD YOU GUYS ABOUT THIS SHIT MANY MANY HOURS AGO WHY IS IT
   // STILL NOT FIXED YET" (the reconnect that flips the chat and sends the reader to the bottom).

@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import CmuxNextWakeups
+import Foundation
 import CmuxNextDaemon
 import Observation
 import Testing
@@ -8,8 +10,19 @@ import Testing
 /// is no change (the tab strip and sidebar do not map again for it).
 @MainActor
 struct HarnessIconBookTests {
+    @Test func environmentLookupRunsOffMainOnTheBlockingLane() async {
+        let wasMain = Atomic<Bool>(true)
+        let book = HarnessIconBook(work: BackgroundWork(), environment: {
+            wasMain.store(Thread.isMainThread, ordering: .relaxed)
+            return nil
+        })
+        #expect(await book.resolveEnvironment() == nil)
+        let ranOnMain = wasMain.load(ordering: .relaxed)
+        #expect(!ranOnMain)
+    }
+
     @Test func aReplysIconsReplaceTheBooksOnlyWhenTheyChange() {
-        let book = HarnessIconBook(environment: { nil })
+        let book = HarnessIconBook(work: BackgroundWork(), environment: { nil })
         #expect(book.icons == .none)
         let reply: [String: Any] = ["harnesses": [
             "fox": ["iconSpec": ["kind": "emoji", "text": "🦊", "source": "profile"]],

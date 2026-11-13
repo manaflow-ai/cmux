@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+from nightly_workflow_text import expand, write_out_step_aliases  # noqa: E402  (moved step scripts back inline)
+
+
+def nightly_expand(text: str) -> str:
+    """nightly.yml with moved step scripts inline and its YAML-anchored steps written out."""
+    return write_out_step_aliases(expand(text))
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / "scripts/ci/fleet-compilation-cache.sh"
@@ -106,6 +111,8 @@ class FleetCacheTests(unittest.TestCase):
         # Writes the job summary after a build; the real one, so its cache label is checked too.
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
                         scripts / "nightly-steps/release-build-summary.sh")
+        # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
+        shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -156,6 +163,8 @@ class FleetCacheTests(unittest.TestCase):
         # Writes the job summary after a build; the real one, so its cache label is checked too.
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
                         scripts / "nightly-steps/release-build-summary.sh")
+        # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
+        shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
