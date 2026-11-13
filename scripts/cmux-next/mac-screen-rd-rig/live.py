@@ -13,13 +13,16 @@ then sample the viewer's stats once a second (path, explicit transport marker, r
 --input it clicks through the session (debug.mac_screen input) while InputProbe on the host
 logs what arrives, and records window snapshots of the viewer for a video. --relay-only runs
 the session with the viewer's Relay Only on. The source readiness JSON must be fresh for this run;
-the adapter takes the common viewer snapshot only after it matches the selected pane's window,
-approved hub session/scope, and an explicit transport marker (`rd_wg/1`, `rd_link/1`, or `webrtc`).
-A generic `path` never proves transport. Missing proof leaves `comparison_ready=false` and skips
-the comparison snapshot. Writes DIR/result.json and the pulled files.
+the adapter invokes cmux-rd's common presented observer only after it matches the selected pane's
+window, approved hub session/scope, viewport geometry, and an explicit transport marker
+(`rd_wg/1`, `rd_link/1`, or `webrtc`). A generic `path` never proves transport. Missing proof or
+an incomplete observer receipt leaves `comparison_ready=false`. Writes DIR/result.json and the
+pulled files.
 """
 import argparse, hashlib, json, os, shlex, subprocess, sys, time
 from pathlib import Path
+import math
+import re
 
 p = argparse.ArgumentParser()
 p.add_argument("--tag", required=True)
@@ -33,6 +36,8 @@ p.add_argument("--motion", help="the marker app on the host, run with --motion d
 p.add_argument("--host-frame", default="1300,80,600,500")
 p.add_argument("--viewer-frame", default="0,0,1500,950")
 p.add_argument("--source-readiness", help="fresh JSON {nonce, ready, issued_unix_ms} from the scene observer")
+p.add_argument("--observer-bin", default="~/rd-hub-rig/cmux-rd",
+               help="cmux-rd binary on the viewer, with `observe` support")
 o = p.parse_args()
 os.makedirs(o.out, exist_ok=True)
 run_started_ms = time.time_ns() // 1_000_000
@@ -142,12 +147,16 @@ def source_readiness():
         return {"ok": False, "error": f"source readiness proof unreadable: {error}"}
     nonce = proof.get("nonce")
     issued = proof.get("issued_unix_ms")
-    if proof.get("ready") is not True or not isinstance(nonce, str) or not nonce or not isinstance(issued, (int, float)):
-        return {"ok": False, "error": "source readiness needs ready=true, nonce, and issued_unix_ms"}
-    if issued < run_started_ms:
+    if (proof.get("ready") is not True or not isinstance(nonce, str) or
+            not re.fullmatch(r"[0-9a-f]{32}", nonce) or type(issued) not in (int, float) or
+            not math.isfinite(issued)):
+        return {"ok": False, "error": "source readiness needs ready=true, lowercase nonce, and finite issued_unix_ms"}
+    now_ms = time.time_ns() / 1_000_000
+    if issued < run_started_ms or issued > now_ms + 1000:
         return {"ok": False, "error": "source readiness nonce is stale", "issued_unix_ms": issued}
     return {"ok": True, "nonce_sha256": hashlib.sha256(nonce.encode()).hexdigest(),
-            "issued_unix_ms": issued}
+            "nonce": nonce, "issued_unix_ms": issued,
+            "marker_origin": proof.get("marker_origin"), "cell_size": proof.get("cell_size")}
 
 
 def pane_attestation(row, host_id):
@@ -173,7 +182,9 @@ def pane_attestation(row, host_id):
         errors.append("selected transport attestation is missing or invalid")
     return {"ok": not errors, "errors": errors,
             "window_pid": row.get("window_pid"), "window_id": row.get("window_id"),
+            "window_frame_points": row.get("window_frame_points"),
             "content_rect_points": row.get("content_rect_points"),
+            "screen_frame_points": row.get("screen_frame_points"),
             "geometry_coordinate_space": row.get("geometry_coordinate_space"),
             "geometry_origin": row.get("geometry_origin"),
             "host_device": row.get("host_device"), "hub_session": row.get("hub_session"),
@@ -181,20 +192,71 @@ def pane_attestation(row, host_id):
             "path_diagnostic": row.get("path")}
 
 
+def geometry_matches(received, expected):
+    """Compare Rust's [x,y,w,h] points with the AppKit window-frame object."""
+    if isinstance(received, dict):
+        received = [received.get(k) for k in ("x", "y", "width", "height")]
+    if not isinstance(expected, dict) or not isinstance(received, (list, tuple)) or len(received) != 4:
+        return False
+    expected = [expected.get(k) for k in ("x", "y", "width", "height")]
+    return all(type(a) in (int, float) and type(b) in (int, float) and math.isfinite(a) and math.isfinite(b)
+               and abs(float(a) - float(b)) <= 0.5 for a, b in zip(received, expected))
+
+
+def viewport_inside_window(row):
+    window = row.get("window_frame_points")
+    viewport = row.get("content_rect_points")
+    if not isinstance(window, dict) or not isinstance(viewport, dict):
+        return False
+    wx, wy, ww, wh = (window.get(k) for k in ("x", "y", "width", "height"))
+    vx, vy, vw, vh = (viewport.get(k) for k in ("x", "y", "width", "height"))
+    vals = (wx, wy, ww, wh, vx, vy, vw, vh)
+    if not all(type(v) in (int, float) and math.isfinite(v) for v in vals) or min(ww, wh, vw, vh) <= 0:
+        return False
+    return wx <= vx and wy <= vy and vx + vw <= wx + ww and vy + vh <= wy + wh
+
+
 def observe_pane(row, host_id):
-    """Run the common viewer snapshot only after source and pane evidence agree."""
+    """Run cmux-rd's common presented observer only after source/pane evidence agree."""
     source = source_readiness()
     pane = pane_attestation(row, host_id)
-    ready = source["ok"] and pane["ok"]
+    cell_size = source.get("cell_size")
+    ready = (source["ok"] and pane["ok"] and viewport_inside_window(row) and
+             isinstance(source.get("marker_origin"), str) and
+             type(cell_size) in (int, float) and math.isfinite(cell_size) and int(cell_size) == cell_size and
+             2 <= int(cell_size) <= 1024)
     evidence = {"comparison_ready": False, "source": source, "pane": pane}
     if ready:
         viewer_home = ssh(o.viewer, 'printf %s "$HOME"')
-        path = f"{viewer_home}/rd-hub-rig/viewer-{o.tag}.png"
-        evidence["observer"] = rpc(o.viewer, "debug.window_snapshot", {"path": path})
-        evidence["observer_path"] = path
-        evidence["comparison_ready"] = "error" not in evidence["observer"]
+        root = f"{viewer_home}/rd-hub-rig"
+        start_file = f"{root}/presented-{o.tag}.start"
+        observer_bin = o.observer_bin
+        observer_word = (f'"$HOME/{observer_bin[2:]}"' if observer_bin.startswith("~/")
+                         else shlex.quote(observer_bin))
+        observer_cmd = [observer_word, "observe", "--mode", "passive",
+                        "--pid", str(int(pane["window_pid"])), "--window", str(int(pane["window_id"])),
+                        "--display", "main", "--marker-origin", source["marker_origin"],
+                        "--cell-size", str(int(source["cell_size"])), "--expected-nonce", source["nonce"],
+                        "--start-file", start_file, "--duration-s", "1", "--interval-ms", "500"]
+        command = " ".join([observer_cmd[0]] + [shlex.quote(part) for part in observer_cmd[1:]])
+        raw = ssh(o.viewer, f"rm -f {shlex.quote(start_file)}; {command}", timeout=30)
+        try:
+            receipt = json.loads(raw.splitlines()[-1])
+        except (ValueError, IndexError):
+            receipt = {"error": raw[-1000:]}
+        evidence["observer"] = receipt
+        evidence["observer_command"] = command
+        valid = (receipt.get("schema") == "cmux.presented-marker-series/2" and
+                 receipt.get("complete") is True and receipt.get("host_identity_verified") is True and
+                 receipt.get("nonce_observed") is True and receipt.get("expected_nonce") == source["nonce"] and
+                 type(receipt.get("pid")) is int and receipt["pid"] == int(pane["window_pid"]) and
+                 type(receipt.get("window")) is int and receipt["window"] == int(pane["window_id"]) and
+                 geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points")) and
+                 type(receipt.get("first_changed_marker_ms")) in (int, float) and
+                 math.isfinite(receipt["first_changed_marker_ms"]))
+        evidence["comparison_ready"] = valid
     else:
-        evidence["observer"] = {"skipped": "source or pane readiness was incomplete"}
+        evidence["observer"] = {"skipped": "source, pane, marker, or geometry readiness was incomplete"}
     return evidence
 
 
@@ -275,14 +337,10 @@ if o.input:
         subprocess.run(["rsync", "-a", f"{o.viewer}:rd-hub-rig/frames-{o.tag}/", os.path.join(o.out, "frames")], check=False)
     subprocess.run(["scp", "-q", f"{o.host}:rd-hub-rig/probe-{o.tag}.jsonl", o.out], check=False)
 
-# The snapshot was taken by observe_pane only after source and pane readiness. Keep the
-# path in the viewer's own home, never a guessable /tmp name another account could plant.
-if result["comparison_ready"]:
-    snap = readiness.get("observer") or {}
-    subprocess.run(["scp", "-q", f"{o.viewer}:rd-hub-rig/viewer-{o.tag}.png", os.path.join(o.out, "viewer.png")], check=False)
-    log("viewer snapshot", "error" not in snap, reply=snap)
-else:
-    log("viewer snapshot", False, skipped="comparison readiness was incomplete")
+# The presented observer returns a verified receipt rather than a screenshot. A screenshot
+# can still be requested separately for visual evidence, but it never upgrades readiness.
+log("presented observer receipt", result["comparison_ready"],
+    receipt=readiness.get("observer"), skipped=(not result["comparison_ready"]))
 if "--quit" in sys.argv[1:] or os.environ.get("RD_RIG_QUIT") == "1":
     for host in (o.viewer, o.host):
         rpc(host, "action.run", {"id": "quitEndEverything"})

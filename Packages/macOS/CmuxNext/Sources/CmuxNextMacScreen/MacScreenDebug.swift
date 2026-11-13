@@ -139,6 +139,7 @@ extension MacScreenPages {
             row["window_id"] = .number(Double(window.windowNumber))
             row["window_frame_points"] = Self.points(window.frame)
             row["content_rect_points"] = Self.points(window.convertToScreen(windowContent))
+            row["screen_frame_points"] = Self.points(window.screen?.frame)
             row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
             row["geometry_origin"] = .string("bottom-left")
             row["window_attestation"] = .bool(true)
@@ -147,6 +148,7 @@ extension MacScreenPages {
             row["window_id"] = .null
             row["window_frame_points"] = .null
             row["content_rect_points"] = .null
+            row["screen_frame_points"] = .null
             row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
             row["geometry_origin"] = .string("bottom-left")
             row["window_attestation"] = .bool(false)
