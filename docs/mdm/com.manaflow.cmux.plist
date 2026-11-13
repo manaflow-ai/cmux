@@ -4426,7 +4426,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>expanded</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.</string>
 			<key>pfm_name</key>
@@ -9299,7 +9299,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>5</integer>
+			<integer>3</integer>
 			<key>pfm_name</key>
 			<string>agentPane.editedFiles.maxRows</string>
 			<key>pfm_range_max</key>

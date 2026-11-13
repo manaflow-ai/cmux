@@ -446,7 +446,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           if (retrying) return;
           runRetry(() => retryFailed(row.retryRowId, prompt), row.continuable ? "continue" : "retry");
         }
-      : retry && prompt && row.retryRowId
+      : retry && prompt !== undefined && row.retryRowId
         ? () => {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;

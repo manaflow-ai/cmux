@@ -248,7 +248,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         .locator('.cv-plan__item[data-status="in_progress"] .cv-plan__mark')
         .evaluate((mark) => getComputedStyle(mark).animationName),
     ).toBe("none");
-    expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).not.toBe("none");
+    expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).toBe("none");
 
     await page.close();
   });

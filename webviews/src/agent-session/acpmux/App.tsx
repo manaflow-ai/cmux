@@ -385,7 +385,7 @@ import {
   interruptedResumeRunner,
   type InterruptedResumeState,
 } from "./conversation/resumeInterrupted";
-import { resendToOwner, retryFailedTurn, sendUntilTaken } from "./conversation/turnRetry";
+import { retryFailedPrompt, sendUntilTaken } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -4076,24 +4076,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // to another chat): say so on the card. Settling as sent left a Retry that did nothing
               // (cmux#34369).
               if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
-              return retryFailedTurn({
+              return retryFailedPrompt({
                 sessionId: owner,
+                rowId,
+                prompt,
+                client,
+                currentClient: () => directClient.current,
+                owns: reaches,
                 capabilities: client.capabilities,
                 request: (method, params) => client.retry(method, params),
-                resend:
-                  rowId && prompt
-                    ? () =>
-                        resendToOwner({
-                          client,
-                          currentClient: () => directClient.current,
-                          owns: reaches,
-                          restore: () => client.resendPrompt(rowId, prompt),
-                          send: (draft) =>
-                            sendUntilTaken((taken) =>
-                              callNative("chat.send", { text: draft.input, attachments: draft.attachments, taken }),
-                            ),
-                        })
-                    : undefined,
+                restore: (rowId, prompt) => client.resendPrompt(rowId, prompt),
+                send: (draft) =>
+                  sendUntilTaken((taken) =>
+                    callNative("chat.send", { text: draft.input, attachments: draft.attachments, taken }),
+                  ),
               });
             })(restartChat),
           }),
@@ -5854,13 +5850,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     harness: retryHarnessName,
     top: retryTop,
   });
-  sendAgainConfig.current = {
-    owner: restartChat,
-    rows: snapshot.rows,
-    models: retryModels,
-    harness: retryHarnessName,
-    top: retryTop,
-  };
+  useLayoutEffect(() => {
+    sendAgainConfig.current = {
+      owner: restartChat,
+      rows: snapshot.rows,
+      models: retryModels,
+      harness: retryHarnessName,
+      top: retryTop,
+    };
+  }, [restartChat, snapshot.rows, retryModels, retryHarnessName, retryTop]);
   // A `?message=<id>` link's row (links.ts `revealMessageWhenShown`): the transcript scrolls it in
   // by its place in the chat, so a message far above the view works, where its element does not
   // exist yet. One message can span several rows (a tool call splits it): `messageRevealTarget`

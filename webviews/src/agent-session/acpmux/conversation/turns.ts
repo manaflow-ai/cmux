@@ -23,7 +23,7 @@ import { findRowIndex } from "./chatFind";
 import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
-import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
+import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
@@ -1864,12 +1864,12 @@ function shapeTurn(
     // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
     // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged). An
     // attachment-only retry target carries an empty `prompt`: Retry sends its attachments again by
-    // `retryRowId`, as its prompt's Retry did. Only for a turn that ended well: a failed turn's
-    // Retry and recovery still need text (unchanged), and its prompt keeps the Retry instead.
+    // `retryRowId`. Failed turns keep the same metadata for attachment-aware recovery when the
+    // daemon cannot retry the original turn.
     ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&
-      ((user.resend ?? user.text) || (retryTarget && !isFailed(summary) && resendsAttachments(user))) && {
+      ((user.resend ?? user.text) || (retryTarget && resendsAttachments(user))) && {
         prompt: (user.resend ?? user.text) || "",
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
@@ -2090,10 +2090,11 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
 /// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
-/// below. Where a subagent ended and a compaction are the turn's work and fold with it (Leo,
-/// 2026-10-21: fold only the work, "compaction and subagent/system notices" among it).
+/// below. Subagent lifecycle lines stay readable; their calls and compactions remain folded work.
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
+  row.kind === SUBAGENT_STARTED ||
+  row.kind === SUBAGENT_DONE ||
   (row.kind === "plan" && row.plan !== undefined) ||
   // A background command that finished or was stopped is the turn's work, and folds with it as its
   // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing

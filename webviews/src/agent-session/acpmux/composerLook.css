@@ -14,8 +14,12 @@
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] {
   --acpmux-tray-inset: 22px;
   --acpmux-tray-tuck: 10px;
-  --grid-composer-radius: calc(22px * var(--acpmux-density));
   --text-content--line-height: calc(var(--text-content, 14px) * 20 / 14);
+}
+/* The trust stack is the composer's sibling, so it shares the active look's radius here. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"],
+.acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
+  --grid-composer-radius: calc(22px * var(--acpmux-density));
 }
 :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {

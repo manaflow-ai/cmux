@@ -36,7 +36,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const SESSION = "steer-session";
-  // A forced Stop's muted Stopped, which names cmux's end only in its tooltip.
+  // The retained stop metadata names cmux's forced end without adding visible recovery text.
   const FORCED_STOP = `.cv-turn-stopped[title="The agent didn't answer Stop, so cmux ended its turn."]`;
   // A compaction still running: the running turn's live line while the turn runs (Thinking.tsx
   // `data-compacting`), its own transcript row once the turn has ended.
@@ -443,8 +443,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     });
 
     // Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
-    // like that". A Stop acpmux had to force reads as any Stop: a muted Stopped, with the reason only
-    // in its tooltip, never a line of transcript text.
+    // like that". A forced Stop uses the same subdued elapsed-time header as any stopped turn;
+    // the forced-end reason stays out of the transcript's words.
     test("acpmux's end of a turn whose agent ignored Stop reads as a plain stop", async () => {
       const page = await openChat({ stoppedWord: true });
       recordInbound("compaction", {
@@ -461,15 +461,15 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       record("status", { status: "idle" });
-      await page.locator(".cv-turn-stopped", { hasText: "Stopped" }).waitFor({ timeout: 5_000 });
-      // The stopped turn folds on its end (turnEndFold.ts), its compacting line's copy fading where
-      // it was: the counts below are of the turn at rest.
+      await page.locator(".cv-worked", { hasText: /^You stopped after / }).waitFor({ timeout: 5_000 });
+      // Read the stopped turn at rest after any end-of-turn motion.
       await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
       expect(await page.locator(FORCED_STOP).count()).toBe(1);
       expect(
         await page.getByText("The agent didn't answer Stop, so cmux ended its turn.", { exact: true }).count(),
       ).toBe(0);
-      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+      await page.getByRole("button", { name: "Resume", exact: true }).waitFor();
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not
       // revive the old row; a fresh running update still gets its own row.
       record("user_message", { text: "next prompt", promptId: "p-next", turnId: "turn-2" });
@@ -606,8 +606,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       summary.status = "idle";
       socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session: summary } }));
       try {
-        await page.locator(FORCED_STOP).waitFor();
+        await page.getByRole("button", { name: "Resume", exact: true }).waitFor();
+        expect(await page.locator(FORCED_STOP).count()).toBe(1);
         await lag(page);
+        expect(await page.getByRole("button", { name: "Resume", exact: true }).isVisible()).toBe(true);
         expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
         expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(0);
       } finally {

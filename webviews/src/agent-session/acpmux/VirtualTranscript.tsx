@@ -172,7 +172,7 @@ import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
@@ -634,6 +634,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
   (isLineRow(row) ||
     row.kind === "backgroundTask" ||
     row.kind === SUBAGENT_DONE ||
+    row.kind === SUBAGENT_STARTED ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||

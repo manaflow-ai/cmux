@@ -217,11 +217,6 @@ function questionHeight(question: AgentQuestion, width: number): number {
     const line = contentSize * chatDisplay().lineHeight;
     const inner = Math.max(1, width - 32);
     let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
-    if (question.items.length > 1) {
-      const tabs = question.items.map((each, index) => textWidth(String(each.header ?? index + 1), caption.size) + 16);
-      const rows = wrappedRows(tabs, inner, 4);
-      height += 8 + rows * (caption.lineHeight + 4) + (rows - 1) * 4;
-    }
     height +=
       8 +
       item.options.reduce(

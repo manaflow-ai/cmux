@@ -65,8 +65,8 @@ export default agentPaneEntry({
       snapshot,
       play: async (ctx) => {
         await ready(ctx);
-        await ctx.focus({ role: "button", name: "Open Settings corner review" });
-        await ctx.click({ role: "button", name: "Open Settings corner review" });
+        await ctx.focus({ selector: '[data-report-look="compact"] .cv-agent-tag.is-open' });
+        await ctx.click({ selector: '[data-report-look="compact"] .cv-agent-tag.is-open' });
         await ctx.waitFor(
           () =>
             ctx.document.querySelector(".cv-subagent-of") &&
@@ -74,6 +74,42 @@ export default agentPaneEntry({
               node.textContent?.includes("corner tests pass"),
             ),
         );
+      },
+    },
+    lifecycle: {
+      note: "Two recorded agents share a start line and keep their finished lines beside the closed work fold.",
+      experiments: { "subagent-done-report": "compact" },
+      snapshot: (() => {
+        const second = {
+          ...agent,
+          id: "parity-spacing-review",
+          name: "Transcript spacing review",
+          task: "Transcript spacing review",
+        };
+        return chat(
+          [
+            user("Review the corners and transcript spacing.", 1),
+            row(SUBAGENTS, 0.95, { id: "parity-lifecycle-group", subagents: [agent, second] }),
+            assistant("Both reviews are complete.", 0.75, { assistantPhase: "final_answer" }),
+            summary(0.75, { status: "completed", durationMs: 15_000 }),
+          ],
+          {
+            subagentViews: {
+              [agent.id]: [assistant(REPORT, 0.75)],
+              [second.id]: [assistant("The spacing is consistent.", 0.75)],
+            },
+          },
+        );
+      })(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const started = ctx.document.querySelector(".cv-subagent-started");
+          return (
+            started?.textContent?.includes("Settings corner review") &&
+            started.textContent.includes("Transcript spacing review") &&
+            ctx.document.querySelectorAll('[data-report-look="compact"]').length === 2
+          );
+        });
       },
     },
   },

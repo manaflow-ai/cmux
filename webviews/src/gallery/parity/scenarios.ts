@@ -245,6 +245,15 @@ export const SCENARIOS: readonly Scenario[] = [
       "A quiet Settings corner review finished line with no chevron. The name opens the child transcript and report.",
   },
   {
+    id: "subagent-lifecycle",
+    group: "Subagents",
+    title: "Two subagents / started and finished",
+    entry: "agent-pane.parity-subagent-completion",
+    source: "src/gallery/parity/subagentCompletion.gallery.ts",
+    variant: "lifecycle",
+    inspect: "Both agents share a start line and keep their finished lines visible. Select a name to open its chat.",
+  },
+  {
     id: "subagent-finished-report",
     group: "Subagents",
     title: "Subagent finished / report view",
@@ -297,6 +306,15 @@ export const SCENARIOS: readonly Scenario[] = [
     variant: "choices",
     inspect:
       "Choose an option, write a custom answer, fold without answering, or Skip. Independent work and the composer remain usable.",
+  },
+  {
+    id: "question-multiple",
+    group: "Permissions and history",
+    title: "Question prompt / multiple questions",
+    entry: "agent-pane.question-prompt-reference",
+    source: "src/agent-session/acpmux/question/QuestionPromptReference.gallery.tsx",
+    variant: "multiple",
+    inspect: "Use the top-right arrows to navigate three questions. Choices and custom answers survive navigation.",
   },
   {
     id: "question-freeform",

@@ -15,9 +15,11 @@
 }
 .cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done__time {
   opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .cv-subagent-done-row[data-report-look="compact"]:hover .cv-subagent-done__time,
-.cv-subagent-done-row[data-report-look="compact"]:focus-within .cv-subagent-done__time,
+.cv-subagent-done-row[data-report-look="compact"]:has(:focus-visible) .cv-subagent-done__time,
 .cv-subagent-done-row[data-report-look="compact"]:has([data-popup-open]) .cv-subagent-done__time {
   opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }

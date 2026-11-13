@@ -60,7 +60,12 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width, height: 420 } });
       await page.goto(stageURL("long-draft"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-box .acpmux-md-field").waitFor();
+      await page.evaluate(async () => {
+        const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
+        const { setComposerLook } = await import(/* @vite-ignore */ source);
+        setComposerLook("claude", { remember: false });
+      });
+      await page.locator('.acpmux-composer[data-composer-look="claude"] .acpmux-md-field').waitFor();
       const drawn = await page.evaluate(() => {
         const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;

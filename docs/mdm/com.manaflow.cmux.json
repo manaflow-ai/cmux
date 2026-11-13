@@ -277,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -302,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,

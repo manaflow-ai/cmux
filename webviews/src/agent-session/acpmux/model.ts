@@ -56,6 +56,7 @@ import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
   SUBAGENT_DONE,
+  SUBAGENT_STARTED,
   SUBAGENT_EMPTY,
   SUBAGENT_OF,
   SUBAGENT_ROW,
@@ -2000,6 +2001,7 @@ const isIncomingLine = (kind: string | undefined) => kind === "message" || kind 
 const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "backgroundTask" ||
   row.kind === SUBAGENT_DONE ||
+  row.kind === SUBAGENT_STARTED ||
   row.kind === "compaction" ||
   row.kind === "failover" ||
   row.kind === "policyUnenforced" ||
@@ -2429,7 +2431,7 @@ function fallbackRowHeight(
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
   // A finished subagent's line: the chat's reply to its end is the chat's own message, never under it
   // (direct.ts `settleReaction`).
-  if (row.kind === SUBAGENT_DONE) return finish(toolRowHeight());
+  if (row.kind === SUBAGENT_DONE || row.kind === SUBAGENT_STARTED) return finish(toolRowHeight());
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||

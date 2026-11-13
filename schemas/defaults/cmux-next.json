@@ -267,7 +267,7 @@
     "setting.agentPane.display.unreadBanner": "off",
     "setting.agentPane.display.vscodeMinimap": false,
     "setting.agentPane.display.width": 800,
-    "setting.agentPane.editedFiles.maxRows": 5,
+    "setting.agentPane.editedFiles.maxRows": 3,
     "setting.agentPane.editedFiles.scope": "turn",
     "setting.agentPane.editedFiles.show": "always",
     "setting.agentPane.images.remote": "click",

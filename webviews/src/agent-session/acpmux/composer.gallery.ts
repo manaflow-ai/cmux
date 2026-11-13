@@ -1957,17 +1957,20 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot turns into the one Send (after the mic in Codex, ↵ before it in Claude), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
-          return (
-            sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
-            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
-          );
+          const send = sends[0];
+          const mic = ctx.document.querySelector(".acpmux-composer-actions .acpmux-fit-mic");
+          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↵ steer · ⌘↵ queue") return false;
+          const sendBox = send.getBoundingClientRect();
+          const micBox = mic.getBoundingClientRect();
+          return ctx.document.querySelector('[data-composer-look="codex"]')
+            ? sendBox.left >= micBox.right
+            : sendBox.right <= micBox.left;
         });
       },
     },
@@ -2473,6 +2476,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
+      composerLook: "claude",
       note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),

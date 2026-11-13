@@ -30,11 +30,43 @@ const question: AgentQuestion = {
   state: { kind: "pending" },
 };
 
-function ReferenceQuestion({ freeform = false }: { freeform?: boolean }) {
+function ReferenceQuestion({ freeform = false, multiple = false }: { freeform?: boolean; multiple?: boolean }) {
   const [sent, setSent] = useState<QuestionReply>();
   const [draft, setDraft] = useState("");
   const [checks, setChecks] = useState(0);
-  const shown = freeform ? { ...question, items: [{ ...question.items[0]!, options: [] }] } : question;
+  const shown = freeform
+    ? { ...question, items: [{ ...question.items[0]!, options: [] }] }
+    : multiple
+      ? {
+          ...question,
+          items: [
+            question.items[0]!,
+            {
+              ...question.items[0]!,
+              id: "appearance",
+              prompt: "What appearance would you prefer?",
+              options: [
+                { id: "dark", label: "Dark" },
+                { id: "light", label: "Light" },
+                { id: "system", label: "Follow the system" },
+              ],
+            },
+            {
+              ...question.items[0]!,
+              id: "content",
+              prompt: "How much content should it have?",
+              options: [
+                { id: "brief", label: "A brief overview", detail: "Keep it concise and easy to scan." },
+                {
+                  id: "detailed",
+                  label: "Detailed content",
+                  detail: "Include examples and explanations for each section.",
+                },
+              ],
+            },
+          ],
+        }
+      : question;
   return (
     <div className="acpmux-shell" style={{ flexDirection: "column", justifyContent: "flex-end", gap: 8, padding: 16 }}>
       <div style={{ flex: 1 }}>
@@ -84,6 +116,10 @@ export default componentEntry({
     choices: {
       note: "Three numbered choices, a custom answer, Skip and Send. Close folds without declining; independent work and the composer stay usable.",
       props: {},
+    },
+    multiple: {
+      note: "Three questions share a top-right pager. Navigate back and forth without submitting or losing answers.",
+      props: { multiple: true },
     },
     freeform: {
       note: "A freeform-only elicitation keeps its custom answer and Send behavior.",

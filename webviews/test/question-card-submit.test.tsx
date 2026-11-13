@@ -13,6 +13,7 @@ import { JSDOM } from "jsdom";
 import type { AgentQuestion, QuestionReply } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 import { settleReact } from "./support/domTeardown";
+import { COMPOSER_READY_EVENT } from "../src/agent-session/acpmux/composerFocus";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -101,12 +102,14 @@ const question: AgentQuestion = {
   state: { kind: "pending" },
 };
 
-async function renderCard(): Promise<{ container: HTMLElement; replies: QuestionReply[] }> {
+async function renderCard(
+  shown: AgentQuestion = question,
+): Promise<{ container: HTMLElement; replies: QuestionReply[] }> {
   const container = installDom();
   const replies: QuestionReply[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(<QuestionCard question={question} onReply={(reply) => void replies.push(reply)} />);
+    root.render(<QuestionCard question={shown} onReply={(reply) => void replies.push(reply)} />);
   });
   return { container, replies };
 }
@@ -118,8 +121,8 @@ const buttonLabel = (container: HTMLElement) => {
   for (const key of button.querySelectorAll(".acpmux-keycap")) key.remove();
   return button.textContent?.trim() ?? "";
 };
-const activeTab = (container: HTMLElement) =>
-  container.querySelector(".acpmux-question-tab[aria-current=step]")?.textContent?.trim();
+const activePosition = (container: HTMLElement) =>
+  container.querySelector(".acpmux-question-position")?.textContent?.trim();
 const prompt = (container: HTMLElement) => container.querySelector(".acpmux-question-prompt")?.textContent?.trim();
 
 async function click(element: Element | null | undefined) {
@@ -152,17 +155,16 @@ async function pressEnter(target: Element, init: KeyboardEventInit = {}) {
 
 test("Other with typed text answers a question: the button says Next and Enter goes to the open question", async () => {
   const { container, replies } = await renderCard();
-  expect(activeTab(container)).toBe("New tab pick");
+  expect(activePosition(container)).toBe("1 of 2");
 
   const field = await answerOther(container, "idk");
   // The button is labeled and pressable: another question still needs an answer.
   expect(buttonLabel(container)).toBe("Next");
   expect(submitButton(container).disabled).toBe(false);
-  // The New tab pick tab shows it has an answer.
-  expect(container.querySelector(".acpmux-question-tab")?.hasAttribute("data-answered")).toBe(true);
+  expect(field.value).toBe("idk");
 
   await pressEnter(field);
-  expect(activeTab(container)).toBe("References");
+  expect(activePosition(container)).toBe("2 of 2");
   expect(prompt(container)).toBe(REFERENCES);
   expect(replies).toEqual([]);
 
@@ -186,13 +188,13 @@ test("Enter in the Other field of the last open question submits the card", asyn
   const { container, replies } = await renderCard();
   // References first: a click answers it and stays there (Submit names the one still open), then
   // its tab goes back to the open one.
-  await click(container.querySelectorAll(".acpmux-question-tab")[1]);
+  await click(container.querySelector('[aria-label="Next Question"]'));
   await click(container.querySelector(".acpmux-question-row[data-row='1']"));
-  expect(activeTab(container)).toBe("References");
+  expect(activePosition(container)).toBe("2 of 2");
   expect(replies).toEqual([]);
   expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe("Answer New tab pick to submit");
-  await click(container.querySelectorAll(".acpmux-question-tab")[0]);
-  expect(activeTab(container)).toBe("New tab pick");
+  await click(container.querySelector('[aria-label="Previous Question"]'));
+  expect(activePosition(container)).toBe("1 of 2");
   // The tab hands the keyboard to the question's rows, so the keys answer it.
   expect(dom!.window.document.activeElement?.closest(".acpmux-question-rows")).not.toBeNull();
 
@@ -217,7 +219,7 @@ test("Next moves tab by tab before anything is answered, and the button is never
   expect(buttonLabel(container)).toBe("Next");
   expect(submitButton(container).disabled).toBe(false);
   await click(submitButton(container));
-  expect(activeTab(container)).toBe("References");
+  expect(activePosition(container)).toBe("2 of 2");
   // Nothing answered yet: Submit waits, and says for which question.
   expect(buttonLabel(container)).toBe("Send");
   expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe(
@@ -281,4 +283,58 @@ test("an unanswered question leaves an existing composer draft and independent u
   expect(editor.textContent).toBe("Continue the independent check");
   expect(editor.closest("[inert], [aria-disabled=true]")).toBeNull();
   expect(replies).toEqual([]);
+});
+
+test("the header pages through questions without submitting or losing choices", async () => {
+  const three = {
+    ...question,
+    items: [...question.items, { ...question.items[0]!, id: "q2", prompt: "How much content?" }],
+  };
+  const { container, replies } = await renderCard(three);
+  const previous = () => container.querySelector<HTMLButtonElement>('[aria-label="Previous Question"]')!;
+  const next = () => container.querySelector<HTMLButtonElement>('[aria-label="Next Question"]')!;
+  expect(container.querySelector(".acpmux-question-bar .acpmux-question-navigation")).not.toBeNull();
+  expect(container.querySelector(".acpmux-question-tabs")).toBeNull();
+  expect(container.querySelector(".acpmux-question-chip")).toBeNull();
+  expect(activePosition(container)).toBe("1 of 3");
+  expect(previous().disabled).toBe(true);
+  await click(next());
+  expect(activePosition(container)).toBe("2 of 3");
+  expect(previous().disabled).toBe(false);
+  expect(next().disabled).toBe(false);
+  await click(container.querySelector('[data-row="1"]'));
+  await click(next());
+  expect(activePosition(container)).toBe("3 of 3");
+  expect(next().disabled).toBe(true);
+  await click(previous());
+  expect(container.querySelector('[data-row="1"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(replies).toEqual([]);
+});
+
+test("Escape from header navigation skips once and cannot stop the turn", async () => {
+  const { container, replies } = await renderCard();
+  const next = container.querySelector<HTMLButtonElement>('[aria-label="Next Question"]')!;
+  let unclaimedEscape = false;
+  const idleAtHandoff: boolean[] = [];
+  dom!.window.addEventListener(COMPOSER_READY_EVENT, () => {
+    idleAtHandoff.push(dom!.window.document.activeElement === dom!.window.document.body);
+  });
+  dom!.window.document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !event.defaultPrevented) unclaimedEscape = true;
+  });
+  const key = new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  await act(async () => {
+    next.focus();
+    next.dispatchEvent(key);
+  });
+  expect(replies).toHaveLength(1);
+  expect(key.defaultPrevented).toBe(true);
+  expect(unclaimedEscape).toBe(false);
+  expect(idleAtHandoff).toEqual([true]);
+});
+
+test("a single question keeps the compact header without pagination", async () => {
+  const { container } = await renderCard({ ...question, items: [question.items[0]!] });
+  expect(container.querySelector(".acpmux-question-navigation")).toBeNull();
+  expect(container.querySelector('.acpmux-question-bar [aria-label="Dismiss"]')).not.toBeNull();
 });

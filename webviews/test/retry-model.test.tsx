@@ -199,7 +199,7 @@ test("a successful reply has no inline Retry or model split control", async () =
   expect(host.querySelector(".cv-turn-retry")).toBeNull();
 });
 
-test("an interrupted reply retains inline Retry and its model recovery control", async () => {
+test("an interrupted reply keeps resend out of the inline recovery controls", async () => {
   const retried: string[] = [];
   await act(async () =>
     root.render(
@@ -221,7 +221,7 @@ test("an interrupted reply retains inline Retry and its model recovery control",
       </TurnActionsContext.Provider>,
     ),
   );
-  expect(button("Retry with another model")).toBeDefined();
-  await act(async () => button("Retry")!.click());
-  expect(retried).toEqual(["user-1"]);
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(button("Retry")).toBeUndefined();
+  expect(retried).toEqual([]);
 });

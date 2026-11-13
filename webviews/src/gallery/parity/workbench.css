@@ -10,7 +10,6 @@
 .parity-workbench a:hover { color: var(--ds-color-muted); }
 .parity-mode, .parity-sequence { margin: 0; padding: 0; min-width: 0; border: 0; display: flex; align-items: center; gap: var(--ds-space-2); }
 .parity-mode button, .parity-controls select, .parity-controls button { min-height: var(--ds-control-primary); border: var(--cmux-hairline) solid var(--ds-color-separator); border-radius: var(--ds-radius-control); padding: var(--ds-space-2) var(--ds-space-3); font: inherit; color: inherit; background: var(--ds-color-elevated); }
-.parity-mode button, .parity-controls button { cursor: pointer; }
 .parity-mode button[aria-pressed="true"] { background: var(--ds-color-selection); }
 .parity-mode button:hover, .parity-controls button:hover { background: var(--ds-color-hover); }
 .parity-mode button:active, .parity-controls button:active { background: var(--ds-color-pressed); }

@@ -2574,7 +2574,7 @@ function ComposerFrame({
     dictating: dictating || listening,
   });
   const resuming = resumePending !== undefined && resumePending.sessionId === sessionId;
-  const runResume = (): boolean => {
+  const runResume = useCallback((): boolean => {
     if (!canResume || !onResume || (resumeInFlight.current && resumeInFlight.current.sessionId === sessionId))
       return false;
     const attempt = { sessionId };
@@ -2587,15 +2587,15 @@ function ComposerFrame({
         if ((await onResume()) === false && stillHere()) setAttachError(t("notice.resumeFailed"));
       } catch {
         if (stillHere()) setAttachError(t("notice.resumeFailed"));
-      } finally {
-        if (resumeInFlight.current === attempt) {
-          resumeInFlight.current = undefined;
-          setResumePending(undefined);
-        }
       }
-    })();
+    })().finally(() => {
+      if (resumeInFlight.current === attempt) {
+        resumeInFlight.current = undefined;
+        setResumePending(undefined);
+      }
+    });
     return true;
-  };
+  }, [canResume, onResume, sessionId, setAttachError, t]);
   // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
   // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
   const sendChoices = shell

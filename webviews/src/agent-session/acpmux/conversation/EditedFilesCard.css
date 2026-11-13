@@ -70,12 +70,14 @@ div.acpmux-edited {
 .acpmux-edited-summary > span {
   grid-area: 1 / 1;
   min-width: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .acpmux-edited-summary-link {
   display: flex;
   align-items: center;
   gap: var(--ds-space-1);
   opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   white-space: nowrap;
 }
 .acpmux-edited-summary-link > svg {
@@ -88,6 +90,7 @@ div.acpmux-edited {
 .acpmux-edited-summary:hover .acpmux-edited-summary-link,
 .acpmux-edited-summary:focus-visible .acpmux-edited-summary-link {
   opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
 .acpmux-edited-summary:focus-visible {
   outline: var(--cmux-hairline) solid var(--ds-color-focus);
