@@ -383,6 +383,7 @@ class TagGate(unittest.TestCase):
             "quoted env operator and publisher": '      - run: env X"="1 g"h" release create v1\n',
             "gh release create": "      - run: gh release create v1 dist/*\n",
             "gh api write": "      - run: gh api -X POST repos/o/r/releases -f tag_name=v1\n",
+            "gh api graphql mutation": "      - run: gh api graphql -f 'query=mutation { createRelease { id } }'\n",
             "codesign": "      - run: codesign --force --sign - dist/x\n",
             "notarytool": "      - run: xcrun notarytool submit x.zip\n",
             "secret": "      - run: ./sign.sh\n        env:\n          KEY: ${{ secrets.SIGNING_KEY }}\n",
