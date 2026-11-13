@@ -198,6 +198,12 @@ pub fn call_with(
         _ => {}
     }
     let Some(id) = id else { return read(op, request, Source { home, files: None }) };
+    // A name that is absolute or climbs is refused whether or not its upload is still held.
+    let names =
+        ["path", "profile", "sessions"].into_iter().filter_map(|key| request.get(key)?.as_str());
+    if names.into_iter().any(|name| Files::key(name).is_none()) {
+        return Err(OpError::Refused);
+    }
     match uploads.files(id, now) {
         Ok(files) => read(op, request, Source { home, files: Some(&files) }),
         Err(error) => Ok(answer(Err(error))),
