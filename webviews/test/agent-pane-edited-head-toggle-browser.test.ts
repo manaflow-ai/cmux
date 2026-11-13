@@ -142,8 +142,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
 
   const HEAD = ".acpmux-edited-head";
   const TOGGLE = ".acpmux-edited-head .acpmux-edited-toggle";
-  /// The header's box and its parts', measured fresh before each click (the fold holds the header
-  /// in place, but nothing here relies on it).
+  /// The header and its parts, measured fresh before each click.
   const boxes = (page: Page) =>
     page.evaluate((head) => {
       const rect = (node: Element | null) => {
@@ -152,8 +151,12 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
         return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
       };
       const header = document.querySelector(head)!;
+      const card = header.closest<HTMLElement>(".acpmux-edited")!;
+      const scale = card.getBoundingClientRect().width / card.offsetWidth;
+      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius);
       return {
         head: rect(header),
+        cornerInset: Math.max(2, (radius * scale) / 2),
         icon: rect(header.querySelector(".acpmux-edited-icon")),
         counts: rect(header.querySelector(".acpmux-diff-counts")),
         title: rect(header.querySelector(".acpmux-edited-title > div")),
@@ -180,7 +183,10 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       ["the right end", ({ head }) => ({ x: head.right - 2, y: middle(head) })],
       ["the top inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.top + 1.5 })],
       ["the bottom inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.bottom - 1.5 })],
-      ["the top-left corner", ({ head }) => ({ x: head.left + 2, y: head.top + 2 })],
+      [
+        "inside the rounded top-left corner",
+        ({ head, cornerInset }) => ({ x: head.left + cornerInset, y: head.top + cornerInset }),
+      ],
     ];
     for (const [where, at] of points) {
       const point = at(await boxes(page));
