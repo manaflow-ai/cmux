@@ -259,6 +259,13 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("cancel", done, { once: true });
     return animation;
   };
+  /// Starts `animation` at `at`, the time the follow chase integrates this pass's move from
+  /// (`followChase.ts`, `shift`). Left to start by itself, a Web Animation starts in the next painted
+  /// frame, where the chase is already one step on: a row that rides both (the live line under a row
+  /// that arrives) rose by that step and came back, and came to rest a frame after the rows above it.
+  const onPassClock = (animation: Animation, at: CSSNumberish | null | undefined) => {
+    if (typeof at === "number") animation.startTime = at;
+  };
   const stop = () => {
     for (const animation of playing) animation.cancel();
     playing.clear();
@@ -344,12 +351,16 @@ export function createTailGlide(): TailGlide {
       );
       if (!(ms > 0)) return;
       if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
-      const timed = { duration: ms, easing };
+      // `backwards`: a frame the engine times before `at` (an estimated frame time, between frames)
+      // draws the start, never the row at rest.
+      const timed = { duration: ms, easing, fill: "backwards" as const };
+      const at = thread.ownerDocument.timeline?.currentTime;
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();
       for (const part of parts)
         if (Math.abs(part.start) >= MIN_MOVE_PX) {
           const slide = part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed);
+          onPassClock(slide, at);
           glideOn(part.row, slide);
           slides.set(part.row, slide);
         }
@@ -377,7 +388,7 @@ export function createTailGlide(): TailGlide {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
           if (by >= MIN_MOVE_PX) over.push({ glide: slides.get(lower.row), by });
         }
-        if (over.length) clipOn(upper.row, over, timed);
+        if (over.length) onPassClock(clipOn(upper.row, over, timed), at);
       }
     },
   };
