@@ -270,6 +270,7 @@ pub struct HubWriter {
     turn_measure: disk::TurnMeasure,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
+    maintenance: Option<compaction::Maintenance>,
     next_compaction: Option<std::time::Instant>,
     compaction_backoff: u64,
     storage_retry: Option<std::time::Instant>,
@@ -357,6 +358,7 @@ impl Hub {
             turn_measure: disk::TurnMeasure::default(),
             compaction: None,
             retirement: None,
+            maintenance: None,
             // A rotated generation without its installed snapshot is work
             // recovered at open. Resume it even if no new summary arrives.
             next_compaction: log
@@ -594,17 +596,21 @@ impl HubWriter {
             Some(row) => Some(row),
             None if !current.is_shadowed(&key) => {
                 if let Some(disk) = current.disk() {
-                    let piece = match disk.read_piece(
+                    match disk.read_piece(
                         Some(&SortKey::of(&record.summary)),
                         ReadSide::After,
                         true,
                         1,
                         crate::wire::MAX_PAGE_BYTES,
                     ) {
-                        Ok(piece) => piece,
-                        Err(error) => return Err(self.defer_record(&record, error)),
-                    };
-                    piece.rows.into_iter().find(|row| row.key() == key)
+                        Ok(piece) => piece.rows.into_iter().find(|row| row.key() == key),
+                        Err(_) => {
+                            // Equality is an optimization. A damaged cold row
+                            // must not prevent its replacement reaching the log.
+                            self.log_errors.fetch_add(1, Ordering::Relaxed);
+                            None
+                        }
+                    }
                 } else {
                     None
                 }
@@ -720,7 +726,7 @@ impl HubWriter {
             if pending && closed {
                 break;
             }
-            if pending && self.hydration.is_none() {
+            if pending && self.hydration.is_none() && !self.maintenance_needs_turn() {
                 // Compaction needs a healthy log. A past compaction deadline
                 // must not bypass the storage failure's retry backoff.
                 let retry = if self.retirement.is_some() {
@@ -754,26 +760,23 @@ impl HubWriter {
             .map_err(|_| HubError::WriterGone)?;
         }
         self.finish_compaction(true).await;
-        let (result, retirement) = tokio::task::spawn_blocking(move || {
-            self.install_compaction();
-            let result = loop {
-                if let Err(error) = self.sync_batch() {
-                    break Err(error);
-                }
-                if self.retry_log.is_empty() {
-                    break Ok(());
-                }
-            };
-            let retirement = self.retirement.take();
-            // The last published maps may belong to this writer alone.
-            drop(self);
-            (result, retirement)
-        })
-        .await
-        .map_err(|_| HubError::WriterGone)?;
-        if let Some(retirement) = retirement {
-            retirement.await.map_err(|_| HubError::WriterGone)?;
-        }
+        let result = loop {
+            let (writer, result) = tokio::task::spawn_blocking(move || {
+                self.install_compaction();
+                self.maintain_compaction();
+                let result = self.sync_batch();
+                (self, result)
+            })
+            .await
+            .map_err(|_| HubError::WriterGone)?;
+            self = writer;
+            self.finish_compaction(true).await;
+            if result.is_err() || (self.retry_log.is_empty() && self.maintenance.is_none()) {
+                break result;
+            }
+        };
+        // The last published maps may belong to this writer alone.
+        tokio::task::spawn_blocking(move || drop(self)).await.map_err(|_| HubError::WriterGone)?;
         result
     }
 

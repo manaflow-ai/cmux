@@ -132,7 +132,7 @@ fn rss_kb() -> u64 {
         .unwrap_or(0)
 }
 
-fn rss_fields_kb() -> (u64, u64, u64) {
+pub(super) fn rss_fields_kb() -> (u64, u64, u64) {
     let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let field = |name: &str| {
         status
@@ -211,6 +211,10 @@ fn child_startup() {
             writer.process_batch();
             writer.finish_compaction(true).await;
             writer.process_batch();
+            while writer.maintenance.is_some() {
+                writer.finish_compaction(true).await;
+                writer.process_batch();
+            }
             writer.finish_compaction(true).await;
         });
         println!("V2_GATE_HOT_ROWS={}", hub.snapshot().len());
@@ -233,6 +237,10 @@ fn child_startup() {
             writer.process_batch();
             writer.finish_compaction(true).await;
             writer.process_batch();
+            while writer.maintenance.is_some() {
+                writer.finish_compaction(true).await;
+                writer.process_batch();
+            }
             writer.finish_compaction(true).await;
         });
         attribution_point("after_compaction", &hub);

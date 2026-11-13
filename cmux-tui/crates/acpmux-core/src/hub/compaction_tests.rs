@@ -50,6 +50,8 @@ async fn compaction_failures_back_off_and_recover_without_new_records() {
     })
     .await
     .unwrap();
+    writer.finish_compaction(true).await;
+    writer.process_batch();
     assert_eq!(writer.compaction_backoff, 0);
     assert!(writer.next_compaction.is_none());
     assert_eq!(hub.compaction_stats().completed, 1);
@@ -84,6 +86,8 @@ async fn interrupted_rotation_restarts_compaction_without_new_submissions() {
     })
     .await
     .unwrap();
+    writer.finish_compaction(true).await;
+    writer.process_batch();
     assert_eq!(hub.compaction_stats().completed, 1);
     assert_eq!(writer.log.as_ref().unwrap().retained_bytes(), 0);
     drop((hub, writer));
@@ -136,6 +140,8 @@ async fn changes_during_rotation_survive_install_and_restart_without_duplicate_r
     .await
     .unwrap();
     assert_eq!(hub.compaction_stats().failed, 0);
+    writer.finish_compaction(true).await;
+    writer.process_batch();
     assert_eq!(hub.compaction_stats().completed, 1);
     let expected: Vec<_> =
         hub.snapshot().merged_rows().map(|row| row.unwrap().chat_id.clone()).collect();
@@ -215,15 +221,51 @@ async fn install_evicts_old_rows_but_keeps_changes_and_removals_since_capture() 
     })
     .await
     .unwrap();
-    assert_eq!(hub.snapshot().len(), 1);
+    // Installation and every maintenance turn visit at most one batch.
+    assert!(hub.snapshot().len() >= 10_999 - 256);
+    assert!(writer.maintenance.is_some());
+    assert!(writer.turn_measure.maintenance_keys <= 256);
+    // Later changes must also survive the incremental eviction, and a full
+    // ordinary batch must be accepted even while maintenance has work left.
+    for n in 0..256 {
+        let mut row = Summary::new(format!("arrival-{n:04}"));
+        row.state = "running".into();
+        hub.submit(row).unwrap();
+    }
+    let mut after_install = Summary::new("row-10998");
+    after_install.state = "closed".into();
+    after_install.last_activity = 3;
+    after_install.title = "changed after install".into();
+    writer.apply(after_install).unwrap();
+    writer.remove("local", "row-10999").unwrap();
+    writer.process_batch();
+    for n in 0..256 {
+        assert!(hub.snapshot().get(&format!("arrival-{n:04}")).is_some());
+    }
+    let installed_seq = hub.snapshot().seq();
+    let mut turns = 0;
+    while writer.maintenance.is_some() {
+        writer.finish_compaction(true).await;
+        let before = hub.snapshot().len();
+        writer.process_batch();
+        assert!(before.saturating_sub(hub.snapshot().len()) <= 256);
+        assert!(writer.turn_measure.maintenance_keys <= 256);
+        assert_eq!(hub.snapshot().seq(), installed_seq);
+        assert!(writer.compaction.is_none(), "no new capture during maintenance");
+        turns += 1;
+        assert!(turns < 100, "maintenance ends without arrivals");
+    }
+    assert_eq!(hub.snapshot().len(), 258);
     assert_eq!(hub.snapshot().get("row-00000").unwrap().title, "after capture");
     assert!(hub.snapshot().get("row-00001").is_none());
-    assert_eq!(hub.snapshot().merged_rows().map(Result::unwrap).count(), 10_999);
+    assert_eq!(hub.snapshot().merged_rows().map(Result::unwrap).count(), 11_254);
     assert!(writer.hydration.is_none());
+    assert_eq!(hub.snapshot().get("row-10998").unwrap().title, "changed after install");
+    assert!(hub.snapshot().get("row-10999").is_none());
     drop((hub, writer));
     let (restored, _) = Hub::open(dir.path(), 101, || 7).unwrap();
     assert_eq!(restored.snapshot().get("row-00000").unwrap().title, "after capture");
-    assert_eq!(restored.snapshot().merged_rows().map(Result::unwrap).count(), 10_999);
+    assert_eq!(restored.snapshot().merged_rows().map(Result::unwrap).count(), 11_254);
 }
 
 #[tokio::test(flavor = "current_thread")]

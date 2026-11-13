@@ -144,3 +144,31 @@ fn unwritten_changes_never_escape_before_a_same_boot_restart() {
         .unwrap();
     assert!(status.success(), "append failure child: {status}");
 }
+
+#[test]
+fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.snap");
+    SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, closed("damaged"))).unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    let sub = hub.subscribe(&Sub::new("repair", "list")).unwrap();
+    // Preserve the header and extent, but invalidate the row checksum.
+    let mut bytes = std::fs::read(&path).unwrap();
+    let at = bytes.windows(b"damaged".len()).position(|part| part == b"damaged").unwrap();
+    *bytes.get_mut(at).unwrap() ^= 1;
+    std::fs::write(&path, bytes).unwrap();
+    let before = writer.log_errors();
+    let mut replacement = closed("damaged");
+    replacement.title = "restored from the owning chat".into();
+    writer.apply(replacement).unwrap();
+    writer.sync_batch().unwrap();
+    assert!(writer.log_errors() > before);
+    assert!(writer.retry_log.is_empty());
+    assert_eq!(hub.snapshot().seq(), 2);
+    assert_eq!(hub.snapshot().get("damaged").unwrap().title, "restored from the owning chat");
+    assert_eq!(writer.history.lock().unwrap().len(), 1);
+    assert!(!sub.receiver.subscriber.state.lock().unwrap().pending.is_empty());
+    drop((sub, hub, writer));
+    let (reopened, _) = Hub::open(dir.path(), 101, || 7).unwrap();
+    assert_eq!(reopened.snapshot().get("damaged").unwrap().title, "restored from the owning chat");
+}

@@ -207,19 +207,34 @@ impl Summary {
 
     /// Opaque extension bytes are compared without parsing or re-encoding.
     pub fn same_content(&self, other: &Self) -> bool {
-        self.chat_id == other.chat_id
-            && self.origin == other.origin
-            && self.title == other.title
-            && self.harness == other.harness
-            && self.state == other.state
-            && self.last_activity == other.last_activity
-            && self.unread == other.unread
-            && self.workspace == other.workspace
-            && self.pinned == other.pinned
-            && self.parent == other.parent
-            && self.fork_of == other.fork_of
-            && self.folder == other.folder
-            && self.extra.get() == other.extra.get()
+        let Self {
+            chat_id,
+            title,
+            harness,
+            state,
+            last_activity,
+            unread,
+            workspace,
+            origin,
+            pinned,
+            parent,
+            fork_of,
+            folder,
+            extra,
+        } = self;
+        chat_id == &other.chat_id
+            && title == &other.title
+            && harness == &other.harness
+            && state == &other.state
+            && last_activity == &other.last_activity
+            && unread == &other.unread
+            && workspace == &other.workspace
+            && origin == &other.origin
+            && pinned == &other.pinned
+            && parent == &other.parent
+            && fork_of == &other.fork_of
+            && folder == &other.folder
+            && extra.get() == other.extra.get()
     }
 
     pub fn encoded_len(&self) -> usize {
@@ -399,26 +414,39 @@ impl SummaryIndex {
         })
     }
 
+    /// Swap disk generations without rebuilding the maps. The old shadow root
+    /// is returned so its potentially large last drop can run off the writer.
     pub fn with_compacted_snapshot(
         &self,
         snapshot: Arc<DiskSnapshot>,
         changed: ChangedRows,
-        mut retained_hot: Self,
-    ) -> Self {
-        // The worker prepared these maps during the snapshot's single pass.
-        // Only changes after its capture need reconciliation on install.
-        for key in &changed {
-            if let Some(row) = self.get_row(key) {
-                retained_hot = retained_hot.apply(self.seq, row.as_ref().clone());
-            } else if let Some(next) = retained_hot.remove_row(self.seq, key) {
-                retained_hot = next;
-            }
+    ) -> (Self, ChangedRows) {
+        let mut next = self.clone();
+        next.disk = Some(snapshot);
+        let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
+        (next, retired_shadow)
+    }
+
+    /// Only a cold-at-capture row still covered by this snapshot can leave.
+    /// This changes residency, not logical contents, sequence, or tombstones.
+    pub fn evict_compacted(&mut self, key: &RowKey) -> bool {
+        if !self.shadowed.contains(key)
+            && let Some(row) = self.by_id.remove(key)
+        {
+            self.ordered.remove(&SortKey::of(&row));
+            return true;
         }
-        retained_hot.seq = self.seq;
-        retained_hot.edition = self.edition;
-        retained_hot.disk = Some(snapshot);
-        retained_hot.shadowed = changed;
-        retained_hot
+        false
+    }
+
+    /// Complete unfinished startup hydration from the compactor's captured
+    /// stream, sharing the row and never overwriting a later update or removal.
+    pub fn hydrate_compacted(&mut self, row: Arc<Summary>) {
+        let key = row.key();
+        if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
+            self.by_id.insert(key, row.clone());
+            self.ordered.insert(SortKey::of(&row), row);
+        }
     }
 
     pub fn edition(&self) -> u32 {

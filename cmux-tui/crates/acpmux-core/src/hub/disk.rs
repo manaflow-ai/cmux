@@ -12,6 +12,8 @@ pub(super) struct TurnMeasure {
     pub changed: usize,
     pub sync_ns: u128,
     pub rotate_ns: u128,
+    pub maintenance_keys: usize,
+    pub completed_log_bytes: Option<u64>,
 }
 
 pub(super) struct Hydration {
@@ -117,6 +119,7 @@ impl HubWriter {
         }
         // Installation and releasing the old maps stay off runtime workers.
         self.install_compaction();
+        self.maintain_compaction();
         self.hydrate_batch();
         for (key, update) in self.updates.take_batch() {
             let result = match update {

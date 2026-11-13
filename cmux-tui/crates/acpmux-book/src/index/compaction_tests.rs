@@ -318,11 +318,11 @@ fn compaction_retains_hot_snapshot_rows_before_hydration_finishes() {
     assert_eq!(captured.len(), 0);
     let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
     let result = log.rotate(captured.seq()).unwrap().run(captured).unwrap();
-    let hot = result.retained_hot;
+    let hot = result.missing_hot;
     assert_eq!(hot.len(), 3);
-    assert!(hot.get("cold").is_none());
+    assert!(!hot.iter().any(|row| row.chat_id == "cold"));
     for id in ["pinned", "live", "recent"] {
-        assert!(hot.get(id).is_some(), "{id}");
+        assert!(hot.iter().any(|row| row.chat_id == id), "{id}");
     }
     assert_eq!(result.snapshot.len(), 4);
 }

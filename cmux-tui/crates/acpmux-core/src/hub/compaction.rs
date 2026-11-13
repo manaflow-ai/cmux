@@ -1,8 +1,11 @@
 //! Rotation and an owned blocking compactor; the writer never awaits its I/O.
 use super::*;
 use acpmux_book::index::{ChangedRows, CompactionResult};
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
+
+const PAGE_RETURN_MIN_EVICTED_ROWS: usize = 1024;
 
 #[derive(Default)]
 pub(super) struct Counters {
@@ -29,6 +32,18 @@ pub(super) struct Job {
     ready: Option<Result<std::io::Result<CompactionResult>, tokio::task::JoinError>>,
     started: Instant,
     cancelled: Arc<AtomicBool>,
+}
+
+/// One snapshot epoch owns maintenance until every candidate has been visited.
+/// Arrivals keep using the normal writer batch and shadow this epoch's rows.
+pub(super) struct Maintenance {
+    cold_keys: VecDeque<RowKey>,
+    missing_hot: VecDeque<Arc<Summary>>,
+    retired_shadow: Option<ChangedRows>,
+    evicted_rows: usize,
+    started: Instant,
+    #[cfg(test)]
+    cleanup_complete: bool,
 }
 
 impl Job {
@@ -82,7 +97,7 @@ impl HubWriter {
             }
             return;
         }
-        if self.compaction.is_some() || !self.retry_log.is_empty() {
+        if self.compaction.is_some() || self.maintenance.is_some() || !self.retry_log.is_empty() {
             return;
         }
         if let Some(retry) = self.next_compaction {
@@ -146,9 +161,8 @@ impl HubWriter {
         }
     }
 
-    /// The ready result is installed only on a blocking writer turn. Overlay
-    /// work is proportional to concurrent changes; retired maps are reclaimed
-    /// by one owned task before another compaction may start.
+    /// Installation swaps roots only; at most 256 maintenance keys are then
+    /// handled by each ordinary writer turn, including idle turns.
     pub(super) fn install_compaction(&mut self) {
         if self.compaction.as_ref().is_none_or(|job| job.ready.is_none()) {
             return;
@@ -157,11 +171,6 @@ impl HubWriter {
         let Some(result) = job.ready.take() else { return };
         match result {
             Ok(Ok(result)) => {
-                self.compaction_counters.duration_ns.store(
-                    job.started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
-                    Ordering::Relaxed,
-                );
-                self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
                 if result.cleanup_errors == 0 {
                     self.compaction_backoff = 0;
                     self.next_compaction = None;
@@ -184,20 +193,106 @@ impl HubWriter {
                 {
                     self.turn_measure.changed = job.changed.len();
                 }
-                let next = current.with_compacted_snapshot(
-                    result.snapshot,
-                    std::mem::take(&mut job.changed),
-                    result.retained_hot,
-                );
+                let (next, retired_shadow) = current
+                    .with_compacted_snapshot(result.snapshot, std::mem::take(&mut job.changed));
                 #[cfg(test)]
                 {
                     self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();
                 }
                 self.published.store(Arc::new(next));
                 self.hydration = None;
-                self.retirement = Some(tokio::task::spawn_blocking(move || drop(current)));
+                // Only the obsolete shadow root is retired, never rebuilt maps.
+                // Its last drop can visit every key, so it stays off the turn.
+                // Release this last writer-local owner before handing the
+                // shadow root away; otherwise the worker can finish first.
+                drop(current);
+                self.maintenance = Some(Maintenance {
+                    cold_keys: result.cold_keys,
+                    missing_hot: result.missing_hot,
+                    retired_shadow: Some(retired_shadow),
+                    evicted_rows: 0,
+                    started: job.started,
+                    #[cfg(test)]
+                    cleanup_complete: result.cleanup_errors == 0,
+                });
             }
             _ => self.compaction_failed(),
         }
+    }
+    pub(super) fn maintenance_needs_turn(&self) -> bool {
+        self.maintenance.as_ref().is_some_and(|work| {
+            !work.missing_hot.is_empty() || !work.cold_keys.is_empty() || self.retirement.is_none()
+        })
+    }
+
+    pub(super) fn maintain_compaction(&mut self) {
+        let Some(work) = self.maintenance.as_mut() else { return };
+        let current = self.published.load_full();
+        let mut next = current.as_ref().clone();
+        for _ in 0..256 {
+            if let Some(row) = work.missing_hot.pop_front() {
+                next.hydrate_compacted(row);
+            } else if let Some(key) = work.cold_keys.pop_front() {
+                work.evicted_rows += usize::from(next.evict_compacted(&key));
+            } else {
+                break;
+            }
+            #[cfg(test)]
+            {
+                self.turn_measure.maintenance_keys += 1;
+            }
+        }
+        self.published.store(Arc::new(next));
+        // The current root can still own paths removed by this batch. Drop it
+        // before the worker returns free pages, so the measurement includes them.
+        drop(current);
+        if work.missing_hot.is_empty() && work.cold_keys.is_empty() && self.retirement.is_none() {
+            if let Some(shadow) = work.retired_shadow.take() {
+                let evicted = work.evicted_rows;
+                let cold_keys = std::mem::take(&mut work.cold_keys);
+                let missing_hot = std::mem::take(&mut work.missing_hot);
+                self.retirement = Some(tokio::task::spawn_blocking(move || {
+                    drop((cold_keys, missing_hot));
+                    retire_shadow(shadow, evicted);
+                }));
+                return;
+            }
+            self.compaction_counters.duration_ns.store(
+                work.started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                Ordering::Relaxed,
+            );
+            #[cfg(test)]
+            if work.cleanup_complete
+                && let Some(log) = self.log.as_ref()
+            {
+                assert_eq!(log.retained_bytes(), log.offset());
+                self.turn_measure.completed_log_bytes = Some(log.offset());
+            }
+            self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
+            self.maintenance = None;
+        }
+    }
+}
+
+fn retire_shadow(shadow: ChangedRows, evicted: usize) {
+    drop(shadow);
+    #[cfg(test)]
+    let before = std::env::var("V2_GATE_MODE")
+        .ok()
+        .filter(|mode| mode.starts_with("evict-") || mode.starts_with("attrib-"))
+        .map(|_| super::disk_gates::rss_fields_kb());
+    #[cfg(test)]
+    let began = Instant::now();
+    let trimmed = evicted >= PAGE_RETURN_MIN_EVICTED_ROWS;
+    if trimmed {
+        crate::memory::release_free_pages();
+    }
+    #[cfg(test)]
+    if let Some((before_anon, _, before_rss)) = before {
+        let elapsed = if trimmed { began.elapsed().as_nanos() } else { 0 };
+        let (after_anon, _, after_rss) = super::disk_gates::rss_fields_kb();
+        eprintln!(
+            "PR5b trim rows_evicted={evicted} called={trimmed} wall_ns={elapsed} before_rss_kb={before_rss} after_rss_kb={after_rss} before_anon_kb={before_anon} after_anon_kb={after_anon}"
+        );
     }
 }

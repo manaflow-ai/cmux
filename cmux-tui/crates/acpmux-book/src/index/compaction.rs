@@ -1,5 +1,6 @@
 //! Crash-safe snapshot installation after an O(1) log-generation rotation.
-use super::{DiskSnapshot, SortedSnapshot, SummaryIndex};
+use super::{DiskSnapshot, RowKey, SortedSnapshot, Summary, SummaryIndex};
+use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -21,9 +22,10 @@ pub struct Compaction {
 #[derive(Debug)]
 pub struct CompactionResult {
     pub snapshot: Arc<DiskSnapshot>,
-    /// Complete hot rows at capture, including snapshot rows whose background
-    /// hydration had not reached the writer when this compaction began.
-    pub retained_hot: SummaryIndex,
+    /// Cold in-memory rows covered by this capture, removed in bounded turns.
+    pub cold_keys: VecDeque<RowKey>,
+    /// Hot disk rows that startup hydration had not reached at capture.
+    pub missing_hot: VecDeque<Arc<Summary>>,
     pub covered_generation: u64,
     pub seq: u64,
     pub cleanup_errors: u64,
@@ -89,7 +91,8 @@ impl Compaction {
         stage: &Path,
     ) -> io::Result<CompactionResult> {
         // The write path streams rows and keeps only sparse checkpoint state.
-        let mut retained_hot = SummaryIndex::new();
+        let mut cold_keys = VecDeque::new();
+        let mut missing_hot = VecDeque::new();
         SortedSnapshot::write_stream_generation(
             stage,
             self.seq,
@@ -101,8 +104,13 @@ impl Compaction {
                     return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
                 }
                 let row = row?;
+                let held = index.get_row(&row.key()).is_some();
                 if row.is_hot_at(self.captured_now) {
-                    retained_hot = retained_hot.apply(self.seq, row.as_ref().clone());
+                    if !held {
+                        missing_hot.push_back(row.clone());
+                    }
+                } else if held {
+                    cold_keys.push_back(row.key());
                 }
                 Ok(row)
             }),
@@ -145,7 +153,8 @@ impl Compaction {
         }
         Ok(CompactionResult {
             snapshot,
-            retained_hot,
+            cold_keys,
+            missing_hot,
             covered_generation: self.covered_generation,
             seq: self.seq,
             cleanup_errors,

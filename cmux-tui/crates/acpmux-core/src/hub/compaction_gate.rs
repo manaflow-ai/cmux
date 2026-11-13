@@ -71,8 +71,8 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let mut outside = Vec::new();
     let mut changes = 0_u64;
     let mut first_million_peak = 0;
-    let mut split: [Vec<u128>; 5] = std::array::from_fn(|_| Vec::new());
-    let mut sync_split: [Vec<u128>; 5] = std::array::from_fn(|_| Vec::new());
+    let mut split: [Vec<u128>; 6] = std::array::from_fn(|_| Vec::new());
+    let mut sync_split: [Vec<u128>; 6] = std::array::from_fn(|_| Vec::new());
     let mut overlays = Vec::new();
     let mut changed_counts = Vec::new();
     let mut rotations = Vec::new();
@@ -95,15 +95,18 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
                 .unwrap();
         }
         let (next, running, phase, elapsed) = tokio::task::spawn_blocking(move || {
-            let running = writer.compaction.is_some() || writer.retirement.is_some();
+            let running = writer.compaction.is_some()
+                || writer.maintenance.is_some()
+                || writer.retirement.is_some();
             let mut phase = if writer.compaction.is_some() {
                 1
+            } else if writer.maintenance.is_some() {
+                5
             } else if writer.retirement.is_some() {
                 2
             } else {
                 0
             };
-            let completed = writer.compaction_counters.completed.load(Ordering::Relaxed);
             let old_offset = writer.log.as_ref().unwrap().offset();
             let started = Instant::now();
             writer.process_batch();
@@ -115,17 +118,25 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             }
             let log = writer.log.as_ref().unwrap();
             let trigger = writer.published.load().disk().unwrap().bytes().max(1024 * 1024);
-            if writer.compaction.is_none() && writer.retirement.is_none() {
+            if writer.compaction.is_none()
+                && writer.maintenance.is_none()
+                && writer.retirement.is_none()
+            {
                 assert!(
                     log.offset()
                         <= trigger + BATCH * acpmux_book::index::MAX_INDEX_RECORD_BYTES as u64
                 );
             }
-            if writer.compaction_counters.completed.load(Ordering::Relaxed) != completed {
-                // Install does not rewrite the active suffix; this turn only
-                // adds its own batch. Retirement keeps the next rotation out.
+            if writer.turn_measure.overlay_ns > 0 {
+                // Installation leaves the active suffix untouched.
                 assert!(log.offset() >= old_offset);
                 assert_eq!(log.retained_bytes(), log.offset());
+            }
+            if let Some(bytes) = writer.turn_measure.completed_log_bytes {
+                // Maintenance also preserves the suffix. A new capture may
+                // rotate it in this turn, but never copies or loses its bytes.
+                assert_eq!(bytes, old_offset);
+                assert!(log.retained_bytes() >= bytes);
             }
             assert_eq!(writer.log_errors(), 0);
             (writer, running, phase, elapsed)
@@ -133,6 +144,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         .await
         .unwrap();
         writer = next;
+        assert!(writer.turn_measure.maintenance_keys <= 256);
         split.get_mut(phase).unwrap().push(elapsed);
         sync_split.get_mut(phase).unwrap().push(writer.turn_measure.sync_ns);
         if writer.turn_measure.overlay_ns > 0 {
@@ -164,7 +176,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     }
     // Finish the captured work and reclaim its old maps, with no further
     // arrivals. A suffix over its trigger starts the next compaction at once.
-    for _ in 0..10 {
+    for _ in 0..200 {
         writer.finish_compaction(true).await;
         writer = tokio::task::spawn_blocking(move || {
             writer.process_batch();
@@ -172,11 +184,16 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         })
         .await
         .unwrap();
-        if writer.compaction.is_none() && writer.retirement.is_none() {
+        if writer.compaction.is_none()
+            && writer.maintenance.is_none()
+            && writer.retirement.is_none()
+        {
             break;
         }
     }
-    assert!(writer.compaction.is_none() && writer.retirement.is_none());
+    assert!(
+        writer.compaction.is_none() && writer.maintenance.is_none() && writer.retirement.is_none()
+    );
     let stats = hub.compaction_stats();
     assert_eq!(stats.failed, 0);
     assert!(stats.completed > 0);
@@ -187,10 +204,16 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let god = best(&during);
     let all = p95(&during);
     report_split("during_gate_samples", &mut during);
-    for (n, label) in
-        ["outside", "compaction_running", "retirement_running", "install", "start_compaction"]
-            .iter()
-            .enumerate()
+    for (n, label) in [
+        "outside",
+        "compaction_running",
+        "retirement_running",
+        "install",
+        "start_compaction",
+        "maintenance",
+    ]
+    .iter()
+    .enumerate()
     {
         report_split(label, split.get_mut(n).unwrap());
         report_split(&format!("{label}_sync"), sync_split.get_mut(n).unwrap());
