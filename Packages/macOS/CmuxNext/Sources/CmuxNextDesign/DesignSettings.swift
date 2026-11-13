@@ -368,7 +368,7 @@ public final class DesignSettings {
 
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0.85), 1.5)
+        min(max(value, 0.25), 5)
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {

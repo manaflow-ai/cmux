@@ -176,12 +176,29 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
             if (!line.heights.includes(height)) line.heights.push(height);
           }
         };
-        /// The finite animations playing in a line (its shimmer and spinner loop forever).
+        /// Text changes only: the finite cadenced shimmer sweeps do not move the words.
         const playing = (which: "hat" | "line") => {
           const { outer } = parts(which);
-          return (outer?.getAnimations({ subtree: true }) ?? []).filter(
-            (animation) => animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
-          ).length;
+          return (outer?.getAnimations({ subtree: true }) ?? []).filter((animation) => {
+            if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity)
+              return false;
+            const name = (animation as CSSAnimation).animationName;
+            const target = (animation.effect as KeyframeEffect | null)?.target;
+            if (
+              name === "cmux-cadenced-shimmer-band" &&
+              target instanceof Element &&
+              target.classList.contains("cv-shimmer__band")
+            )
+              return false;
+            if (
+              name === "cmux-cadenced-shimmer-lit" &&
+              target instanceof Element &&
+              target.classList.contains("cv-shimmer__lit") &&
+              target.parentElement?.classList.contains("cv-shimmer__band")
+            )
+              return false;
+            return true;
+          }).length;
         };
         const stop = window.cmuxAfterPaint(read);
         const button = document.querySelector<HTMLElement>('[data-stage="next"]')!;

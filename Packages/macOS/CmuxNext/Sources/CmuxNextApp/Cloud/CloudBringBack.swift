@@ -128,7 +128,7 @@ struct CloudBringBack {
         services.cloud.logger.error("cloud bring back failed: \(failure.message, privacy: .public)")
         retries[tabID] = failure.retry
         var retry: (@MainActor () -> Void)?
-        if failure.retry != nil {
+        if failure.retry != nil || (!(error is Failure) && !(error is ActionFailure)) { // an unexpected error (no network) retries too
             let registry = services.registry
             var again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: [:], origin: .user)
             if case .askFirst = failure.retry { again = Self.askFirstInvocation(tab: tabID) }
