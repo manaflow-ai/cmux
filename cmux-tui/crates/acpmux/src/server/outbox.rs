@@ -799,8 +799,9 @@ pub(crate) fn redeliver_open(
     if open.is_empty() {
         return;
     }
+    let scope = &hub.scope;
     let (hub, peer) = (hub.clone(), peer.to_owned());
-    tokio::spawn(async move {
+    scope.spawn_until_cancelled("peer-redeliver-open", async move {
         let on_link = || hub.peer_on_link(&peer, link);
         let from = cursor(&hub).get(&peer).cloned();
         let one = |d: Delivery| {

@@ -967,8 +967,9 @@ fn hold_for_next_try(hub: &Arc<Hub>, session: &Arc<Session>) {
         let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
         *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = Some(n);
     }
+    let scope = &hub.scope;
     let (hub, session) = (hub.clone(), session.clone());
-    tokio::spawn(async move {
+    scope.spawn_until_cancelled("restore-hold-lapse", async move {
         tokio::time::sleep(RESTORE_HOLD).await;
         let _turn = session.turn_lock.lock().await;
         let lapsed = {
@@ -1116,7 +1117,7 @@ pub(super) fn test_after_drain(id: &str) {
         at.map(|at| armed.swap_remove(at).1)
     };
     if let Some(change) = change {
-        std::thread::spawn(change).join().unwrap();
+        std::thread::scope(|s| s.spawn(change).join().unwrap());
     }
 }
 

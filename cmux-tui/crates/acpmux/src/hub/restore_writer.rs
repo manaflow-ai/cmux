@@ -247,7 +247,6 @@ impl Hub {
                     p.msg,
                     p.host_seq,
                     Some(p.at),
-                    p.stored_only,
                     p.kept,
                     p.notify,
                 );
@@ -382,7 +381,6 @@ impl Hub {
                 next.msg.clone(),
                 next.host_seq,
                 Some(next.at),
-                true,
                 kept,
                 next.notify,
             );

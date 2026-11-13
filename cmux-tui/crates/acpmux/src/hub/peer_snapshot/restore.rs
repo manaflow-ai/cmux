@@ -44,17 +44,17 @@ pub(crate) type Ahead = (String, u64, u64, Vec<Value>);
 /// The waits after each try of one copy's restore that did not take it whole; past them it waits
 /// for the peer's next link.
 const RETRY_WAITS: [Duration; 4] = [
-    Duration::from_millis(500),
-    Duration::from_secs(1),
-    Duration::from_secs(2),
+    Duration::from_millis(500), // timeout: a pace, not a timeout
+    Duration::from_secs(1),     // timeout: a pace, not a timeout
+    Duration::from_secs(2),     // timeout: a pace, not a timeout
     Duration::from_secs(4),
 ];
 
 /// The waits before each read again of whether a copy is ahead, when a read fails.
 const READ_WAITS: [Duration; 5] = [
-    Duration::from_millis(500),
-    Duration::from_secs(1),
-    Duration::from_secs(2),
+    Duration::from_millis(500), // timeout: a pace, not a timeout
+    Duration::from_secs(1),     // timeout: a pace, not a timeout
+    Duration::from_secs(2),     // timeout: a pace, not a timeout
     Duration::from_secs(4),
     Duration::from_secs(8),
 ];
@@ -125,6 +125,7 @@ impl Gate {
             }
             // A drop ends the wait at once too: its notice runs no restore, so the link is read
             // again at most every 100 ms.
+            // timeout: a poll's pace, not a timeout; `deadline` bounds the wait.
             let poll = tokio::time::Instant::now() + Duration::from_millis(100);
             if tokio::time::timeout_at(deadline.min(poll), done).await.is_err()
                 && tokio::time::Instant::now() >= deadline
@@ -273,7 +274,7 @@ impl Hub {
             return;
         };
         let (hub, peer) = (self.clone(), peer.to_owned());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("peer-journal-restore", async move {
             // Every step goes only on the link it started on: a task whose link was replaced
             // stops where it is, touching no copy, deciding nothing and delivering nothing again
             // (the new link's own task does all of it). An answer counts only when the link is
@@ -557,7 +558,7 @@ impl Hub {
         let mut lasts = HashMap::new();
         for (_, r) in map.of_peer(peer) {
             let mux = &r.receipt.mux_session_id;
-            let Some((row, last)) = row_of(mux, &r.summary, old) else { continue };
+            let Some((row, last)) = row_of(mux, &r.summary.value(), old) else { continue };
             lasts.insert(mux.clone(), (row.1, last));
             rows.push(row);
         }

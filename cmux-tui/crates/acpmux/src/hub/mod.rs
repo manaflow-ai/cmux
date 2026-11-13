@@ -2389,7 +2389,7 @@ impl Hub {
         // copy was appended, so recovering an old message cannot regress activity.
         // Published only once stored: a failed copy is repaired later (`message_events.rs`),
         // and that repair's copy is the one clients and peers hear.
-        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true).1 {
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true, true).1 {
             ids.insert(key);
             true
         } else {
@@ -2477,7 +2477,7 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, None, None, false).0
+        self.append_at_locked(session, dir, kind, msg, None, None, false, false).0
     }
 
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
@@ -2500,12 +2500,13 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, host_seq, at, true)
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
     }
 
     /// [`Hub::append_at_locked`] of one record. A record the store refused is neither counted nor
-    /// published, so no client or peer hears a copy the journal does not hold. `kept`: what the
-    /// log stores for it.
+    /// published, so no client or peer hears a copy the journal does not hold. `stored_only`: its
+    /// caller appends it again when it is not stored (a restore parks it only otherwise,
+    /// `restore_writer.rs`). `kept`: what the log stores for it.
     #[allow(clippy::too_many_arguments)]
     fn append_record_locked(
         &self,
@@ -2515,6 +2516,7 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
+        stored_only: bool,
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
@@ -2549,7 +2551,7 @@ impl Hub {
             Ok(behind) => return behind,
             Err(back) => back,
         };
-        self.write_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept, notify)
+        self.write_record_locked(session, dir, kind, msg, host_seq, at, kept, notify)
     }
 
     /// [`Hub::append_record_locked`]'s write, once nothing holds the record back.
@@ -2562,7 +2564,6 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
-        stored_only: bool,
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
