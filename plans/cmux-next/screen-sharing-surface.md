@@ -4,7 +4,7 @@ Screen sharing is reachable from the device or machine a person already sees. Re
 
 ## Live entry points
 
-The native sidebar's existing list header exposes Share This Mac, including the flat-list layout that has no local machine section header. In that flat layout, remote workspace rows expose View screen beside their existing controls. Grouped machine section headers expose Share for This Mac and View screen for Cloud machines or devices identified as Macs by the device hub. A remote row never invokes Share This Mac. Linux and unidentified SSH machines do not acquire a Mac Screen action.
+The native sidebar's existing Projects header exposes Share This Mac. In the flat-list layout, which has no list or machine heading, local workspace rows expose Share This Mac and remote workspace rows expose View screen beside their existing controls. Grouped machine section headers expose Share for This Mac and View screen for Cloud machines or devices identified as Macs by the device hub. A remote row never invokes Share This Mac. Linux and unidentified SSH machines do not acquire a Mac Screen action.
 
 A screen action is compact and visible at rest. Existing workspace and management actions retain their established hover and menu behavior. Names and status captions keep their own layout space; actions use the shared trailing-column geometry and never cover the label. The accessible name and tooltip identify both the operation and its target.
 

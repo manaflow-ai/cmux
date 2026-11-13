@@ -11,22 +11,32 @@ extension WorkspaceRowView {
     func makeScreenButton() -> SidebarIconButton {
         let button = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
         button.onPress = { [weak self] in
-            guard let self, let id = self.screenMachineID else { return }
-            self.onViewScreen?(id)
+            guard let self, let action = self.screenAction else { return }
+            self.onScreenAction?(action)
         }
         identify(button, as: "screen")
         return button
     }
 
     func configureScreen(_ machine: SidebarMachine?) {
-        let eligible = machine.map { $0.kind == .cloud || (($0.kind == .ssh || $0.kind == .server) && $0.screenDeviceID != nil) } ?? false
-        let next = eligible && !isPlaceholderRow ? machine?.id : nil
-        if screenMachineID != next { screenMachineID = next; needsLayout = true }
-        if let machine, screenMachineID != nil {
+        let next: SidebarIntent?
+        if let machine, !isPlaceholderRow {
+            switch machine.kind {
+            case .local: next = .shareScreen(.local)
+            case .cloud: next = .viewScreen(machine.id)
+            case .ssh, .server: next = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
+            }
+        } else {
+            next = nil
+        }
+        if screenAction != next { screenAction = next; needsLayout = true }
+        if let machine, screenAction != nil {
             let button = screenSlot.control(in: self)
+            let local = machine.kind == .local
             button.isHidden = false
-            button.isEnabled = machine.kind == .cloud || machine.screenAvailable
-            button.label = Strings.viewScreen + (button.isEnabled ? "" : " — " + Strings.statusOffline)
+            button.isEnabled = local || machine.kind == .cloud || machine.screenAvailable
+            button.icon = local ? .actionShare : .remoteDisplay
+            button.label = local ? Strings.shareScreen : Strings.viewScreen + (button.isEnabled ? "" : " — " + Strings.statusOffline)
             identify(button, as: "screen")
         } else {
             screenSlot.made?.isHidden = true

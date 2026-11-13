@@ -1,7 +1,9 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-13 (lane/screen-share-ergonomics): visible Share This Mac in the native Projects/Workspaces
-  header and local machine header; View screen in existing Mac and Cloud headers. Leo, verbatim:
+- 2026-11-13 (lane/screen-share-ergonomics): visible Share This Mac in the native Projects
+  header and local machine header; View screen in existing Mac and Cloud headers. After #42373
+  removed the flat Workspaces heading, flat local workspace rows carry Share in their existing
+  screen-action slot; remote rows retain View. `SidebarScreenActionTests` covers this routing. Leo, verbatim:
   "also it's... interesting... that it runs through command palette." / "a version of screen sharing
   more ergonomic than native system screen sharing!?" Compact actions use the shared trailing columns;
   names, captions and disclosure keep separate space. The flat/grouped preference stays as chosen.

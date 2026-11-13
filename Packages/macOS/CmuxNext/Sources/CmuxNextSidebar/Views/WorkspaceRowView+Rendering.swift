@@ -117,7 +117,7 @@ extension WorkspaceRowView {
         // status block, when shown, fills the rest below it.
         // View owns one compact trailing slot at rest. The whole existing text/control cluster uses
         // the remaining width, so hover close, overflow, badges and captions never collide with it.
-        let contentWidth = max(0, full.width - (screenMachineID == nil ? 0 : SidebarStyle.trailingSlotPitch))
+        let contentWidth = max(0, full.width - (screenAction == nil ? 0 : SidebarStyle.trailingSlotPitch))
         let b = NSRect(x: full.minX, y: full.minY, width: contentWidth, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)

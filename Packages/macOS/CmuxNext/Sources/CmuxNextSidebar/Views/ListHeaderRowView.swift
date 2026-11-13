@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// A list's header (`SidebarRowKey.listHeader`): "Projects" or "Recents", or one list's "Workspaces", in the sidebar's
-/// quiet heading style. Projects/Workspaces also exposes This Mac's Share action; no menu, fold, or drop target.
+/// A list's header (`SidebarRowKey.listHeader`): "Projects" or "Recents", in the sidebar's
+/// quiet heading style. Projects also exposes This Mac's Share action; no menu, fold, or drop target.
 final class ListHeaderRowView: SidebarRowView {
     let screenButton = SidebarIconButton(icon: .actionShare, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.shareScreen)
     var allowsShare = false { didSet { needsLayout = true } }
@@ -24,14 +24,12 @@ final class ListHeaderRowView: SidebarRowView {
         let title = switch header {
         case .projects: Strings.projects
         case .recents: Strings.recents
-        case .workspaces: Strings.workspacesHeading
         }
         name.setString(title)
         name.setFont(SidebarStyle.headerFont)
         setAccessibilityElement(true)
         setAccessibilityRole(allowsShare ? .group : .staticText)
-        // One list's heading names it only: its rows are the list itself, and `count` covers one computer's.
-        setAccessibilityLabel(header == .workspaces ? title : "\(title), \(Strings.groupCount(count))")
+        setAccessibilityLabel("\(title), \(Strings.groupCount(count))")
         needsLayout = true
     }
 

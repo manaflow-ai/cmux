@@ -33,10 +33,12 @@ import Testing
         list.frame = NSRect(x: 0, y: 0, width: 300, height: 600)
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
-        let header = try #require(list.rowViews.values.compactMap { $0 as? ListHeaderRowView }.first)
-        #expect(header.allowsShare)
-        #expect(!header.screenButton.isHidden)
-        #expect(header.screenButton.accessibilityPerformPress())
+        let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-local"))] as? WorkspaceRowView)
+        let button = try #require(row.screenSlot.made)
+        #expect(!button.isHidden)
+        #expect(button.label == Strings.shareScreen)
+        #expect(button.accessibilityPerformPress())
+        #expect(!list.rowViews.values.contains { $0 is ListHeaderRowView })
         #expect(intents == [.shareScreen(.local)])
         #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
     }
@@ -54,12 +56,12 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         #expect(!list.rowViews.values.contains { $0 is SectionHeaderRowView })
-        for id in ["mac", "cloud", "offline"] {
+        for id in ["local", "mac", "cloud", "offline"] {
             let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
             let button = try #require(row.screenSlot.made)
             #expect(!button.isHidden)
             #expect(button.accessibilityPerformPress() == (id != "offline"))
-            if id != "offline" { #expect(intents.last == .viewScreen(MachineID(id))) }
+            if id != "offline" { #expect(intents.last == (id == "local" ? .shareScreen(.local) : .viewScreen(MachineID(id)))) }
             let titleAtRest = row.title.frame
             #expect(titleAtRest.width >= 2 * SidebarStyle.controlSize, "the project title retains usable text space")
             #expect(titleAtRest.maxX <= button.frame.minX)
@@ -75,16 +77,16 @@ import Testing
             }
             #expect(!row.closeSlot.frame.intersects(row.moreSlot.frame))
         }
-        for id in ["local", "linux"] {
+        for id in ["linux"] {
             let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-" + id))] as? WorkspaceRowView)
-            #expect(row.screenMachineID == nil)
+            #expect(row.screenAction == nil)
             #expect(row.screenSlot.made == nil)
         }
         model.sections = [Self.section("mac", name: "Now Linux", kind: SidebarMachine.Kind.ssh)]
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         let reused = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
-        #expect(reused.screenMachineID == nil)
+        #expect(reused.screenAction == nil)
         if let button = reused.screenSlot.made {
             #expect(button.isHidden)
             #expect(!button.accessibilityPerformPress())
@@ -94,8 +96,35 @@ import Testing
         list.reload(animated: false)
         list.layoutSubtreeIfNeeded()
         for row in list.rowViews.values.compactMap({ $0 as? WorkspaceRowView }) {
-            #expect(row.screenMachineID == nil, "grouped rows use their machine header action")
+            #expect(row.screenAction == nil, "grouped rows use their machine header action")
         }
+    }
+
+    @Test func aReusedFlatScreenButtonChangesItsTargetAndLabel() throws {
+        _ = NSApplication.shared
+        let model = SidebarModel(sections: Self.examples)
+        model.groupsByComputer = false
+        var intents: [SidebarIntent] = []
+        model.onIntent = { intents.append($0) }
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 300, height: 1000)
+        list.reload(animated: false)
+        let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-mac"))] as? WorkspaceRowView)
+        let button = try #require(row.screenSlot.made)
+        row.configureScreen(Self.examples[0].machine)
+        #expect(button.label == Strings.shareScreen)
+        #expect(button.icon == .actionShare)
+        #expect(button.accessibilityPerformPress())
+        #expect(intents.last == .shareScreen(.local))
+        row.configureScreen(Self.examples[1].machine)
+        #expect(button.label == Strings.viewScreen)
+        #expect(button.icon == .remoteDisplay)
+        #expect(button.accessibilityPerformPress())
+        #expect(intents.last == .viewScreen(MachineID("mac")))
+        row.configureScreen(nil)
+        #expect(button.isHidden)
+        #expect(!button.accessibilityPerformPress())
+        #expect(intents.count == 2)
     }
 
     @Test(arguments: [240.0, 300.0, 360.0])

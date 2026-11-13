@@ -6,7 +6,7 @@ extension WorkspaceRowView {
     /// (`SidebarListView.wire`) so a recycled view never keeps a previous
     /// row's target.
     func wire(_ id: WorkspaceID, in list: SidebarListView) {
-        onViewScreen = { [weak list] in list?.model.send(.viewScreen($0)) }
+        onScreenAction = { [weak list] in list?.model.send($0) }
         onClose = { [weak list] in list?.model.send(.close([id])) }
         onMore = list.contextMenuProvider == nil ? nil : { [weak list] in list.map { SidebarRowMenu(list: $0).show(for: id) } }
         onSelect = { [weak list] in list?.model.click(id) }
