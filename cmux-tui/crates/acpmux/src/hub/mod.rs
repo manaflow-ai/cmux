@@ -134,6 +134,7 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
+pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
@@ -485,6 +486,9 @@ pub struct HubEvent {
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection.
     pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
+    /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
+    /// event that changes no row.
+    pub list_seq: u64,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -2514,6 +2518,7 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update
