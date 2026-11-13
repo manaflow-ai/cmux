@@ -4,6 +4,7 @@
 // `~` itself (`chat.new {harness, cwd: ~}`), and the pane refused it: "Couldn't start Codex: This
 // folder is outside the folders this pane may use."
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -77,7 +78,8 @@ afterEach(async () => {
   window.localStorage.clear();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

@@ -12,7 +12,7 @@
 // test/focus-modality-browser.test.ts drives the same rule in real Chromium and WebKit.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Window } from "happy-dom";
@@ -351,7 +351,13 @@ describe("detectors", () => {
       const text = readFileSync(path.join(repo, file), "utf8");
       const shipsStyles = /app\.css|styles\.css/.test(text) && /<style>/.test(text);
       const ownsDesktopPage = !/optchat-inspector/.test(file); // the inspector installs no owner
-      return shipsStyles && ownsDesktopPage && !text.includes("scripts/postcss/gate-css.mjs");
+      // A script that hands its CSS to a builder gates it there: the builder it runs
+      // (`bun scripts/<builder>.mjs`) must run focusRingGate.mjs itself.
+      const builderGates = [...text.matchAll(/\bbun\s+(scripts\/\S+\.mjs)/g)].some(([, builder]) => {
+        const source = path.join(webviews, builder);
+        return existsSync(source) && /postcss\/focusRingGate\.mjs/.test(readFileSync(source, "utf8"));
+      });
+      return shipsStyles && ownsDesktopPage && !text.includes("scripts/postcss/gate-css.mjs") && !builderGates;
     });
     expect(scripts.length).toBeGreaterThan(0);
     expect(offenders).toEqual([]);

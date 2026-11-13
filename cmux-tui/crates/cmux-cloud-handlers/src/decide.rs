@@ -215,6 +215,132 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     }
 }
 
+/// A Cloud machine row supplied to the palette target picker.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PaletteMachine {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    /// Whether the machine advertises the desktop service.
+    pub desktop: bool,
+}
+
+/// The machine state shown by the shared palette target picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetState {
+    Ready,
+    Resume,
+    DesktopUnavailable,
+    Starting,
+    Unavailable,
+    Empty,
+}
+
+/// The inline action offered by a target row. The app supplies localized labels and performs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetIntent {
+    Choose,
+    StartDesktop,
+    CreateDesktop,
+}
+
+/// One row returned to a palette target picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaletteTargetRow {
+    pub id: String,
+    pub title: String,
+    pub state: PaletteTargetState,
+    pub intent: Option<PaletteTargetIntent>,
+}
+
+fn palette_status(
+    status: &str,
+    desktop: bool,
+    wants_desktop: bool,
+) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
+    let status = status.trim().to_ascii_lowercase();
+    match status.as_str() {
+        // These are in-flight transitions. Keep the row visible with its transition state,
+        // but do not offer setup/recovery until the Cloud control plane settles it.
+        "pausing" => (
+            PaletteTargetState::Resume,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        "paused" | "suspended" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
+            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
+        }
+        "running" | "ready" | "connected" | "active" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "deleting" => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        _ => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop && !desktop {
+                Some(PaletteTargetIntent::CreateDesktop)
+            } else {
+                (!wants_desktop).then_some(PaletteTargetIntent::Choose)
+            },
+        ),
+    }
+}
+
+/// Build stable, GUI-ready rows for a machine target picker.
+///
+/// Machines advertising a desktop always precede machines without that capability. Within each
+/// capability group rows are ordered by actionability (ready, resume, starting, unavailable)
+/// while preserving the inventory order for ties. The empty desktop case offers the create path.
+pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<PaletteTargetRow> {
+    if wants_desktop && machines.is_empty() {
+        return vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop),
+        }];
+    }
+    let mut rows: Vec<(usize, PaletteTargetRow, bool, u8)> = machines
+        .iter()
+        .enumerate()
+        .map(|(index, machine)| {
+            let (state, intent) = palette_status(&machine.status, machine.desktop, wants_desktop);
+            let actionability = match state {
+                PaletteTargetState::Ready => 0,
+                PaletteTargetState::Resume => 1,
+                PaletteTargetState::Starting => 2,
+                PaletteTargetState::DesktopUnavailable => 3,
+                PaletteTargetState::Unavailable | PaletteTargetState::Empty => 4,
+            };
+            let title = machine.title.trim();
+            (
+                index,
+                PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },
+                machine.desktop,
+                actionability,
+            )
+        })
+        .collect();
+    rows.sort_by_key(|(index, _, desktop, actionability)| (!*desktop, *actionability, *index));
+    rows.into_iter().map(|(_, row, _, _)| row).collect()
+}
+
 /// How Open Desktop shows a machine's desktop.
 /// A Cloud machine's state, as the diagnostics summary reads it.
 #[derive(Clone, Debug, Default, Deserialize)]

@@ -30,18 +30,15 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
-    ///   - widgets: runs chat widgets (an agent's `widget` parts) natively (CmuxNext: the app host);
-    ///     nil shows them as their fallback text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, widgets: (any HomeWidgetHosting)? = nil,
+                diagrams: (any HomeDiagramRendering)? = nil,
                 replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
-        if let widgets { HomeWidgetRowProvider.install(widgets) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
         // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
@@ -592,6 +589,21 @@ public final class MessagesLabHomeView: NSView {
         NSApp.sendAction(action, to: item.target, from: item)
         return true
     }
+
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
 
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }

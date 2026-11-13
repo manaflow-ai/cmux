@@ -459,13 +459,8 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
             .name("workflow-bg-wait".into())
             .spawn(move || {
                 let wait = || -> Result<(), RpcError> {
-                    use std::os::fd::AsRawFd;
                     let file = std::fs::File::open(path).map_err(internal)?;
-                    // SAFETY: this thread owns the descriptor, which closes on return.
-                    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-                        return Err(internal(std::io::Error::last_os_error()));
-                    }
-                    Ok(())
+                    wait_released(file).map_err(internal)
                 };
                 let _ = finished.send(wait());
             })
@@ -477,6 +472,15 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
         let _ = path;
         Err(RpcError::internal("workflow machine tasks require Unix"))
     }
+}
+
+/// Blocks until the runner that holds `file`'s lock lets go (a shared flock taken, as the
+/// runner's exclusive one excludes it). The shared lock is unlocked before the file closes:
+/// a child another daemon thread forked meanwhile keeps no lock, so the task's liveness probe
+/// reads the ended runner as gone.
+#[cfg(unix)]
+fn wait_released(file: std::fs::File) -> std::io::Result<()> {
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Shared).map(drop)
 }
 
 /// Clears the moved folders of earlier purges whose runners are all gone.
@@ -792,5 +796,26 @@ mod workflow_output_tests {
         assert_eq!(view["totalBytes"], bytes.len());
         assert_eq!(view["nextByte"], bytes.len());
         assert_eq!(view["skippedBytes"], 0);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod wait_lock_tests {
+    use super::*;
+
+    /// A wait for a runner to end lets go of the lock it took, also while a child the daemon
+    /// forked meanwhile has the descriptor: else the task's liveness probe reads the ended runner
+    /// as running (the cap counts it, its chat's folder is not swept).
+    #[test]
+    fn a_finished_wait_leaves_the_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.lock");
+        std::fs::write(&path, b"").unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        wait_released(file).unwrap();
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the wait left the runner's lock held");
     }
 }

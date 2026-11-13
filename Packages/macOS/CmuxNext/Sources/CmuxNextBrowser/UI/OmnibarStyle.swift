@@ -66,9 +66,9 @@ enum OmnibarStyle {
     /// The trailing buttons' gap to the pane's edge: More's center sits on the pane's trailing control
     /// column, under the tab bar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
     static var toolbarTrailingInset: CGFloat { max(0, Metrics.paneTrailingControlCenter - buttonSize / 2) }
-    /// Toolbar buttons highlight in a rounded square on hover and press, Helium's
-    /// `Emphasis::kHigh` (8; Chrome draws a circle, `kMaximum`).
-    static var buttonCornerRadius: CGFloat { 8 }
+    /// Toolbar buttons highlight in a rounded square on hover and press, as round as a tab
+    /// (`Metrics.buttonCornerRadius`; Lawrence 2026-11-12, buttons round as tabs).
+    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     /// Toolbar button icons: `kToolbarButtonIconSize` (20 at Standard), inside Helium's 4 pt
     /// `TOOLBAR_BUTTON` insets.
     static var toolbarIconSize: CGFloat { metrics.toolbarIconSize }
@@ -89,14 +89,14 @@ enum OmnibarStyle {
 
     // MARK: Omnibox
 
-    /// Bar corner radius.
-    /// The default bar radius: the one corner radius itself, whose default is the omnibar's 8 pt
-    /// (Lawrence 2026-11-05: "default roundness should be omnibar roundness");
-    /// `browser.omnibar.cornerRadius` overrides it.
-    static var barCornerRadius: CGFloat { Metrics.cornerRadius }
+    /// The default bar radius: the bar is a tab pill's height, so it takes the tab's Chrome radius
+    /// (`Metrics.tabCornerRadius`; Lawrence 2026-11-11: "same roundness as chrome"). With a radius the
+    /// person set (`Metrics.cornerRadiusIsSet`) it is that radius itself (Lawrence 2026-11-05: "default
+    /// roundness should be omnibar roundness"). `browser.omnibar.cornerRadius` overrides both.
+    static var barCornerRadius: CGFloat { Metrics.cornerRadiusIsSet ? Metrics.cornerRadius : Metrics.tabCornerRadius }
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
-    static var chipCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
+    static var chipButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
     /// Chip distance from the bar's leading edge.
     static let chipLeading: CGFloat = 2
     /// Text distance after the chip.

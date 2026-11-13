@@ -92,7 +92,8 @@ impl ConfigStore {
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes = matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. });
+        let writes =
+            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
@@ -207,7 +208,7 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// around its own writes of the settings file, until those writes are
 /// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
 /// the lock kind or the file name in both places.
-pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
+pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
     let directory = config_path.parent().filter(|dir| !dir.as_os_str().is_empty())?;
@@ -220,5 +221,28 @@ pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
         .open(directory.join(format!(".{name}.lock")))
         .ok()?;
     file.lock().ok()?;
-    Some(file)
+    Some(ConfigLock(file))
 }
+
+/// [`lock_config`]'s lock, held until dropped. The drop unlocks before the
+/// file closes: a child another thread started meanwhile keeps a copy of the
+/// open file until it execs or exits, and a close alone would leave the lock
+/// held in that copy.
+pub(crate) struct ConfigLock(std::fs::File);
+
+impl std::ops::Deref for ConfigLock {
+    type Target = std::fs::File;
+    fn deref(&self) -> &std::fs::File {
+        &self.0
+    }
+}
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "owner_lock_tests.rs"]
+mod lock_tests;

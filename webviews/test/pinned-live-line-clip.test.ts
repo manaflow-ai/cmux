@@ -1,9 +1,10 @@
 // l10n-allow-file: test fixture labels, not shipped UI.
 import { expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { drawPinned, pinLiveLine } from "../src/agent-session/acpmux/conversation/pinnedLiveLine";
 
-test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clears the clip on %s", (event) => {
+test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clears the clip on %s", async (event) => {
   const dom = new JSDOM(
     "<!doctype html><main><article>Reply</article><article data-row-id=thinking-live>Thinking</article></main>",
   );
@@ -43,6 +44,7 @@ test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clear
     expect(reply!.style.clipPath).toBe("");
   } finally {
     pinLiveLine(thread, false);
+    await settleReact();
     if (previous) Object.defineProperty(globalThis, "HTMLElement", previous);
     else Reflect.deleteProperty(globalThis, "HTMLElement");
     dom.window.close();
