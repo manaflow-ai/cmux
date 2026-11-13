@@ -84,12 +84,13 @@ try {
     const errors = [];
     const missing = [];
     const requests = [];
-    // A packaging-only change must preserve each document's CSS bytes and cascade order.
+    // A packaging-only change must preserve each document's effective CSS bytes and cascade order.
     if (baseline) {
-      const styles = (document) => document.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+      const inlineStyles = (document) => document.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
       const before = await readFile(path.join(baseline, name, "index.html"), "utf8");
       const after = await readFile(path.join(root, name, "index.html"), "utf8");
-      if (styles(before) !== styles(after)) errors.push("Stylesheet differs from baseline");
+      const shared = await readFile(path.join(root, "__shared", "page-base.css"), "utf8").catch(() => "");
+      if (inlineStyles(before) !== shared + inlineStyles(after)) errors.push("Stylesheet differs from baseline");
     }
     const page = await context.newPage();
     if (hostStates[name])

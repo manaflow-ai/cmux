@@ -1,7 +1,7 @@
 // Compile all first-party pages in one graph: React, the compiler runtime and shared UI ship
 // once. Each page keeps its own document, CSS, origin and bridge; chunks are immutable assets.
 import { build } from "esbuild";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -51,6 +51,7 @@ const result = await build({
 // esbuild's multi-entry CSS graph can reorder rules shared by different entries. Compile
 // each document's CSS with its original isolated import graph; only JavaScript is shared.
 // No React Compiler pass is needed to collect stylesheets, and the unused JS stays in memory.
+const pageStyles = new Map();
 for (const page of pages) {
   const styles = await build({
     entryPoints: [path.join(srcRoot, "pages", page, "main.tsx")],
@@ -69,8 +70,27 @@ for (const page of pages) {
     plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
-  await writeFile(path.join(outdir, page, "app.css"), css?.contents ?? "");
+  pageStyles.set(page, Buffer.from(css?.contents ?? "").toString("utf8"));
 }
+// Every page imports the same first-party chrome layer before its page rules. Factor only an
+// exact common prefix ending at a complete rule: this preserves both import order and the
+// cascade, while keeping each page's remainder isolated as before.
+const styleValues = [...pageStyles.values()];
+const firstStyle = styleValues[0] ?? "";
+let commonLength = 0;
+while (styleValues.every((style) => style.length > commonLength && style[commonLength] === firstStyle[commonLength])) {
+  commonLength += 1;
+}
+commonLength = firstStyle.lastIndexOf("}", commonLength - 1) + 1;
+if (commonLength <= 0) throw new Error("Pages CSS has no exact shared complete-rule prefix");
+const commonStyle = firstStyle.slice(0, commonLength);
+await mkdir(path.join(outdir, "__shared"), { recursive: true });
+await writeFile(path.join(outdir, "__shared", "page-base.css"), commonStyle);
+for (const [page, style] of pageStyles) {
+  if (!style.startsWith(commonStyle)) throw new Error(`Pages CSS prefix changed for ${page}`);
+  await writeFile(path.join(outdir, page, "app.css"), style.slice(commonLength));
+}
+console.error(`pages CSS shared prefix: ${commonLength} bytes across ${pages.length} pages`);
 await writeFile(path.join(outdir, "metafile.json"), JSON.stringify(result.metafile));
 console.error(`pages React compiler (${mode}): ${compiled.size} compiled; ${bailouts.length} diagnostics`);
 for (const item of bailouts) console.error(`${item.file}:${item.line ?? "?"}: ${item.reason}`);
