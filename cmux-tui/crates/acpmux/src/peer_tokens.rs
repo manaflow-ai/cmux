@@ -14,7 +14,7 @@
 //! A peer of the hub keeps them on disk too (`peer_kept_tokens.rs`), so its daemon's next run
 //! starts with them and the same three cases read them again.
 
-use crate::peer_kept_tokens::KeptTokens;
+use crate::peer_kept_tokens::{Generation, KeptTokens};
 use crate::peer_last_good::LastGood;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -25,7 +25,7 @@ pub(crate) type Tokens = (String, Option<String>);
 pub(crate) struct TokenCache {
     tokens: Mutex<Option<Tokens>>,
     /// Where they are kept on disk, and under which peer name and URL (`back`).
-    disk: OnceLock<(Arc<LastGood>, String, String)>,
+    disk: OnceLock<(Arc<LastGood>, String, String, Generation)>,
 }
 
 impl TokenCache {
@@ -42,37 +42,60 @@ impl TokenCache {
         url: &str,
         usable: impl FnOnce(&Tokens) -> bool,
     ) {
-        match book.tokens.get(name, url) {
-            Some(kept) if usable(&kept) => {
-                let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
-                tokens.get_or_insert(kept);
+        self.disk.get_or_init(|| {
+            let (generation, kept) = book.tokens.bind(name, url);
+            match kept {
+                Some(kept) if usable(&kept) => {
+                    let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+                    tokens.get_or_insert(kept);
+                }
+                // Registration flushes a rejected entry after claiming ownership.
+                _ => {}
             }
-            // A configured half now disagrees: what was kept is stale, so it leaves the file
-            // too, and is not presented again if that configuration is later removed.
-            Some(_) => book.tokens.forget(name, url),
-            None => {}
-        }
-        let _ = self.disk.set((book, name.to_owned(), url.to_owned()));
+            (book, name.to_owned(), url.to_owned(), generation)
+        });
     }
 
-    fn kept(&self) -> Option<(&KeptTokens, &str, &str)> {
-        self.disk.get().map(|(book, name, url)| (&book.tokens, name.as_str(), url.as_str()))
+    pub(crate) fn activate(&self) {
+        if let Some((_, _, _, generation)) = self.kept() {
+            generation.activate();
+        }
+    }
+
+    /// Reconcile after registration, outside the shared registry lock. An older
+    /// registration finishing this late cannot change the current owner's file.
+    pub(crate) fn persist(&self) {
+        let current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((kept, name, url, generation)) = self.kept() {
+            match current.as_ref() {
+                Some(tokens) => kept.keep_current(name, url, generation, tokens),
+                None => kept.forget_current(name, url, generation),
+            }
+        }
+    }
+
+    fn kept(&self) -> Option<(&KeptTokens, &str, &str, &Generation)> {
+        self.disk.get().map(|(book, name, url, generation)| {
+            (&book.tokens, name.as_str(), url.as_str(), generation)
+        })
     }
 
     /// Kept only with a peer token (see the module note).
     pub(crate) fn keep(&self, tokens: &Tokens) {
         if tokens.1.is_some() {
-            *self.tokens.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens.clone());
-            if let Some((kept, name, url)) = self.kept() {
-                kept.keep(name, url, tokens);
+            let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+            *current = Some(tokens.clone());
+            if let Some((kept, name, url, generation)) = self.kept() {
+                kept.keep_current(name, url, generation, tokens);
             }
         }
     }
 
     pub(crate) fn forget(&self) {
-        *self.tokens.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        if let Some((kept, name, url)) = self.kept() {
-            kept.forget(name, url);
+        let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+        *current = None;
+        if let Some((kept, name, url, generation)) = self.kept() {
+            kept.forget_current(name, url, generation);
         }
     }
 
@@ -81,11 +104,19 @@ impl TokenCache {
     /// host are never kept as another's.
     pub(crate) fn carry(&self, from: &TokenCache) {
         let same_url = match (self.disk.get(), from.disk.get()) {
-            (Some((_, _, to)), Some((_, _, of))) => to == of,
+            (Some((_, _, to, _)), Some((_, _, of, _))) => to == of,
             _ => true,
         };
         if same_url && let Some(tokens) = from.get() {
             self.keep(&tokens);
+        }
+    }
+}
+
+impl Drop for TokenCache {
+    fn drop(&mut self) {
+        if let Some((book, name, _, generation)) = self.disk.take() {
+            book.tokens.release(&name, generation);
         }
     }
 }
@@ -103,6 +134,64 @@ fn refused_status(status: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_replaced_cache_cannot_erase_or_overwrite_the_same_urls_new_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let book = Arc::new(LastGood::open(Some(dir.path())));
+        let old = TokenCache::default();
+        old.back(book.clone(), "box", "ssh://box", |_| true);
+        old.activate();
+        old.persist();
+        let stale = ("old-dashboard".into(), Some("old-peer".into()));
+        old.keep(&stale);
+        let replacement = TokenCache::default();
+        replacement.back(book.clone(), "box", "ssh://box", |_| true);
+        replacement.activate();
+        replacement.persist();
+        let fresh = ("new-dashboard".into(), Some("new-peer".into()));
+        replacement.keep(&fresh);
+
+        // Force the old connection's refusal after its replacement authenticated.
+        old.forget();
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(fresh.clone()));
+        // An old ssh read can finish late too; it must not restore stale credentials.
+        old.keep(&stale);
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(fresh.clone()));
+        assert_eq!(
+            LastGood::open(Some(dir.path())).tokens.get("box", "ssh://box"),
+            Some(fresh),
+            "the next daemon must still skip the ssh read"
+        );
+        replacement.forget();
+        assert_eq!(book.tokens.get("box", "ssh://box"), None);
+    }
+
+    #[test]
+    fn registration_order_owns_tokens_even_when_preparations_finish_in_reverse() {
+        let book = Arc::new(LastGood::open(None));
+        let first = TokenCache::default();
+        let second = TokenCache::default();
+        first.back(book.clone(), "box", "ssh://box", |_| true);
+        second.back(book.clone(), "box", "ssh://box", |_| true);
+        second.activate();
+        second.keep(&("second".into(), Some("peer-second".into())));
+        first.activate();
+        let current = ("first".into(), Some("peer-first".into()));
+        first.keep(&current);
+        second.forget();
+        second.persist();
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(current.clone()));
+        // Merely preparing a third peer must not retire the registered writer.
+        let third = TokenCache::default();
+        third.back(book.clone(), "box", "ssh://box", |_| false);
+        third.persist();
+        drop(second);
+        first.forget();
+        assert_eq!(book.tokens.get("box", "ssh://box"), None);
+        first.keep(&current);
+        assert_eq!(book.tokens.get("box", "ssh://box"), Some(current));
+    }
 
     #[test]
     fn keeps_only_a_read_with_a_peer_token() {
@@ -125,13 +214,19 @@ mod tests {
         let open = || Arc::new(LastGood::open(Some(dir.path())));
         let old = TokenCache::default();
         old.back(open(), "box", "ssh://box", |_| true);
+        old.activate();
+        old.persist();
         old.keep(&("dash".into(), Some("peer".into())));
         let moved = TokenCache::default();
         moved.back(open(), "box", "ssh://elsewhere", |_| true);
+        moved.activate();
+        moved.persist();
         moved.carry(&old);
         assert_eq!(moved.get(), None);
         let next = TokenCache::default();
         next.back(open(), "box", "ssh://elsewhere", |_| true);
+        next.activate();
+        next.persist();
         assert_eq!(next.get(), None, "nothing was kept under the new URL");
     }
 
@@ -143,6 +238,8 @@ mod tests {
         let read: Tokens = ("dash".into(), Some("peer".into()));
         let first = TokenCache::default();
         first.back(Arc::new(LastGood::open(Some(dir.path()))), "box", "ssh://box", |_| true);
+        first.activate();
+        first.persist();
         assert_eq!(first.get(), None);
         first.keep(&read);
 
@@ -150,15 +247,21 @@ mod tests {
         let open = || Arc::new(LastGood::open(Some(dir.path())));
         let next = TokenCache::default();
         next.back(open(), "box", "ssh://box", |_| true);
+        next.activate();
+        next.persist();
         assert_eq!(next.get(), Some(read.clone()), "kept across the restart");
         let moved = TokenCache::default();
         moved.back(open(), "box", "ssh://elsewhere", |_| true);
+        moved.activate();
+        moved.persist();
         assert_eq!(moved.get(), None, "a changed URL reads again");
 
         next.forget();
         assert_eq!(open().tokens.get("box", "ssh://box"), None, "forget removes the entry");
         let after = TokenCache::default();
         after.back(open(), "box", "ssh://box", |_| true);
+        after.activate();
+        after.persist();
         assert_eq!(after.get(), None);
 
         // A configured token that disagrees wins, and the stale entry leaves the file: removing
@@ -166,6 +269,8 @@ mod tests {
         after.keep(&read);
         let configured = TokenCache::default();
         configured.back(open(), "box", "ssh://box", |(token, _)| token == "configured");
+        configured.activate();
+        configured.persist();
         assert_eq!(configured.get(), None, "a configured token it disagrees with wins");
         assert_eq!(open().tokens.get("box", "ssh://box"), None, "and its entry is dropped");
     }

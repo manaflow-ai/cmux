@@ -12,7 +12,9 @@ name: cmux-next quality report
 #   - CI health (Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER"): over the last 50
 #     commits of feat-cmux-next and of main, the share of checks whose newest finished run is green, and the flake
 #     rate (a check that failed and then passed on the same commit), with the checks red now. One GraphQL read
-#     per 5 commits on the route App's checks-read token.
+#     per 5 commits on the route App's checks-read token;
+#   - the nightly speed budget: merge to feed p50 and p95 against 30 min, nightlies over it and the largest stage,
+#     from the history nightly-speed.yml keeps in the cmuxterm-hq issue "cmux NEXT nightly speed budget" (read token).
 # The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
 # report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
 # is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
@@ -139,7 +141,7 @@ jobs:
           mkdir -p "$out"
           report_args=(report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
+            --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
           if [[ -f "$out/v2-god-small.json" ]]; then
