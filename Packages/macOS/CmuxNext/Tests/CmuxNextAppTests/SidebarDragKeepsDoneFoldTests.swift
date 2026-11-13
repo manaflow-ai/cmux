@@ -263,7 +263,13 @@ import Testing
         window.orderFrontRegardless()
         list.openDoneFolds = [loose]
         list.reload(animated: false)
-        let drawn = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        // The section header and the list's "Workspaces" heading (#39956) are no rows of the list's order.
+        let drawn = list.displayed.rows.map(\.key).filter {
+            switch $0 {
+            case .section, .listHeader: false
+            default: true
+            }
+        }
         try #require(drawn == [.workspace(WorkspaceID("a")), .workspace(WorkspaceID("b")), .doneFold(loose),
                                .workspace(WorkspaceID("d")), .workspace(WorkspaceID("e"))], "drawn: \(drawn)")
         model.selection = [WorkspaceID("a"), WorkspaceID("d")]

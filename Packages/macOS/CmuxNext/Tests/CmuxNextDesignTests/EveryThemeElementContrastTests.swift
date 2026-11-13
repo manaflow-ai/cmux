@@ -12,7 +12,7 @@ import CmuxNextDesignTokens
 /// vanished on blue themes.
 @MainActor @Suite(.serialized)
 struct EveryThemeElementContrastTests {
-    /// Grass's pressed row keeps 4.41:1, the most any ink reaches there (``CardNeverOpaqueTests``).
+    /// Grass's pressed row keeps 4.51:1, just over the line (``CardNeverOpaqueTests``).
     static func allowed(_ sample: ThemeElementSample, theme: String) -> Bool {
         guard let floor = CardNeverOpaqueTests.pressedRowExemptions[theme], sample.ground == .pressedRow else { return false }
         // The 0.01 tolerance CardNeverOpaqueTests uses: the audit composites through NSColor (4.40:1).

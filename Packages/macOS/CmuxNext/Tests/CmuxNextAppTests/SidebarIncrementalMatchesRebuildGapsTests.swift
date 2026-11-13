@@ -290,8 +290,12 @@ import Testing
             sidebar.renderNow()
             return
         case .groupIntoCustomSection:
-            // Work's header up past the custom section's group: its top past scratch's middle, not past Projects' middle.
-            try drag(list, .group(work), .top) { try shown($0, ws("scratch")).y + 1 }
+            // Work's header up past the custom section's group: its top just inside the computer's first row (the list's
+            // "Workspaces" heading when it is drawn, else scratch), past the custom section's last middle.
+            try drag(list, .group(work), .top) { list in
+                let first = try list.displayed.rows.first { $0.key == .listHeader(.workspaces) } ?? shown(list, ws("scratch"))
+                return first.y + 1
+            }
             #expect(doc.drops.last?.section == projects, "Work did not go into the custom section: \(doc.drops)")
         case .workspaceIntoPinnedGroup:
             try drag(list, ws("api"), .top) { try shown($0, ws("p1")).y + 2 }

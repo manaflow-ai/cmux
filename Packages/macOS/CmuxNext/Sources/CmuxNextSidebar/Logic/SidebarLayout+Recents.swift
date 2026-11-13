@@ -101,12 +101,14 @@ nonisolated extension SidebarLayout {
         y += m.groupHeaderHeight + m.rowSpacing
     }
 
-    /// One list's "Workspaces" heading row at `y`, over `section`'s `count` top-level rows.
-    static func appendWorkspacesHeader(section: SectionID, count: Int, metrics m: SidebarLayoutMetrics,
+    /// One list's "Workspaces" heading row at `y`, over `section`'s rows. It counts nothing (childCount 0): it is a
+    /// label only, and a close, create or move that splices one row (`removeLoose`, `insertLoose`, a drag's look)
+    /// leaves it as a full layout would make it.
+    static func appendWorkspacesHeader(section: SectionID, metrics m: SidebarLayoutMetrics,
                                        to rows: inout [SidebarRow], y: inout CGFloat) {
         rows.append(SidebarRow(
             key: .listHeader(.workspaces), y: y, height: m.groupHeaderHeight, section: section, group: nil, siblingIndex: 0,
-            parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: count, groupColor: nil
+            parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil
         ))
         y += m.groupHeaderHeight + m.rowSpacing
     }

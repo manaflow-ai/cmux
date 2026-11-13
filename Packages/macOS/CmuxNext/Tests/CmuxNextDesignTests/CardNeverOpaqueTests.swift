@@ -31,12 +31,14 @@ import CmuxNextDesignTokens
         let card: CardMaterial
     }
 
-    /// Grass (#13773D on #FFF0A5) is the one theme whose pressed and selected rows miss 4.5:1.
-    /// No single ink reads on both its background and its pressed rows: white gets 5.62:1 on the
-    /// background (and the card) but 4.41:1 on a pressed row; black gets 4.76:1 on a pressed row
-    /// but 3.73:1 on the background, so the card would have to turn opaque. The ink choice takes
-    /// white, the higher least contrast; the pressed row keeps 4.41:1.
-    static let pressedRowExemptions: [String: Double] = ["Grass": 4.41]
+    /// Grass (#13773D on #FFF0A5) is the one theme whose pressed row sits at the 4.5:1 line.
+    /// No single ink reads well on both its background and its pressed rows: white gets 5.62:1 on
+    /// the background (and the card) but missed 4.5:1 on the old 14% pressed row; black gets 3.73:1
+    /// on the background, so the card would have to turn opaque. The ink choice takes the light
+    /// ink, the higher least contrast. Since the Codex fills (12% pressed, #39956) it is white just
+    /// short of pure, 5.56:1 on the background and 4.51:1 on a pressed row: just over the line, so
+    /// the floor stays pinned here and any move of it shows.
+    static let pressedRowExemptions: [String: Double] = ["Grass": 4.51]
 
     /// Every bundled theme with its tokens and card material at the shipped defaults.
     static func bundledThemes() throws -> [BundledTheme] {
@@ -169,7 +171,7 @@ import CmuxNextDesignTokens
         let grass = ThemeTokens.derive(from: ThemeInput(background: grassBackground, foreground: ThemeRGB(hex: 0xFFF0A5)))
         #expect(grass.textPrimary.relativeLuminance > grassBackground.relativeLuminance, "Grass: \(grass.textPrimary) is not the light ink")
         let grassRatio = grass.textPrimary.contrast(with: grassBackground)
-        #expect(abs(grassRatio - 5.62) < 0.01, "Grass: primary \(grassRatio) on the background")
+        #expect(abs(grassRatio - 5.56) < 0.01, "Grass: primary \(grassRatio) on the background")
 
         let hotDogBackground = ThemeRGB(hex: 0xEA3323)
         let hotDog = ThemeTokens.derive(from: ThemeInput(background: hotDogBackground, foreground: ThemeRGB(hex: 0xFFFFFF)))

@@ -98,8 +98,13 @@ import Testing
 
     /// Review of #22294: a click acts on the row that shows the hover. The
     /// hovered row keeps the hover in the gap, on the row above's side of it,
-    /// so a click there must not act on the row above.
+    /// so a click there must not act on the row above. At Default the rows
+    /// touch, as the Codex sidebar's do (#39956), so this runs at Compact,
+    /// which keeps a gap between rows.
     @Test func aClickActsOnTheHoveredRowNotTheTileUnderThePointer() throws {
+        let saved = DesignSettings.shared.densityTokens
+        DesignSettings.shared.densityTokens = DensityPreset.compact.tokens
+        defer { DesignSettings.shared.densityTokens = saved }
         let (list, window, rows) = Self.list()
         defer { window.close() }
         try #require(rows.count == 4)
