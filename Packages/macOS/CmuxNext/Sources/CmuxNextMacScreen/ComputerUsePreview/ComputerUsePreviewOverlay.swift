@@ -121,9 +121,16 @@ public final class ComputerUsePreviewOverlay: NSView {
     /// whose closure is not `@Sendable` resolves to it and is sent to AppKit.
     public func playFinish(_ done: @escaping @MainActor @Sendable () -> Void) {
         guard !isHidden else { return done() }
-        // Expanded, or fading out after a collapse: the expanded view holds the picture, and its
-        // fade (to the end, from wherever it is) is the effect.
-        if presentation == .expanded || expanded.isClosing, expanded.superview === self {
+        // Fading out after a collapse: that fade is the effect. No second fade starts on the same
+        // view (the one it would replace would hand the picture to the card for a frame); `done`
+        // runs when the collapse's fade ends, and the card never shows.
+        if expanded.isClosing, expanded.superview === self {
+            let earlier = pendingFinish
+            pendingFinish = { earlier?(); done() }
+            return
+        }
+        // Expanded: the expanded view holds the picture, and its fade out is the effect.
+        if presentation == .expanded, expanded.superview === self {
             return fadeOut(expanded, { self.expanded.animator().alphaValue = 0 }, done)
         }
         guard !thumbnail.isHidden else { return done() }
@@ -135,12 +142,22 @@ public final class ComputerUsePreviewOverlay: NSView {
     /// fade ends, and then hands the picture to the card.
     private func fadeOutExpanded() {
         fadeOut(expanded, { self.expanded.animator().alphaValue = 0 }, { [weak self] in
-            guard let self, self.presentation != .expanded else { return }
+            guard let self else { return }
+            // The agent finished during the fade: the overlay goes now, with no card in between.
+            if let finish = self.pendingFinish {
+                self.pendingFinish = nil
+                self.expanded.isClosing = false
+                return finish()
+            }
+            guard self.presentation != .expanded else { return }
             self.expanded.removeFromSuperview()
             self.expanded.isClosing = false
             self.finishCollapse()
         })
     }
+
+    /// A finish asked for during the collapse's fade; it runs when that fade ends.
+    private var pendingFinish: (@MainActor @Sendable () -> Void)?
 
     /// The collapse ended (isClosing is false now): the picture moves to the card, which shows
     /// unless hidden meanwhile.

@@ -200,7 +200,8 @@ import VideoToolbox
         let source = try #require(CGImageSourceCreateWithData(try jpeg(width: 40, height: 20) as CFData, nil))
         overlay.show(still: try #require(CGImageSourceCreateImageAtIndex(source, 0, nil)))
         #expect(overlay.showsStill == (thumbnail: false, expanded: true), "mid-fade, the still is on the view that shows")
-        // The agent finishes mid-fade: its effect is that fade, on the fading view; done comes after it.
+        // The agent finishes mid-fade: that fade is its effect. No second fade starts, `done` waits
+        // for the fade's end, and the card never shows in between.
         let finished = OSAllocatedUnfairLock(initialState: false)
         var fadesAfterFinish = 0
         overlay.fadeOut = { _, changes, completion in
@@ -209,9 +210,10 @@ import VideoToolbox
             completion()
         }
         overlay.playFinish { finished.withLock { $0 = true } }
-        #expect(finished.withLock { $0 } && fadesAfterFinish == 1, "the finish played on the fading expanded view")
+        #expect(!finished.withLock { $0 } && fadesAfterFinish == 0, "no second fade on the fading view")
         finishFade?()
-        #expect(overlay.showsStill == (thumbnail: true, expanded: false), "the collapse hands the picture over")
+        #expect(finished.withLock { $0 }, "done runs when the collapse's fade ends")
+        #expect(overlay.thumbnail.isHidden && overlay.showsStill.thumbnail == false, "the card never flashed")
     }
 
     /// Escape closes the expanded view only while the keyboard is in the preview's own surface:
