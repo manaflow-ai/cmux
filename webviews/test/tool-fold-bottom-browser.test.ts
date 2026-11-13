@@ -140,7 +140,14 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
       // Its upper part: the next row's box may start a few pixels over the line's foot.
       const y = box.top + Math.min(7, box.height / 2);
       const hit = document.elementFromPoint(x, y);
-      return { x, y, own: line.contains(hit), hit: hit?.closest(".acpmux-row")?.getAttribute("data-row-id") };
+      return {
+        x,
+        y,
+        own: line.contains(hit),
+        hit:
+          hit?.closest(".acpmux-row")?.getAttribute("data-row-id") ??
+          `${hit?.tagName.toLowerCase()}.${String(hit?.className).replace(/\s+/g, ".")} (line ${Math.round(box.top)}-${Math.round(box.bottom)}, view ${innerHeight})`,
+      };
     }, toggleOf(row));
     expect({ row, own: point.own, hit: point.hit }).toEqual({ row, own: true, hit: point.hit });
     await page.evaluate(() => {

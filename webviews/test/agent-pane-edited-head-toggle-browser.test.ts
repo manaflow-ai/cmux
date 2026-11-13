@@ -166,6 +166,8 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
         counts: rect(header.querySelector(".acpmux-diff-counts")),
         title: rect(header.querySelector(".acpmux-edited-title > div")),
         view: rect(header.querySelector(".acpmux-review-changes")),
+        // The card clips its header to its rounded corner (styles.css .acpmux-edited, the grid's card radius).
+        radius: parseFloat(getComputedStyle(header.closest(".acpmux-edited")!).borderTopLeftRadius) || 0,
       };
     }, HEAD);
 
@@ -188,7 +190,14 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       ["the right end, past the chevron", ({ head }) => ({ x: head.right - 2, y: middle(head) })],
       ["the top inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.top + 1.5 })],
       ["the bottom inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.bottom - 1.5 })],
-      ["the top-left corner", ({ head }) => ({ x: head.left + 2, y: head.top + 2 })],
+      // Just inside the card's rounded corner: the curve's diagonal point, 2px further in.
+      [
+        "the top-left corner",
+        ({ head, radius }) => {
+          const inset = radius * (1 - Math.SQRT1_2) + 2;
+          return { x: head.left + inset, y: head.top + inset };
+        },
+      ],
     ];
     let open = start === "true";
     for (const [where, at] of points) {

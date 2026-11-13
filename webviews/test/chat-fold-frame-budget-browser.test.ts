@@ -230,9 +230,10 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
     if (cdp) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU_SLOWDOWN });
     const index = Math.floor(turns / 2);
     const worked = `[data-row-id="worked-t${index}-user"] button.cv-worked`;
-    // The turn's runs join into its first run's row: the reads, "Ran 10 commands", then the last three.
-    const group = `[data-row-id="t${index}-reads"] button.cv-tool.is-toggle.is-run`;
-    const step = `[data-row-id="t${index}-reads"] button.cv-command`;
+    // Every reply between two runs ends the run (turns.ts, Codex parity #42247): "Ran 10 commands"
+    // is its own row, after the reads and the note.
+    const group = `[data-row-id="t${index}-cmds"] button.cv-tool.is-toggle.is-run`;
+    const step = `[data-row-id="t${index}-cmds"] button.cv-command`;
     await bring(page, `worked-t${index}-user`);
     const costs: FoldCost[] = [];
     const run = async (label: string, selector: string, nth = 0) => {
@@ -285,10 +286,10 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
       }
     };
     await run("open Worked for", worked);
-    await run("open Ran 10 commands", group, 1);
+    await run("open Ran 10 commands", group);
     await run("open a step's Shell card", step, 2);
     await run("close the step", step, 2);
-    await run("close Ran 10 commands", group, 1);
+    await run("close Ran 10 commands", group);
     // The prompt's own fold, Show more, on the next turn's prompt (drawn whole, not behind a fold).
     const next = `t${index + 1}-user`;
     await bring(page, next);

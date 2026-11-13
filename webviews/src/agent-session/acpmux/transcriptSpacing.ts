@@ -346,9 +346,10 @@ export const FOOTER = {
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */
 export const BUBBLE = {
-  /** A one-line bubble's height, edge to edge: chatgpt.com 44, claude.ai and Claude Code desktop 45.
-   * Its block padding is what our line leaves, (44 - line height) / 2, so the text sits as inset. */
-  oneLine: 44,
+  /** A one-line bubble's height, edge to edge, at the default reading size: its 22.75 line and the
+   * Codex block padding of 10 above and below (conversation.css --cv-bubble-pad-block, #42247), at
+   * any reading size. chatgpt.com 44, claude.ai and Claude Code desktop 45. */
+  oneLine: 42.75,
   /** chatgpt.com and claude.ai 16. */
   paddingInline: 16,
   /** claude.ai and Claude Code desktop 12 (ChatGPT's 22 superellipse is a pill; Leo: no capsule pills). */
