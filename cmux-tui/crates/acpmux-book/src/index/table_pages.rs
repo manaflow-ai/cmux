@@ -104,10 +104,17 @@ impl SummaryIndex {
         let keys = self.hot_table_keys(filter, anchor, side, inclusive, limit + 1);
         let rows_read = keys.len();
         let mut candidates = Vec::with_capacity(keys.len());
+        let folder_rows = filter.folder.as_ref().and_then(|folder| self.kin().folder_rows(folder));
         for key in keys {
-            let row = self.get_row(&key.row).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "table names a missing hot row")
-            })?;
+            let row = if let Some(rows) = folder_rows {
+                rows.get(&key).cloned().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "folder table names a missing row")
+                })?
+            } else {
+                self.get_row(&key.row).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "table names a missing hot row")
+                })?
+            };
             candidates.push((SortKey::of(&row), row));
         }
         let pivot = match side {
@@ -187,6 +194,8 @@ impl SummaryIndex {
             cold_unread: !has_after && self.disk().is_some_and(|disk| !disk.is_empty()),
             rows_read,
             parent_steps: 0,
+            lookups: usize::from(folder_rows.is_some()),
+            deeper: Vec::new(),
         })
     }
 }

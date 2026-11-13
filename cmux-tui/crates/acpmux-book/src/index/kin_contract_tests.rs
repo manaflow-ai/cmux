@@ -487,6 +487,42 @@ fn hot_family_cycles_depth_and_hidden_candidates_are_bounded() {
 }
 
 #[test]
+fn family_page_reports_the_next_level_at_the_depth_bound() {
+    let root = row("root", 0);
+    let mut last = root.clone();
+    let mut index = SummaryIndex::new();
+    for n in 0..70 {
+        let child = parent(row(&format!("deep-{n:02}"), n + 1), &last);
+        index = index.apply(n + 1, child.clone());
+        last = child;
+    }
+    let page = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            128,
+            256 * 1024,
+            Some(&ListFilter::family(root.key())),
+        )
+        .unwrap();
+    assert_eq!(page.rows.len(), 64);
+    assert_eq!(page.deeper, vec![SortKey::of(&index.get("deep-63").unwrap())]);
+    let next = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            128,
+            256 * 1024,
+            Some(&ListFilter::family(RowKey::new("local", "deep-63"))),
+        )
+        .unwrap();
+    assert_eq!(ids(&next), ["deep-64", "deep-65", "deep-66", "deep-67", "deep-68", "deep-69"]);
+    assert!(next.deeper.is_empty());
+}
+
+#[test]
 fn cold_family_piece_sizes_agree_and_a_second_ask_reaches_the_next_cold_level() {
     let root = row("root", 0);
     let cold_parent = parent(row("cold-parent", 1000), &root);

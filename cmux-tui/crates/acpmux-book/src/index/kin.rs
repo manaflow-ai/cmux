@@ -38,7 +38,8 @@ pub struct KinTables {
     /// Forked chat -> forks.  The value is the fork sequence from the source.
     forks: OrdMap<RowKey, OrdMap<RowKey, u64>>,
     /// (origin, folder) -> rows ordered by the same activity key as `all`.
-    folders: OrdMap<FolderKey, OrdMap<SortKey, RowKey>>,
+    /// Folder pages can return these rows directly without a second index lookup.
+    folders: OrdMap<FolderKey, OrdMap<SortKey, Arc<Summary>>>,
 }
 
 impl KinTables {
@@ -124,12 +125,24 @@ impl KinTables {
             old.map(|row| FolderKey::of(row).map(|folder| (folder, SortKey::of(row), row.key())));
         let new_folder =
             new.map(|row| FolderKey::of(row).map(|folder| (folder, SortKey::of(row), row.key())));
-        if old_folder != new_folder {
-            if let Some(Some((folder, sort, key))) = old_folder.as_ref() {
-                self.remove_folder(folder, sort, key, writes);
+        let folder_content_changed = match (old, new) {
+            (Some(old), Some(new)) => {
+                FolderKey::of(old) == FolderKey::of(new)
+                    && SortKey::of(old) == SortKey::of(new)
+                    && old.key() == new.key()
+                    && !old.same_content(new)
             }
-            if let Some(Some((folder, sort, key))) = new_folder.as_ref() {
-                self.insert_folder(folder, sort, key, writes);
+            _ => false,
+        };
+        if old_folder != new_folder || folder_content_changed {
+            if let Some(Some((folder, sort, _key))) = old_folder.as_ref() {
+                self.remove_folder(folder, sort, writes);
+            }
+            if let Some(Some((folder, sort, key))) = new_folder.as_ref()
+                && let Some(row) = new
+                && &row.key() == key
+            {
+                self.insert_folder(folder, sort, &Arc::new(row.clone()), writes);
             }
         }
     }
@@ -191,28 +204,20 @@ impl KinTables {
         &mut self,
         folder: &FolderKey,
         sort: &SortKey,
-        key: &RowKey,
+        row: &Arc<Summary>,
         writes: Option<&AtomicUsize>,
     ) {
         let mut rows = self.folders.get(folder).cloned().unwrap_or_default();
-        if rows.get(sort) != Some(key) {
-            rows.insert(sort.clone(), key.clone());
+        let changed = rows.get(sort).is_none_or(|existing| !existing.as_ref().same_content(row));
+        if changed {
+            rows.insert(sort.clone(), row.clone());
             self.folders.insert(folder.clone(), rows);
             Self::count(writes);
         }
     }
 
-    fn remove_folder(
-        &mut self,
-        folder: &FolderKey,
-        sort: &SortKey,
-        key: &RowKey,
-        writes: Option<&AtomicUsize>,
-    ) {
+    fn remove_folder(&mut self, folder: &FolderKey, sort: &SortKey, writes: Option<&AtomicUsize>) {
         let Some(mut rows) = self.folders.get(folder).cloned() else { return };
-        if rows.get(sort) != Some(key) {
-            return;
-        }
         rows.remove(sort);
         if rows.is_empty() {
             self.folders.remove(folder);
@@ -230,7 +235,7 @@ impl KinTables {
         self.forks.get(parent)
     }
 
-    pub fn folder_rows(&self, folder: &FolderKey) -> Option<&OrdMap<SortKey, RowKey>> {
+    pub fn folder_rows(&self, folder: &FolderKey) -> Option<&OrdMap<SortKey, Arc<Summary>>> {
         self.folders.get(folder)
     }
 }
@@ -265,8 +270,16 @@ mod tests {
         title.title.push('!');
         let writes = AtomicUsize::new(0);
         let unchanged = moved.replace_counted(Some(&second), Some(&title), &writes);
-        assert_eq!(writes.load(AtomicOrdering::Relaxed), 0);
-        assert_eq!(unchanged, moved);
+        assert_eq!(writes.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(
+            unchanged
+                .folder_rows(&FolderKey::new("machine", "two"))
+                .unwrap()
+                .get(&SortKey::of(&title))
+                .unwrap()
+                .title,
+            title.title
+        );
     }
 
     #[test]
