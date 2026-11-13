@@ -111,6 +111,15 @@ extension MacScreenPages {
         ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted)]
     }
 
+    /// A screen-space point rectangle for the benchmark observer. The observer
+    /// still proves the source nonce itself; this row only binds its capture to
+    /// the selected production pane and its actual window.
+    private static func points(_ rect: NSRect?) -> JSONValue {
+        guard let rect else { return .null }
+        return ["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
+                "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
+    }
+
     private func row(_ tab: MacScreenTab) -> JSONValue {
         var row: [String: JSONValue] = ["tab": .string(tab.key), "url": .string(tab.record.url.absoluteString),
                                         "route": route(for: tab.key).map(JSONValue.string) ?? .null,
@@ -124,6 +133,33 @@ extension MacScreenPages {
         row["displays"] = .array(pane.model.displays.map { .string("\(Int($0.width))x\(Int($0.height))") })
         row["current_display"] = .number(Double(pane.model.currentDisplay))
         row["video_frame"] = .string(NSStringFromRect(pane.view.debugVideoFrame))
+        if let window = pane.view.window, window.windowNumber > 0 {
+            let windowContent = pane.view.convert(pane.view.debugVideoFrame, to: nil)
+            row["window_pid"] = .number(Double(ProcessInfo.processInfo.processIdentifier))
+            row["window_id"] = .number(Double(window.windowNumber))
+            row["window_frame_points"] = Self.points(window.frame)
+            row["content_rect_points"] = Self.points(window.convertToScreen(windowContent))
+            row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
+            row["geometry_origin"] = .string("bottom-left")
+            row["window_attestation"] = .bool(true)
+        } else {
+            row["window_pid"] = .null
+            row["window_id"] = .null
+            row["window_frame_points"] = .null
+            row["content_rect_points"] = .null
+            row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
+            row["geometry_origin"] = .string("bottom-left")
+            row["window_attestation"] = .bool(false)
+        }
+        if let hub = pane.model.hub {
+            row["host_device"] = .string(hub.deviceID)
+            row["hub_session"] = hub.phase.sessionID.map(JSONValue.string) ?? .null
+            row["session_scope"] = hub.phase.streamingScope.map { .string($0.rawValue) } ?? .null
+        } else {
+            row["host_device"] = .null
+            row["hub_session"] = .null
+            row["session_scope"] = .null
+        }
         if let session = pane.session {
             row["phase"] = .string(Self.phaseName(session.phase))
             row["reconnecting"] = .bool(session.isReconnecting)
