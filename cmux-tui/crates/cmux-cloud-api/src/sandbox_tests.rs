@@ -452,6 +452,32 @@ fn another_accounts_wait_or_cancel_reads_nothing_and_never_says_gone() {
     engine.perform("runs.cancel", &args(json!({ "id": id }))).unwrap();
 }
 
+/// A wait or cancel that began on the Run's account answers nothing of it once the app switched
+/// away while it waited (#39022 review at 48eb7046, F1): the account is read again before the
+/// answer, as before the wait, and a switch or a sign-out answers that refusal with no snapshot.
+#[test]
+fn a_wait_or_cancel_that_outlives_an_account_switch_answers_nothing_of_the_run() {
+    for (after, status, code) in
+        [(Some("user:u1|team:team_2"), 409, "run_other_account"), (None, 401, "run_not_signed_in")]
+    {
+        for call in ["runs.wait", "runs.cancel"] {
+            let fake = Fake::new(None, vec![]);
+            let engine = Engine::open(None, fake.clone(), quick());
+            let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+            // The check before the wait reads the Run's own account; every read after it, the next one.
+            fake.accounts.lock().unwrap().push(Some("user:u1|team:team_1".into()));
+            *fake.account.lock().unwrap() = after.map(str::to_owned);
+            let failure = engine
+                .perform(call, &args(json!({ "id": id, "timeoutMs": 50 })))
+                .expect_err("the Run's snapshot went to the account the app switched to");
+            assert!(
+                matches!(&failure, Failure::Http { status: s, code: Some(c), .. } if *s == status && c == code),
+                "{call} {after:?}: {failure:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_create_with_no_signed_in_app_is_refused() {
     let fake = Fake::new(None, vec![]);
