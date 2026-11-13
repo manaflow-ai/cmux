@@ -122,6 +122,7 @@ pub(crate) struct Page {
     /// taken records between the page and its `lastSeq`, so its page covers its own records only.
     pub through: Option<u64>,
     pub row: Option<Value>,
+    pub turn_opener: Option<Value>,
     pub records: Vec<Value>,
 }
 
@@ -149,6 +150,13 @@ impl Page {
             }
         }
     }
+}
+
+/// Same prompt boundary as the attach reply: a user's prompt, never an in-turn steer.
+fn starts_turn(record: &Value) -> bool {
+    record.get("dir").and_then(Value::as_str) == Some("mux")
+        && record.get("kind").and_then(Value::as_str) == Some("user_message")
+        && record.get("msg").and_then(|msg| msg.get("steer")) != Some(&Value::Bool(true))
 }
 
 enum Op {
@@ -403,7 +411,8 @@ impl PeerSnapshots {
     pub(crate) fn page(&self, (peer, mux): (&str, &str), page: Page) {
         let row = page.row.as_ref().map_or(0, record_bytes);
         let records = page.records.iter().map(record_bytes).sum::<u64>();
-        let cost = OP_BYTES + mux.len() as u64 + row + records;
+        let opener = page.turn_opener.as_ref().map_or(0, record_bytes);
+        let cost = OP_BYTES + mux.len() as u64 + row + records + opener;
         self.admit(peer, cost, false, || Op::Page { key: (peer.to_owned(), mux.to_owned()), page });
     }
 
@@ -979,10 +988,21 @@ impl Store {
         let seen = page.host_last_seq.unwrap_or(0).max(page.through.unwrap_or(0)).max(to);
         h.host_last_seq = h.host_last_seq.max(seen);
         h.from_start = h.first_seq <= 1;
+        // Only retain a prompt before the copy's run, from this same accepted page and
+        // generation. A page that extends the run backwards may put the old opener inside it.
+        if h.turn_opener.as_ref().and_then(seq_of).is_some_and(|s| s >= h.first_seq) {
+            h.turn_opener = None;
+        }
+        if let Some(opener) = page.turn_opener.filter(|r| {
+            starts_turn(r) && of_session(r, key) && seq_of(r).is_some_and(|s| s < h.first_seq)
+        }) && h.turn_opener.as_ref().and_then(seq_of) < seq_of(&opener)
+        {
+            h.turn_opener = Some(opener);
+        }
         if let Some(row) = row {
             h.summary = row;
-            self.charge(key);
         }
+        self.charge(key);
         self.add(key, page.records);
     }
 
@@ -1053,6 +1073,7 @@ impl Store {
         let Some(c) = copies.get_mut(key) else { return false };
         let Some(held) = c.records.as_mut() else { return false };
         let mut cut = false;
+        let mut opener_changed = false;
         while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
             let old_bytes = record_bytes(&old);
@@ -1061,7 +1082,16 @@ impl Store {
             c.head.first_seq = c.head.first_seq.max(seq.saturating_add(1));
             c.head.last_seq = c.head.last_seq.max(c.head.first_seq - 1);
             c.head.from_start = false;
+            // Keep only the latest evicted prompt, not steers. This preserves the opener
+            // when a long live turn pushes its own prompt out of the bounded record run.
+            if starts_turn(&old) {
+                c.head.turn_opener = Some(old);
+                opener_changed = true;
+            }
             cut = true;
+        }
+        if opener_changed {
+            self.charge(key);
         }
         cut
     }
@@ -1120,12 +1150,24 @@ impl Store {
         // A head no file can hold (the whole line, as `write_one` measures it) is not kept, nor
         // counted.
         let line = |c: &Kept| serde_json::to_vec(&c.head).map_or(u64::MAX, |h| h.len() as u64);
-        if self.copies.get(key).is_some_and(|c| !disk::head_fits(line(c))) {
+        // An oversized prompt must not evict an otherwise useful tail. The optional opener
+        // shares the existing head bound, including the row and serialization overhead.
+        let too_large = self.copies.get_mut(key).is_some_and(|c| {
+            if disk::head_fits(line(c)) {
+                return false;
+            }
+            // Count a second time only when removing an oversized opener changed the head.
+            c.head.turn_opener.take().is_none() || !disk::head_fits(line(c))
+        });
+        if too_large {
             self.remove(key);
             return;
         }
         let Some(c) = self.copies.get_mut(key) else { return };
-        let own = KEPT_BYTES + (key.0.len() + key.1.len()) as u64 + record_bytes(&c.head.summary);
+        let own = KEPT_BYTES
+            + (key.0.len() + key.1.len()) as u64
+            + record_bytes(&c.head.summary)
+            + c.head.turn_opener.as_ref().map_or(0, record_bytes);
         self.own = self.own - std::mem::replace(&mut c.own, own) + own;
         self.trim_kept(key);
     }
@@ -1519,6 +1561,7 @@ impl Hub {
             // Only a peer that says how far its page holds is taken past the page's last record.
             through: result.get("pageThrough").and_then(Value::as_u64),
             row: self.resolve_remote(&format!("{peer}/{mux}")).map(|(_, _, row)| row),
+            turn_opener: result.get("turnOpener").filter(|v| !v.is_null()).cloned(),
             records: records.clone(),
         };
         self.capture_on(peer, (generation, link), || self.peer_snapshots.page((peer, mux), page));
