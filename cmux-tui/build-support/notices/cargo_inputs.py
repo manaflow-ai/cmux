@@ -190,7 +190,9 @@ class Sources:
         """Add the crates that the scanned manifests name by `path = ...` but that live outside every
         --workspace (2026-10-13: the diff sidecar's `cmux-git = { path = "../../cmux-tui/crates/cmux-git" }`
         failed the nightly notices with "0 matching manifests"). Followed transitively; each such crate
-        is located with its own enclosing workspace, so `*.workspace = true` fields resolve."""
+        is located with its own enclosing workspace, so `*.workspace = true` fields resolve. A
+        `dep.workspace = true` dependency takes its path from that workspace's [workspace.dependencies]
+        (2026-11-13: cmux-git's `cmux-file-lock.workspace = true` failed the nightly the same way)."""
         known = {d.resolve() for entries in self.path_packages.values() for d, _ in entries}
         queue = sorted(known)
         while queue:
@@ -204,10 +206,17 @@ class Sources:
             tables += [t.get(k, {}) for t in data.get("target", {}).values() for k in ("dependencies", "build-dependencies")]
             tables.append(data.get("workspace", {}).get("dependencies", {}))
             for table in tables:
-                for spec in table.values():
+                for dep_name, spec in table.items():
+                    base = crate_dir
+                    if isinstance(spec, dict) and spec.get("workspace") is True:
+                        root = self._enclosing_workspace(crate_dir)
+                        if root is None:
+                            continue
+                        base = root
+                        spec = self.workspace_tables[root].get("dependencies", {}).get(spec.get("package", dep_name))
                     if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
                         continue
-                    dep_dir = (crate_dir / spec["path"]).resolve()
+                    dep_dir = (base / spec["path"]).resolve()
                     if dep_dir in known or not (dep_dir / "Cargo.toml").is_file():
                         continue
                     try:
