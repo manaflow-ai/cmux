@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43433482496",
+  "recorded_at": "2026-11-13T13:31:44Z",
+  "reason": "cmux-tui 33b63d6ff7cb changes the image's cmux-tui (pinned ea0e6a903162)",
+  "dry_run": false,
+  "cmux_tui": "33b63d6ff7cb536e6f34d2d7e26e561aacf58fe2",
+  "fixes": [
+    {
+      "sha": "33b63d6ff7cb536e6f34d2d7e26e561aacf58fe2",
+      "mergedAt": "2026-11-13T05:01:29-08:00",
+      "subject": "cmux-next diff comments: complete agent round trip (#42328)"
+    },
+    {
+      "sha": "2fd6c1c43af898732d43c6edf3d8fa35941dd2db",
+      "mergedAt": "2026-11-13T04:59:59-08:00",
+      "subject": "#39022 F1 F2: cleanup takes gone only from a fresh list, says abandoned, and a cancel ends the whole start (#42477)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T13:31:44Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
