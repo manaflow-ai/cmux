@@ -589,13 +589,25 @@ def selected_title():
     return next((r.get("title") for r in workspace_rows() if r.get("selected")), None)
 
 
-def cell_mark(asked, sent, switched):
+def cell_mark(asked, sent, switched, wrong=0):
     """Why a cell of the switch matrix is no measure of what it names, or None. `switched` is the count of switches
     that the app's own timer kept for the cell (None: an old build with no timer). The selection check inside a cell
     cannot say this: it runs after each 4th input, which always goes back to the workspace the cell started from, so
-    it passes when no input switched anything."""
+    it passes when no input switched anything. `wrong` is the count of those checks that found another workspace:
+    then each input can switch (the count is whole) and the cell still measures a pair that it does not name."""
     done = sent if switched is None else min(sent, switched)
-    return None if done >= asked else f"invalid: {done} of {asked} inputs switched"
+    if done < asked:
+        return f"invalid: {done} of {asked} inputs switched"
+    return f"invalid: {wrong} of {sent // 4} selection checks found another workspace" if wrong else None
+
+
+def cmd_digits(side):
+    """The Cmd-digit of each workspace row of the sidebar report `side`, by title. The app's default numbering counts
+    the shown top items (Home, the App Store) before the workspaces, so the first workspace is not Cmd-1. A top item
+    that the sidebar does not draw has no frame and takes no number. Only 1 to 8: Cmd-9 can be "the last item"."""
+    top = sum(1 for item in side.get("items") or [] if item.get("region") == "top" and item.get("window_frame"))
+    listed = [r.get("title") for r in side.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+    return {title: top + place + 1 for place, title in enumerate(listed) if top + place + 1 <= 8}
 
 
 def scenario_switch_matrix(pid, size):
@@ -608,16 +620,18 @@ def scenario_switch_matrix(pid, size):
     ticking(True)
     time.sleep(2)
     out = {"tickers": len(made["tickers"])}
+    digits = cmd_digits(sidebar())
     rows = {r.get("title"): r for r in workspace_rows()}
     order = [r.get("title") for r in workspace_rows()[:4]]
     out["top_rows"] = order
-    pairs = {"chromium": ("sw chromium a", "sw chromium b", 1), "terminal": ("sw term a", "sw term b", 3)}
+    out["top_digits"] = [digits.get(title) for title in order]
+    pairs = {"chromium": ("sw chromium a", "sw chromium b"), "terminal": ("sw term a", "sw term b")}
     probe = rpc("debug.workspace_switch", {"action": "stop"})  # an older build answers with an error
     timed = isinstance(probe, dict) and "recording" in probe
     out["app_timer"] = timed
     tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
     tr.__enter__()
-    for kind, (a, b, first) in pairs.items():
+    for kind, (a, b) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):
             lat, longest, wrong = [], [], 0
             try:
@@ -638,7 +652,9 @@ def scenario_switch_matrix(pid, size):
                         break
                     send = lambda: rpc("debug.mouse", {"action": "click", "x": f["x"] + 60, "y": f["y"] + f["height"] / 2})  # noqa: E731
                 elif how == "cmd_digit":
-                    digit = str(first + (1 if to_b else 0))
+                    if target not in digits:
+                        break  # the workspace has no digit: no key is sent, the cell's count says it
+                    digit = str(digits[target])
                     send = lambda: rpc("debug.key", {"key": digit, "modifiers": ["command"]})  # noqa: E731
                 else:
                     key = "]" if to_b else "["
@@ -657,7 +673,7 @@ def scenario_switch_matrix(pid, size):
                 time.sleep(0.2)
             # The timer's stop is the first call after the cell's last input: no call goes between 2 inputs.
             samples = ((rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []) if timed else None
-            mark = cell_mark(opts.switches, len(lat), None if samples is None else len(samples))
+            mark = cell_mark(opts.switches, len(lat), None if samples is None else len(samples), wrong)
             if mark:
                 # A fact of the run, not a row: the cell keeps its counts and no latency key (perf-budgets.py makes
                 # rows only from a cell with input_to_idle_ms), and the matrix goes on.
@@ -831,7 +847,9 @@ def main():
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
             entry["hangs"] = rpc("debug.hangs", {})
-            entry["measurement_complete"] = scrolls_complete(entry, want) and not stopped
+            cells = (entry.get("switch_matrix") or {}).values()
+            entry["measurement_complete"] = (scrolls_complete(entry, want) and not stopped
+                                             and not any(isinstance(c, dict) and c.get("invalid") for c in cells))
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
                 json.dump(results, f, indent=1, default=str)

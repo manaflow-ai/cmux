@@ -18,12 +18,12 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = tempfile.mkdtemp(prefix="sbstress-test-")
 SWITCHES = 8
-_argv, _modules = sys.argv, {name: sys.modules.get(name) for name in ("bench_idle", "bench_launch")}
+_argv, _modules = sys.argv, {name: sys.modules.get(name) for name in ("bench_idle",)}
 sys.argv = ["sidebar-stress-bench.py", "--app", "/nonexistent/cmux.app", "--tag", "unit", "--out", OUT,
             "--switches", str(SWITCHES), "--no-trace"]
-# The bench's two helper modules read macOS (libproc, the app launch); the tests launch nothing.
+# bench_idle reads macOS (libproc) at its import. bench_launch is the real module: it loads on each OS, and a
+# stand-in for it would break at the first new name that the bench imports from it. The tests launch nothing.
 sys.modules["bench_idle"] = types.SimpleNamespace(usage=lambda pid: (0, 0, 0))
-sys.modules["bench_launch"] = types.SimpleNamespace(launch_app=None)
 try:
     spec = importlib.util.spec_from_file_location("sidebar_stress_bench", os.path.join(HERE, "..", "sidebar-stress-bench.py"))
     bench = importlib.util.module_from_spec(spec)
@@ -222,7 +222,7 @@ class SwitchMatrixRefTests(unittest.TestCase):
             with self.assertRaises(bench.SwitchStop) as stop:
                 bench.scenario_switch_matrix(1, 0)  # the targets are made once: the second run uses the kept ids
         self.assertIn("goToWorkspace sw term a", str(stop.exception))
-        self.assertEqual(sorted(stop.exception.cells), ["app_timer", "chromium.click", "chromium.cmd_digit", "chromium.next_prev", "tickers", "top_rows"])
+        self.assertEqual(sorted(stop.exception.cells), ["app_timer", "chromium.click", "chromium.cmd_digit", "chromium.next_prev", "tickers", "top_digits", "top_rows"])
         self.assertEqual(app.inputs, 3 * SWITCHES, "only the 3 cells of the page pair send inputs before the stop")
 
     def test_a_create_answer_with_no_workspace_id_stops_the_run(self):
@@ -350,7 +350,7 @@ class StoppedRunKeepsItsRowsTests(unittest.TestCase):
     def run_main(self, app, scenarios):
         bench.results["sizes"], bench.results["log"] = {}, []
         bench.made.clear()
-        bench.made.update({"workspaces": [], "tickers": [], "groups": [], "pinned": []})
+        bench.made.update({"workspaces": [], "tickers": [], "groups": [], "pinned": [], "create_failures": []})
         bench.rpc, bench.cli = app.rpc, app.cli
         bench.wait = lambda predicate, seconds, step=0.25: predicate()
         bench.launch_app = lambda *a, **k: (types.SimpleNamespace(pid=1), "/nonexistent/app.sock")
