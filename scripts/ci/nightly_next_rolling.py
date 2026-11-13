@@ -31,7 +31,9 @@ main that is still moving nightly-next counts as building for --promotion-minute
 One exception: a retry of nightly-next's own head while a newer commit waits neither
 holds nor counts as a start (retry_of). It leaves the slot only when a newer push
 arrives, which waiting for it never let happen (19-41 min per retry, runs
-43395284047 and 43440656795), so the rule promotes and the retry yields.
+43395284047 and 43440656795), so the rule promotes: a retry not yet past that step
+yields, and one past it finishes with the newer push queued behind it, which then
+starts at once. Its head is no longer nightly-next's then, so it holds again.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
