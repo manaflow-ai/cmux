@@ -15,7 +15,25 @@ name: gallery visual evidence (advisory)
 # image, its diff and the changed file that picked it; visual-manifest.json
 # (the team feed) and previews.json (HQ's preview tool) are other shapes of it. The PR status comment's `gallery` section
 # names the states and the download command, and says stale when the head moves.
+#
+# A direct push to feat-cmux-next skips every pull request check, so it gets the
+# same receipt right after it lands: before is the tip the push replaced
+# (`github.event.before`), after is the pushed tip, and each changed, removed or
+# broken state is a warning on the push run (Leo, 2026-11-12: "like run some shit
+# right after a direct push/some direct pushes potentially"; "ugh we can just
+# warn/pre-whatever/quarantine stuff idk"). It warns only: no merge, revert or
+# post reads it. A pull request's squash merge (a `(#N)` in the head commit) had
+# its receipt on the PR, and bot pushes change no UI, so neither runs.
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "scripts/gallery-matrix/**"
+      - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/ci/gallery_select.py"
+      - "bun.lock"
+      - ".github/workflows/gallery-advisory.yml"
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -33,7 +51,7 @@ permissions:
 # A body edit that does not touch a `Gallery:` line gets its own group, so it
 # never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -87,7 +105,7 @@ jobs:
           PY
 
   capture:
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !contains(github.event.head_commit.message, '(#') && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:')))) }}
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
@@ -112,7 +130,7 @@ jobs:
       - name: Checkout the PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -156,8 +174,12 @@ jobs:
         continue-on-error: true
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # A direct push has no PR: 0 names its receipt, and the tip it replaced is its base.
+          PR: ${{ github.event.pull_request.number || 0 }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSHER: ${{ github.actor }}
+          COMPARE_URL: ${{ github.event.compare }}
           PR_BODY: ${{ github.event.pull_request.body }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
@@ -168,11 +190,15 @@ jobs:
           # the base commit alone comes in one pack with its trees (a tree:0 history in the
           # checkout itself would fetch each tree `git diff` and the base checkout open, one round
           # trip apiece). The repository is public, so neither fetch needs credentials.
-          origin_url=$(git remote get-url origin)
-          git init -q --bare "$RUNNER_TEMP/history"
-          git -C "$RUNNER_TEMP/history" fetch -q --no-tags --filter=tree:0 "$origin_url" \
-            "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-          base_sha=$(git -C "$RUNNER_TEMP/history" merge-base "origin/$BASE_REF" "$HEAD_SHA")
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            base_sha=$PUSH_BEFORE
+          else
+            origin_url=$(git remote get-url origin)
+            git init -q --bare "$RUNNER_TEMP/history"
+            git -C "$RUNNER_TEMP/history" fetch -q --no-tags --filter=tree:0 "$origin_url" \
+              "$HEAD_SHA" "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            base_sha=$(git -C "$RUNNER_TEMP/history" merge-base "origin/$BASE_REF" "$HEAD_SHA")
+          fi
           git fetch -q --no-tags --depth=1 --filter=blob:none origin "$base_sha"
           git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
 
@@ -326,6 +352,28 @@ jobs:
             echo "Sample: the 16 most relevant states ($(jq .more "$RUNNER_TEMP/selection.json") more touched), dark/light themes, narrow component width, Chromium."
             echo "The receipt is informational and never a merge gate."
           } | tee "$evidence/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+          # A direct push had no PR to show this receipt on: each state it changed is a warning on this run.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            moved=$(jq -r '.images[] | select(.status == "changed" or .status == "removed" or .status == "broken")
+              | "\(.state) (\(.theme)): \(.status), \(.diff_percent * 1000 | round / 1000)% of pixels"' \
+              "$evidence/gallery-review.json")
+            if [ -n "$moved" ]; then
+              download=$(jq -r .download "$evidence/gallery-review.json")
+              while IFS= read -r line; do
+                echo "::warning title=Direct push changed a gallery state::${HEAD_SHA:0:12} by $PUSHER: $line"
+              done <<< "$moved"
+              {
+                echo
+                echo "## Direct push ${HEAD_SHA:0:12} by $PUSHER changed gallery states"
+                echo
+                echo "No pull request checked this push ([diff]($COMPARE_URL)). Before is ${base_sha:0:12}, the tip it replaced."
+                echo
+                sed 's/^/- /' <<< "$moved"
+                echo
+                echo "Images: \`$download\` (then read \`gallery-review.json\`)."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
       # Zero real frames fails the run. No touched state needs no frame.
       - name: Require real frames
@@ -358,7 +406,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gallery-advisory-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          name: gallery-advisory-${{ github.event.pull_request.number || 0 }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
           retention-days: 30
